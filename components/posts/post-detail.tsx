@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { CitationSnapshot } from '@/lib/domain/answer';
-import { POST_SUMMARY_FEE, type PostAnswerView, type PostView } from '@/lib/domain/post';
+import { POST_SUMMARY_FEE, type PostAnswerView, type PostPage, type PostView } from '@/lib/domain/post';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber, formatRelative } from '@/i18n/format';
 import { AnswerText, CitationChips, CitationDrawer, Typing } from '@/components/chat/message-parts';
@@ -12,7 +12,8 @@ import { Markdown } from '@/components/chat/markdown';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { useToast } from '@/components/ui/toast';
-import { AuthorAvatar, authorName, PostState } from '@/components/posts/post-card';
+import { AuthorAvatar, authorName, PostState, QuoteCard } from '@/components/posts/post-card';
+import { PostFeed } from '@/components/posts/post-feed';
 import './posts.css';
 
 const POLL_MS = 2_500;
@@ -23,7 +24,7 @@ const POLL_MS = 2_500;
  * summary; for the author their private follow-ups and the trash. While
  * Rees are still answering the page asks again every few seconds.
  */
-export function PostDetail({ initial, signedIn, now, loginHref }: { initial: PostView; signedIn: boolean; now: number; loginHref: string }) {
+export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { initial: PostView; quoting?: PostPage; signedIn: boolean; now: number; loginHref: string }) {
   const { t, locale } = useI18n();
   const p = t.posts.page;
   const c = t.posts.card;
@@ -34,6 +35,12 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
   const [confirm, setConfirm] = useState<string | null>(null);
   const [citation, setCitation] = useState<{ entry: CitationSnapshot; answer: PostAnswerView } | null>(null);
   const mine = post.author.kind !== 'visitor' && post.author.kind !== 'example' && post.author.mine;
+  const q = t.posts.quote;
+  /* "引用提问": the composer over this page with the quote; a visitor signs in first and comes back to it. */
+  const quoteHref = (answerId?: string) => {
+    const target = `/p/${post.id}?compose=public&quote=${post.id}${answerId ? `&qa=${answerId}` : ''}`;
+    return signedIn ? target : `/login?returnTo=${encodeURIComponent(target)}`;
+  };
   /* Only a post anyone can see takes votes, saves, reports and 继续问; on a trashed, pending or taken-down one they could only fail (O2). */
   const live = post.status === 'published' && !post.deleted;
   const settled = post.status !== 'pending' && post.answerState === 'done' && post.summary?.state !== 'running';
@@ -138,6 +145,11 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
       </header>
       <h2 className="post-page-question">{post.question}</h2>
       {post.detail && <p className="post-page-detail">{post.detail}</p>}
+      {post.quote && (
+        <div className="mt-3">
+          <QuoteCard quote={post.quote} now={now} />
+        </div>
+      )}
       <div className="post-actions">
         <span className="icon-btn" title={c.helpful}>
           <Icon name="thumbUp" className="" />
@@ -155,6 +167,12 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
         <button type="button" className="icon-btn" title={c.share} aria-label={c.share} onClick={() => void copy()}>
           <Icon name="link" className="" />
         </button>
+        {live && !mine && (
+          <Link href={quoteHref()} className="icon-btn" title={q.quotePostHint}>
+            <Icon name="chat" className="" />
+            {q.quotePost}
+          </Link>
+        )}
         {live && !mine && (confirm === 'post' ? (
           <span className="ml-auto inline-flex items-center gap-2 text-[11px] text-muted">
             {p.reportPostConfirm}
@@ -288,6 +306,13 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
                 {fill(p.followUp, { name: entry.reeName })}
               </button>
             )}
+            {/* Anyone else asks on in public, quoting this answer (the author's 继续问 is private). */}
+            {!mine && live && (
+              <Link href={quoteHref(entry.id)} className="btn secondary sm post-follow" title={q.quoteAnswerHint}>
+                <Icon name="chat" className="" />
+                {fill(q.quoteAnswer, { name: entry.reeName })}
+              </Link>
+            )}
           </div>
         </article>
       ))}
@@ -304,6 +329,13 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
       ))}
 
       {post.answerState === 'done' && post.skipped > 0 && post.answered > 0 && <p className="post-skipped">{fill(p.skipped, { n: formatNumber(post.skipped, locale) })}</p>}
+
+      {quoting && quoting.items.length > 0 && (
+        <section className="post-quotes" aria-label={fill(q.quotedBy, { n: formatNumber(post.quotes, locale) })}>
+          <h3>{fill(q.quotedBy, { n: formatNumber(post.quotes, locale) })}</h3>
+          <PostFeed tab="latest" quotes={post.id} initial={quoting} now={now} signedIn={signedIn} />
+        </section>
+      )}
 
       <CitationDrawer
         citation={citation?.entry ?? null}

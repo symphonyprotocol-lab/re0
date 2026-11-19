@@ -1367,6 +1367,10 @@ export const post = pgTable(
     category: text('category'),
     /** The Ree the author named ("发帖问它"): it answers whatever the threshold says, while it takes posts. */
     mentionReeId: uuid('mention_ree_id').references(() => ree.id, { onDelete: 'set null' }),
+    /** "引用提问": this post quotes a post, or one answer of it (`quote_kind`); the ids go when what they point at is purged, the kind stays so the card says it is gone. */
+    quoteKind: text('quote_kind').$type<'post' | 'answer'>(),
+    quotePostId: uuid('quote_post_id').references((): AnyPgColumn => post.id, { onDelete: 'set null' }),
+    quoteAnswerId: uuid('quote_answer_id').references((): AnyPgColumn => postAnswer.id, { onDelete: 'set null' }),
     status: text('status').$type<PostStatus>().notNull().default('pending'),
     /** Who took a published post down: an administrator, or `POST_REPORT_THRESHOLD` distinct reporters (until an administrator restores it). */
     hiddenBy: text('hidden_by').$type<'admin' | 'reports'>(),
@@ -1403,6 +1407,8 @@ export const post = pgTable(
     index('post_free_day_idx').on(t.userId, t.freeDay).where(sql`free_day is not null`),
     index('post_pending_idx').on(t.createdAt).where(sql`status = 'pending' or answer_state <> 'done'`),
     uniqueIndex('post_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
+    index('post_quote_idx').on(t.quotePostId).where(sql`quote_post_id is not null`),
+    check('post_quote_kind_check', sql`quote_kind is null or quote_kind in ('post', 'answer')`),
     uniqueIndex('post_client_token_key').on(t.userId, t.clientToken).where(sql`client_token is not null`),
     /* 发现 → 帖子 searches question and detail with ILIKE; trigrams let that use an index (pg_trgm, migration 0057). */
     index('post_search_idx').using('gin', sql`(question || ' ' || detail) gin_trgm_ops`),
@@ -1532,7 +1538,7 @@ export const verificationRequest = pgTable(
   ],
 );
 
-export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered'] as const;
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**

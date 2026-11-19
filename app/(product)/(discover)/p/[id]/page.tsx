@@ -4,7 +4,7 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { currentUser } from '@/lib/http/session';
 import { absoluteUrl, localeUrl, oneLine, SITE_NAME, UNLISTED_ROBOTS } from '@/lib/seo';
 import { localeAlternates } from '@/i18n/paths';
-import { getPost, postMeta } from '@/lib/services/posts';
+import { getPost, listFeed, postMeta } from '@/lib/services/posts';
 import { serverMessages } from '@/i18n/server';
 import { formatNumber } from '@/i18n/format';
 import { FeedColumns } from '@/components/shell/feed-columns';
@@ -43,6 +43,8 @@ export default async function PostPage({ params }: Props) {
   const [user, { t, locale }] = await Promise.all([currentUser(), serverMessages()]);
   const post = await getPost(id, user?.id);
   if (!post) notFound();
+  /* The posts quoting this one ("引用提问"), newest first. */
+  const quoting = post.quotes > 0 ? await listFeed('latest', { quotesOf: id, viewerId: user?.id }) : undefined;
   const p = t.posts.page;
   const answered = post.answers.filter((entry) => entry.state === 'answered');
   const rail = (
@@ -69,7 +71,7 @@ export default async function PostPage({ params }: Props) {
   );
   return (
     <FeedColumns title={p.back} back="/" rail={rail}>
-      <PostDetail initial={post} signedIn={Boolean(user)} now={Date.now()} loginHref={`/login?returnTo=${encodeURIComponent(`/p/${id}`)}`} />
+      <PostDetail initial={post} quoting={quoting} signedIn={Boolean(user)} now={Date.now()} loginHref={`/login?returnTo=${encodeURIComponent(`/p/${id}`)}`} />
     </FeedColumns>
   );
 }

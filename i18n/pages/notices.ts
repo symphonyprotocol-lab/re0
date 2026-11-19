@@ -25,6 +25,7 @@ export const zh = {
     payout: '你的提现申请状态有更新。',
     other: '你有一条新的账户通知。',
     postAnswered: '你的帖子「{question}」有 {n} 个 Ree 回答了。',
+    postQuoted: '有人引用你的帖子「{question}」发了新帖子。',
   },
   open: {
     ree: '查看 Ree',
@@ -58,6 +59,7 @@ export const en: Shape<typeof zh> = {
     payout: 'Your payout request status changed.',
     other: 'You have a new account notice.',
     postAnswered: '{n} Rees answered your post “{question}”.',
+    postQuoted: 'Someone quoted your post “{question}” in a new post.',
   },
   open: {
     ree: 'View Ree',

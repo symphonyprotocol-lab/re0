@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
-import type { PostAuthor, PostView } from '@/lib/domain/post';
+import type { PostAuthor, PostQuote, PostView } from '@/lib/domain/post';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber, formatRelative } from '@/i18n/format';
 import type { Messages } from '@/i18n';
@@ -29,6 +29,39 @@ export function AuthorAvatar({ author, className = 'size-10' }: { author: PostAu
     );
   }
   return <UserAvatar name="?" className={className} />;
+}
+
+/**
+ * What a post quotes ("引用提问"), as a card inside it -- like a quoted
+ * tweet: the quoted post's author and question, and the quoted answer when
+ * an answer was quoted. The whole card opens the quoted post (at that
+ * answer). One level only. Once it can no longer be seen, only a line
+ * saying so.
+ */
+export function QuoteCard({ quote, now }: { quote: PostQuote; now: number }) {
+  const { t, locale } = useI18n();
+  const q = t.posts.quote;
+  if (!quote.available) return <div className="post-quote is-gone">{q.gone}</div>;
+  const href = `/p/${quote.postId}${quote.answer ? `#a-${quote.answer.id}` : ''}`;
+  return (
+    <Link href={href} className="post-quote" aria-label={fill(q.open, { question: quote.question })}>
+      <span className="post-quote-head">
+        <AuthorAvatar author={quote.author} className="size-5" />
+        <strong>{authorName(t, quote.author)}</strong>
+        <span>· {formatRelative(quote.createdAt, now, locale, t.discover.public.qa.justNow)}</span>
+      </span>
+      <span className="post-quote-question">{quote.question}</span>
+      {quote.answer && (
+        <span className="post-quote-answer">
+          <ReeAvatar avatar={quote.answer.reeAvatar} color={quote.answer.reeColor} size="sm" className="size-5!" />
+          <span className="min-w-0">
+            <strong>{quote.answer.reeName}</strong>
+            <span className="block">{quote.answer.text}</span>
+          </span>
+        </span>
+      )}
+    </Link>
+  );
 }
 
 /** Where a post stands, as the card and the page say it (answering, nobody could answer, under review, refused). */
@@ -104,6 +137,11 @@ export function PostCard({ post: initial, now, signedIn }: { post: PostView; now
         <p className="post-question">
           <Link href={href}>{post.question}</Link>
         </p>
+        {post.quote && (
+          <div className="post-quote-slot">
+            <QuoteCard quote={post.quote} now={now} />
+          </div>
+        )}
         {top ? (
           <div className="post-answers-preview">
             <div className="post-answerers">
