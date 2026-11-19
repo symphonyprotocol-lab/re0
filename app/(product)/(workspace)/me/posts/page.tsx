@@ -20,10 +20,10 @@ export async function generateMetadata(): Promise<Metadata> {
 
 /**
  * `/me/posts` -- 我的帖子 (v5; `/chats` until then), four tabs:
- * - 全部 (`?tab=all`, the navigation's link): my latest public posts and
+ * - 全部 (the bare path, or `?tab=all`): my latest public posts and
  *   private questions together, newest first;
  * - 公开 (`?tab=public`): my public posts, any state;
- * - 私密 (the bare path): my private questions -- every conversation --
+ * - 私密 (`?tab=private`, or the bare path with its list's parameters): my private questions -- every conversation --
  *   searched and filtered, the URL holding the filters, paged on the server
  *   (prototype conversations.js). ⌘K opens it. `?select=<id>` (the sidebar's
  *   "选择此对话") opens the tab and page holding that conversation,
@@ -34,7 +34,14 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function MyPostsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
   const [user, { t, locale }] = await Promise.all([currentUser(), serverMessages()]);
-  const tab: MyPostsTab = params.tab === 'all' || params.tab === 'public' || params.tab === 'trash' ? params.tab : 'private';
+  /*
+   * The bare path opens 全部 (2026-11-19). 私密 is `?tab=private`, and also any
+   * address carrying the private list's own parameters -- the sidebar's
+   * search (`focus`), its trash (`view`), "选择此对话" (`select`), and older
+   * `/chats?…` links -- so those keep working.
+   */
+  const privateParams = ['q', 'view', 'ree', 'days', 'sort', 'page', 'size', 'select', 'focus'].some((key) => params[key] !== undefined);
+  const tab: MyPostsTab = params.tab === 'all' || params.tab === 'public' || params.tab === 'trash' || params.tab === 'private' ? params.tab : privateParams ? 'private' : 'all';
   const counts = await myPostCounts(user!.id);
   const m = t.posts.mine;
   const now = Date.now();
@@ -94,7 +101,7 @@ export default async function MyPostsPage({ searchParams }: { searchParams: Prom
           </ul>
           <p className="mt-4 flex justify-center gap-6 text-[12px]">
             <Link href="/me/posts?tab=public" className="text-link">{m.morePublic} →</Link>
-            <Link href="/me/posts" className="text-link">{m.morePrivate} →</Link>
+            <Link href="/me/posts?tab=private" className="text-link">{m.morePrivate} →</Link>
           </p>
         </div>
       </>

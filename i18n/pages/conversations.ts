@@ -7,7 +7,8 @@ import type { Shape } from '@/i18n/format';
 export const zh = {
   sidebar: {
     newChat: '新建对话',
-    search: '搜索对话',
+    /* The private questions' list, as the crumb above a conversation (我的帖子 → 私密). */
+    search: '私密提问',
     explore: '发现 Ree',
     history: '快捷对话历史',
     tools: '对话操作',
@@ -20,11 +21,11 @@ export const zh = {
     more: '更多操作：{title}',
   },
   talk: {
-    title: '新建对话',
-    eyebrow: 'A GOOD CONVERSATION STARTS HERE',
-    body: '选择知识伙伴，让一个好问题开启对话。',
+    title: '私密提问',
+    eyebrow: 'ASK PRIVATELY',
+    body: '选择 Ree，问一个只有你能看到的问题；可以接着追问。',
     tryAsking: '试着问问',
-    start: '开始对话',
+    start: '开始提问',
     prompts: ['这些知识里，最重要的观点是什么？', '帮我梳理一下这个主题的关键概念'],
   },
   room: {
@@ -115,8 +116,8 @@ export const zh = {
   },
   search: {
     eyebrow: 'PICK UP WHERE YOU LEFT OFF',
-    title: '搜索对话',
-    body: '找到那个问题、那次回答，或一起讨论的知识伙伴。',
+    title: '搜索私密提问',
+    body: '找到那个问题、那次回答，或回答过的 Ree。',
     placeholder: '搜索标题、消息内容或 Ree 名称…',
     label: '搜索历史对话',
     filtersLabel: '对话搜索条件',
@@ -219,7 +220,7 @@ export const zh = {
 export const en: Shape<typeof zh> = {
   sidebar: {
     newChat: 'New conversation',
-    search: 'Search conversations',
+    search: 'Private questions',
     explore: 'Discover Rees',
     history: 'Quick conversation history',
     tools: 'Conversation actions',
@@ -232,11 +233,11 @@ export const en: Shape<typeof zh> = {
     more: 'More actions: {title}',
   },
   talk: {
-    title: 'New conversation',
-    eyebrow: 'A GOOD CONVERSATION STARTS HERE',
-    body: 'Choose your knowledge companions and start with a good question.',
+    title: 'Private question',
+    eyebrow: 'ASK PRIVATELY',
+    body: 'Choose Rees and ask a question only you can see; follow up as you like.',
     tryAsking: 'Try asking',
-    start: 'Start a conversation',
+    start: 'Ask',
     prompts: ['What are the key ideas in this knowledge?', 'Walk me through the main concepts of this topic'],
   },
   room: {
@@ -327,8 +328,8 @@ export const en: Shape<typeof zh> = {
   },
   search: {
     eyebrow: 'PICK UP WHERE YOU LEFT OFF',
-    title: 'Search conversations',
-    body: 'Find a question, an answer, or the companions you talked with.',
+    title: 'Search private questions',
+    body: 'Find a question, an answer, or the Rees that answered.',
     placeholder: 'Search titles, messages, or Ree names…',
     label: 'Search chat history',
     filtersLabel: 'Conversation search filters',

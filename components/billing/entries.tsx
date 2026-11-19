@@ -63,6 +63,23 @@ export function Entries({
     });
   };
 
+  /*
+   * The note as the reader reads it: the fixed English labels the ledger
+   * stores ('post summary', 'post answer', 'charged X of Y') in their
+   * language; a post answer keeps its Ree's name, marked as one.
+   */
+  const noteOf = (entry: EntryRow): string | null => {
+    const raw = entry.note ?? '';
+    const tail = /(?:^| · )charged (\d+) of (\d+)$/.exec(raw);
+    const label = tail ? raw.slice(0, tail.index) : raw;
+    const known = ({ post: b.notes.post, 'post answer': b.notes.postAnswer, 'post summary': b.notes.postSummary } as Record<string, string>)[label];
+    const head = entry.reeName ? (label === 'post answer' ? `${entry.reeName} · ${b.notes.postAnswer}` : entry.reeName) : (known ?? (label || null));
+    /* The charge of a question's or a knowledge run's settlement is shown apart (`charged`); any other keeps it in the note. */
+    const shownApart = entry.reason === 'knowledge_settle' || entry.reason === 'query_base' || entry.reason === 'query_fee_paid';
+    const charge = tail && !shownApart ? fill(b.notes.charged, { charged: formatNumber(Number(tail[1]), locale), held: formatNumber(Number(tail[2]), locale) }) : null;
+    return [head, charge].filter(Boolean).join(' · ') || null;
+  };
+
   const charged = (entry: EntryRow) => {
     const amount = entry.reason === 'knowledge_settle' || entry.reason === 'query_base' || entry.reason === 'query_fee_paid' ? chargedFromNote(entry.note) : null;
     return amount === null ? null : fill(b.charged, { n: formatNumber(amount, locale) });
@@ -126,7 +143,7 @@ export function Entries({
                     <td>
                       {b.reasons[entry.reason]}
                       {charged(entry) && <small className="ledger-charged">{charged(entry)}</small>}
-                      {(entry.reeName || entry.note) && <small className="ledger-note">{entry.reeName ?? entry.note}</small>}
+                      {noteOf(entry) && <small className="ledger-note">{noteOf(entry)}</small>}
                     </td>
                     <td>{formatDateTime(entry.createdAt, locale)}</td>
                     <td>

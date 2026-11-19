@@ -70,7 +70,7 @@ import {
   type PostSource,
   type PostView,
 } from '@/lib/domain/post';
-import { PUBLIC_QA_MODERATION_ATTEMPTS, PUBLIC_QA_REPORT_THRESHOLD, previewOf, redact } from '@/lib/domain/public-qa';
+import { PUBLIC_QA_MODERATION_ATTEMPTS, PUBLIC_QA_REPORT_THRESHOLD, plainOf, previewOf, redact } from '@/lib/domain/public-qa';
 import { cleanSynthesis, letterAnswers, synthesisInstructions, synthesisPrompt } from '@/lib/domain/synthesis';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
@@ -705,7 +705,8 @@ async function savedBy(viewerId: string | undefined, ids: string[]): Promise<Set
 }
 
 function answerView(row: AnswerRow, voted: Set<string>, whole: boolean): PostAnswerView {
-  const cut = whole || row.state !== 'answered' ? { answer: row.text, truncated: false } : previewOf(row.text, POST_PREVIEW_CHARS);
+  /* A feed shows a plain-text excerpt (no Markdown marks); the post page renders the whole Markdown. */
+  const cut = whole || row.state !== 'answered' ? { answer: row.text, truncated: false } : previewOf(plainOf(row.text), POST_PREVIEW_CHARS);
   return {
     id: row.id,
     reeId: row.reeId,
@@ -816,7 +817,7 @@ async function quotesFor(rows: PostRow[], viewerId: string | undefined): Promise
       author: authorOf(target, viewerId),
       createdAt: (target.publishedAt ?? target.createdAt).toISOString(),
       answer: shown
-        ? { id: shown.id, reeName: shown.name, reeSlug: shown.slug, reeAvatar: shown.avatar, reeColor: shown.color, text: previewOf(shown.text.replace(/ ?\[\d{1,2}\]/g, ''), POST_QUOTE_PREVIEW_CHARS).answer }
+        ? { id: shown.id, reeName: shown.name, reeSlug: shown.slug, reeAvatar: shown.avatar, reeColor: shown.color, text: previewOf(plainOf(shown.text).replace(/ ?\[\d{1,2}\]/g, ''), POST_QUOTE_PREVIEW_CHARS).answer }
         : null,
     });
   }
@@ -1180,7 +1181,7 @@ export async function agreePaidAnswer(userId: string, id: string, shownPrice: un
       const price = maxCostFor({ ownerId: target.ownerId, queryFee: target.queryFee }, userId);
       const shown = typeof shownPrice === 'number' && Number.isFinite(shownPrice) ? shownPrice : -1;
       if (price > shown) return { ok: false, error: 'price_changed', price } as const;
-      const baseHoldId = await placeHold(tx, { userId, kind: 'post', ledger: 'post_answer', amount: QUERY_BASE_FEE, refId: id, reeId: target.reeId, note: target.reeName }, now);
+      const baseHoldId = await placeHold(tx, { userId, kind: 'post', ledger: 'post_answer', amount: QUERY_BASE_FEE, refId: id, reeId: target.reeId, note: 'post answer' }, now);
       /* The author's own paid Ree waives its query fee: nobody pays themselves. */
       const feeHoldId = target.queryFee > 0 && target.ownerId !== userId ? await placeHold(tx, { userId, kind: 'post', ledger: 'chat_fee', amount: target.queryFee, refId: id, reeId: target.reeId, note: target.reeName }, now) : null;
       await tx.update(answer).set({ state: 'answering', price, baseHoldId, feeHoldId, decidedAt: now, agreements: sql`${answer.agreements} + 1` }).where(eq(answer.id, id));
@@ -1243,7 +1244,8 @@ async function closeAnswer(id: string, result: AnswerResult, now: Date): Promise
       .where(and(eq(answer.id, id), eq(answer.state, 'answering')))
       .for('update', { of: answer });
     if (!target) return;
-    const holds = { reeId: target.reeId, note: target.reeName };
+    /* The ledger shows the Ree's name, marked as a post answer ('post answer' is read into the reader's language). */
+    const holds = { reeId: target.reeId, note: 'post answer' };
     if (result.state === 'answered') {
       if (target.baseHoldId) await settleHold(tx, target.baseHoldId, QUERY_BASE_FEE, { ...holds, ledger: 'post_answer' }, now);
       const paid = target.feeHoldId ? await settleHold(tx, target.feeHoldId, Math.max(0, (target.price ?? 0) - QUERY_BASE_FEE), { ...holds, ledger: 'chat_fee' }, now) : null;

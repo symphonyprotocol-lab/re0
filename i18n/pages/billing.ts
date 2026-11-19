@@ -108,6 +108,8 @@ export const zh = {
     post_settle: '公开帖子 · 结算',
     post_refund: '公开帖子 · 退回发帖费（旧计费方式）',
   },
+  /* The fixed labels the ledger stores in English, as the reader reads them (2026-11-19). */
+  notes: { post: '公开帖子', postAnswer: '帖子回答', postSummary: '帖子圆桌总结', charged: '实扣 {charged} / 预扣 {held}' },
   sources: { plan: 'Plan', welcome: '赠送', pack: 'Pack', earned: '收入' },
   charged: '实收 {n}',
   reporting: {
@@ -271,6 +273,7 @@ export const en: Shape<typeof zh> = {
     post_settle: 'Public post · settled',
     post_refund: 'Public post · post fee refunded (previous billing)',
   },
+  notes: { post: 'Public post', postAnswer: 'Post answer', postSummary: 'Post summary', charged: 'charged {charged} of {held}' },
   sources: { plan: 'Plan', welcome: 'Gift', pack: 'Pack', earned: 'Earned' },
   charged: 'charged {n}',
   reporting: {

@@ -683,3 +683,29 @@ a.post-quote:hover {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* A round-table summary's source markers ([A2]): chips with room around them, as in a conversation's round table (2026-11-19). */
+.post-summary .synthesis-source {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  margin: 0 3px;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: rgb(232, 242, 255);
+  color: var(--color-blue);
+  font: 10px var(--font-mono);
+  vertical-align: middle;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.post-summary button.synthesis-source:hover {
+  background: var(--color-blue);
+  color: #fff;
+}
+.post-summary .synthesis-source.plain {
+  background: #eef0f6;
+  color: var(--color-muted);
+  cursor: default;
+}
