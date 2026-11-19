@@ -21,6 +21,9 @@ describe('legal pages and public posts (2026-11-19)', () => {
       }
       expect(placeholders(legal.terms.s6.body)).toEqual(expect.arrayContaining(['postFreePerDay', 'postFee', 'postDailyLimit', 'postSummaryFee', 'postSummaryFreeRewrites']));
       expect(placeholders(legal.terms.posts.body)).toEqual(expect.arrayContaining(['postReportThreshold', 'answerReportThreshold']));
+      /* The paid requests' refund wait is the constant, not a number written in (#164 review). */
+      expect(placeholders(legal.terms.reeAnswers.body)).toContain('postPaidRequestDays');
+      expect(legal.terms.reeAnswers.body).not.toMatch(/[0-9] ?(天|days)/);
     });
 
     it(`leaves no placeholder in the privacy policy in ${locale}`, () => {
