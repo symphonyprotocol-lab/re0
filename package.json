@@ -23,7 +23,8 @@
     "db:deploy": "tsx scripts/database-cutover-cli.mts deploy",
     "db:cutover": "tsx scripts/database-cutover-cli.mts",
     "db:studio": "drizzle-kit studio",
-    "paddle:replay": "tsx scripts/paddle-replay.mts"
+    "paddle:replay": "tsx scripts/paddle-replay.mts",
+    "cron:local": "./scripts/cron-local.sh"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.41",

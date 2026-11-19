@@ -23,12 +23,15 @@
  *   rejected by the hourly cron after `PUBLIC_QA_STUCK_MS`: never public.
  */
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
-import { generateText, Output } from 'ai';
+import { generateText } from 'ai';
 import type { CitationSnapshot } from '@/lib/domain/answer';
 import {
   MODERATION_INSTRUCTIONS,
-  MODERATION_SCHEMA,
+  MODERATION_OUTPUT_TOKENS,
+  MODERATION_QUESTION_INSTRUCTIONS,
+  MODERATION_TRIES,
   moderationPrompt,
+  parseModeration,
   previewOf,
   PUBLIC_QA_ANSWER_MAX_CHARS,
   PUBLIC_QA_MODERATION_ATTEMPTS,
@@ -120,21 +123,35 @@ export async function publishOwnAnswer(userId: string, reeId: string, messageId:
 
 export type Judge = (question: string, answer: string) => Promise<{ publish: boolean }>;
 
-/** The moderation check: one structured call on the platform's free generation model, logged as `moderation`. */
+/**
+ * The moderation check on the platform's free generation model, logged as
+ * `moderation`; an empty `answer` reviews a post's question alone.
+ *
+ * Written for real models, not only the test double (2026-11-19): no
+ * `reasoning` setting -- on agnes-3.0-flash `minimal` turned thinking on and
+ * its reasoning tokens used up the whole budget, so the JSON was cut off --
+ * a budget a short thinking pass still fits in, and the verdict read from
+ * the text leniently (providers without structured output). A reply cut off
+ * or without a verdict is asked once more before it counts as a failed check.
+ */
 export const modelJudge: Judge = async (question, answer) => {
   const generation = await generationForUser(null, 'moderation');
-  const { output } = await generateText({
-    model: generation.model,
-    output: Output.object({ schema: MODERATION_SCHEMA }),
-    instructions: MODERATION_INSTRUCTIONS,
-    prompt: moderationPrompt(question, answer),
-    maxOutputTokens: 200,
-    temperature: 0,
-    reasoning: 'minimal',
-    maxRetries: 0,
-    abortSignal: AbortSignal.timeout(Math.min(generation.endpoint.timeoutMs, 30_000)),
-  });
-  return { publish: output.publish === true };
+  let last = '';
+  for (let attempt = 0; attempt < MODERATION_TRIES; attempt += 1) {
+    const { text, finishReason } = await generateText({
+      model: generation.model,
+      instructions: answer ? MODERATION_INSTRUCTIONS : MODERATION_QUESTION_INSTRUCTIONS,
+      prompt: moderationPrompt(question, answer),
+      maxOutputTokens: MODERATION_OUTPUT_TOKENS,
+      temperature: 0,
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(Math.min(generation.endpoint.timeoutMs, 30_000)),
+    });
+    const verdict = parseModeration(text);
+    if (verdict) return { publish: verdict.publish };
+    last = `finish=${finishReason} chars=${text.length}`;
+  }
+  throw new Error(`moderation reply had no verdict (${last})`);
 };
 
 /**

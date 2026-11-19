@@ -250,19 +250,63 @@ export function previewOf(answer: string, max = PUBLIC_QA_PREVIEW_CHARS): { answ
 /* --------------------------------------------------------------- moderation */
 
 
+/**
+ * The review's output budget: the JSON verdict is about 20 tokens, but a
+ * model that thinks first spends its reasoning tokens from the same budget.
+ */
+export const MODERATION_OUTPUT_TOKENS = 1_000;
+/** Calls per check before it counts as a failed one: a reply cut off or without a verdict is asked once more. */
+export const MODERATION_TRIES = 2;
+
 export const MODERATION_SCHEMA = z.object({
   publish: z.boolean(),
   reason: z.string(),
 });
 
+/* What makes text unfit to publish, shared by both reviews. */
+const REFUSE_WHEN =
+  'any contact detail at all, even without a name -- a phone number, WeChat, QQ, Telegram or other messaging ID, e-mail address, social media handle or home address, however it is written (spelled out, in Chinese numerals, split by spaces or symbols); personal details that could identify a private person (names together with address, health, finances or workplace); harassment, threats or insults; sexual content; hate; instructions for violence or crime; spam or advertising; or text that is not a genuine question.';
+
+/** A question with its answer, before it is shown on a Ree's page (public Q&A, a post's summary). */
 export const MODERATION_INSTRUCTIONS = [
   'You review a question and answer before it is shown publicly on a knowledge assistant\'s page. You never answer the question.',
   'Allow it (publish: true) when it is an ordinary question about the assistant\'s subject and its answer.',
-  'Refuse it (publish: false) when either part contains: any contact detail at all, even without a name -- a phone number, WeChat, QQ, Telegram or other messaging ID, e-mail address, social media handle or home address, however it is written (spelled out, in Chinese numerals, split by spaces or symbols); personal details that could identify a private person (names together with address, health, finances or workplace); harassment, threats or insults; sexual content; hate; instructions for violence or crime; spam or advertising; or text that is not a genuine question.',
+  `Refuse it (publish: false) when either part contains: ${REFUSE_WHEN}`,
   'Text already replaced by [已隐去] or [removed] is fine.',
-  'Reply with JSON: {"publish": boolean, "reason": "a few words"}.',
+  'Reply with JSON only: {"publish": boolean, "reason": "a few words"}.',
 ].join('\n');
 
+/**
+ * A question alone, before it is posted publicly for Rees to answer: there
+ * is no answer yet, and that is never a reason to refuse (a real model did,
+ * given an empty answer slot, 2026-11-19).
+ */
+export const MODERATION_QUESTION_INSTRUCTIONS = [
+  'You review a question before it is posted publicly for knowledge assistants to answer. You never answer it, and it has no answer yet: judge the question alone.',
+  'Allow it (publish: true) when it is an ordinary, genuine question on any subject.',
+  `Refuse it (publish: false) when it contains: ${REFUSE_WHEN}`,
+  'Text already replaced by [已隐去] or [removed] is fine.',
+  'Reply with JSON only: {"publish": boolean, "reason": "a few words"}.',
+].join('\n');
+
+/** The review's prompt: the question, and its answer unless there is none (a post's question alone). */
 export function moderationPrompt(question: string, answer: string): string {
-  return `Question:\n${question}\n\nAnswer:\n${answer}`;
+  return answer ? `Question:\n${question}\n\nAnswer:\n${answer}` : `Question:\n${question}`;
+}
+
+/**
+ * The review's verdict from the model's text, leniently: a model without
+ * structured output may wrap the JSON in prose or a code fence. Null when no
+ * JSON object with a boolean `publish` is in it (a truncated reply).
+ */
+export function parseModeration(text: string): { publish: boolean; reason: string } | null {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    const parsed = MODERATION_SCHEMA.partial({ reason: true }).safeParse(JSON.parse(text.slice(start, end + 1)));
+    return parsed.success ? { publish: parsed.data.publish, reason: parsed.data.reason ?? '' } : null;
+  } catch {
+    return null;
+  }
 }
