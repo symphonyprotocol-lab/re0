@@ -38,6 +38,7 @@ const { consoleAdministrator } = await import('../fixtures/console-administrator
 const { POST_FEE: FEE } = await import('@/lib/domain/post');
 const { POST: askTokenRoute } = await import('@/app/api/share/[slug]/ask-token/route');
 const { validShareAskToken } = await import('@/lib/services/anonymous-chat');
+const { adminSetPublicQa } = await import('@/lib/services/public-qa');
 const writes = {
   publish: (await import('@/app/api/posts/route')).POST,
   summary: (await import('@/app/api/posts/[id]/summary/route')).POST,
@@ -291,6 +292,39 @@ describeWithDb('quotes after review (#161, 2026-11-19)', () => {
     expect(await shownAnswers(quote.postId)).toBe(1);
     expect((await postRow(quote.postId)).quoteReviewAt).toBeNull();
     expect((await audits(quote.postId)).map((row) => row.action)).toEqual(['post.quote.keep']);
+  });
+
+  it('flags the posts quoting an answer once that answer is hidden: by its owner, by reports or by an administrator', async () => {
+    const administrator = await consoleAdministrator();
+    const quoteAnswer = async (prefix: string) => {
+      const original = await answeredPost(prefix);
+      const quoter = await user(`${prefix}-quoter`, 0);
+      const posted = await publish(quoter, `Quoting that answer, ${prefix}?`, { quotePostId: original.postId, quoteAnswerId: original.answerId });
+      await posts.processPost(posted.id, stub([original.reeId]));
+      /* Quoting the post alone is not about the answer: not flagged. */
+      const onPost = await publish(quoter, `Quoting the post, ${prefix}?`, { quotePostId: original.postId });
+      await posts.processPost(onPost.id, stub([]));
+      expect((await postRow(posted.id)).quoteReviewAt).toBeNull();
+      return { ...original, quoteId: posted.id, onPostId: onPost.id };
+    };
+
+    const byOwner = await quoteAnswer('qa-owner');
+    expect(await posts.ownerActOnAnswer(byOwner.ownerId, byOwner.reeId, byOwner.answerId, 'hide')).toBe(true);
+    expect((await postRow(byOwner.quoteId)).quoteReviewAt).not.toBeNull();
+    expect((await postRow(byOwner.onPostId)).quoteReviewAt).toBeNull();
+    /* Its answers stay public until reviewed, like a takedown's. */
+    expect(await shownAnswers(byOwner.quoteId)).toBe(1);
+    expect((await posts.adminPosts({ view: 'quotes' })).map((row) => row.id)).toContain(byOwner.quoteId);
+
+    const byReports = await quoteAnswer('qa-reports');
+    for (let index = 0; index < 3; index += 1) expect(await posts.reportAnswer(byReports.answerId, `reporter-${crypto.randomUUID()}`)).toBe(true);
+    expect((await postRow(byReports.quoteId)).quoteReviewAt).not.toBeNull();
+
+    const byAdmin = await quoteAnswer('qa-admin');
+    expect(await adminSetPublicQa(administrator.id, byAdmin.reeId, byAdmin.answerId, false)).toBe(true);
+    expect((await postRow(byAdmin.quoteId)).quoteReviewAt).not.toBeNull();
+    expect(await posts.adminReviewQuote(administrator.id, byAdmin.quoteId, 'hide_answers')).toBe(true);
+    expect(await shownAnswers(byAdmin.quoteId)).toBe(0);
   });
 
   it('folds quotes of one post within the hour into one notice, and tells an author about one quoter at most once a day', async () => {

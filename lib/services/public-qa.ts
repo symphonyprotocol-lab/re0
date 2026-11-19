@@ -43,7 +43,7 @@ import { db, schema } from '@/lib/infra/db';
 import { publicRee } from '@/lib/services/explore';
 import { audit } from '@/lib/services/admin';
 import { generationForUser } from '@/lib/services/generation';
-import { answeredPostCounts, ownerActOnAnswer, reportAnswer, setAnswerHelpful, shownAnswer, visiblePost, type OwnerAction } from '@/lib/services/posts';
+import { answeredPostCounts, flagQuotingAnswer, ownerActOnAnswer, reportAnswer, setAnswerHelpful, shownAnswer, visiblePost, type OwnerAction } from '@/lib/services/posts';
 import { syncPublicQa } from '@/lib/services/public-qa-sync';
 
 const { ree, reePublicQa: qa, message, conversation, post, postAnswer: answer, postAnswerVote: vote, postAnswerReport: report, user } = schema;
@@ -388,6 +388,7 @@ export async function adminSetPublicQa(administratorId: string, reeId: string, i
       await tx.delete(report).where(eq(report.answerId, id));
     } else {
       await tx.update(answer).set({ hiddenBy: 'admin', pinnedAt: null }).where(eq(answer.id, id));
+      await flagQuotingAnswer(tx, id);
     }
     await tx
       .update(post)
