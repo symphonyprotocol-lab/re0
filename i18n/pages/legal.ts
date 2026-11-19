@@ -53,11 +53,11 @@ export const zh = {
     },
     posts: {
       title: '公开帖子、引用与举报',
-      body: '登录用户可以发布公开帖子提问。帖子一经公开，任何人（包括未登录的访客）都能看到它的问题、补充说明和回答，其他登录用户可以收藏、标记有帮助或引用它。发帖时可以选择匿名：帖子页、信息流、引用卡片和 Ree 主页都不显示你的名字和头像；但平台仍会记录发帖的账号，用于你管理自己的帖子、计费、防止滥用和处理举报。\n\n帖子公开前，问题与补充说明会先自动隐去看起来像手机号、邮箱、证件号、链接或 QQ、微信号的内容，再经过自动审核；未通过审核的帖子不会公开，只有你自己能看到。自动隐去和审核都可能遗漏或误判，不能保证帖子中不含个人信息，请不要在帖子里写入你或他人的联系方式与身份信息。Ree 的回答不经过这一步自动隐去。\n\n任何人都可以举报帖子或回答。一个帖子被 {postReportThreshold} 个不同的举报人举报后自动下架，一个回答被 {answerReportThreshold} 个不同的举报人举报后自动隐藏；管理员也可以下架帖子或隐藏回答，并可以恢复它们；Ree 主可以隐藏自己 Ree 的回答。下架的帖子不再出现在信息流、搜索、站点地图、Ree 主页和分享页中，作者本人仍可看到。\n\n其他登录用户可以在自己的公开帖子里引用公开的帖子或其中的一条回答，引用卡片显示被引用的问题、作者（按原帖的匿名设置）和回答摘要。被引用的内容被删除、下架、隐藏，或回答它的 Ree 不再公开后，卡片只显示“被引用的内容已不可见”，引用它的帖子仍然保留。原帖被下架时，引用它的帖子会交给管理员复核，复核前它们的回答保持公开，管理员可以保留或隐藏这些回答。\n\n你可以把自己的帖子移到回收站，它会立即对他人不可见，30 天内可以恢复，之后连同它的回答、收藏与举报记录永久删除。已被搜索引擎收录的页面，在搜索引擎更新前可能仍出现在其搜索结果中。',
+      body: '登录用户可以发布公开帖子提问。帖子一经公开，任何人（包括未登录的访客）都能看到它的问题、补充说明和回答，其他登录用户可以收藏、标记有帮助或引用它。发帖时可以选择匿名：帖子页、信息流、引用卡片和 Ree 主页都不显示你的名字和头像；但平台仍会记录发帖的账号，用于你管理自己的帖子、计费、防止滥用和处理举报。\n\n帖子公开前，问题与补充说明会先自动隐去看起来像手机号、邮箱、证件号、链接或 QQ、微信号的内容，再经过自动审核；未通过审核的帖子不会公开，只有你自己能看到。自动隐去和审核都可能遗漏或误判，不能保证帖子中不含个人信息，请不要在帖子里写入你或他人的联系方式与身份信息。Ree 的回答不经过这一步自动隐去。\n\n任何人都可以举报帖子或回答。一个帖子被 {postReportThreshold} 个不同的举报人举报后自动下架，一个回答被 {answerReportThreshold} 个不同的举报人举报后自动隐藏；管理员也可以下架帖子或隐藏回答，并可以恢复由管理员或举报下架、隐藏的内容；Ree 主可以隐藏自己 Ree 的回答，Ree 主隐藏的回答不会被恢复。下架的帖子不再出现在信息流、搜索、站点地图、Ree 主页和分享页中，作者本人仍可看到。\n\n其他登录用户可以在自己的公开帖子里引用公开的帖子或其中的一条回答，引用卡片显示被引用的问题、作者（按原帖的匿名设置）和回答摘要。被引用的内容被删除、下架、隐藏，或回答它的 Ree 不再公开后，卡片只显示“被引用的内容已不可见”，引用它的帖子仍然保留。原帖被下架或被引用的回答被隐藏时，引用它的帖子会交给管理员复核，复核前它们的回答保持公开，管理员可以保留或隐藏这些回答。\n\n你可以把自己的帖子移到回收站，它会立即对他人不可见，30 天内可以恢复，之后连同它的回答、收藏与举报记录永久删除。已被搜索引擎收录的页面，在搜索引擎更新前可能仍出现在其搜索结果中。账号被停用不会撤下它已经公开的帖子与回答，需要时由管理员下架。\n\n登录用户也可以把自己与某个 Ree 对话中的第一个问题及其回答公开，前提是该 Ree 的 Ree 主允许公开问答。公开前，问题和回答都会自动隐去上述内容（回答中的链接保留）并经过自动审核；通过后它以帖子的形式出现在帖子页与该 Ree 的主页上，显示为“一位用户”，不显示你的名字。对话在回收站期间它对他人不可见，对话被永久删除时它一并删除；Ree 主关闭公开问答后，这些回答不再显示。',
     },
     reeAnswers: {
       title: 'Ree 回答公开帖子',
-      body: '公开的 Ree 可能自动回答与它的知识相关的公开帖子，每个帖子最多由 {postMaxAnswers} 个 Ree 回答。回答全文，以及它引用的来源标题与相关片段，会公开显示在帖子页上；信息流和 Ree 主页显示摘要，可以展开全文。\n\n免费的 Ree（查询费为 0）默认参与；设置了查询费的 Ree，只有在 Ree 主于设置中打开“回答相关的公开帖子”后才参与。Ree 主可以随时关闭这一设置，关闭后不再回答新的帖子，已经公开的回答仍然保留，Ree 主可以逐条隐藏。\n\n回答帖子的模型费用由平台承担，不向 Ree 主收费；Ree 主也不会因回答帖子获得查询费或收入 credits。\n\n未登录的访客只能在免费 Ree 的分享页提问，每天有次数限制。访客的对话只保存在当前浏览器标签页中，不会公开，也不会出现在任何帖子里。',
+      body: '公开的 Ree 可能自动回答与它的知识相关的公开帖子，每个帖子最多由 {postMaxAnswers} 个 Ree 回答。回答全文，以及它引用的来源标题与相关片段，会公开显示在帖子页上；信息流和 Ree 主页显示摘要，可以展开全文。\n\n免费的 Ree（查询费为 0）默认参与；设置了查询费的 Ree，只有在 Ree 主于设置中打开“回答相关的公开帖子”后才参与。Ree 主可以随时关闭这一设置，关闭后不再回答新的帖子，已经公开的回答仍然保留，Ree 主可以逐条隐藏。\n\n回答帖子的模型费用由平台承担，不向 Ree 主收费；Ree 主也不会因回答帖子获得查询费或收入 credits。\n\nRE0 可能把参与回答公开帖子的 Ree 设置的示例问题，以 RE0 的名义作为帖子发布（标注“示例问题”），由相关的 Ree 按同样的规则回答。\n\n未登录的访客只能在免费 Ree 的分享页提问，每天有次数限制。访客的对话只保存在当前浏览器标签页中，不会公开，也不会出现在任何帖子里。',
     },
     s9: {
       title: '可接受使用',
@@ -65,7 +65,7 @@ export const zh = {
     },
     s10: {
       title: '责任限制与条款变更',
-      body: 'Ree 的回答基于你或 Ree 主提供的知识自动生成，可能不完整或有误，请结合引用自行判断。在法律允许的范围内，RE0 对间接损失不承担责任，直接责任以你在过去 12 个月内向 RE0 支付的金额为限。\n\n条款变更会在本页更新并标明日期；重大变更会在站内提前通知。对条款有疑问，请联系 legal@re0.io。',
+      body: 'Ree 的回答基于你或 Ree 主提供的知识自动生成，可能不完整或有误，请结合引用自行判断。在法律允许的范围内，RE0 对间接损失不承担责任，直接责任以你在过去 12 个月内向 RE0 支付的金额为限。\n\n条款变更会在本页更新，并标注最近更新日期。对条款有疑问，请联系 legal@re0.io。',
     },
   },
   privacy: {
@@ -77,7 +77,7 @@ export const zh = {
     },
     public: {
       title: '公开内容与访客提问',
-      body: '公开帖子：你发布的问题、补充说明、是否匿名，以及你的收藏、“有帮助”标记、举报与引用记录。帖子公开后任何人都能看到，通过审核且有回答显示的帖子页面可能被搜索引擎收录；没有回答、被下架或移到回收站的帖子页面会标记为不收录。匿名帖子对外不显示你的身份，但我们保存发帖的账号。帖子的问题、补充说明和回答会发送给模型服务商，用于自动审核、匹配与生成回答。\n\n访客提问：访客在分享页的对话内容只保存在浏览器标签页中，我们不在服务器上保存问题与回答的文字，也不会公开。为执行每日次数限制和防止滥用，我们保存浏览器标识、Cookie 标识与 IP 地址经加密哈希后的值及当天的次数，过期的记录会被清除；限频还会在最长约 1 小时内使用原始 IP 地址；我们也记录每次回答对应的 Ree 与时间，不含内容。访客举报时，以 IP 地址的加密哈希作为举报人标识。',
+      body: '公开帖子：你发布的问题、补充说明、是否匿名，以及你的收藏、“有帮助”标记、举报与引用记录。帖子公开后任何人都能看到，通过审核且有回答显示的帖子页面可能被搜索引擎收录；没有回答、被下架或移到回收站的帖子页面会标记为不收录。匿名帖子对外不显示你的身份，但我们保存发帖的账号。帖子的问题、补充说明和回答会发送给模型服务商，用于自动审核、匹配与生成回答。\n\n访客提问：访客在分享页的对话内容只保存在浏览器标签页中，我们不在服务器上保存问题与回答的文字，也不会公开。为执行每日次数限制和防止滥用，我们保存浏览器标识、Cookie 标识与 IP 地址经加密哈希后的值及当天的次数，过期的记录会被清除。我们也记录每次回答对应的 Ree 与时间，不含内容。访客举报时，以 IP 地址的加密哈希作为举报人标识。\n\n限流：对未登录的访问（浏览帖子与 Ree、提问、举报等）限流时，以原始 IP 地址为键记录短时间内的请求次数，这些记录最长保留约 2 小时后清除。',
     },
     s2: {
       title: '使用目的',
@@ -97,7 +97,7 @@ export const zh = {
     },
     s6: {
       title: '保留期限',
-      body: '账号存续期间保留你的账号、知识与对话。移到回收站的知识、对话与公开帖子 30 天后清除；对话被清除时，从它公开的问答一并删除。被下架或未通过审核的帖子保存在你的账号下，你可以随时把它们移到回收站。付款、退款与 credit 流水按会计与税务法规要求的期限保存。删除账号后，除法律要求保存的记录外，其余数据会在 30 天内删除，包括你发布的公开帖子及其回答（不做匿名保留）。',
+      body: '账号存续期间保留你的账号、知识与对话。移到回收站的知识、对话与公开帖子 30 天后清除；对话被清除时，从它公开的问答一并删除。被下架或未通过审核的帖子保存在你的账号下，你可以随时把它们移到回收站。付款、退款与 credit 流水按会计与税务法规要求的期限保存。删除账号的请求由人工处理，请按第 9 节所述的方式向我们提出。处理后，你发布的公开帖子及其回答会被移除；法律要求保存的记录（如付款、退款与 credit 流水）会按法律要求的期限保留。',
     },
     s7: {
       title: 'Cookie',
@@ -109,7 +109,7 @@ export const zh = {
     },
     s9: {
       title: '安全与变更',
-      body: '数据在传输与存储时加密，第三方 API 凭据与授权令牌加密保存，管理后台需要密码与动态验证码，管理员的操作有审计记录。本政策变更会在本页更新并标明日期，重大变更会在站内提前通知。',
+      body: '数据在传输与存储时加密，第三方 API 凭据与授权令牌加密保存，管理后台需要密码与动态验证码，管理员的操作有审计记录。本政策变更会在本页更新，并标注最近更新日期。',
     },
   },
 };
@@ -160,11 +160,11 @@ export const en: Shape<typeof zh> = {
     },
     posts: {
       title: 'Public posts, quotes and reports',
-      body: 'Signed-in users can ask in public posts. Once a post is public, anyone, including signed-out visitors, can see its question, details and answers, and other signed-in users can save it, mark it helpful or quote it. You can post anonymously: the post page, feeds, quote cards and Ree pages then show neither your name nor your avatar. RE0 still records which account posted, to let you manage your posts, to bill, to prevent abuse and to handle reports.\n\nBefore a post is public, its question and details are automatically stripped of what looks like phone numbers, email addresses, identity numbers, links, or QQ and WeChat ids, and then reviewed automatically. A post that fails review is not made public; only you can see it. Neither the automatic removal nor the review is guaranteed to catch everything or to be right every time, and neither guarantees a post holds no personal information: do not write your own or anyone else\'s contact or identity details in a post. Ree answers do not go through this automatic removal.\n\nAnyone can report a post or an answer. A post reported by {postReportThreshold} different reporters is taken down automatically, and an answer reported by {answerReportThreshold} different reporters is hidden automatically. Administrators can also take posts down or hide answers, and restore them; a Ree\'s owner can hide that Ree\'s answers. A post taken down no longer appears in feeds, search, the sitemap, Ree pages or share pages; its author can still see it.\n\nOther signed-in users can quote a public post, or one of its answers, in a public post of their own. The quote card shows the quoted question, its author (as the original post\'s anonymity setting allows) and an excerpt of the answer. Once the quoted content is deleted, taken down or hidden, or the Ree that answered is no longer public, the card says only that the quoted content is no longer available; the quoting post stays. When the original post is taken down, the posts quoting it go to an administrator for review; until then their answers stay public, and the administrator may keep or hide them.\n\nYou can move your own post to the trash. It is hidden from others at once and can be restored for 30 days; after that it is deleted for good, with its answers, saves and reports. Pages a search engine has already indexed may still appear in its results until it updates them.',
+      body: 'Signed-in users can ask in public posts. Once a post is public, anyone, including signed-out visitors, can see its question, details and answers, and other signed-in users can save it, mark it helpful or quote it. You can post anonymously: the post page, feeds, quote cards and Ree pages then show neither your name nor your avatar. RE0 still records which account posted, to let you manage your posts, to bill, to prevent abuse and to handle reports.\n\nBefore a post is public, its question and details are automatically stripped of what looks like phone numbers, email addresses, identity numbers, links, or QQ and WeChat ids, and then reviewed automatically. A post that fails review is not made public; only you can see it. Neither the automatic removal nor the review is guaranteed to catch everything or to be right every time, and neither guarantees a post holds no personal information: do not write your own or anyone else\'s contact or identity details in a post. Ree answers do not go through this automatic removal.\n\nAnyone can report a post or an answer. A post reported by {postReportThreshold} different reporters is taken down automatically, and an answer reported by {answerReportThreshold} different reporters is hidden automatically. Administrators can also take posts down or hide answers, and can restore what administrators or reports took down or hid; a Ree\'s owner can hide that Ree\'s answers, and an answer its owner hid is not restored. A post taken down no longer appears in feeds, search, the sitemap, Ree pages or share pages; its author can still see it.\n\nOther signed-in users can quote a public post, or one of its answers, in a public post of their own. The quote card shows the quoted question, its author (as the original post\'s anonymity setting allows) and an excerpt of the answer. Once the quoted content is deleted, taken down or hidden, or the Ree that answered is no longer public, the card says only that the quoted content is no longer available; the quoting post stays. When the original post is taken down, or the quoted answer is hidden, the posts quoting it go to an administrator for review; until then their answers stay public, and the administrator may keep or hide them.\n\nYou can move your own post to the trash. It is hidden from others at once and can be restored for 30 days; after that it is deleted for good, with its answers, saves and reports. Pages a search engine has already indexed may still appear in its results until it updates them. Disabling an account does not take down the posts and answers it already made public; an administrator takes them down where needed.\n\nA signed-in user can also make public the first question of their own conversation with a Ree, with its answer, where that Ree\'s owner allows public Q&A. Before it is public, both the question and the answer are stripped of the details above (links in the answer are kept) and reviewed automatically; once approved it appears as a post on the post page and on that Ree\'s page, shown as "a user", without your name. While the conversation is in the trash it is hidden from others, and it is deleted when the conversation is deleted for good; once the owner turns public Q&A off, these answers are no longer shown.',
     },
     reeAnswers: {
       title: 'Rees answering public posts',
-      body: 'A public Ree may automatically answer public posts related to its knowledge; at most {postMaxAnswers} Rees answer each post. The whole answer, with the titles and relevant excerpts of the sources it cites, is shown publicly on the post page; feeds and Ree pages show an excerpt that can be expanded.\n\nFree Rees (query fee 0) take part by default. A Ree with a query fee takes part only after its owner turns on "Answer related public posts" in its settings. The owner can turn it off at any time: the Ree then answers no new posts, its answers already public stay, and the owner can hide them one by one.\n\nRE0 pays the model cost of answering posts and charges the Ree\'s owner nothing; the owner earns no query fee or earned credits for answering posts.\n\nSigned-out visitors can ask only on a free Ree\'s share page, a limited number of times a day. A visitor\'s chat stays in that browser tab only: it is never made public or shown in any post.',
+      body: 'A public Ree may automatically answer public posts related to its knowledge; at most {postMaxAnswers} Rees answer each post. The whole answer, with the titles and relevant excerpts of the sources it cites, is shown publicly on the post page; feeds and Ree pages show an excerpt that can be expanded.\n\nFree Rees (query fee 0) take part by default. A Ree with a query fee takes part only after its owner turns on "Answer related public posts" in its settings. The owner can turn it off at any time: the Ree then answers no new posts, its answers already public stay, and the owner can hide them one by one.\n\nRE0 pays the model cost of answering posts and charges the Ree\'s owner nothing; the owner earns no query fee or earned credits for answering posts.\n\nRE0 may post the example questions set on Rees that answer public posts as posts in RE0\'s name (marked as example questions), to be answered by related Rees under the same rules.\n\nSigned-out visitors can ask only on a free Ree\'s share page, a limited number of times a day. A visitor\'s chat stays in that browser tab only: it is never made public or shown in any post.',
     },
     s9: {
       title: 'Acceptable use',
@@ -172,7 +172,7 @@ export const en: Shape<typeof zh> = {
     },
     s10: {
       title: 'Liability and changes',
-      body: 'Answers are generated automatically from the knowledge you or the Ree’s owner provided and may be incomplete or wrong; check them against their citations. To the extent the law allows, RE0 is not liable for indirect losses, and its direct liability is limited to what you paid RE0 in the previous 12 months.\n\nChanges are published on this page with a date; material changes are announced in the app beforehand. Questions: legal@re0.io.',
+      body: 'Answers are generated automatically from the knowledge you or the Ree’s owner provided and may be incomplete or wrong; check them against their citations. To the extent the law allows, RE0 is not liable for indirect losses, and its direct liability is limited to what you paid RE0 in the previous 12 months.\n\nChanges are published on this page, marked with the date of the last update. Questions: legal@re0.io.',
     },
   },
   privacy: {
@@ -184,7 +184,7 @@ export const en: Shape<typeof zh> = {
     },
     public: {
       title: 'Public content and visitor questions',
-      body: 'Public posts: the question, details and anonymity setting of what you post, and your saves, helpful marks, reports and quotes. A public post can be seen by anyone, and the page of a post that passed review and shows an answer may be indexed by search engines; the pages of posts with no answer shown, taken down or in the trash are marked not to be indexed. An anonymous post does not show who you are, but we keep which account posted it. A post\'s question, details and answers are sent to model providers for automatic review, matching and answering.\n\nVisitor questions: a visitor\'s chat on a share page stays in the browser tab; we do not store the text of the questions or answers on our servers, and it is never made public. To apply the daily limits and prevent abuse we keep keyed hashes of a browser identifier, a cookie id and the IP address, with that day\'s counts, and clear past records; rate limiting also uses the raw IP address for up to about an hour. We record which Ree answered and when, without the content. When a visitor reports something, a keyed hash of their IP address identifies the reporter.',
+      body: 'Public posts: the question, details and anonymity setting of what you post, and your saves, helpful marks, reports and quotes. A public post can be seen by anyone, and the page of a post that passed review and shows an answer may be indexed by search engines; the pages of posts with no answer shown, taken down or in the trash are marked not to be indexed. An anonymous post does not show who you are, but we keep which account posted it. A post\'s question, details and answers are sent to model providers for automatic review, matching and answering.\n\nVisitor questions: a visitor\'s chat on a share page stays in the browser tab; we do not store the text of the questions or answers on our servers, and it is never made public. To apply the daily limits and prevent abuse we keep keyed hashes of a browser identifier, a cookie id and the IP address, with that day\'s counts, and clear past records. We record which Ree answered and when, without the content. When a visitor reports something, a keyed hash of their IP address identifies the reporter.\n\nRate limits: rate limits on signed-out requests (browsing posts and Rees, asking, reporting and the like) count requests over short periods keyed on the raw IP address; these records are cleared within about 2 hours.',
     },
     s2: {
       title: 'Why we use it',
@@ -204,7 +204,7 @@ export const en: Shape<typeof zh> = {
     },
     s6: {
       title: 'Retention',
-      body: 'Your account, knowledge, and conversations are kept while your account exists. Knowledge, conversations and public posts moved to the trash are purged after 30 days; when a conversation is purged, the public Q&A made from it is deleted too. Posts taken down or not approved are kept under your account, and you can move them to the trash at any time. Payment, refund, and credit records are kept for the periods accounting and tax rules require. When you delete your account, everything else is deleted within 30 days, including your public posts and their answers (they are not kept anonymously).',
+      body: 'Your account, knowledge, and conversations are kept while your account exists. Knowledge, conversations and public posts moved to the trash are purged after 30 days; when a conversation is purged, the public Q&A made from it is deleted too. Posts taken down or not approved are kept under your account, and you can move them to the trash at any time. Payment, refund, and credit records are kept for the periods accounting and tax rules require. Requests to delete an account are handled by hand; make one as section 9 describes. Once it is handled, your public posts and their answers are removed; records the law requires us to keep (such as payment, refund and credit records) are kept for the periods it requires.',
     },
     s7: {
       title: 'Cookies',
@@ -216,7 +216,7 @@ export const en: Shape<typeof zh> = {
     },
     s9: {
       title: 'Security and changes',
-      body: 'Data is encrypted in transit and at rest; third-party credentials and authorization tokens are stored encrypted; the admin console requires a password and a one-time code, and administrators’ actions are audited. Changes to this policy are published on this page with a date; material changes are announced in the app beforehand.',
+      body: 'Data is encrypted in transit and at rest; third-party credentials and authorization tokens are stored encrypted; the admin console requires a password and a one-time code, and administrators’ actions are audited. Changes to this policy are published on this page, marked with the date of the last update.',
     },
   },
 };
