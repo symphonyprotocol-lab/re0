@@ -10,7 +10,8 @@ type Context = { params: Promise<{ answerId: string }> };
  * A paid Ree's request to answer the caller's post. `{action: 'agree', price}`
  * holds the price shown and starts the answer → `{ok}`; a higher price now is
  * `409 price_changed` with `{price}`, too little balance `402 insufficient`
- * with `{balance, needed}`, a Ree that can no longer answer `409 unavailable`.
+ * with `{balance, needed}`, a Ree that can no longer answer `409 unavailable`
+ * (the request is closed), one agreed already (another tab) `409 already`.
  * `{action: 'decline'}` → `{ok}`. Only the post's author.
  */
 export async function POST(request: NextRequest, { params }: Context) {
@@ -29,5 +30,6 @@ export async function POST(request: NextRequest, { params }: Context) {
   }
   if (result.error === 'price_changed') return json({ error: 'price_changed', price: result.price }, 409);
   if (result.error === 'insufficient') return json({ error: 'insufficient', balance: result.balance, needed: result.needed }, 402);
-  return result.error === 'unavailable' ? fail('unavailable', 409) : fail('not_found', 404);
+  if (result.error === 'unavailable' || result.error === 'already') return fail(result.error, 409);
+  return fail('not_found', 404);
 }

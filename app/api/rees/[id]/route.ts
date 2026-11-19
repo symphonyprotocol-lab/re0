@@ -1,3 +1,4 @@
+import { closeUnavailableRequests } from '@/lib/services/posts';
 import { after, type NextRequest } from 'next/server';
 import { body, fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
@@ -39,6 +40,8 @@ export async function PATCH(request: NextRequest, context: Context) {
     });
     /* What the profile is made of may have changed: a public Ree's is rebuilt, free (2.4). */
     if (ree?.isPublished) after(() => refreshProfile(ree.id).catch(() => undefined));
+    /* A paid Ree gone private, off posts or free closes the requests waiting on it, so their posts' fees settle now (2026-11-19). */
+    if (ree) after(() => closeUnavailableRequests(ree.id).then(() => undefined, () => undefined));
     return ree ? json({ ree }) : fail('not_found', 404);
   } catch (error) {
     if (error instanceof ReeInputError) return fail(error.field, 422);
@@ -50,5 +53,8 @@ export async function PATCH(request: NextRequest, context: Context) {
 export async function DELETE(request: NextRequest, context: Context) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;
-  return (await deleteRee(user.id, (await context.params).id)) ? json({ deleted: true }) : fail('not_found', 404);
+  const id = (await context.params).id;
+  if (!(await deleteRee(user.id, id))) return fail('not_found', 404);
+  after(() => closeUnavailableRequests(id).then(() => undefined, () => undefined));
+  return json({ deleted: true });
 }

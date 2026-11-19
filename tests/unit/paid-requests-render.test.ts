@@ -47,6 +47,13 @@ describe('paid requests on the post page', () => {
     expect(html).not.toContain(`>${p.paidDecline}</button>`);
   });
 
+  it('says a refunded answer could not be given and offers to agree again (#164 review)', () => {
+    const html = render({ ...base, paidRequests: [{ ...base.paidRequests[0]!, state: 'refunded' }] });
+    expect(html).toContain(p.paidRefunded);
+    expect(html).toContain(fill(p.paidAgain, { n: '70' }));
+    expect(html).toContain(`>${p.paidDecline}</button>`);
+  });
+
   it('shows no request section when there is none (anyone but the author)', () => {
     const html = render({ ...base, author: { kind: 'user', name: 'Lin', avatar: null, mine: false }, paidRequests: [] });
     expect(html).not.toContain(p.paidTitle);

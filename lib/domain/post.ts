@@ -135,8 +135,8 @@ export interface PaidRequestView {
   mentioned: boolean;
   /** What agreeing costs now: the base fee and the Ree's query fee. */
   price: number;
-  /** `answering` once agreed, until the answer is written. */
-  state: 'awaiting' | 'answering';
+  /** `answering` once agreed, until the answer is written; `refunded` when it could not answer and everything was given back -- the author may agree again. */
+  state: 'awaiting' | 'answering' | 'refunded';
 }
 
 export interface PostSummaryView {

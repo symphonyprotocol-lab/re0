@@ -194,8 +194,8 @@ describeWithDb('paid Rees answer a post once its author agrees', () => {
     expect(view.answers.find((entry) => entry.reeId === paid.reeId)).toMatchObject({ paid: true, state: 'answered' });
     expect(view.answers.find((entry) => entry.reeId === free.reeId)).toMatchObject({ paid: false });
     expect((await posts.getPost(post.postId, author))!.paidRequests).toEqual([]);
-    /* Agreeing twice is not possible. */
-    expect(await posts.agreePaidAnswer(author, requestId, 999)).toEqual({ ok: false, error: 'not_found' });
+    /* Agreeing twice is not possible: it says it is agreed already. */
+    expect(await posts.agreePaidAnswer(author, requestId, 999)).toEqual({ ok: false, error: 'already' });
   });
 
   it('refuses agreeing without the balance, and holds nothing', async () => {
@@ -319,5 +319,78 @@ describeWithDb('paid Rees answer a post once its author agrees', () => {
     expect((await call(second!.id, { action: 'decline' })).status).toBe(200);
     expect((await call(second!.id, { action: 'decline' })).status).toBe(404);
     token = undefined;
+  });
+
+  it('closes a request whose Ree stops being paid and open, and settles the post fee once (#164 review)', async () => {
+    const author = await user('pp-gone', POST_FEE);
+    await spendFree(author);
+    /* Three ways a waiting paid Ree stops: free, private, off posts. */
+    const free = await publicRee(FEE_20);
+    const hidden = await publicRee(FEE_20);
+    const off = await publicRee(FEE_20);
+    await db().update(schema.ree).set({ answersPosts: true }).where(inArray(schema.ree.id, [free.reeId, hidden.reeId, off.reeId]));
+    const post = await matched(author, [free.reeId, hidden.reeId, off.reeId]);
+    expect(await holdStatus(post.postId)).toBe('held');
+    const [first] = (await posts.getPost(post.postId, author))!.paidRequests.filter((entry) => entry.reeId === free.reeId);
+
+    /* Agreeing after it went free closes it, but the others still wait: the fee stays held. */
+    await db().update(schema.ree).set({ queryFee: 0 }).where(eq(schema.ree.id, free.reeId));
+    expect(await posts.agreePaidAnswer(author, first!.id, first!.price)).toEqual({ ok: false, error: 'unavailable' });
+    expect((await requestOf(post.postId, free.reeId)).state).toBe('declined');
+    expect(await holdStatus(post.postId)).toBe('held');
+
+    /* Right after its settings change (the Ree route), and in the sweep. */
+    await db().update(schema.ree).set({ isPublic: false, isPublished: false }).where(eq(schema.ree.id, hidden.reeId));
+    expect(await posts.closeUnavailableRequests(hidden.reeId)).toBe(1);
+    expect(await holdStatus(post.postId)).toBe('held');
+    await db().update(schema.ree).set({ answersPosts: false }).where(eq(schema.ree.id, off.reeId));
+    await posts.sweepPaidRequests();
+    expect((await requestOf(post.postId, off.reeId)).state).toBe('declined');
+    /* Nothing open and nothing answered: the fee and the free post come back now, not after 7 days -- once. */
+    expect(await holdStatus(post.postId)).toBe('released');
+    expect((await postRow(post.postId)).freeDay).toBeNull();
+    expect(await balanceOf(db(), author)).toBe(POST_FEE);
+    await posts.sweepPaidRequests();
+    await Promise.all([posts.closeUnavailableRequests(null), posts.closeUnavailableRequests(off.reeId)]);
+    expect(await balanceOf(db(), author)).toBe(POST_FEE);
+    expect((await posts.getPost(post.postId, author))!.paidRequests).toEqual([]);
+    const refunds = await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, author), eq(schema.creditEntry.reason, 'post_refund')));
+    expect(refunds).toHaveLength(1);
+  });
+
+  it('keeps an agreed answer that could not be given as refunded, lets the author agree again, and says already for a second tab (#164 review)', async () => {
+    const paid = await publicRee(FEE_20);
+    await db().update(schema.ree).set({ answersPosts: true }).where(eq(schema.ree.id, paid.reeId));
+    const price = QUERY_BASE_FEE + FEE_20;
+    const author = await user('pp-retry', price * 2);
+    const post = await matched(author, [paid.reeId]);
+    const [request] = (await posts.getPost(post.postId, author))!.paidRequests;
+
+    const [one, two] = await Promise.all([posts.agreePaidAnswer(author, request!.id, price), posts.agreePaidAnswer(author, request!.id, price)]);
+    expect([one, two]).toEqual(expect.arrayContaining([{ ok: true }, { ok: false, error: 'already' }]));
+    expect(await balanceOf(db(), author)).toBe(price);
+
+    /* The background answer never ran: the sweep gives everything back and the card offers to try again. */
+    await posts.sweepPaidRequests(new Date(Date.now() + POST_PAID_ANSWER_STALE_MS + 60_000));
+    expect(await balanceOf(db(), author)).toBe(price * 2);
+    expect((await posts.getPost(post.postId, author))!.paidRequests).toMatchObject([{ id: request!.id, state: 'refunded', price }]);
+
+    /* Again, this time it answers. */
+    expect(await posts.agreePaidAnswer(author, request!.id, price)).toEqual({ ok: true });
+    await posts.answerPaid(request!.id, { answerOne: answered() });
+    expect(await balanceOf(db(), author)).toBe(price);
+    expect((await posts.getPost(post.postId))!.answers).toMatchObject([{ reeId: paid.reeId, paid: true }]);
+    expect(await posts.agreePaidAnswer(author, request!.id, price)).toEqual({ ok: false, error: 'already' });
+
+    /* A refunded one can also be declined. */
+    const other = await publicRee(FEE_20);
+    await db().update(schema.ree).set({ answersPosts: true }).where(eq(schema.ree.id, other.reeId));
+    const second = await matched(author, [other.reeId]);
+    const [again] = (await posts.getPost(second.postId, author))!.paidRequests;
+    expect(await posts.agreePaidAnswer(author, again!.id, price)).toEqual({ ok: true });
+    await posts.answerPaid(again!.id, { answerOne: async () => ({ state: 'failed', model: 'stub' }) });
+    expect((await posts.getPost(second.postId, author))!.paidRequests).toMatchObject([{ state: 'refunded' }]);
+    expect(await posts.declinePaidAnswer(author, again!.id)).toBe(true);
+    expect((await posts.getPost(second.postId, author))!.paidRequests).toEqual([]);
   });
 });

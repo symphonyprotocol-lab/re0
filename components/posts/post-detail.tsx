@@ -136,6 +136,9 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
         const price = Number(body.price) || entry.price;
         setRequests((entries) => entries.map((other) => (other.id === entry.id ? { ...other, price } : other)));
         toast(fill(p.paidChanged, { n: formatNumber(price, locale) }));
+      } else if (body.error === 'already') {
+        /* Agreed in another tab: show where it stands. */
+        void refresh();
       } else if (body.error === 'unavailable' || response.status === 404) {
         toast(p.paidUnavailable);
         setRequests((entries) => entries.filter((other) => other.id !== entry.id));
@@ -387,9 +390,10 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
                 </>
               ) : (
                 <div className="post-answer-foot">
+                  {entry.state === 'refunded' && <span className="basis-full text-[12px] text-muted">{p.paidRefunded}</span>}
                   <button type="button" className="btn primary sm" disabled={busy === entry.id} onClick={() => void agree(entry)}>
                     {busy === entry.id ? <i className="spinner" /> : null}
-                    {fill(p.paidAgree, { n: formatNumber(entry.price, locale) })}
+                    {fill(entry.state === 'refunded' ? p.paidAgain : p.paidAgree, { n: formatNumber(entry.price, locale) })}
                   </button>
                   <button type="button" className="btn secondary sm" disabled={busy === entry.id} onClick={() => void decline(entry)}>
                     {p.paidDecline}

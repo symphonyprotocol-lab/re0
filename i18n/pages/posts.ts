@@ -108,6 +108,8 @@ export const zh = {
     paidUnavailable: '这个 Ree 现在不能回答了。',
     paidTopUp: '余额不足，去充值',
     paidTag: '付费回答',
+    paidRefunded: '未能回答，费用已退还。可以再试一次。',
+    paidAgain: '再次同意（{n} credits）',
     paidWaiting: '等你确认：{n} 个付费 Ree 可以回答',
   },
   home: {
@@ -282,6 +284,8 @@ export const en: Shape<typeof zh> = {
     paidUnavailable: 'This Ree can no longer answer.',
     paidTopUp: 'Not enough credits. Top up',
     paidTag: 'Paid answer',
+    paidRefunded: 'It could not answer; everything was refunded. You can try again.',
+    paidAgain: 'Agree again ({n} credits)',
     paidWaiting: 'Waiting for you: {n} paid Rees can answer',
   },
   home: {
