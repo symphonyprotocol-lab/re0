@@ -206,6 +206,7 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
   const checks = { fail: false };
   const synthesis = { fail: false };
   const rewrites = { calls: 0, fail: false };
+  const reviewCut = new Set<string>();
   const embeddings: FakeOpenAi['embeddings'] = { failModel: null, after: 0, shift: {}, beforeAnswer: null };
   let failingEmbeds = 0;
   let failureArmed = 'null:0';
@@ -265,7 +266,10 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
         return;
       }
       /* Public Q&A review (public-qa.ts): "MODERATION DOWN" in the question fails the call, "UNPUBLISHABLE" is refused. */
-      const reviewing = system.includes('You review a question and answer before it is shown publicly');
+      const reviewing = system.includes('You review a question and answer before it is shown publicly') || system.includes('You review a question before it is posted publicly');
+      /* "REVIEW CUT ONCE": the first reply is cut off mid-JSON, as a thinking model out of budget gives (2026-11-19); the next is whole. "REVIEW ALWAYS CUT": every one is. */
+      const cut = reviewing && (question.includes('REVIEW ALWAYS CUT') || (question.includes('REVIEW CUT ONCE') && !reviewCut.has(question)));
+      if (cut) reviewCut.add(question);
       if (reviewing && question.includes('MODERATION DOWN')) {
         res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'review failed', type: 'server_error' } }));
@@ -276,8 +280,10 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
         res.end(JSON.stringify({ error: { message: 'check failed', type: 'server_error' } }));
         return;
       }
-      const text = reviewing
-        ? JSON.stringify({ publish: !question.includes('UNPUBLISHABLE'), reason: 'test' })
+      const text = cut
+        ? '{"publish": tr'
+        : reviewing
+        ? `Here is my review:\n\`\`\`json\n${JSON.stringify({ publish: !question.includes('UNPUBLISHABLE'), reason: 'test' })}\n\`\`\``
         : rewriting
         ? JSON.stringify(fakeRewrite(question.replace(/^Question:\n/, ''), rewriting[1]!))
         : moderating

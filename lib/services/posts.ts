@@ -338,7 +338,8 @@ export async function moderatePost(id: string, judge: Judge = modelJudge, now = 
   if (!row) return 'gone';
   let verdict: boolean | null = null;
   try {
-    verdict = (await judge([row.question, row.detail].filter(Boolean).join('\n\n'), '(No answer yet: review the question alone.)')).publish;
+    /* No answer yet: the question is reviewed alone. */
+    verdict = (await judge([row.question, row.detail].filter(Boolean).join('\n\n'), '')).publish;
   } catch (error) {
     console.warn(`post ${id} review failed: ${error instanceof Error ? error.message : 'unknown'}`);
   }

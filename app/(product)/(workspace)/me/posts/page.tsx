@@ -117,6 +117,7 @@ export default async function MyPostsPage({ searchParams }: { searchParams: Prom
         rees={rees}
         focus={params.focus === '1'}
         select={position ? selectId : null}
+        embedded
       />
     </>
   );

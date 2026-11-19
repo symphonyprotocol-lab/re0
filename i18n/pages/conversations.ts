@@ -135,6 +135,9 @@ export const zh = {
     sort: '排序',
     sorts: { new: '最近更新', old: '最早更新', title: '标题 A–Z' },
     views: { all: '全部', recent: '最近对话', pinned: '已置顶', archived: '已归档', trash: '回收站' },
+    /* Inside 我的帖子 → 私密, under its own 全部 / 公开 / 私密 / 回收站 row: no second 全部 or 回收站. */
+    embeddedViews: { all: '所有私密提问', recent: '最近', pinned: '已置顶', archived: '已归档', trash: '已删除' },
+    embeddedNote: '只有你能看到的私密提问：可以搜索、置顶、归档，删除的在"已删除"里保留 30 天。',
     viewsLabel: '对话视图',
     select: '选择',
     done: '完成',
@@ -344,6 +347,8 @@ export const en: Shape<typeof zh> = {
     sort: 'Sort',
     sorts: { new: 'Recently updated', old: 'Oldest updated', title: 'Title A–Z' },
     views: { all: 'All', recent: 'Recent', pinned: 'Pinned', archived: 'Archived', trash: 'Trash' },
+    embeddedViews: { all: 'All private', recent: 'Recent', pinned: 'Pinned', archived: 'Archived', trash: 'Deleted' },
+    embeddedNote: 'Your private questions, visible only to you: search, pin and archive them; deleted ones stay under Deleted for 30 days.',
     viewsLabel: 'Conversation views',
     select: 'Select',
     done: 'Done',

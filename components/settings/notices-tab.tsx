@@ -1,5 +1,6 @@
 'use client';
 
+import './notices.css';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -149,14 +150,12 @@ export function NoticesTab({ items, total, page, size, unread }: { items: Notice
 
   return (
     <section className="card settings-card notices-card">
-      <div className="between">
-        <div className="min-w-0">
-          <h2>{nt.title}</h2>
-          <p className="muted small notices-lede">{nt.lede}</p>
-        </div>
+      <div className="between notices-head">
+        {/* The page's own header already says 通知 (FeedColumns); only the lede here. */}
+        <p className="muted small notices-lede min-w-0">{nt.lede}</p>
         <button
           type="button"
-          className="btn secondary sm"
+          className="btn-secondary btn-sm"
           disabled={busy || (unread === 0 && fresh.size === 0)}
           onClick={() => {
             setFresh(new Set());

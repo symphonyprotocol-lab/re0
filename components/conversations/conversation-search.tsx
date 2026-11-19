@@ -76,6 +76,7 @@ export function ConversationSearch({
   rees,
   focus,
   select,
+  embedded = false,
 }: {
   query: ConversationQuery;
   result: { items: SearchItem[]; total: number; page: number; size: number; counts: ConversationCounts };
@@ -83,6 +84,8 @@ export function ConversationSearch({
   focus: boolean;
   /** "选择此对话" from the sidebar: open in selection mode with this one checked. */
   select: string | null;
+  /** Inside 我的帖子 → 私密: no page header of its own, and view names that do not repeat the outer tabs. */
+  embedded?: boolean;
 }) {
   const { t, locale } = useI18n();
   const s = t.conversations.search;
@@ -243,16 +246,20 @@ export function ConversationSearch({
 
   return (
     <div ref={page} className={`cl-page cl-search-page filters-open${isSelecting ? ' is-selecting' : ''}`}>
-      <header className="cl-search-page-head">
-        <div>
-          <p className="eyebrow">{s.eyebrow}</p>
-          <h1>{s.title}</h1>
-          <p>{s.body}</p>
-        </div>
-        <span className="cl-search-page-icon" aria-hidden="true">
-          <I name="search" />
-        </span>
-      </header>
+      {embedded ? (
+        <p className="text-[12px] text-muted">{s.embeddedNote}</p>
+      ) : (
+        <header className="cl-search-page-head">
+          <div>
+            <p className="eyebrow">{s.eyebrow}</p>
+            <h1>{s.title}</h1>
+            <p>{s.body}</p>
+          </div>
+          <span className="cl-search-page-icon" aria-hidden="true">
+            <I name="search" />
+          </span>
+        </header>
+      )}
 
       <section className="card cl-search-hero" aria-label={s.filtersLabel}>
         <form
@@ -311,7 +318,7 @@ export function ConversationSearch({
             {VIEWS.map((view) => (
               <button key={view.key} type="button" className={`cl-tab${query.view === view.key ? ' active' : ''}`} aria-pressed={query.view === view.key} onClick={() => go({ view: view.key })}>
                 <I name={view.icon} />
-                {s.views[view.key]}
+                {(embedded ? s.embeddedViews : s.views)[view.key]}
                 <span>{formatNumber(result.counts[view.key], locale)}</span>
               </button>
             ))}
