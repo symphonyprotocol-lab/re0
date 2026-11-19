@@ -419,6 +419,8 @@ export const message = pgTable(
     noAnswer: boolean('no_answer').notNull().default(false),
     noAnswerReason: text('no_answer_reason').$type<'no_sources' | 'out_of_scope'>(),
     requestId: uuid('request_id'),
+    /** Beyond 4 (v5): the first exchange of a 继续问 conversation, copied from a public post -- no one asked or answered it here, so it counts in no figure (answers, questions, verification, statistics) and takes no vote. */
+    copiedFromPost: boolean('copied_from_post').notNull().default(false),
     costCredits: integer('cost_credits').notNull().default(0),
     /** Beyond 4, on a question every asked Ree left unanswered: the public Rees suggested under it ("这些公开 Ree 可能知道"). */
     suggestedReeIds: jsonb('suggested_ree_ids').$type<string[]>().notNull().default([]),
@@ -1386,6 +1388,8 @@ export const post = pgTable(
     summaryHoldId: uuid('summary_hold_id'),
     /** The answers the summary was written from; it is not shown once any of them is no longer shown. */
     summaryAnswers: jsonb('summary_answers').$type<string[]>(),
+    /** Free rewrites of a stale summary so far; capped at `POST_SUMMARY_FREE_REWRITES`. */
+    summaryRewrites: integer('summary_rewrites').notNull().default(0),
     summaryAt: timestampTz('summary_at'),
     /** In the author's trash since: hidden from everyone else at once. */
     deletedAt: timestampTz('deleted_at'),

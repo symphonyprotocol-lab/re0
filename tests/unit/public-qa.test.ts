@@ -45,6 +45,26 @@ describe('redact', () => {
     expect(zh('me艾特qq点com')).toBe('[已隐去]');
   });
 
+  it('removes the third round of bypasses (review 2026-11-19, round 3)', () => {
+    const zh = (text: string) => redact(text, 'zh');
+    /* Split by commas but not an 11-digit mobile: with a country code, landlines, cards, identity numbers. */
+    expect(zh('打 +86 138,0013,8000')).toBe('打 [已隐去]');
+    expect(zh('86，138，0013，8000')).toBe('[已隐去]');
+    expect(zh('座机 021，6123，4567')).toBe('座机 [已隐去]');
+    expect(zh('(021)6123、4567')).toBe('([已隐去]');
+    expect(zh('卡号 6222,0212,3456,7890')).toBe('卡号 [已隐去]');
+    expect(zh('110105,19491231,002X')).toBe('[已隐去]X');
+    /* Other separators, and long runs of spaces. */
+    for (const text of ['138｜0013｜8000', '138+0013+8000', '138*0013*8000', '138#0013#8000', '138:0013:8000', '138;0013;8000', '138→0013→8000', '138…0013…8000', '138    0013    8000']) {
+      expect(zh(text)).toBe('[已隐去]');
+    }
+    /* E-mail written out. */
+    expect(redact('mail me at gmail.com', 'en')).toBe('mail [removed]');
+    expect(zh('me @ qq . com')).toBe('[已隐去]');
+    expect(zh('me（at）qq（dot）com')).toBe('[已隐去]');
+    expect(zh('me圈qq点com')).toBe('[已隐去]');
+  });
+
   it('keeps ordinary text that only looks like the bypasses (the trade-off)', () => {
     const keep = (text: string) => expect(redact(text, 'zh')).toBe(text);
     keep('预算 1200、1500、1800 三档，哪个合适？');
@@ -54,6 +74,15 @@ describe('redact', () => {
     keep('二〇二六年十一月出发');
     keep('第一、第二、第三条都要看');
     keep('meet at noon tomorrow');
+    /* Round 3: lists of round prices, ranges, years, plain English "at", mentions, scores and times. */
+    keep('预算 1000、2000、3000、4000 四档');
+    keep('1200，1500，1800 哪个好');
+    keep('2000~3000 元之间');
+    keep('2024、2025、2026 三年的数据');
+    keep('We met at the station.');
+    keep('look at it.Then go');
+    keep('Ask @Brazil Guide first');
+    keep('比分 3:1，10:30 开始');
   });
 
   it('keeps the reader\'s own punctuation and dates', () => {

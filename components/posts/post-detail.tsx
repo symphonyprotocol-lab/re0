@@ -229,11 +229,11 @@ export function PostDetail({ initial, signedIn, now, loginHref }: { initial: Pos
           <div className="post-summary-cta">
             <Icon name="sparkle" className="size-4 text-blue" />
             <span className="min-w-0 flex-1">
-              <strong>{p.summaryTitle}</strong>：{post.summaryStale ? p.summaryStale : fill(p.summaryHint, { n: shown.length })}
+              <strong>{p.summaryTitle}</strong>：{post.summaryStale ? (post.summaryRewriteFree ? p.summaryStale : p.summaryStalePaid) : fill(p.summaryHint, { n: shown.length })}
             </span>
             <button type="button" className="btn secondary sm" disabled={busy === 'summary'} onClick={() => void summarize()}>
               {busy === 'summary' ? <i className="spinner" /> : null}
-              {post.summaryStale ? p.summaryAgain : fill(p.summaryGo, { fee: POST_SUMMARY_FEE })}
+              {post.summaryStale && post.summaryRewriteFree ? p.summaryAgain : fill(p.summaryGo, { fee: POST_SUMMARY_FEE })}
             </button>
           </div>
         )

@@ -580,7 +580,8 @@ export async function joinableConversations(userId: string, reeId: string): Prom
 
 /**
  * "有用 / 没用" (2.4): only the person who asked votes, only on an answer
- * that was given; the same vote again takes it back.
+ * that was given (not the one a 继续问 copied from a post: the post has its
+ * own 有帮助); the same vote again takes it back.
  */
 export async function setFeedback(userId: string, messageId: string, vote: 'up' | 'down' | null): Promise<'up' | 'down' | null> {
   if (!isUuid(messageId)) throw new ConversationError('not_found', 404);
@@ -588,7 +589,7 @@ export async function setFeedback(userId: string, messageId: string, vote: 'up' 
     .select({ id: schema.message.id })
     .from(schema.message)
     .innerJoin(schema.conversation, eq(schema.conversation.id, schema.message.conversationId))
-    .where(and(eq(schema.message.id, messageId), eq(schema.message.role, 'ree'), eq(schema.message.noAnswer, false), eq(schema.conversation.userId, userId)))
+    .where(and(eq(schema.message.id, messageId), eq(schema.message.role, 'ree'), eq(schema.message.noAnswer, false), eq(schema.message.copiedFromPost, false), eq(schema.conversation.userId, userId)))
     .limit(1);
   if (!row) throw new ConversationError('not_found', 404);
   if (vote === null) {

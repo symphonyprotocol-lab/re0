@@ -49,7 +49,7 @@ export async function adminOverview(administrator: Administrator, now = new Date
       .from(schema.ree)
       .where(isNull(schema.ree.deletedAt)),
     database.select({ total: count(), ready: sql<number>`count(*) filter (where ${schema.knowledge.status} = 'ready')::int` }).from(schema.knowledge).where(isNull(schema.knowledge.deletedAt)),
-    database.select({ total: count() }).from(schema.message).where(and(eq(schema.message.role, 'user'), gte(schema.message.createdAt, since))),
+    database.select({ total: count() }).from(schema.message).where(and(eq(schema.message.role, 'user'), eq(schema.message.copiedFromPost, false), gte(schema.message.createdAt, since))),
     database
       .select({ sum: sql<number>`coalesce(sum(${schema.creditEntry.delta}), 0)::bigint` })
       .from(schema.creditEntry)

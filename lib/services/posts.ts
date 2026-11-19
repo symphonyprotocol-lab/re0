@@ -49,6 +49,7 @@ import {
   POST_PREVIEW_CHARS,
   POST_REPORT_THRESHOLD,
   POST_SUMMARY_FEE,
+  POST_SUMMARY_FREE_REWRITES,
   POST_SWEEP_BUDGET_MS,
   POST_SWEEP_CONCURRENCY,
   POST_WAITING_STALE_MS,
@@ -168,6 +169,9 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
           and(
             eq(post.userId, userId),
             eq(post.source, 'post'),
+            /* Only a live post: one trashed, rejected or taken down is not what this submit meant. */
+            inArray(post.status, ['pending', 'published']),
+            isNull(post.deletedAt),
             or(
               clientToken ? eq(post.clientToken, clientToken) : undefined,
               and(eq(post.question, question), eq(post.detail, detail), sql`${post.createdAt} > ${new Date(now.getTime() - POST_DUPLICATE_WINDOW_MS).toISOString()}::timestamptz`),
@@ -581,6 +585,13 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
         .where(and(eq(conversation.postId, rows[0]!.id), eq(conversation.userId, viewerId), isNull(conversation.deletedAt)))
         .orderBy(desc(conversation.updatedAt))
     : [];
+  /* For its author, on the post's page: whether rewriting a stale summary is free (`freeRewrite`). */
+  const rewriteFree = new Map<string, boolean>();
+  for (const row of rows) {
+    if (!options.whole || !viewerId || row.userId !== viewerId || row.summaryState !== 'done') continue;
+    const shownIds = new Set(answers.filter((entry) => entry.postId === row.id && entry.shown).map((entry) => entry.id));
+    if (summaryStale(row.summaryAnswers, shownIds)) rewriteFree.set(row.id, await freeRewrite(viewerId, row));
+  }
   return rows.map((row) => {
     const own = answers.filter((entry) => entry.postId === row.id);
     const shown = own.filter((entry) => entry.shown);
@@ -607,6 +618,7 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
         ? { state: 'done', content: row.summaryContent, sources: row.summarySources ?? [] }
         : row.summaryState === 'running' ? { state: 'running', content: '', sources: [] } : null,
       summaryStale: row.summaryState === 'done' && summaryStale(row.summaryAnswers, new Set(shown.map((entry) => entry.id))),
+      summaryRewriteFree: rewriteFree.get(row.id) ?? false,
       hiddenBy: row.status === 'hidden' ? row.hiddenBy : null,
       followUps: followUps.filter((entry, at, all) => all.findIndex((other) => other.id === entry.id) === at).map((entry) => ({ id: entry.id, title: entry.title, reeName: entry.reeName })),
       deleted: row.deletedAt !== null,
@@ -856,6 +868,26 @@ export function summaryStale(summaryAnswers: readonly string[] | null, shownIds:
 }
 
 /**
+ * Whether rewriting a stale summary is free (review round 3, O-b): within
+ * `POST_SUMMARY_FREE_REWRITES` for the post, and only when none of the
+ * answers that dropped out belongs to a Ree the author owns -- so hiding
+ * one's own answer, or toggling one's own Ree private, never buys a free
+ * summary.
+ */
+async function freeRewrite(userId: string, target: typeof post.$inferSelect): Promise<boolean> {
+  if (target.summaryRewrites >= POST_SUMMARY_FREE_REWRITES) return false;
+  const used = target.summaryAnswers ?? [];
+  if (used.length === 0) return true;
+  const [mine] = await db()
+    .select({ id: answer.id })
+    .from(answer)
+    .innerJoin(ree, eq(ree.id, answer.reeId))
+    .where(and(inArray(answer.id, used), eq(ree.ownerId, userId)))
+    .limit(1);
+  return !mine;
+}
+
+/**
  * "圆桌总结" of a public post: only its author starts it, it costs
  * `POST_SUMMARY_FEE` (to the platform, like a conversation's), and once
  * written -- and passed the same review as a post -- everyone sees it.
@@ -863,7 +895,9 @@ export function summaryStale(summaryAnswers: readonly string[] | null, shownIds:
  * - A failure, or a summary the review refuses, gives the fee back.
  * - Once any answer it drew on is no longer shown (hidden, its Ree private),
  *   the summary is stale: it is not shown, and the author may write it again
- *   free of charge (default, see the PR) from the answers shown now.
+ *   from the answers shown now -- free (default, see the PR) up to
+ *   `POST_SUMMARY_FREE_REWRITES` times when their own Rees had no part in it
+ *   (`freeRewrite`), else at the usual fee.
  * - Only the run that holds the claim writes: a run that outlived the stale
  *   window and was replaced settles nothing and writes nothing.
  */
@@ -875,7 +909,7 @@ export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en
   const stale = target.summaryState === 'done' && summaryStale(target.summaryAnswers, new Set(shown.map((row) => row.id)));
   if (target.summaryState === 'done' && !stale) return 'already';
   if (shown.length < 2) return 'not_enough_answers';
-  const free = stale;
+  const free = stale && (await freeRewrite(userId, target));
   const run = randomUUID();
   let claim: { holdId: string | null } | null;
   try {
@@ -955,7 +989,14 @@ export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en
     if (claim!.holdId) await settleHold(tx, claim!.holdId, POST_SUMMARY_FEE, { note: 'post summary', ledger: 'post_summary' });
     await tx
       .update(post)
-      .set({ summaryState: 'done', summaryContent: content, summarySources: sources, summaryAnswers: answers.map((entry) => entry.messageId), summaryHoldId: null })
+      .set({
+        summaryState: 'done',
+        summaryContent: content,
+        summarySources: sources,
+        summaryAnswers: answers.map((entry) => entry.messageId),
+        summaryHoldId: null,
+        ...(free ? { summaryRewrites: sql`${post.summaryRewrites} + 1` } : {}),
+      })
       .where(eq(post.id, id));
     return true;
   });
@@ -969,9 +1010,11 @@ export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en
  * Ree that answered, from the post's question and that answer, linked to
  * the post. The two are written as the conversation's first exchange so the
  * next question is a follow-up; nothing is charged until it is asked, then
- * as any question. The seeded answer is not a new answer: the post's
- * answers are untouched, and conversations started from a post count in no
- * Ree's figures (rank.ts, explore `answersByOthers`; P11 is for later).
+ * as any question. The seeded exchange is not a new question or answer:
+ * the post's answers are untouched, and the two copied messages
+ * (`copied_from_post`) count in no figure -- ranking, explore, verification,
+ * owner statistics, the console -- and take no vote. What is asked after
+ * them is an ordinary, charged question and counts like one.
  * Only the author: anyone else gets null.
  */
 export async function followUpPost(userId: string, id: string, answerId: string): Promise<string | null> {
@@ -990,8 +1033,9 @@ export async function followUpPost(userId: string, id: string, answerId: string)
     await tx.insert(schema.conversationRee).values({ conversationId: created!.id, reeId: target.reeId });
     const asked = new Date();
     const requestId = randomUUID();
-    await tx.insert(message).values({ id: requestId, conversationId: created!.id, role: 'user', content: [target.question, target.detail].filter(Boolean).join('\n\n'), requestId, createdAt: asked });
-    await tx.insert(message).values({ conversationId: created!.id, role: 'ree', reeId: target.reeId, content: target.text, citations: target.citations, requestId, createdAt: new Date(asked.getTime() + 1) });
+    /* Copied, both: no one asked or answered them here, so they count in no figure (`copied_from_post`). */
+    await tx.insert(message).values({ id: requestId, conversationId: created!.id, role: 'user', content: [target.question, target.detail].filter(Boolean).join('\n\n'), requestId, copiedFromPost: true, createdAt: asked });
+    await tx.insert(message).values({ conversationId: created!.id, role: 'ree', reeId: target.reeId, content: target.text, citations: target.citations, requestId, copiedFromPost: true, createdAt: new Date(asked.getTime() + 1) });
     return created!.id;
   });
 }

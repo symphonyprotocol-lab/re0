@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { POST_DETAIL_MAX, POST_FREE_PER_DAY, POST_MAX_ANSWERS, POST_QUESTION_MAX } from '@/lib/domain/post';
@@ -55,11 +55,40 @@ export function composeHref(pathname: string, current: URLSearchParams | string,
   return `${pathname}?${next.toString()}`;
 }
 
-/** `composeHref` for the page being shown. */
+/** `composeHref` for the page being shown. Reads the address's parameters: render it inside a Suspense boundary (`ComposeLink` does). */
 export function useComposeHref(extra: Record<string, string> = {}): string {
   const pathname = usePathname();
   const params = useSearchParams();
   return composeHref(pathname, params, extra);
+}
+
+type ComposeLinkProps = { className: string; label: string; children: ReactNode };
+
+function ComposeLinkInner({ className, label, children }: ComposeLinkProps) {
+  return (
+    <Link href={useComposeHref()} className={className} aria-label={label} title={label} scroll={false}>
+      {children}
+    </Link>
+  );
+}
+
+/**
+ * The shell's 发帖 link, with the page's parameters kept (S7). Reading them
+ * suspends where the address is not known yet (a static render), so the
+ * boundary shows the same link opening the composer on the bare page.
+ */
+export function ComposeLink(props: ComposeLinkProps) {
+  return (
+    <Suspense
+      fallback={
+        <Link href="?compose=public" className={props.className} aria-label={props.label} title={props.label} scroll={false}>
+          {props.children}
+        </Link>
+      }
+    >
+      <ComposeLinkInner {...props} />
+    </Suspense>
+  );
 }
 
 interface Allowance {
