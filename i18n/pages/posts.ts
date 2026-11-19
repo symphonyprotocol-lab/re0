@@ -142,7 +142,7 @@ export const zh = {
   admin: {
     title: '公开帖子',
     lede: '被举报或已下架的帖子在前。下架后帖子在信息流、帖子页、搜索、sitemap 和 Ree 主页都不可见，发帖人仍能看到；恢复会清空举报。已结算的 credits 不退回。',
-    views: { reported: '被举报', hidden: '已下架', all: '全部' },
+    views: { reported: '被举报', quotes: '引用待复核', hidden: '已下架', all: '全部' },
     search: '搜索问题',
     empty: '没有符合条件的帖子。',
     columns: { time: '发布时间', question: '问题', status: '状态', reports: '举报', answers: '回答', action: '' },
@@ -154,6 +154,12 @@ export const zh = {
     restored: '已恢复。',
     stale: '状态已变化，已刷新。',
     open: '打开',
+    quoteReview: '引用的帖子已下架，回答待复核',
+    quoteReviewBanner: '有 {n} 条帖子引用了已下架的帖子，它们的回答可能复述原内容，在复核前仍然公开。去复核 →',
+    quoteKeep: '保留回答',
+    quoteHideAnswers: '隐藏回答',
+    quoteKept: '已保留，复核完成。',
+    quoteAnswersHidden: '已隐藏这条帖子的回答。',
   },
 };
 
@@ -298,7 +304,7 @@ export const en: Shape<typeof zh> = {
   admin: {
     title: 'Public posts',
     lede: 'Reported and taken-down posts first. A taken-down post disappears from feeds, its page, search, the sitemap and Ree pages; its author still sees it. Restoring clears the reports. Settled credits are not refunded.',
-    views: { reported: 'Reported', hidden: 'Taken down', all: 'All' },
+    views: { reported: 'Reported', quotes: 'Quotes to review', hidden: 'Taken down', all: 'All' },
     search: 'Search questions',
     empty: 'No posts match.',
     columns: { time: 'Published', question: 'Question', status: 'Status', reports: 'Reports', answers: 'Answers', action: '' },
@@ -310,5 +316,11 @@ export const en: Shape<typeof zh> = {
     restored: 'Restored.',
     stale: 'It changed meanwhile; refreshed.',
     open: 'Open',
+    quoteReview: 'Quotes a post that was taken down; answers to review',
+    quoteReviewBanner: '{n} posts quote a post that was taken down. Their answers may restate it and stay public until reviewed. Review them →',
+    quoteKeep: 'Keep answers',
+    quoteHideAnswers: 'Hide answers',
+    quoteKept: 'Kept; reviewed.',
+    quoteAnswersHidden: 'Its answers are hidden.',
   },
 };

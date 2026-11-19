@@ -31,7 +31,8 @@
  * Q&A, keeps public Q&A on).
  */
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { generateText } from 'ai';
 import { citationSnapshots, type CitationSnapshot } from '@/lib/domain/answer';
 import { InsufficientCredits } from '@/lib/domain/credits';
@@ -48,6 +49,8 @@ import {
   POST_PAGE_SIZE,
   POST_PREVIEW_CHARS,
   POST_QUOTE_PREVIEW_CHARS,
+  POST_QUOTE_NOTICE_MERGE_MS,
+  POST_QUOTE_NOTICE_QUOTER_MS,
   POST_REPORT_THRESHOLD,
   POST_SUMMARY_FEE,
   POST_SUMMARY_FREE_REWRITES,
@@ -188,7 +191,14 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
             isNull(post.deletedAt),
             or(
               clientToken ? eq(post.clientToken, clientToken) : undefined,
-              and(eq(post.question, question), eq(post.detail, detail), sql`${post.createdAt} > ${new Date(now.getTime() - POST_DUPLICATE_WINDOW_MS).toISOString()}::timestamptz`),
+              /* The same text quoting the same thing (or nothing): quoting something else is another post. */
+              and(
+                eq(post.question, question),
+                eq(post.detail, detail),
+                sql`${post.quotePostId} is not distinct from ${quote?.postId ?? null}::uuid`,
+                sql`${post.quoteAnswerId} is not distinct from ${quote?.answerId ?? null}::uuid`,
+                sql`${post.createdAt} > ${new Date(now.getTime() - POST_DUPLICATE_WINDOW_MS).toISOString()}::timestamptz`,
+              ),
             ),
           ),
         )
@@ -265,11 +275,56 @@ async function quoteContext(row: { quotePostId: string | null; quoteAnswerId: st
 }
 
 /** Once a quoting post is public, the quoted post's author hears about it -- not when they quote themselves, and only for real posts. */
-async function tellQuoted(tx: Executor, id: string, published: { userId: string | null; question: string; quotePostId: string | null } | undefined): Promise<void> {
+async function tellQuoted(tx: Executor, id: string, published: { userId: string | null; question: string; quotePostId: string | null } | undefined, now = new Date()): Promise<void> {
   if (!published?.quotePostId) return;
   const [quoted] = await tx.select({ userId: post.userId, source: post.source, question: post.question }).from(post).where(eq(post.id, published.quotePostId)).limit(1);
   if (!quoted?.userId || quoted.source !== 'post' || quoted.userId === published.userId) return;
-  await notify(tx, { userId: quoted.userId, kind: 'post_quoted', params: { question: quoted.question.slice(0, 80) }, refId: id });
+  const notice = schema.notice;
+  /*
+   * One quoter tells one author at most once a day, whichever of their posts
+   * they quote: an earlier public post of this quoter's, quoting this author,
+   * within the day, already did. Matched through the posts, not the notices
+   * (a folded notice points at the latest quoter only, and carries nobody's id).
+   */
+  if (published.userId) {
+    const original = alias(post, 'quoted_original');
+    const [recent] = await tx
+      .select({ id: post.id })
+      .from(post)
+      .innerJoin(original, eq(original.id, post.quotePostId))
+      .where(
+        and(
+          eq(post.userId, published.userId),
+          ne(post.id, id),
+          eq(original.userId, quoted.userId),
+          inArray(post.status, ['published', 'hidden']),
+          sql`${post.createdAt} > ${new Date(now.getTime() - POST_QUOTE_NOTICE_QUOTER_MS).toISOString()}::timestamptz`,
+        ),
+      )
+      .limit(1);
+    if (recent) return;
+  }
+  /* Quotes of one post within the hour, while unread, fold into one notice: "被引用了 N 次", pointing at the latest. */
+  const [open] = await tx
+    .select({ id: notice.id, params: notice.params })
+    .from(notice)
+    .where(
+      and(
+        eq(notice.userId, quoted.userId),
+        eq(notice.kind, 'post_quoted'),
+        isNull(notice.readAt),
+        sql`${notice.params} ->> 'original' = ${published.quotePostId}`,
+        sql`${notice.createdAt} > ${new Date(now.getTime() - POST_QUOTE_NOTICE_MERGE_MS).toISOString()}::timestamptz`,
+      ),
+    )
+    .orderBy(desc(notice.createdAt))
+    .limit(1)
+    .for('update');
+  if (open) {
+    await tx.update(notice).set({ params: { ...open.params, count: Number(open.params.count ?? 1) + 1 }, refId: id }).where(eq(notice.id, open.id));
+    return;
+  }
+  await notify(tx, { userId: quoted.userId, kind: 'post_quoted', params: { question: quoted.question.slice(0, 80), original: published.quotePostId, count: 1 }, refId: id });
 }
 
 /* ------------------------------------------------------------------ review */
@@ -669,7 +724,7 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
   for (const row of rows) {
     if (!options.whole || !viewerId || row.userId !== viewerId || row.summaryState !== 'done') continue;
     const shownIds = new Set(answers.filter((entry) => entry.postId === row.id && entry.shown).map((entry) => entry.id));
-    if (summaryStale(row.summaryAnswers, shownIds)) rewriteFree.set(row.id, await freeRewrite(viewerId, row));
+    if (summaryStale(row.summaryAnswers, shownIds)) rewriteFree.set(row.id, await freeRewrite(viewerId, row, shownIds));
   }
   return rows.map((row) => {
     const own = answers.filter((entry) => entry.postId === row.id);
@@ -765,6 +820,8 @@ const searchable = sql`(${post.question} || ' ' || ${post.detail})`;
  */
 export async function listFeed(tab: FeedTab, options: { cursor?: string | null; viewerId?: string; size?: number; q?: string | null; quotesOf?: string | null } = {}): Promise<PostPage> {
   if (options.quotesOf !== undefined && options.quotesOf !== null && !isUuid(options.quotesOf)) return { items: [], next: null };
+  /* The posts quoting one post are listed newest first whatever tab was asked for. */
+  if (options.quotesOf) tab = 'latest';
   const size = options.size ?? POST_PAGE_SIZE;
   /* One ILIKE over the indexed expression (pg_trgm), not two over separate columns. */
   const search = options.q?.trim() ? sql`${searchable} ilike ${`%${options.q.trim().replace(/[%_\\]/g, '\\$&')}%`}` : undefined;
@@ -999,15 +1056,16 @@ export function summaryStale(summaryAnswers: readonly string[] | null, shownIds:
  * one's own answer, or toggling one's own Ree private, never buys a free
  * summary.
  */
-async function freeRewrite(userId: string, target: typeof post.$inferSelect): Promise<boolean> {
+async function freeRewrite(userId: string, target: typeof post.$inferSelect, shownIds: ReadonlySet<string>): Promise<boolean> {
   if (target.summaryRewrites >= POST_SUMMARY_FREE_REWRITES) return false;
-  const used = target.summaryAnswers ?? [];
-  if (used.length === 0) return true;
+  /* Only the answers that dropped out: one of the author's Rees still answering does not make a rewrite paid. */
+  const dropped = (target.summaryAnswers ?? []).filter((id) => !shownIds.has(id));
+  if (dropped.length === 0) return true;
   const [mine] = await db()
     .select({ id: answer.id })
     .from(answer)
     .innerJoin(ree, eq(ree.id, answer.reeId))
-    .where(and(inArray(answer.id, used), eq(ree.ownerId, userId)))
+    .where(and(inArray(answer.id, dropped), eq(ree.ownerId, userId)))
     .limit(1);
   return !mine;
 }
@@ -1034,7 +1092,7 @@ export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en
   const stale = target.summaryState === 'done' && summaryStale(target.summaryAnswers, new Set(shown.map((row) => row.id)));
   if (target.summaryState === 'done' && !stale) return 'already';
   if (shown.length < 2) return 'not_enough_answers';
-  const free = stale && (await freeRewrite(userId, target));
+  const free = stale && (await freeRewrite(userId, target, new Set(shown.map((row) => row.id))));
   const run = randomUUID();
   let claim: { holdId: string | null } | null;
   try {
@@ -1183,7 +1241,10 @@ export async function reportPost(id: string, reporter: string): Promise<boolean>
     const added = await tx.insert(schema.postReport).values({ postId: id, reporterKey: reporter }).onConflictDoNothing().returning({ id: schema.postReport.postId });
     if (added.length === 0) return true;
     const [row] = await tx.update(post).set({ reportCount: sql`${post.reportCount} + 1` }).where(eq(post.id, id)).returning({ reports: post.reportCount });
-    if (row!.reports >= POST_REPORT_THRESHOLD) await tx.update(post).set({ status: 'hidden', hiddenBy: 'reports' }).where(and(eq(post.id, id), eq(post.status, 'published')));
+    if (row!.reports >= POST_REPORT_THRESHOLD) {
+      const hidden = await tx.update(post).set({ status: 'hidden', hiddenBy: 'reports' }).where(and(eq(post.id, id), eq(post.status, 'published'))).returning({ id: post.id });
+      if (hidden.length) await flagQuoting(tx, id);
+    }
     return true;
   });
 }
@@ -1197,23 +1258,67 @@ export interface AdminPost {
   reports: number;
   answers: number;
   createdAt: string;
+  /** It quotes a post that was taken down and waits for review. */
+  quoteReview: boolean;
 }
 
 /** The console's posts: reported or hidden ones first, then the newest; `q` searches the question. */
-export async function adminPosts(options: { view?: 'reported' | 'hidden' | 'all'; q?: string | null; limit?: number } = {}): Promise<AdminPost[]> {
+export async function adminPosts(options: { view?: 'reported' | 'hidden' | 'quotes' | 'all'; q?: string | null; limit?: number } = {}): Promise<AdminPost[]> {
   const view = options.view ?? 'reported';
   const where = and(
     inArray(post.status, ['published', 'hidden']),
-    view === 'reported' ? sql`${post.reportCount} > 0` : view === 'hidden' ? eq(post.status, 'hidden') : undefined,
+    view === 'reported' ? sql`${post.reportCount} > 0` : view === 'hidden' ? eq(post.status, 'hidden') : view === 'quotes' ? isNotNull(post.quoteReviewAt) : undefined,
     options.q?.trim() ? sql`${searchable} ilike ${`%${options.q.trim().replace(/[%_\\]/g, '\\$&')}%`}` : undefined,
   );
   const rows = await db()
-    .select({ id: post.id, question: post.question, source: post.source, status: post.status, hiddenBy: post.hiddenBy, reports: post.reportCount, answers: post.answerCount, createdAt: post.createdAt })
+    .select({ id: post.id, question: post.question, source: post.source, status: post.status, hiddenBy: post.hiddenBy, reports: post.reportCount, answers: post.answerCount, createdAt: post.createdAt, quoteReview: post.quoteReviewAt })
     .from(post)
     .where(where)
-    .orderBy(desc(post.reportCount), desc(post.createdAt))
+    .orderBy(view === 'quotes' ? asc(post.quoteReviewAt) : desc(post.reportCount), desc(post.createdAt))
     .limit(options.limit ?? 50);
-  return rows.map((row) => ({ ...row, status: row.status as 'published' | 'hidden', createdAt: row.createdAt.toISOString() }));
+  return rows.map((row) => ({ ...row, status: row.status as 'published' | 'hidden', createdAt: row.createdAt.toISOString(), quoteReview: row.quoteReview !== null }));
+}
+
+/**
+ * Posts quoting a post that was taken down, waiting for an administrator:
+ * their answers may restate what was quoted. Until reviewed they stay
+ * public (default, see the PR); the console shows how many wait.
+ */
+export async function quoteReviewCount(): Promise<number> {
+  const [row] = await db().select({ n: sql<number>`count(*)::int` }).from(post).where(isNotNull(post.quoteReviewAt));
+  return row?.n ?? 0;
+}
+
+/** When a post is taken down, every post quoting it waits for review. */
+async function flagQuoting(tx: Executor, id: string): Promise<void> {
+  await tx.update(post).set({ quoteReviewAt: new Date() }).where(and(eq(post.quotePostId, id), isNull(post.quoteReviewAt)));
+}
+
+/**
+ * An administrator reviews a post quoting a taken-down one: `keep` lets its
+ * answers stand; `hide_answers` hides every shown answer (the post itself
+ * stays, its card already says the quote is gone). Either clears the flag
+ * and is in the management log.
+ */
+export async function adminReviewQuote(administratorId: string, id: string, action: 'keep' | 'hide_answers'): Promise<boolean> {
+  if (!isUuid(id)) return false;
+  return db().transaction(async (tx) => {
+    const [before] = await tx.select({ question: post.question, flagged: post.quoteReviewAt }).from(post).where(eq(post.id, id)).for('update');
+    if (!before?.flagged) return false;
+    let hidden = 0;
+    if (action === 'hide_answers') {
+      const rows = await tx
+        .update(answer)
+        .set({ hiddenBy: 'admin', pinnedAt: null })
+        .where(and(eq(answer.postId, id), eq(answer.state, 'answered'), isNull(answer.hiddenBy)))
+        .returning({ id: answer.id });
+      hidden = rows.length;
+      await recount(tx, id);
+    }
+    await tx.update(post).set({ quoteReviewAt: null }).where(eq(post.id, id));
+    await audit(tx, { administratorId, action: action === 'keep' ? 'post.quote.keep' : 'post.quote.hide_answers', target: id, before: { question: before.question.slice(0, 200) }, after: { hidden } });
+    return true;
+  });
 }
 
 /** An administrator hides a published post, or restores one an administrator or reports hid; either is in the management log. */
@@ -1227,6 +1332,7 @@ export async function adminSetPost(administratorId: string, id: string, show: bo
       await tx.delete(schema.postReport).where(eq(schema.postReport.postId, id));
     } else {
       await tx.update(post).set({ status: 'hidden', hiddenBy: 'admin' }).where(eq(post.id, id));
+      await flagQuoting(tx, id);
     }
     await audit(tx, { administratorId, action: show ? 'post.restore' : 'post.hide', target: id, before: { status: before.status, hiddenBy: before.hiddenBy, question: before.question.slice(0, 200) } });
     return true;

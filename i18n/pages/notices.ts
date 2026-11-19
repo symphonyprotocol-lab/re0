@@ -26,6 +26,7 @@ export const zh = {
     other: '你有一条新的账户通知。',
     postAnswered: '你的帖子「{question}」有 {n} 个 Ree 回答了。',
     postQuoted: '有人引用你的帖子「{question}」发了新帖子。',
+    postQuotedMany: '你的帖子「{question}」被引用了 {n} 次，点开看最新一条。',
   },
   open: {
     ree: '查看 Ree',
@@ -60,6 +61,7 @@ export const en: Shape<typeof zh> = {
     other: 'You have a new account notice.',
     postAnswered: '{n} Rees answered your post “{question}”.',
     postQuoted: 'Someone quoted your post “{question}” in a new post.',
+    postQuotedMany: 'Your post “{question}” was quoted {n} times; open the latest.',
   },
   open: {
     ree: 'View Ree',

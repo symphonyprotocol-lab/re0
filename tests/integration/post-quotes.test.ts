@@ -36,6 +36,8 @@ const { publishOwnAnswer } = await import('@/lib/services/public-qa');
 const { reeCards } = await import('@/lib/services/explore');
 const { consoleAdministrator } = await import('../fixtures/console-administrator');
 const { POST_FEE: FEE } = await import('@/lib/domain/post');
+const { POST: askTokenRoute } = await import('@/app/api/share/[slug]/ask-token/route');
+const { validShareAskToken } = await import('@/lib/services/anonymous-chat');
 const writes = {
   publish: (await import('@/app/api/posts/route')).POST,
   summary: (await import('@/app/api/posts/[id]/summary/route')).POST,
@@ -241,5 +243,124 @@ describeWithDb('quoting a post or an answer', () => {
     expect((await writes.trash(request(`/api/posts/${original.postId}`, { trashed: true }, 'PATCH'), id)).status).toBe(401);
     expect((await writes.helpful(request(`/api/posts/answers/${original.answerId}/helpful`, { on: true }), { params: Promise.resolve({ answerId: original.answerId }) })).status).toBe(401);
     expect(await db().select().from(schema.post).where(eq(schema.post.question, 'A visitor post?'))).toHaveLength(0);
+  });
+});
+
+describeWithDb('quotes after review (#161, 2026-11-19)', () => {
+  /** A post quoting `original`, answered by `reeId`. */
+  async function quoting(prefix: string, original: { postId: string }, reeId: string) {
+    const quoter = await user(prefix, 0);
+    const posted = await publish(quoter, `Quoting it, ${prefix}?`, { quotePostId: original.postId });
+    await posts.processPost(posted.id, stub([reeId]));
+    return { quoter, postId: posted.id };
+  }
+  const shownAnswers = async (id: string) => (await posts.getPost(id))!.answers.length;
+  const audits = (target: string) => db().select().from(schema.adminAudit).where(eq(schema.adminAudit.target, target));
+
+  it('flags the posts quoting one an administrator takes down; their answers stay until reviewed, then hide on request', async () => {
+    const original = await answeredPost('qr-admin');
+    const quote = await quoting('qr-admin-quoter', original, original.reeId);
+    const administrator = await consoleAdministrator();
+    expect((await posts.adminPosts({ view: 'quotes' })).map((row) => row.id)).not.toContain(quote.postId);
+
+    expect(await posts.adminSetPost(administrator.id, original.postId, false)).toBe(true);
+    const queued = (await posts.adminPosts({ view: 'quotes' })).find((row) => row.id === quote.postId);
+    expect(queued).toMatchObject({ quoteReview: true, status: 'published' });
+    expect(await posts.quoteReviewCount()).toBeGreaterThanOrEqual(1);
+    /* The default: still public until an administrator decides. */
+    expect(await shownAnswers(quote.postId)).toBe(1);
+    expect((await posts.getPost(quote.postId))!.quote).toEqual({ kind: 'post', available: false });
+
+    expect(await posts.adminReviewQuote(administrator.id, quote.postId, 'hide_answers')).toBe(true);
+    expect(await shownAnswers(quote.postId)).toBe(0);
+    expect((await postRow(quote.postId)).quoteReviewAt).toBeNull();
+    expect((await audits(quote.postId)).map((row) => row.action)).toEqual(['post.quote.hide_answers']);
+    /* Reviewed once: a second review is stale. */
+    expect(await posts.adminReviewQuote(administrator.id, quote.postId, 'keep')).toBe(false);
+  });
+
+  it('flags them when reports take the original down too, and keeps their answers when the administrator lets them stand', async () => {
+    const original = await answeredPost('qr-reports');
+    const quote = await quoting('qr-reports-quoter', original, original.reeId);
+    for (let index = 0; index < 3; index += 1) expect(await posts.reportPost(original.postId, `reporter-${crypto.randomUUID()}`)).toBe(true);
+    expect((await postRow(original.postId))).toMatchObject({ status: 'hidden', hiddenBy: 'reports' });
+    expect((await postRow(quote.postId)).quoteReviewAt).not.toBeNull();
+
+    const administrator = await consoleAdministrator();
+    expect(await posts.adminReviewQuote(administrator.id, quote.postId, 'keep')).toBe(true);
+    expect(await shownAnswers(quote.postId)).toBe(1);
+    expect((await postRow(quote.postId)).quoteReviewAt).toBeNull();
+    expect((await audits(quote.postId)).map((row) => row.action)).toEqual(['post.quote.keep']);
+  });
+
+  it('folds quotes of one post within the hour into one notice, and tells an author about one quoter at most once a day', async () => {
+    const original = await answeredPost('qr-notice');
+    const notices = () => db().select().from(schema.notice).where(and(eq(schema.notice.userId, original.author), eq(schema.notice.kind, 'post_quoted')));
+    const first = await quoting('qr-notice-a', original, original.reeId);
+    const second = await quoting('qr-notice-b', original, original.reeId);
+    let rows = await notices();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ refId: second.postId, params: { original: original.postId, count: 2 } });
+
+    /* The same quoter again, on the same day: nothing more. */
+    const again = await publish(first.quoter, 'Quoting it once more?', { quotePostId: original.postId });
+    await posts.processPost(again.id, stub([]));
+    rows = await notices();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.params).toMatchObject({ count: 2 });
+
+    /* Once read, the next quoter gets a notice of its own. */
+    await db().update(schema.notice).set({ readAt: new Date() }).where(eq(schema.notice.id, rows[0]!.id));
+    await quoting('qr-notice-c', original, original.reeId);
+    expect(await notices()).toHaveLength(2);
+  });
+
+  it('treats the same text quoting something else as another post, within the minute too', async () => {
+    const a = await answeredPost('qr-dedup-a');
+    const b = await answeredPost('qr-dedup-b');
+    const quoter = await user('qr-dedup', FEE * 5);
+    const text = 'What does this mean for me?';
+    const first = await publish(quoter, text, { quotePostId: a.postId });
+    const other = await publish(quoter, text, { quotePostId: b.postId });
+    expect(other.id).not.toBe(first.id);
+    expect(other.duplicate).toBeUndefined();
+    const onAnswer = await publish(quoter, text, { quotePostId: a.postId, quoteAnswerId: a.answerId });
+    expect(onAnswer.id).not.toBe(first.id);
+    const plain = await publish(quoter, text);
+    expect(plain.id).not.toBe(first.id);
+    /* The very same quote again is the same submit. */
+    expect(await publish(quoter, text, { quotePostId: b.postId })).toMatchObject({ id: other.id, duplicate: true });
+  });
+
+  it('lists the quoting posts on any tab of GET /api/posts?quotes=', async () => {
+    const original = await answeredPost('qr-feed');
+    const quote = await quoting('qr-feed-quoter', original, original.reeId);
+    const { GET } = await import('@/app/api/posts/route');
+    for (const tab of ['for_you', 'unanswered', 'latest', 'nonsense']) {
+      const response = await GET(new NextRequest(`http://localhost:3000/api/posts?tab=${tab}&quotes=${original.postId}`));
+      expect(response.status).toBe(200);
+      expect(((await response.json()) as { items: { id: string }[] }).items.map((item) => item.id)).toEqual([quote.postId]);
+    }
+  });
+
+  it('renews a share page\'s question token only for a Ree a visitor may ask there', async () => {
+    const call = (slug: string, origin = 'http://localhost:3000') =>
+      askTokenRoute(new NextRequest(`http://localhost:3000/api/share/${slug}/ask-token`, { method: 'POST', headers: { origin, host: 'localhost:3000' } }), { params: Promise.resolve({ slug }) });
+    const free = await publicRee();
+    const [row] = await db().select({ slug: schema.ree.slug }).from(schema.ree).where(eq(schema.ree.id, free.reeId));
+    const response = await call(row!.slug);
+    expect(response.status).toBe(200);
+    const { token } = (await response.json()) as { token: string };
+    expect(await validShareAskToken(token, free.reeId)).toBe(true);
+    expect((await call(row!.slug, 'https://evil.example')).status).toBe(403);
+
+    const paid = await publicRee(20);
+    const [paidRow] = await db().select({ slug: schema.ree.slug }).from(schema.ree).where(eq(schema.ree.id, paid.reeId));
+    expect((await call(paidRow!.slug)).status).toBe(404);
+    const hidden = await publicRee();
+    await db().update(schema.ree).set({ isPublic: false, isPublished: false }).where(eq(schema.ree.id, hidden.reeId));
+    const [hiddenRow] = await db().select({ slug: schema.ree.slug }).from(schema.ree).where(eq(schema.ree.id, hidden.reeId));
+    expect((await call(hiddenRow!.slug)).status).toBe(404);
+    expect((await call('no-such-ree')).status).toBe(404);
   });
 });

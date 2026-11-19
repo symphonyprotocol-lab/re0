@@ -100,7 +100,7 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
       };
     case 'post_quoted':
       /* Someone quoted one of the reader's public posts in a post of their own ("引用提问"). */
-      return { line: fill(l.postQuoted, { question: String(p.question ?? '') }), icon: 'link', href: notice.refId ? `/p/${notice.refId}` : null, action: o.post, reason: null };
+      return { line: Number(p.count) > 1 ? fill(l.postQuotedMany, { question: String(p.question ?? ''), n: formatNumber(Number(p.count), locale) }) : fill(l.postQuoted, { question: String(p.question ?? '') }), icon: 'link', href: notice.refId ? `/p/${notice.refId}` : null, action: o.post, reason: null };
     default:
       return { line: l.other, icon: 'info', href: null, action: null, reason };
   }

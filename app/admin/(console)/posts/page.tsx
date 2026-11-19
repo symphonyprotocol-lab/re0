@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { requireAdministrator } from '@/lib/http/admin';
-import { adminPosts } from '@/lib/services/posts';
+import { adminPosts, quoteReviewCount } from '@/lib/services/posts';
 import { serverMessages } from '@/i18n/server';
 import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { PageHead } from '@/components/admin/list-kit';
@@ -12,7 +12,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t.posts.admin.title };
 }
 
-const VIEWS = ['reported', 'hidden', 'all'] as const;
+const VIEWS = ['reported', 'quotes', 'hidden', 'all'] as const;
 
 /** `/admin/posts`: public posts to take down or restore (v5, review round 2 B2), reported first; `?view=` and `?q=`. */
 export default async function AdminPostsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
@@ -21,12 +21,18 @@ export default async function AdminPostsPage({ searchParams }: { searchParams: P
   const a = t.posts.admin;
   const view = VIEWS.includes(params.view as (typeof VIEWS)[number]) ? (params.view as (typeof VIEWS)[number]) : 'reported';
   const q = params.q?.slice(0, 200) ?? '';
-  const rows = await adminPosts({ view, q });
+  const [rows, waiting] = await Promise.all([adminPosts({ view, q }), quoteReviewCount()]);
   return (
     <ConsolePage>
       <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: a.title }]} />
       <div className="console-body">
         <PageHead title={a.title} lede={a.lede} />
+        {/* Posts quoting a taken-down post: their answers stay public until reviewed (default, see the PR), so the count stands out. */}
+        {waiting > 0 && (
+          <div className="info-strip mb16">
+            <Link href="/admin/posts?view=quotes">{a.quoteReviewBanner.replace('{n}', String(waiting))}</Link>
+          </div>
+        )}
         <section className="card">
           <div className="flex flex-wrap items-center gap-3 p-4">
             <nav className="flex gap-2" aria-label={a.title}>

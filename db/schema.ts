@@ -1371,6 +1371,8 @@ export const post = pgTable(
     quoteKind: text('quote_kind').$type<'post' | 'answer'>(),
     quotePostId: uuid('quote_post_id').references((): AnyPgColumn => post.id, { onDelete: 'set null' }),
     quoteAnswerId: uuid('quote_answer_id').references((): AnyPgColumn => postAnswer.id, { onDelete: 'set null' }),
+    /** Set when the post it quotes is taken down: its answers may restate the quoted text, so an administrator reviews them (`/admin/posts?view=quotes`); cleared when they do. */
+    quoteReviewAt: timestampTz('quote_review_at'),
     status: text('status').$type<PostStatus>().notNull().default('pending'),
     /** Who took a published post down: an administrator, or `POST_REPORT_THRESHOLD` distinct reporters (until an administrator restores it). */
     hiddenBy: text('hidden_by').$type<'admin' | 'reports'>(),
@@ -1408,6 +1410,7 @@ export const post = pgTable(
     index('post_pending_idx').on(t.createdAt).where(sql`status = 'pending' or answer_state <> 'done'`),
     uniqueIndex('post_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
     index('post_quote_idx').on(t.quotePostId).where(sql`quote_post_id is not null`),
+    index('post_quote_review_idx').on(t.quoteReviewAt).where(sql`quote_review_at is not null`),
     check('post_quote_kind_check', sql`quote_kind is null or quote_kind in ('post', 'answer')`),
     uniqueIndex('post_client_token_key').on(t.userId, t.clientToken).where(sql`client_token is not null`),
     /* 发现 → 帖子 searches question and detail with ILIKE; trigrams let that use an index (pg_trgm, migration 0057). */

@@ -45,6 +45,10 @@ export const POST_PREVIEW_CHARS = 280;
 export const POST_ANSWERING_STALE_MS = 10 * 60_000;
 /** The same text from the same author within this long is the same post (a double submit), published and held once. */
 export const POST_DUPLICATE_WINDOW_MS = 60_000;
+/** Quotes of one post within this long fold into one unread notice for its author. */
+export const POST_QUOTE_NOTICE_MERGE_MS = 60 * 60_000;
+/** One quoter tells one author at most once in this long. */
+export const POST_QUOTE_NOTICE_QUOTER_MS = 24 * 3_600_000;
 /** Distinct reporters that hide a post's question until an administrator looks (the answers' rule, #158). */
 export const POST_REPORT_THRESHOLD = 3;
 /** The posts sweep (`/api/cron/posts`, every 5 minutes): how long it starts new work, and how many posts it answers at once. */

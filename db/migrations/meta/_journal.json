@@ -407,6 +407,13 @@
       "when": 1795055369828,
       "tag": "0059_post_quotes",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1795057924903,
+      "tag": "0060_quote_review",
+      "breakpoints": true
     }
   ]
 }
