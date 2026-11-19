@@ -27,7 +27,7 @@ const knowledge = await import('@/lib/services/knowledge');
 const posts = await import('@/lib/services/posts');
 const { listPublicQa } = await import('@/lib/services/public-qa');
 const { addGrant, balanceOf } = await import('@/lib/services/credits');
-const { POST_FEE, POST_FREE_PER_DAY, POST_SUMMARY_FEE } = await import('@/lib/domain/post');
+const { POST_SUMMARY_FEE } = await import('@/lib/domain/post');
 const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
@@ -150,7 +150,7 @@ describeWithDb('public posts, review round 3', () => {
   });
 
   it('matches only a live post as the same submit (O-a)', async () => {
-    const author = await user('r3-dedup', 0);
+    const author = await user('r3-dedup', 1_000);
     const first = await publish(author, `${QUESTION} trashed`);
     expect(await posts.setPostTrashed(author, first.id, true)).toBe(true);
     const again = await publish(author, `${QUESTION} trashed`);

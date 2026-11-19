@@ -27,8 +27,9 @@ const knowledge = await import('@/lib/services/knowledge');
 const posts = await import('@/lib/services/posts');
 const { syncPublicQa } = await import('@/lib/services/public-qa-sync');
 const { listPublicQa } = await import('@/lib/services/public-qa');
-const { addGrant, balanceOf } = await import('@/lib/services/credits');
-const { POST_FEE, POST_FREE_PER_DAY, POST_SUMMARY_FEE } = await import('@/lib/domain/post');
+const { addGrant, balanceOf, placeHold } = await import('@/lib/services/credits');
+const { POST_MAX_ANSWERS, POST_SUMMARY_FEE } = await import('@/lib/domain/post');
+const { QUERY_BASE_FEE } = await import('@/lib/constants');
 const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
@@ -97,68 +98,62 @@ async function publish(userId: string, question = QUESTION, extra: Partial<PostI
 }
 
 describeWithDb('public posts', () => {
-  it('posts the day\'s free ones free, then holds the fee and settles it once a Ree answers', async () => {
-    const { reeId } = await publicRee();
+  it('costs nothing to post, and charges each free Ree\'s answer the base fee once it answers (per-answer billing, 2026-11-19)', async () => {
+    const first = await publicRee();
+    const second = await publicRee();
     const author = await user('post-author', 200);
-    for (let index = 0; index < POST_FREE_PER_DAY; index += 1) {
-      const free = await publish(author, `${QUESTION} #${index}`);
-      expect(free.charge).toBe('free');
-      expect((await postRow(free.id)).freeDay).not.toBeNull();
-    }
+    const posted = await publish(author);
     expect(await balanceOf(db(), author)).toBe(200);
-    expect((await posts.postAllowance(author)).freeLeft).toBe(0);
+    expect(await posts.postAllowance(author)).toMatchObject({ balance: 200, baseFee: QUERY_BASE_FEE, maxAnswers: POST_MAX_ANSWERS, maxCost: POST_MAX_ANSWERS * QUERY_BASE_FEE, postedToday: 1 });
+    await posts.processPost(posted.id, stub([first.reeId, second.reeId]));
 
-    const paid = await publish(author);
-    expect(paid.charge).toBe('paid');
-    expect(await balanceOf(db(), author)).toBe(200 - POST_FEE);
-    await posts.processPost(paid.id, stub([reeId]));
-
-    const row = await postRow(paid.id);
-    expect(row).toMatchObject({ status: 'published', answerState: 'done', answerCount: 1, candidates: 3, skipped: 2 });
-    expect(await balanceOf(db(), author)).toBe(200 - POST_FEE);
-    const ledger = await entries(author, paid.id);
-    expect(ledger.map((entry) => entry.reason).sort()).toEqual(['post_hold', 'post_settle']);
-    expect(ledger.find((entry) => entry.reason === 'post_settle')?.note).toContain(`charged ${POST_FEE} of ${POST_FEE}`);
-    /* The author hears about it; the Ree's owner earns nothing. */
-    const notices = await db().select().from(schema.notice).where(and(eq(schema.notice.userId, author), eq(schema.notice.refId, paid.id)));
+    const row = await postRow(posted.id);
+    expect(row).toMatchObject({ status: 'published', answerState: 'done', answerCount: 2, candidates: 4, skipped: 2 });
+    expect(await balanceOf(db(), author)).toBe(200 - 2 * QUERY_BASE_FEE);
+    /* Each answer is a question to that Ree on the ledger: held, then the base fee, to the platform. */
+    const answers = await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.postId, posted.id));
+    for (const entry of answers) {
+      expect(entry).toMatchObject({ price: QUERY_BASE_FEE, feeHoldId: null });
+      expect((await entries(author, entry.id)).map((item) => item.reason).sort()).toEqual(['query_base', 'query_hold']);
+    }
+    /* The author hears about it; the Rees' owners earn nothing. */
+    const notices = await db().select().from(schema.notice).where(and(eq(schema.notice.userId, author), eq(schema.notice.refId, posted.id)));
     expect(notices.map((notice) => notice.kind)).toEqual(['post_answered']);
-    const view = await posts.getPost(paid.id);
-    expect(view?.answers).toHaveLength(1);
-    expect(view?.answers[0]).toMatchObject({ reeId, state: 'answered' });
+    expect(await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, first.ownerId), eq(schema.creditEntry.reason, 'query_fee_earned')))).toHaveLength(0);
+    const view = await posts.getPost(posted.id, author);
+    expect(view?.answers.map((entry) => ({ state: entry.state, paid: entry.paid }))).toEqual([{ state: 'answered', paid: false }, { state: 'answered', paid: false }]);
+    expect(view?.spent).toBe(2 * QUERY_BASE_FEE);
+    expect((await posts.getPost(posted.id))?.spent).toBeNull();
   });
 
-  it('gives the fee and the free post back when nobody answers', async () => {
+  it('charges nothing for an answer not given, and nothing when nobody answers', async () => {
     const author = await user('post-unanswered', 100);
-    /* Its own text: the same text again within a minute would be the same post (S4). */
-    const free = await publish(author, `${QUESTION} first try`);
-    await posts.processPost(free.id, stub([]));
-    expect(await postRow(free.id)).toMatchObject({ answerState: 'done', answerCount: 0, freeDay: null });
-    expect((await posts.postAllowance(author)).freeLeft).toBe(POST_FREE_PER_DAY);
-
-    for (let index = 0; index < POST_FREE_PER_DAY; index += 1) await publish(author, `${QUESTION} free ${index}`);
-    const paid = await publish(author);
-    expect(await balanceOf(db(), author)).toBe(100 - POST_FEE);
-    /* Rees were found but none could answer. */
-    const { reeId } = await publicRee();
-    await posts.processPost(paid.id, stub([reeId], false));
+    const nobody = await publish(author, `${QUESTION} first try`);
+    await posts.processPost(nobody.id, stub([]));
+    expect(await postRow(nobody.id)).toMatchObject({ answerState: 'done', answerCount: 0 });
     expect(await balanceOf(db(), author)).toBe(100);
-    expect((await entries(author, paid.id)).map((entry) => entry.reason).sort()).toEqual(['post_hold', 'post_refund']);
-    expect((await posts.listFeed('unanswered')).items.map((item) => item.id)).toContain(paid.id);
-    expect(await db().select().from(schema.notice).where(eq(schema.notice.refId, paid.id))).toHaveLength(0);
+
+    /* Rees were found but none could answer: their holds come back. */
+    const { reeId } = await publicRee();
+    const posted = await publish(author);
+    await posts.processPost(posted.id, stub([reeId], false));
+    expect(await balanceOf(db(), author)).toBe(100);
+    const [row] = await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.postId, posted.id));
+    expect((await entries(author, row!.id)).map((entry) => entry.reason).sort()).toEqual(['query_hold', 'query_refund']);
+    expect((await posts.listFeed('unanswered')).items.map((item) => item.id)).toContain(posted.id);
+    expect(await db().select().from(schema.notice).where(eq(schema.notice.refId, posted.id))).toHaveLength(0);
   });
 
-  it('refunds a post review refuses, keeps a failed review for the cron, and refuses a post it cannot pay for', async () => {
-    const author = await user('post-refused', POST_FEE);
-    for (let index = 0; index < POST_FREE_PER_DAY; index += 1) await publish(author, `${QUESTION} used ${index}`);
-    const paid = await publish(author, `${QUESTION} UNPUBLISHABLE`);
-    expect(await balanceOf(db(), author)).toBe(0);
-    await posts.processPost(paid.id, { judge: async () => ({ publish: false }) });
-    expect(await postRow(paid.id)).toMatchObject({ status: 'rejected', answerState: 'done', freeDay: null });
-    expect(await balanceOf(db(), author)).toBe(POST_FEE);
-    expect(await posts.getPost(paid.id)).toBeNull();
-    expect((await posts.getPost(paid.id, author))?.status).toBe('rejected');
+  it('charges nothing for a post review refuses, keeps a failed review for the cron, and refuses a post below one base fee', async () => {
+    const author = await user('post-refused', QUERY_BASE_FEE);
+    const refusedPost = await publish(author, `${QUESTION} UNPUBLISHABLE`);
+    await posts.processPost(refusedPost.id, { judge: async () => ({ publish: false }) });
+    expect(await postRow(refusedPost.id)).toMatchObject({ status: 'rejected', answerState: 'done' });
+    expect(await balanceOf(db(), author)).toBe(QUERY_BASE_FEE);
+    expect(await posts.getPost(refusedPost.id)).toBeNull();
+    expect((await posts.getPost(refusedPost.id, author))?.status).toBe('rejected');
 
-    /* The model is down: still pending, and the hourly sweep finishes it once it is up. */
+    /* The model is down: still pending, and the sweep finishes it once it is up. */
     const pending = await publish(author, `${QUESTION} retried`);
     const failing = async () => {
       throw new Error('down');
@@ -169,28 +164,26 @@ describeWithDb('public posts', () => {
     const { reeId } = await publicRee();
     await posts.processStalePosts(stub([reeId]));
     expect(await postRow(pending.id)).toMatchObject({ status: 'published', answerState: 'done', answerCount: 1 });
+    expect(await balanceOf(db(), author)).toBe(0);
 
-    const broke = await user('post-broke', 0);
-    for (let index = 0; index < POST_FREE_PER_DAY; index += 1) await publish(broke, `${QUESTION} broke ${index}`);
-    const refused = await posts.publishPost(broke, { question: QUESTION, lang: 'en' });
-    expect(refused).toEqual({ ok: false, error: 'insufficient_credits', balance: 0, needed: POST_FEE });
-    expect(await db().select().from(schema.post).where(eq(schema.post.userId, broke))).toHaveLength(POST_FREE_PER_DAY);
+    /* Below one base fee no answer could be paid: posting is refused, with a top-up. */
+    const refused = await posts.publishPost(author, { question: `${QUESTION} broke`, lang: 'en' });
+    expect(refused).toEqual({ ok: false, error: 'insufficient_credits', balance: 0, needed: QUERY_BASE_FEE });
+    expect(await posts.postAllowance(author)).toMatchObject({ balance: 0, baseFee: QUERY_BASE_FEE });
   });
 
-  it('rejects a post whose last review never finished and gives its fee back', async () => {
-    const author = await user('post-stuck', POST_FEE);
-    for (let index = 0; index < POST_FREE_PER_DAY; index += 1) await publish(author, `${QUESTION} stuck ${index}`);
-    const paid = await publish(author, `${QUESTION} stuck`);
-    expect(await balanceOf(db(), author)).toBe(0);
-    await db().update(schema.post).set({ moderationAttempts: 3, createdAt: new Date(Date.now() - 20 * 60_000) }).where(eq(schema.post.id, paid.id));
+  it('rejects a post whose last review never finished, charging nothing', async () => {
+    const author = await user('post-stuck', QUERY_BASE_FEE);
+    const stuck = await publish(author, `${QUESTION} stuck`);
+    await db().update(schema.post).set({ moderationAttempts: 3, createdAt: new Date(Date.now() - 20 * 60_000) }).where(eq(schema.post.id, stuck.id));
     await posts.processStalePosts(stub([]));
-    expect(await postRow(paid.id)).toMatchObject({ status: 'rejected', freeDay: null });
-    expect(await balanceOf(db(), author)).toBe(POST_FEE);
+    expect(await postRow(stuck.id)).toMatchObject({ status: 'rejected' });
+    expect(await balanceOf(db(), author)).toBe(QUERY_BASE_FEE);
   });
 
   it('counts a visitor\'s reports on an answer once per network', async () => {
     const { reeId } = await publicRee();
-    const author = await user('post-reported', 0);
+    const author = await user('post-reported', 1_000);
     const posted = await publish(author);
     await posts.processPost(posted.id, stub([reeId]));
     const [answer] = (await posts.getPost(posted.id))!.answers;
@@ -226,7 +219,7 @@ describeWithDb('public posts', () => {
 
   it('answers from the Ree\'s own knowledge, with its citations, on the platform', async () => {
     const { reeId } = await publicRee();
-    const author = await user('post-real', 0);
+    const author = await user('post-real', 1_000);
     const posted = await publish(author, QUESTION, { mentionReeId: reeId, anonymous: true });
     await posts.processPost(posted.id, { judge: approve });
     const view = await posts.getPost(posted.id);
@@ -239,16 +232,23 @@ describeWithDb('public posts', () => {
     expect(answer).toMatchObject({ mentioned: true, state: 'answered' });
     /* The Ree page lists it under 回答的帖子. */
     expect((await listPublicQa(reeId))?.items.map((item) => item.postId)).toContain(posted.id);
-    expect(await balanceOf(db(), author)).toBe(0);
+    /* Each answer given cost the author the base fee (other test Rees may have answered too). */
+    const spent = (await posts.getPost(posted.id, author))!.spent!;
+    expect(spent).toBeGreaterThanOrEqual(QUERY_BASE_FEE);
+    expect(spent % QUERY_BASE_FEE).toBe(0);
+    expect(await balanceOf(db(), author)).toBe(1_000 - spent);
   });
 
   it('finishes a run that died, and keeps a trashed post from everyone but its author', async () => {
     const { reeId } = await publicRee();
     const author = await user('post-stale', 100);
-    for (let index = 0; index < POST_FREE_PER_DAY; index += 1) await publish(author, `${QUESTION} spent ${index}`);
     const paid = await publish(author);
     await db().update(schema.post).set({ status: 'published', publishedAt: new Date(Date.now() - 20 * 60_000), answerState: 'answering' }).where(eq(schema.post.id, paid.id));
-    await db().insert(schema.postAnswer).values({ postId: paid.id, reeId, state: 'answering' });
+    /* The run died holding an answer's base fee: the sweep marks it failed and gives the fee back. */
+    const [row] = await db().insert(schema.postAnswer).values({ postId: paid.id, reeId, state: 'answering' }).returning({ id: schema.postAnswer.id });
+    const baseHoldId = await db().transaction((tx) => placeHold(tx, { userId: author, kind: 'post', ledger: 'post_answer', amount: QUERY_BASE_FEE, refId: row!.id, reeId }));
+    await db().update(schema.postAnswer).set({ baseHoldId, price: QUERY_BASE_FEE }).where(eq(schema.postAnswer.id, row!.id));
+    expect(await balanceOf(db(), author)).toBe(100 - QUERY_BASE_FEE);
     await posts.processStalePosts();
     expect(await postRow(paid.id)).toMatchObject({ answerState: 'done', answerCount: 0 });
     expect(await balanceOf(db(), author)).toBe(100);
@@ -256,7 +256,7 @@ describeWithDb('public posts', () => {
     const shown = await publish(author, `${QUESTION} shown`);
     await posts.processPost(shown.id, stub([reeId]));
     expect((await posts.listFeed('latest')).items.map((item) => item.id)).toContain(shown.id);
-    expect(await posts.setPostTrashed(await user('post-stranger'), shown.id, true)).toBe(false);
+    expect(await posts.setPostTrashed(await user('post-stranger', 1_000), shown.id, true)).toBe(false);
     expect(await posts.setPostTrashed(author, shown.id, true)).toBe(true);
     expect((await posts.listFeed('latest')).items.map((item) => item.id)).not.toContain(shown.id);
     expect(await posts.getPost(shown.id)).toBeNull();
@@ -284,14 +284,15 @@ describeWithDb('public posts', () => {
 
     expect(await posts.summarizePost(await user('post-other', 100), posted.id, 'en')).toBe('not_found');
     expect(await posts.summarizePost(author, posted.id, 'en')).toBe('done');
-    expect(await balanceOf(db(), author)).toBe(100 - POST_SUMMARY_FEE);
+    /* The two answers cost their base fees; the summary its own fee. */
+    expect(await balanceOf(db(), author)).toBe(100 - 2 * QUERY_BASE_FEE - POST_SUMMARY_FEE);
     expect(await posts.summarizePost(author, posted.id, 'en')).toBe('already');
     expect((await posts.getPost(posted.id))?.summary?.state).toBe('done');
   });
 
   it('copies #158\'s public Q&A in as posts, any number of times, with their votes, reports and pins', async () => {
     const { reeId } = await publicRee();
-    const voter = await user('post-voter');
+    const voter = await user('post-voter', 1_000);
     const [shown, hidden] = await db()
       .insert(schema.reePublicQa)
       .values([

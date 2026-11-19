@@ -56,7 +56,7 @@ export const zh = {
     publicQa: '允许提问者把问答公开到这个 Ree 的主页',
     publicQaHint: '登录用户提问时勾选"回答后公开"并通过审核后，问答会显示在主页的"回答的帖子"里。关闭后已公开的问答全部隐藏，重新开启会恢复。',
     answersPosts: '回答相关的公开帖子',
-    answersPostsHint: '有人发的公开帖子和这个 Ree 的知识相关时：免费 Ree 自动回答，模型费用由平台承担，不计入你的收入；付费 Ree 先请发帖人确认，发帖人同意并按查询费付费后才回答，查询费计入你的收入。免费 Ree 默认开启，付费 Ree 默认关闭。',
+    answersPostsHint: '有人发的公开帖子和这个 Ree 的知识相关时：免费 Ree 自动回答，发帖人支付基本使用费给平台，不计入你的收入；付费 Ree 先请发帖人确认，发帖人同意并按查询费付费后才回答，查询费计入你的收入。免费 Ree 默认开启，付费 Ree 默认关闭。',
     counter: '{count} / {max}',
   },
   messages: {
@@ -210,7 +210,7 @@ export const en: Shape<typeof zh> = {
     publicQa: 'Let askers publish their questions and answers on this Ree\'s page',
     publicQaHint: 'When a signed-in asker ticks "Publish the answer" and it passes review, it appears under Answered posts on the page. Turning this off hides every published one; turning it on shows them again.',
     answersPosts: 'Answer related public posts',
-    answersPostsHint: 'When someone posts a public question that matches this Ree\'s knowledge: a free Ree answers on its own, RE0 pays for it and it adds nothing to your earnings; a paid Ree first asks the poster, and answers only once they agree and pay its query fee, which goes to your earnings. On by default for free Rees, off for paid ones.',
+    answersPostsHint: 'When someone posts a public question that matches this Ree\'s knowledge: a free Ree answers on its own, the poster pays RE0 the base fee and it adds nothing to your earnings; a paid Ree first asks the poster, and answers only once they agree and pay its query fee, which goes to your earnings. On by default for free Rees, off for paid ones.',
     counter: '{count} / {max}',
   },
   messages: {

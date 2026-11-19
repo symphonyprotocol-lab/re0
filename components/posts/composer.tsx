@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
-import { POST_DETAIL_MAX, POST_FREE_PER_DAY, POST_MAX_ANSWERS, POST_QUESTION_MAX, type PostQuote, type PostView } from '@/lib/domain/post';
+import { POST_DETAIL_MAX, POST_MAX_ANSWERS, POST_QUESTION_MAX, type PostQuote, type PostView } from '@/lib/domain/post';
 import { QuoteCard } from '@/components/posts/post-card';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
@@ -93,8 +93,10 @@ export function ComposeLink(props: ComposeLinkProps) {
 }
 
 interface Allowance {
-  freeLeft: number;
-  fee: number;
+  balance: number;
+  baseFee: number;
+  maxAnswers: number;
+  maxCost: number;
 }
 
 /** A Ree the post names ("发帖问它"): it answers first. */
@@ -242,6 +244,20 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
         </p>
       )}
       <p className="post-hint">{fill(c.publicHint, { max: POST_MAX_ANSWERS })}</p>
+      {/* What posting costs (2026-11-19): nothing; each answer, the most the automatic ones can cost, and a top-up when not even one is covered. */}
+      {allowance && (
+        <p className="post-hint">
+          {fill(c.cost, { max: allowance.maxAnswers, fee: allowance.baseFee, total: allowance.maxCost })}
+          {allowance.balance < allowance.baseFee && (
+            <>
+              {' '}
+              <Link href="/settings?tab=balance" className="text-blue hover:underline">
+                {fill(c.topUp, { fee: allowance.baseFee })} → {c.topUpGo}
+              </Link>
+            </>
+          )}
+        </p>
+      )}
       <div className="post-composer-foot">
         {!showDetail && (
           <button type="button" className="icon-btn" onClick={() => setShowDetail(true)}>
@@ -253,12 +269,7 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
           <input type="checkbox" checked={anonymous} onChange={(event) => setAnonymous(event.target.checked)} />
           {c.anonymous}
         </label>
-        {allowance && (
-          <span className="post-quota">
-            {allowance.freeLeft > 0 ? fill(c.freeLeft, { n: allowance.freeLeft, total: POST_FREE_PER_DAY }) : fill(c.paid, { fee: allowance.fee })}
-          </span>
-        )}
-        <button type="button" className="btn btn-sm" disabled={busy || !question.trim()} onClick={() => void publish()}>
+        <button type="button" className="btn btn-sm" disabled={busy || !question.trim() || (allowance !== null && allowance.balance < allowance.baseFee)} onClick={() => void publish()}>
           {busy ? <i className="spinner" /> : null}
           {busy ? c.publishing : c.publish}
         </button>
@@ -384,7 +395,7 @@ export function HomeComposer({ signedIn }: { signedIn: boolean }) {
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-0 flex-1">
             <strong className="block text-[13px]">{c.visitorTitle}</strong>
-            <small className="text-[11px] text-muted">{fill(c.visitorBody, { n: POST_FREE_PER_DAY })}</small>
+            <small className="text-[11px] text-muted">{c.visitorBody}</small>
           </div>
           <Link href="/login?returnTo=%2F%3Fcompose%3Dpublic" className="btn btn-sm">
             {c.signIn}

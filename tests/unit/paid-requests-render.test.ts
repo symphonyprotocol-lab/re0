@@ -24,6 +24,7 @@ const base: PostView = {
   answers: [{ id: 'a1', reeId: 'r1', reeSlug: 'paid', reeName: 'Paid desk', reeAvatar: null, reeColor: 'default', official: false, similarity: 0.8, state: 'answered', text: 'Within 14 days.', truncated: false, citations: [], helpful: 0, voted: false, pinned: false, paid: true }],
   summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, followUps: [],
   paidRequests: [{ id: 'q1', reeId: 'r2', reeSlug: 'tax', reeName: 'Tax desk', reeAvatar: null, reeColor: 'default', ownerName: 'Mei', similarity: 0.71, mentioned: false, price: 70, state: 'awaiting' }],
+  spent: 20,
   deleted: false,
 };
 const render = (post: PostView) =>

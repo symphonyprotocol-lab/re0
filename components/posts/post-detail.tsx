@@ -366,6 +366,8 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
         </article>
       ))}
 
+      {mine && post.spent !== null && post.spent > 0 && <p className="post-skipped">{fill(p.spent, { n: formatNumber(post.spent, locale) })}</p>}
+
       {mine && live && post.paidRequests.length > 0 && (
         <section className="post-paid" aria-label={p.paidTitle}>
           <div className="post-answers-head">

@@ -1,24 +1,25 @@
 /**
  * Public posts (v5, lib/domain/post.ts).
  *
- *   1. Publishing (`publishPost`): the question is redacted like a public
- *      answer, and in one transaction under a per-user lock the day's free
- *      posts are counted; past them `POST_FEE` is held. The post starts
- *      `pending`.
+ *   1. Publishing (`publishPost`) costs nothing: the question is redacted
+ *      like a public answer and the post starts `pending`, as long as the
+ *      author has at least one base fee and is under the daily limit.
  *   2. `processPost` runs after the response (`after()`), and again from the
- *      hourly cron for a post a request did not finish:
+ *      posts cron for a post a request did not finish:
  *      - the question is reviewed (the public Q&A's check, question only);
- *        refused → `rejected`, the fee and the free post are given back;
- *        the check failed → left pending for the cron;
+ *        refused → `rejected`, nothing was charged;
  *      - the Rees are matched: the search's `POST_CANDIDATES` nearest public
  *        Rees, those whose best passage reaches `POST_MIN_SIMILARITY` and
  *        that take posts (`ree.answers_posts`, by default free Rees only),
  *        at most `POST_MAX_ANSWERS`; a mentioned Ree that takes posts comes
  *        first whatever its similarity;
- *      - each answers in parallel from its own knowledge, on the platform's
- *        model (`post_answer` calls): the platform pays, nobody earns;
- *      - `finishPost` settles: an answer settles the fee to the platform and
- *        tells the author; none gives the fee and the free post back.
+ *      - billing is per answer (2026-11-19): each free Ree of someone else
+ *        holds the author's base fee, most relevant first, and answers; one
+ *        the balance cannot cover, and every paid Ree, waits as a request
+ *        the author agrees to (`agreePaidAnswer`). The author's own Rees and
+ *        RE0's example posts charge nobody;
+ *      - each answer settles its own hold: the base fee to the platform when
+ *        it answered, given back when it did not.
  *   3. Reading: the feeds (为你推荐 / 最新 / 待回答), a post with its answers,
  *      a Ree's answered posts (the Ree page and the share page, where the
  *      copied public Q&A also lives), the author's own posts and trash, and
@@ -42,13 +43,10 @@ import {
   POST_CANDIDATES,
   POST_DAILY_LIMIT,
   POST_DUPLICATE_WINDOW_MS,
-  POST_FEE,
-  POST_FREE_PER_DAY,
   POST_MAX_ANSWERS,
   POST_MIN_SIMILARITY,
   POST_PAGE_SIZE,
   POST_PAID_ANSWER_STALE_MS,
-  POST_PAID_REQUEST_REFUND_MS,
   POST_PREVIEW_CHARS,
   POST_QUOTE_PREVIEW_CHARS,
   POST_QUOTE_NOTICE_MERGE_MS,
@@ -138,29 +136,31 @@ export interface PostInput {
 }
 
 export type PublishOutcome =
-  | { ok: true; id: string; charge: 'free' | 'paid' | 'none'; duplicate?: boolean }
+  | { ok: true; id: string; duplicate?: boolean }
   | { ok: false; error: 'empty' | 'too_long' | 'daily_limit' | 'quote_unavailable' }
   | { ok: false; error: 'insufficient_credits'; balance: number; needed: number };
 
-/** What the composer says about today: free posts left, and the fee after them. */
-export async function postAllowance(userId: string, now = new Date()): Promise<{ freeLeft: number; fee: number; postedToday: number }> {
+/**
+ * What the composer says before posting: the balance, what one free Ree's
+ * answer costs and the most the automatic answers can cost (every place a
+ * free Ree), and posts made today against the daily limit.
+ */
+export async function postAllowance(userId: string, now = new Date()): Promise<{ balance: number; baseFee: number; maxAnswers: number; maxCost: number; postedToday: number; dailyLimit: number }> {
   const day = postDay(now);
   const [row] = await db()
-    .select({
-      free: sql<number>`count(*) filter (where ${post.freeDay} = ${day}::date)::int`,
-      today: sql<number>`count(*) filter (where ${post.createdAt} >= ${day}::date)::int`,
-    })
+    .select({ today: sql<number>`count(*) filter (where ${post.createdAt} >= ${day}::date)::int` })
     .from(post)
     .where(and(eq(post.userId, userId), eq(post.source, 'post')));
-  return { freeLeft: Math.max(0, POST_FREE_PER_DAY - (row?.free ?? 0)), fee: POST_FEE, postedToday: row?.today ?? 0 };
+  return { balance: await balanceOf(db(), userId, now), baseFee: QUERY_BASE_FEE, maxAnswers: POST_MAX_ANSWERS, maxCost: POST_MAX_ANSWERS * QUERY_BASE_FEE, postedToday: row?.today ?? 0, dailyLimit: POST_DAILY_LIMIT };
 }
 
 /**
- * Publishes a post as `pending`, free while the day's free posts last and
- * holding `POST_FEE` after. One user's posts are counted under an advisory
- * lock, so two at once never both take the last free one. Idempotent: the
+ * Publishes a post as `pending`. Posting costs nothing -- each answer is
+ * charged on its own (`processPost`) -- but a balance below one base fee
+ * could pay for no answer, so it is refused with a top-up. One user's posts
+ * are counted under an advisory lock against the daily limit. Idempotent: the
  * same `clientToken`, or the same text within `POST_DUPLICATE_WINDOW_MS`,
- * returns the post already made (`duplicate`), holding nothing more.
+ * returns the post already made (`duplicate`).
  */
 export async function publishPost(userId: string, input: PostInput, now = new Date()): Promise<PublishOutcome> {
   const invalid = postInputError(input.question, input.detail ?? '');
@@ -184,7 +184,7 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
     return await db().transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`post:${userId}`}))`);
       const [same] = await tx
-        .select({ id: post.id, charge: post.charge })
+        .select({ id: post.id })
         .from(post)
         .where(
           and(
@@ -208,17 +208,14 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
         )
         .orderBy(desc(post.createdAt))
         .limit(1);
-      if (same) return { ok: true, id: same.id, charge: same.charge, duplicate: true } as const;
+      if (same) return { ok: true, id: same.id, duplicate: true } as const;
       const [counts] = await tx
-        .select({
-          free: sql<number>`count(*) filter (where ${post.freeDay} = ${day}::date)::int`,
-          today: sql<number>`count(*) filter (where ${post.createdAt} >= ${day}::date)::int`,
-        })
+        .select({ today: sql<number>`count(*) filter (where ${post.createdAt} >= ${day}::date)::int` })
         .from(post)
         .where(and(eq(post.userId, userId), eq(post.source, 'post')));
       if ((counts?.today ?? 0) >= POST_DAILY_LIMIT) return { ok: false, error: 'daily_limit' } as const;
-      const free = (counts?.free ?? 0) < POST_FREE_PER_DAY;
-      const holdId = free ? null : await placeHold(tx, { userId, kind: 'post', amount: POST_FEE, refId: id, note: 'post' }, now);
+      const balance = await balanceOf(tx, userId, now);
+      if (balance < QUERY_BASE_FEE) return { ok: false, error: 'insufficient_credits', balance, needed: QUERY_BASE_FEE } as const;
       await tx.insert(post).values({
         id,
         userId,
@@ -231,16 +228,13 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
         quoteKind: quote?.kind ?? null,
         quotePostId: quote?.postId ?? null,
         quoteAnswerId: quote?.answerId ?? null,
-        charge: free ? 'free' : 'paid',
-        holdId,
-        freeDay: free ? day : null,
         clientToken,
         createdAt: now,
       });
-      return { ok: true, id, charge: free ? 'free' : 'paid' } as const;
+      return { ok: true, id } as const;
     });
   } catch (error) {
-    if (error instanceof InsufficientCredits) return { ok: false, error: 'insufficient_credits', balance: await balanceOf(db(), userId), needed: POST_FEE };
+    if (error instanceof InsufficientCredits) return { ok: false, error: 'insufficient_credits', balance: await balanceOf(db(), userId), needed: QUERY_BASE_FEE };
     throw error;
   }
 }
@@ -363,14 +357,9 @@ export async function moderatePost(id: string, judge: Judge = modelJudge, now = 
   return 'rejected';
 }
 
-/** A pending post refused (or whose review never finished): not public, the fee and the free post given back. */
+/** A pending post refused (or whose review never finished): not public; nothing was charged. */
 async function rejectPost(id: string, now: Date): Promise<void> {
-  await db().transaction(async (tx) => {
-    const [target] = await tx.select({ holdId: post.holdId }).from(post).where(and(eq(post.id, id), eq(post.status, 'pending'))).for('update');
-    if (!target) return;
-    if (target.holdId) await releaseHold(tx, target.holdId, { note: 'post' }, now);
-    await tx.update(post).set({ status: 'rejected', answerState: 'done', freeDay: null, answeredAt: now }).where(eq(post.id, id));
-  });
+  await db().update(post).set({ status: 'rejected', answerState: 'done', answeredAt: now }).where(and(eq(post.id, id), eq(post.status, 'pending')));
 }
 
 /* ---------------------------------------------------------------- matching */
@@ -484,34 +473,43 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
     /*
      * A paid Ree (someone else's, with a query fee) waits for the author to
      * agree; without an author to ask it does not take part at all. The
-     * author's own paid Ree answers like a free one: they would pay
-     * themselves nothing but the base fee.
+     * author's own Rees answer free: they would pay themselves. Every other
+     * free Ree holds the author's base fee below, most relevant first.
      */
     const paidIds = new Set(categories.filter((entry) => entry.queryFee > 0 && entry.ownerId !== row!.userId).map((entry) => entry.id));
+    const ownIds = new Set(categories.filter((entry) => entry.ownerId === row!.userId).map((entry) => entry.id));
     const answerers = author ? found : found.filter((entry) => !paidIds.has(entry.reeId));
-    const answering = answerers.filter((entry) => !paidIds.has(entry.reeId));
     await db()
       .update(post)
       .set({ candidates: match.candidates, skipped: match.skipped, category: categories.find((entry) => entry.id === answerers[0]?.reeId)?.category ?? null })
       .where(eq(post.id, id));
-    if (answerers.length) {
-      await db()
-        .insert(answer)
-        .values(answerers.map((entry) => ({ postId: id, reeId: entry.reeId, similarity: entry.similarity, mentioned: entry.mentioned, state: paidIds.has(entry.reeId) ? ('awaiting' as const) : ('answering' as const) })))
-        .onConflictDoNothing();
+    const rows = answerers.length
+      ? await db()
+          .insert(answer)
+          .values(answerers.map((entry) => ({ postId: id, reeId: entry.reeId, similarity: entry.similarity, mentioned: entry.mentioned, state: paidIds.has(entry.reeId) ? ('awaiting' as const) : ('answering' as const) })))
+          .onConflictDoNothing()
+          .returning({ id: answer.id, reeId: answer.reeId, state: answer.state })
+      : [];
+    /* The base fee of each charged answer, in the matcher's order (the mentioned Ree, then the closest); one the balance cannot cover waits for the author too. */
+    const answering: { id: string; reeId: string }[] = [];
+    for (const entry of answerers) {
+      const inserted = rows.find((other) => other.reeId === entry.reeId);
+      if (!inserted || inserted.state !== 'answering') continue;
+      const charged = author !== null && !ownIds.has(entry.reeId);
+      if (charged && !(await holdBaseFee(author, inserted.id, entry.reeId, now()))) continue;
+      answering.push(inserted);
     }
     await Promise.all(
       answering.map(async (entry) => {
-        const result = await (deps.answerOne ?? groundedAnswer)({ reeId: entry.reeId, subject, lang: row!.lang, vector: match.vector, context });
-        await db()
-          .update(answer)
-          .set(
-            result.state === 'answered'
-              ? { state: 'answered', text: result.text.slice(0, 20_000), citations: result.citations, model: result.model, answeredAt: now() }
-              : { state: result.state, model: result.model },
-          )
-          /* Only while it is still running: once the post is settled a late answer stays failed, as it was counted. */
-          .where(and(eq(answer.postId, id), eq(answer.reeId, entry.reeId), eq(answer.state, 'answering')));
+        let result: AnswerResult;
+        try {
+          result = await (deps.answerOne ?? groundedAnswer)({ reeId: entry.reeId, subject, lang: row!.lang, vector: match.vector, context });
+        } catch (error) {
+          console.warn(`post ${id} answer ree=${entry.reeId} failed: ${error instanceof Error ? error.message : 'unknown'}`);
+          result = { state: 'failed', model: null };
+        }
+        /* Only while it is still running: once the post is settled a late answer stays failed, its hold given back. */
+        await closeAnswer(entry.id, result, now());
       }),
     );
   } catch (error) {
@@ -521,33 +519,32 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
 }
 
 /**
- * Settles a post: answers still running are marked failed, the shown
- * answers counted; with one or more the fee is settled to the platform and
- * the author told, with none the fee and the free post are given back.
+ * Settles a post: answers still running are marked failed and their holds
+ * given back, the shown answers counted, and the author told -- of the
+ * answers, and of the Rees waiting for them to agree.
  */
 export async function finishPost(id: string, now = new Date()): Promise<void> {
   await db().transaction(async (tx) => {
     const [target] = await tx.select().from(post).where(and(eq(post.id, id), eq(post.answerState, 'answering'))).for('update');
     if (!target) return;
-    await tx.update(answer).set({ state: 'failed' }).where(and(eq(answer.postId, id), inArray(answer.state, ['queued', 'answering'])));
+    const running = await tx
+      .update(answer)
+      .set({ state: 'failed' })
+      .where(and(eq(answer.postId, id), inArray(answer.state, ['queued', 'answering'])))
+      .returning({ reeId: answer.reeId, baseHoldId: answer.baseHoldId, feeHoldId: answer.feeHoldId });
+    for (const entry of running) {
+      if (entry.baseHoldId) await releaseHold(tx, entry.baseHoldId, { reeId: entry.reeId, ledger: 'post_answer' }, now);
+      if (entry.feeHoldId) await releaseHold(tx, entry.feeHoldId, { reeId: entry.reeId, ledger: 'chat_fee' }, now);
+    }
     const [counted] = await tx.select({ n: sql<number>`count(*)::int` }).from(answer).where(and(eq(answer.postId, id), eq(answer.state, 'answered')));
     const answered = counted?.n ?? 0;
     const [waiting] = await tx.select({ n: sql<number>`count(*)::int` }).from(answer).where(and(eq(answer.postId, id), eq(answer.state, 'awaiting')));
     const requests = waiting?.n ?? 0;
-    /* No answer yet but paid Rees waiting for the author: the fee stays held until they agree or decline (`settlePostFee`). */
-    const open = answered === 0 && requests > 0;
-    if (target.holdId && !open) {
-      if (answered > 0) await settleHold(tx, target.holdId, POST_FEE, { note: 'post' }, now);
-      else await releaseHold(tx, target.holdId, { note: 'post' }, now);
-    }
-    await tx
-      .update(post)
-      .set({ answerState: 'done', answerCount: answered, answeredAt: now, ...(answered === 0 && !open ? { freeDay: null } : {}) })
-      .where(eq(post.id, id));
+    await tx.update(post).set({ answerState: 'done', answerCount: answered, answeredAt: now }).where(eq(post.id, id));
     if (answered > 0 && target.userId && target.source === 'post') {
       await notify(tx, { userId: target.userId, kind: 'post_answered', params: { question: target.question.slice(0, 80), answers: answered }, refId: id });
     }
-    /* One notice for all of a post's paid requests. */
+    /* One notice for all of a post's requests: paid Rees, and free ones the balance could not cover. */
     if (requests > 0 && target.userId && target.source === 'post') {
       await notify(tx, { userId: target.userId, kind: 'post_paid_requests', params: { question: target.question.slice(0, 80), n: requests }, refId: id });
     }
@@ -663,7 +660,7 @@ interface AnswerRow {
   color: string;
   role: string;
   shown: boolean;
-  price: number | null;
+  feeHoldId: string | null;
 }
 
 async function answersFor(postIds: string[]): Promise<AnswerRow[]> {
@@ -685,7 +682,7 @@ async function answersFor(postIds: string[]): Promise<AnswerRow[]> {
       color: ree.color,
       role: user.role,
       shown: sql<boolean>`(${shownAnswer()})`,
-      price: answer.price,
+      feeHoldId: answer.feeHoldId,
     })
     .from(answer)
     .innerJoin(ree, eq(ree.id, answer.reeId))
@@ -724,7 +721,7 @@ function answerView(row: AnswerRow, voted: Set<string>, whole: boolean): PostAns
     helpful: row.helpful,
     voted: voted.has(row.id),
     pinned: row.pinnedAt !== null,
-    paid: row.price !== null && row.price > 0,
+    paid: row.feeHoldId !== null,
   };
 }
 
@@ -746,7 +743,9 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
         .orderBy(desc(conversation.updatedAt))
     : [];
   const [quotes, quoteCounts] = await Promise.all([quotesFor(rows, viewerId), quoteCountsFor(ids)]);
-  const requests = options.whole && viewerId && rows.length === 1 && rows[0]!.userId === viewerId && rows[0]!.source === 'post' ? await paidRequestsFor(rows[0]!.id, viewerId) : [];
+  const authorView = options.whole && viewerId && rows.length === 1 && rows[0]!.userId === viewerId && rows[0]!.source === 'post';
+  const requests = authorView ? await paidRequestsFor(rows[0]!.id, viewerId) : [];
+  const spent = authorView ? await spentOn(rows[0]!.id) : null;
   /* For its author, on the post's page: whether rewriting a stale summary is free (`freeRewrite`). */
   const rewriteFree = new Map<string, boolean>();
   for (const row of rows) {
@@ -786,6 +785,7 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
       hiddenBy: row.status === 'hidden' ? row.hiddenBy : null,
       followUps: followUps.filter((entry, at, all) => all.findIndex((other) => other.id === entry.id) === at).map((entry) => ({ id: entry.id, title: entry.title, reeName: entry.reeName })),
       paidRequests: requests,
+      spent,
       deleted: row.deletedAt !== null,
     };
   });
@@ -1065,10 +1065,38 @@ export async function ownerActOnAnswer(userId: string, reeId: string, id: string
 
 /* ---------------------------------------------------------------- paid Rees */
 
-/** A paid Ree that may still answer a post on request: public, taking posts and charging. Needs `ree` joined. */
-const paidOpen = (): SQL => sql`(${publicRee()} and ${takesPosts()} and ${ree.queryFee} > 0)`;
-/** An agreed paid answer that could not be given, everything returned: the author may agree again. */
-const refunded = (): SQL => and(inArray(answer.state, ['failed', 'no_answer']), isNotNull(answer.baseHoldId))!;
+/** What the post's answers cost its author: the base fee and query fee of each answer given. */
+async function spentOn(postId: string): Promise<number> {
+  const [row] = await db()
+    .select({ n: sql<number>`coalesce(sum(${answer.price}), 0)::int` })
+    .from(answer)
+    .where(and(eq(answer.postId, postId), eq(answer.state, 'answered'), isNotNull(answer.baseHoldId)));
+  return row?.n ?? 0;
+}
+
+/** A Ree that may still answer a post on request: public and taking posts. Needs `ree` joined. */
+const requestOpen = (): SQL => sql`(${publicRee()} and ${takesPosts()})`;
+/** An answer the author agreed to that could not be given, everything returned: they may agree again. */
+const refunded = (): SQL => and(inArray(answer.state, ['failed', 'no_answer']), isNotNull(answer.decidedAt), isNotNull(answer.baseHoldId))!;
+
+/**
+ * Holds the author's base fee for one free Ree's automatic answer. Without
+ * the balance the answer waits for the author instead (`awaiting`), like a
+ * paid Ree's, and false is returned.
+ */
+async function holdBaseFee(userId: string, answerId: string, reeId: string, now: Date): Promise<boolean> {
+  try {
+    await db().transaction(async (tx) => {
+      const baseHoldId = await placeHold(tx, { userId, kind: 'post', ledger: 'post_answer', amount: QUERY_BASE_FEE, refId: answerId, reeId, note: 'post answer' }, now);
+      await tx.update(answer).set({ baseHoldId, price: QUERY_BASE_FEE }).where(eq(answer.id, answerId));
+    });
+    return true;
+  } catch (error) {
+    if (!(error instanceof InsufficientCredits)) throw error;
+    await db().update(answer).set({ state: 'awaiting' }).where(and(eq(answer.id, answerId), eq(answer.state, 'answering')));
+    return false;
+  }
+}
 
 /**
  * The paid Rees waiting for this post's author, with what agreeing costs
@@ -1083,7 +1111,7 @@ async function paidRequestsFor(postId: string, userId: string): Promise<PaidRequ
     .from(answer)
     .innerJoin(ree, eq(ree.id, answer.reeId))
     .innerJoin(owner, eq(owner.id, ree.ownerId))
-    .where(and(eq(answer.postId, postId), or(and(eq(answer.state, 'answering'), isNotNull(answer.baseHoldId)), and(or(eq(answer.state, 'awaiting'), refunded()), paidOpen()))))
+    .where(and(eq(answer.postId, postId), or(and(eq(answer.state, 'answering'), isNotNull(answer.baseHoldId)), and(or(eq(answer.state, 'awaiting'), refunded()), requestOpen()))))
     .orderBy(desc(answer.mentioned), sql`${answer.similarity} desc nulls last`, asc(answer.createdAt));
   return rows.map((row) => ({
       id: row.id,
@@ -1107,21 +1135,21 @@ export type PaidAgreement =
   | { ok: false; error: 'insufficient'; balance: number; needed: number };
 
 /**
- * The post's author agrees to a paid Ree's answer at the price they were
- * shown: the base fee and the Ree's query fee are held like a private
- * question's, and the answer starts (`answerPaid`). A price now above the one
- * shown is refused with the new price, so the author confirms again; a lower
- * one is what is charged. The Ree must still be public, take posts and charge:
- * one that no longer does is closed at once, and the post's fee settles if
- * nothing else is open. Agreed already (another tab): `already`. An agreed
- * answer that could not be given may be agreed to again, at today's price.
+ * The post's author agrees to a waiting Ree's answer at the price they were
+ * shown: a paid Ree's base fee and query fee, or a free Ree's base fee (one
+ * their balance could not cover at first), held like a private question's;
+ * the answer then starts (`answerPaid`). A price now above the one shown is
+ * refused with the new price, so the author confirms again; a lower one is
+ * what is charged. A Ree no longer public or taking posts is closed at once.
+ * Agreed already (another tab): `already`. An agreed answer that could not be
+ * given may be agreed to again, at today's price.
  */
 export async function agreePaidAnswer(userId: string, id: string, shownPrice: unknown, now = new Date()): Promise<PaidAgreement> {
   if (!isUuid(id)) return { ok: false, error: 'not_found' };
   try {
     return await db().transaction(async (tx) => {
       const [target] = await tx
-        .select({ id: answer.id, postId: answer.postId, state: answer.state, reeId: ree.id, reeName: ree.name, ownerId: ree.ownerId, queryFee: ree.queryFee, open: sql<boolean>`${paidOpen()}` })
+        .select({ id: answer.id, postId: answer.postId, state: answer.state, reeId: ree.id, reeName: ree.name, ownerId: ree.ownerId, queryFee: ree.queryFee, open: sql<boolean>`${requestOpen()}` })
         .from(answer)
         .innerJoin(post, eq(post.id, answer.postId))
         .innerJoin(ree, eq(ree.id, answer.reeId))
@@ -1131,14 +1159,13 @@ export async function agreePaidAnswer(userId: string, id: string, shownPrice: un
       if (target.state === 'answering' || target.state === 'answered') return { ok: false, error: 'already' } as const;
       if (!target.open || target.ownerId === userId) {
         await tx.update(answer).set({ state: 'declined', decidedAt: now }).where(eq(answer.id, id));
-        await settlePostFee(tx, target.postId, now);
         return { ok: false, error: 'unavailable' } as const;
       }
       const price = maxCostFor({ ownerId: target.ownerId, queryFee: target.queryFee }, userId);
       const shown = typeof shownPrice === 'number' && Number.isFinite(shownPrice) ? shownPrice : -1;
       if (price > shown) return { ok: false, error: 'price_changed', price } as const;
       const baseHoldId = await placeHold(tx, { userId, kind: 'post', ledger: 'post_answer', amount: QUERY_BASE_FEE, refId: id, reeId: target.reeId, note: target.reeName }, now);
-      const feeHoldId = await placeHold(tx, { userId, kind: 'post', ledger: 'chat_fee', amount: target.queryFee, refId: id, reeId: target.reeId, note: target.reeName }, now);
+      const feeHoldId = target.queryFee > 0 ? await placeHold(tx, { userId, kind: 'post', ledger: 'chat_fee', amount: target.queryFee, refId: id, reeId: target.reeId, note: target.reeName }, now) : null;
       await tx.update(answer).set({ state: 'answering', price, baseHoldId, feeHoldId, decidedAt: now }).where(eq(answer.id, id));
       return { ok: true } as const;
     });
@@ -1151,27 +1178,20 @@ export async function agreePaidAnswer(userId: string, id: string, shownPrice: un
   }
 }
 
-/** The author does not want this paid Ree's answer: it is gone for good, and the post's fee settles if nothing else is left open. */
+/** The author does not want this Ree's answer: it is gone for good. Nothing was charged for it. */
 export async function declinePaidAnswer(userId: string, id: string, now = new Date()): Promise<boolean> {
   if (!isUuid(id)) return false;
-  return db().transaction(async (tx) => {
-    const [row] = await tx
-      .update(answer)
-      .set({ state: 'declined', decidedAt: now })
-      .where(and(eq(answer.id, id), or(eq(answer.state, 'awaiting'), refunded()), sql`exists (select 1 from ${post} p where p.id = ${answer.postId} and p.user_id = ${userId} and p.source = 'post')`))
-      .returning({ postId: answer.postId });
-    if (!row) return false;
-    await settlePostFee(tx, row.postId, now);
-    return true;
-  });
+  const rows = await db()
+    .update(answer)
+    .set({ state: 'declined', decidedAt: now })
+    .where(and(eq(answer.id, id), or(eq(answer.state, 'awaiting'), refunded()), sql`exists (select 1 from ${post} p where p.id = ${answer.postId} and p.user_id = ${userId} and p.source = 'post')`))
+    .returning({ id: answer.id });
+  return rows.length > 0;
 }
 
 /**
- * The answer of a paid Ree the author agreed to, written like any post
- * answer. Answered: both holds settle -- the base fee to the platform, the
- * query fee to the owner as earned credits, as for a private question --
- * and the post counts it. No answer or a failure: both holds are given back.
- * Either way the post's own fee settles if it was still waiting.
+ * The answer of a Ree the author agreed to, written like any post answer and
+ * settled by `closeAnswer`.
  */
 export async function answerPaid(id: string, deps: { answerOne?: AnswerOne; now?: () => Date } = {}): Promise<void> {
   if (!isUuid(id)) return;
@@ -1186,16 +1206,24 @@ export async function answerPaid(id: string, deps: { answerOne?: AnswerOne; now?
     console.warn(`paid post answer ${id} failed: ${error instanceof Error ? error.message : 'unknown'}`);
     result = { state: 'failed', model: null };
   }
-  await closePaidAnswer(id, result, now());
+  await closeAnswer(id, result, now());
 }
 
-async function closePaidAnswer(id: string, result: AnswerResult, now: Date): Promise<void> {
+/**
+ * Writes one answer still running and settles its holds, once (the row is
+ * locked and must still be `answering`). Answered: the base fee settles to
+ * the platform as a question to that Ree (`query_base`), and a paid Ree's
+ * query fee to its owner as earned credits, as for a private question. No
+ * answer or a failure: both holds are given back. An answer charged to
+ * nobody (the author's own Ree, an example post) just writes.
+ */
+async function closeAnswer(id: string, result: AnswerResult, now: Date): Promise<void> {
   await db().transaction(async (tx) => {
     const [target] = await tx
       .select({ id: answer.id, postId: answer.postId, reeId: answer.reeId, baseHoldId: answer.baseHoldId, feeHoldId: answer.feeHoldId, price: answer.price, reeName: ree.name, ownerId: ree.ownerId })
       .from(answer)
       .innerJoin(ree, eq(ree.id, answer.reeId))
-      .where(and(eq(answer.id, id), eq(answer.state, 'answering'), isNotNull(answer.baseHoldId)))
+      .where(and(eq(answer.id, id), eq(answer.state, 'answering')))
       .for('update', { of: answer });
     if (!target) return;
     const holds = { reeId: target.reeId, note: target.reeName };
@@ -1210,40 +1238,13 @@ async function closePaidAnswer(id: string, result: AnswerResult, now: Date): Pro
       await tx.update(answer).set({ state: result.state, model: result.model }).where(eq(answer.id, id));
     }
     await recount(tx, target.postId);
-    await settlePostFee(tx, target.postId, now);
   });
 }
 
 /**
- * A post whose fee was left held for its paid requests: settled once any Ree
- * answered, given back (with the day's free post) once nothing is left open
- * -- every request declined, or agreed and unanswered. Nothing to do when it
- * was settled already.
- */
-async function settlePostFee(tx: Tx, postId: string, now: Date, force = false): Promise<void> {
-  const [target] = await tx.select({ holdId: post.holdId, freeDay: post.freeDay }).from(post).where(and(eq(post.id, postId), eq(post.answerState, 'done'))).for('update');
-  if (!target) return;
-  const [counts] = await tx
-    .select({
-      answered: sql<number>`count(*) filter (where ${answer.state} = 'answered')::int`,
-      open: sql<number>`count(*) filter (where ${answer.state} in ('awaiting', 'answering'))::int`,
-    })
-    .from(answer)
-    .where(eq(answer.postId, postId));
-  if ((counts?.answered ?? 0) > 0) {
-    if (target.holdId) await settleHold(tx, target.holdId, POST_FEE, { note: 'post' }, now);
-    return;
-  }
-  if ((counts?.open ?? 0) > 0 && !force) return;
-  if (target.holdId) await releaseHold(tx, target.holdId, { note: 'post' }, now);
-  if (target.freeDay) await tx.update(post).set({ freeDay: null }).where(eq(post.id, postId));
-}
-
-/**
- * The sweep's part for paid Rees: answers agreed to that no live run
- * finished get their holds back; posts no Ree answered whose requests
- * nobody agreed to within `POST_PAID_REQUEST_REFUND_MS` get their fee and
- * free post back (the requests stay open).
+ * The sweep's part for answers on request: requests whose Ree can no longer
+ * answer are closed, and answers agreed to that no live run finished get
+ * their holds back (the author may agree again).
  */
 export async function sweepPaidRequests(now = new Date()): Promise<number> {
   const closed = await closeUnavailableRequests(null, now);
@@ -1252,32 +1253,15 @@ export async function sweepPaidRequests(now = new Date()): Promise<number> {
     .from(answer)
     .where(and(eq(answer.state, 'answering'), isNotNull(answer.baseHoldId), lt(answer.decidedAt, new Date(now.getTime() - POST_PAID_ANSWER_STALE_MS))))
     .limit(100);
-  for (const row of stale) await closePaidAnswer(row.id, { state: 'failed', model: null }, now);
-  const waiting = await db()
-    .select({ id: post.id })
-    .from(post)
-    .leftJoin(schema.creditHold, eq(schema.creditHold.id, post.holdId))
-    .where(
-      and(
-        eq(post.answerState, 'done'),
-        lt(post.publishedAt, new Date(now.getTime() - POST_PAID_REQUEST_REFUND_MS)),
-        or(isNotNull(post.freeDay), eq(schema.creditHold.status, 'held')),
-        sql`exists (select 1 from ${answer} a where a.post_id = ${post.id} and a.state = 'awaiting')`,
-        sql`not exists (select 1 from ${answer} a where a.post_id = ${post.id} and a.state in ('answered', 'answering'))`,
-      ),
-    )
-    .limit(100);
-  for (const row of waiting) await db().transaction((tx) => settlePostFee(tx, row.id, now, true));
-  return closed + stale.length + waiting.length;
+  for (const row of stale) await closeAnswer(row.id, { state: 'failed', model: null }, now);
+  return closed + stale.length;
 }
 
 /**
- * Requests of paid Rees that can no longer answer on request -- gone
- * private, off posts, or now free -- are closed (`declined`), and each post
- * whose fee was waiting on them settles if nothing else is open: given back
- * with its free post when no Ree answered. `reeId`: one Ree, right after its
- * settings change; null: all of them (the sweep). A request agreed to at the
- * same moment is locked by the agreement and stays agreed.
+ * Requests whose Ree can no longer answer on request -- gone private, off
+ * posts or deleted -- are closed (`declined`). `reeId`: one Ree, right after
+ * its settings change; null: all of them (the sweep). A request agreed to at
+ * the same moment is locked by the agreement and stays agreed.
  */
 export async function closeUnavailableRequests(reeId: string | null, now = new Date()): Promise<number> {
   const closed = await db()
@@ -1287,11 +1271,10 @@ export async function closeUnavailableRequests(reeId: string | null, now = new D
       and(
         or(eq(answer.state, 'awaiting'), refunded()),
         reeId ? eq(answer.reeId, reeId) : undefined,
-        sql`not exists (select 1 from ${ree} where ${ree.id} = ${answer.reeId} and ${paidOpen()})`,
+        sql`not exists (select 1 from ${ree} where ${ree.id} = ${answer.reeId} and ${requestOpen()})`,
       ),
     )
-    .returning({ postId: answer.postId });
-  for (const postId of new Set(closed.map((row) => row.postId))) await db().transaction((tx) => settlePostFee(tx, postId, now));
+    .returning({ id: answer.id });
   return closed.length;
 }
 

@@ -38,7 +38,11 @@ describe('posts', () => {
 
   it('copies the public Q&A in migration 0056 with the statements the cron reruns', () => {
     const migration = readFileSync('db/migrations/0056_public_posts.sql', 'utf8');
-    for (const statement of SYNC_PUBLIC_QA_STATEMENTS) expect(migration).toContain(statement);
+    /* The same statements, but for the post's `charge` column, which migration 0062 dropped (per-answer billing, 2026-11-19). */
+    const asIn0056 = (statement: string) =>
+      statement.replace('answer_state, answer_count, created_at', 'answer_state, answer_count, charge, created_at').replace("else 0 end, q.created_at,", "else 0 end, 'none', q.created_at,");
+    for (const statement of SYNC_PUBLIC_QA_STATEMENTS) expect(migration).toContain(asIn0056(statement));
+    expect(SYNC_PUBLIC_QA_STATEMENTS.join('\n')).not.toMatch(/\bcharge\b|free_day|hold_id/);
     /* Each statement is its own autocommitted step: nothing that needs one transaction. */
     expect(migration).not.toMatch(/\bBEGIN\b|ON COMMIT DROP/i);
   });

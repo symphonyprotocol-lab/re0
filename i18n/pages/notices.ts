@@ -27,7 +27,7 @@ export const zh = {
     postAnswered: '你的帖子「{question}」有 {n} 个 Ree 回答了。',
     postQuoted: '有人引用你的帖子「{question}」发了新帖子。',
     postQuotedMany: '你的帖子「{question}」被引用了 {n} 次，点开看最新一条。',
-    postPaidRequests: '{n} 个付费 Ree 可以回答你的帖子「{question}」，等你确认。',
+    postPaidRequests: '{n} 个 Ree 可以回答你的帖子「{question}」，等你确认。',
   },
   open: {
     ree: '查看 Ree',
@@ -63,7 +63,7 @@ export const en: Shape<typeof zh> = {
     postAnswered: '{n} Rees answered your post “{question}”.',
     postQuoted: 'Someone quoted your post “{question}” in a new post.',
     postQuotedMany: 'Your post “{question}” was quoted {n} times; open the latest.',
-    postPaidRequests: '{n} paid Rees can answer your post “{question}” once you agree.',
+    postPaidRequests: '{n} Rees can answer your post “{question}” once you agree.',
   },
   open: {
     ree: 'View Ree',
