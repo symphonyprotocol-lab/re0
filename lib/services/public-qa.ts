@@ -121,7 +121,7 @@ export async function publishOwnAnswer(userId: string, reeId: string, messageId:
 
 /* --------------------------------------------------------------- moderation */
 
-export type Judge = (question: string, answer: string) => Promise<{ publish: boolean }>;
+export type Judge = (question: string, answer: string) => Promise<{ publish: boolean; reason?: string }>;
 
 /**
  * The moderation check on the platform's free generation model, logged as
@@ -148,7 +148,7 @@ export const modelJudge: Judge = async (question, answer) => {
       abortSignal: AbortSignal.timeout(Math.min(generation.endpoint.timeoutMs, 30_000)),
     });
     const verdict = parseModeration(text);
-    if (verdict) return { publish: verdict.publish };
+    if (verdict) return verdict;
     last = `finish=${finishReason} chars=${text.length}`;
   }
   throw new Error(`moderation reply had no verdict (${last})`);

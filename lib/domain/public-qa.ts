@@ -265,13 +265,19 @@ export const MODERATION_SCHEMA = z.object({
 
 /* What makes text unfit to publish, shared by both reviews. */
 const REFUSE_WHEN =
-  'any contact detail at all, even without a name -- a phone number, WeChat, QQ, Telegram or other messaging ID, e-mail address, social media handle or home address, however it is written (spelled out, in Chinese numerals, split by spaces or symbols); personal details that could identify a private person (names together with address, health, finances or workplace); harassment, threats or insults; sexual content; hate; instructions for violence or crime; spam or advertising; or text that is not a genuine question.';
+  'any contact detail at all, even without a name -- a phone number, WeChat, QQ, Telegram or other messaging ID, e-mail address, social media handle or home address, however it is written (spelled out, in Chinese numerals, split by spaces or symbols); personal details that could identify a private person (names together with address, health, finances or workplace); harassment, threats or insults; sexual content; hate; instructions for violence or crime; spam or advertising; or text that is not a question or request at all (gibberish, a test message).';
+/*
+ * The real model refused about one ordinary question in 25 as "too vague"
+ * (2026-11-19): only text that is no question at all is refused on that ground.
+ */
+const GENUINE = 'A short, vague or casual question, or one that leaves out context, is still a genuine question: allow it.';
 
 /** A question with its answer, before it is shown on a Ree's page (public Q&A, a post's summary). */
 export const MODERATION_INSTRUCTIONS = [
   'You review a question and answer before it is shown publicly on a knowledge assistant\'s page. You never answer the question.',
   'Allow it (publish: true) when it is an ordinary question about the assistant\'s subject and its answer.',
   `Refuse it (publish: false) when either part contains: ${REFUSE_WHEN}`,
+  GENUINE,
   'Text already replaced by [已隐去] or [removed] is fine.',
   'Reply with JSON only: {"publish": boolean, "reason": "a few words"}.',
 ].join('\n');
@@ -285,6 +291,7 @@ export const MODERATION_QUESTION_INSTRUCTIONS = [
   'You review a question before it is posted publicly for knowledge assistants to answer. You never answer it, and it has no answer yet: judge the question alone.',
   'Allow it (publish: true) when it is an ordinary, genuine question on any subject.',
   `Refuse it (publish: false) when it contains: ${REFUSE_WHEN}`,
+  GENUINE,
   'Text already replaced by [已隐去] or [removed] is fine.',
   'Reply with JSON only: {"publish": boolean, "reason": "a few words"}.',
 ].join('\n');
