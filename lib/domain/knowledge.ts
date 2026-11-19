@@ -171,6 +171,23 @@ export interface DraftChunk {
   locator: Locator;
 }
 
+/**
+ * Every string in an extraction without NUL characters, changed in place.
+ * Postgres refuses `\u0000` in text and jsonb, so one left by any reader (a
+ * page, a .txt upload, a DOCX, a parser's Markdown) would fail the whole
+ * source at its first insert; the character never carries meaning there.
+ */
+export function stripNul<T>(value: T): T {
+  if (typeof value === 'string') return (value.includes('\u0000') ? value.replace(/\u0000/g, '') : value) as T;
+  if (Array.isArray(value)) {
+    for (let at = 0; at < value.length; at++) value[at] = stripNul(value[at]);
+  } else if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    for (const key of Object.keys(record)) record[key] = stripNul(record[key]);
+  }
+  return value;
+}
+
 /* ------------------------------------------------------------------ chunker */
 
 export const CHUNK_TARGET_TOKENS = 400;

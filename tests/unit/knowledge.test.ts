@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ADD_KNOWLEDGE_KINDS, chunkSections, holdFor, validDocument, validText } from '@/lib/domain/knowledge';
+import { ADD_KNOWLEDGE_KINDS, chunkSections, holdFor, stripNul, validDocument, validText } from '@/lib/domain/knowledge';
 
 describe('knowledge rules', () => {
   it('exposes five new source choices while retaining historical text support', () => {
@@ -19,6 +19,22 @@ describe('knowledge rules', () => {
     expect(validDocument('a.md', 20 * 1024 * 1024 + 1)).toBe(false);
     expect(validText('t', 'c')).toBe(true);
     expect(validText('t'.repeat(101), 'c')).toBe(false);
+  });
+
+  it('strips NUL characters from every string of an extraction', () => {
+    const extracted = {
+      sections: [{ text: 'a\u0000b', locator: { url: 'https://x.test/\u0000', page: 1 }, child: { label: 'c\u0000' } }],
+      chunks: [{ ordinal: 0, content: '\u0000\u0000d', locator: {} }],
+      title: 'T\u0000',
+      audioSeconds: 3,
+    };
+    expect(stripNul(extracted)).toEqual({
+      sections: [{ text: 'ab', locator: { url: 'https://x.test/', page: 1 }, child: { label: 'c' } }],
+      chunks: [{ ordinal: 0, content: 'd', locator: {} }],
+      title: 'T',
+      audioSeconds: 3,
+    });
+    expect(JSON.stringify(extracted)).not.toContain('\\u0000');
   });
 
   it('chunks under headings and keeps the page locator', () => {
