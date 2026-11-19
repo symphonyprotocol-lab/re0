@@ -7,7 +7,7 @@ import type { Shape } from '@/i18n/format';
  * tax information we collect. Paragraphs are separated by blank lines.
  */
 export const zh = {
-  updated: '最近更新：2026 年 11 月 13 日',
+  updated: '最近更新：2026 年 11 月 19 日',
   /* 第 7 节的邀请奖励规则，按后台当前设置填入；任一数量为 0 时使用 none。 */
   inviteRule: {
     withdrawable:
@@ -41,15 +41,23 @@ export const zh = {
     },
     s6: {
       title: '消耗与结算',
-      body: '向 Ree 提问时，每个实际作答的 Ree 收取 20 credits 基本使用费，提问他人的 Ree 时另付该 Ree 主设定的查询费；没有相关知识、未作答的不收费。开启回答核验时，每个作答的 Ree 另收 10 credits 核验费，未作答或核验失败时退回；Ree 圆桌对多个回答做一次综合时收取 30 credits，综合失败时退回。知识处理按实际调用的 Firecrawl、embedding、语音转文字等第三方服务成本计费，不另收字符费；各项美元费用汇总后按 1 credit = $0.0001 换算，最后统一向上取整。初始预留可退、不是总价上限，实际费用自动补足、多余退回；余额不足则停止；处理失败时按已发生的成本结算，只退回没用掉的预留，余额不够支付的部分记为欠款，下次到账时先还。第三方单价随供应商及所选模型调整，实际用量与费用可在处理记录中查看。已添加的知识在保存期间按实际占用的存储空间和时长计费（上传的文件，以及解析后的文本、片段与向量），每天结算一次，余额不足的部分同样记为欠款；Ree 删除后停止计费。',
+      body: '向 Ree 提问时，每个实际作答的 Ree 收取 20 credits 基本使用费，提问他人的 Ree 时另付该 Ree 主设定的查询费；没有相关知识、未作答的不收费。开启回答核验时，每个作答的 Ree 另收 10 credits 核验费，未作答或核验失败时退回；Ree 圆桌对多个回答做一次综合时收取 30 credits，综合失败时退回。知识处理按实际调用的 Firecrawl、embedding、语音转文字等第三方服务成本计费，不另收字符费；各项美元费用汇总后按 1 credit = $0.0001 换算，最后统一向上取整。发布公开帖子：每天（按 UTC 计）前 {postFreePerDay} 个免费，之后每个 {postFee} credits，每天最多 {postDailyLimit} 个；发布时预留费用，帖子未通过审核或没有任何 Ree 作答时退还（免费帖子则退还当天的免费名额），有 Ree 作答即结算，之后帖子被删除或下架都不退还。帖子的圆桌总结收取 {postSummaryFee} credits，生成失败或未通过审核时退还；总结依据的回答不再显示后，作者可以重新生成，只要不再显示的回答都不属于作者自己的 Ree，每个帖子最多免费重写 {postSummaryFreeRewrites} 次。初始预留可退、不是总价上限，实际费用自动补足、多余退回；余额不足则停止；处理失败时按已发生的成本结算，只退回没用掉的预留，余额不够支付的部分记为欠款，下次到账时先还。第三方单价随供应商及所选模型调整，实际用量与费用可在处理记录中查看。已添加的知识在保存期间按实际占用的存储空间和时长计费（上传的文件，以及解析后的文本、片段与向量），每天结算一次，余额不足的部分同样记为欠款；Ree 删除后停止计费。',
     },
     s7: {
       title: '收入 credits、邀请奖励与提现',
-      body: '他人向你的 Ree 提问时支付的查询费，全额计入你的收入 credits。收入 credits 不过期，可用于你自己的消耗，但并非全部可以提现：\n\n提问人用付费购买的额度（Plan、Pack，或本身可提现的收入 credits）支付的部分，自计入之日起满 30 天后可以提现；提问人用免费额度（注册赠送、新手任务、每日打卡、不可提现的邀请奖励等赠送 credits，兑换码，后台发放的额度，或由这些额度换来的收入 credits）支付的部分，只能用于消耗，不能提现。若支付查询费的那笔购买在这 30 天内退款或拒付，RE0 会先向提问人收回（见第 5 节）；只有无法从提问人处全部收回、形成待抵扣额度时，才会在未收回的金额以内，作废由这笔购买支付、尚未满 30 天且尚未使用的收入 credits。提问人之后补足欠款（或拒付被撤销）时，作废的收入 credits 会按已补足的比例恢复，保留原来的可提现日期。已满 30 天、已用于提现申请或已经用掉的部分不会因此收回。\n\n他人通过你的邀请链接注册新账号后，计入你的邀请，你获得平台当时设定的邀请奖励。{inviteRule}\n\n可提现的收入 credits（包括可提现的邀请奖励）达到提现门槛后可申请提现。统一提现门槛目前为 {payoutMinCredits} credits（{payoutMinUsd}），由平台设定并可能调整；平台也可以为个别账号设定不同的门槛，以该账号提现页面显示的为准。调整门槛只影响之后提交的申请。申请处理期间相应 credits 会被冻结，经人工审核后打款。首次提现前须通过人工身份验证并提交税务信息声明，收款方式为你本人的 PayPal 账户，PayPal 手续费由提现人承担。账号有未清的待抵扣额度或已被停用时，不能申请提现，已提交的申请也不会被批准或打款。Plan、Pack 与赠送 credits（注册赠送、新手任务、每日打卡与不可提现的邀请奖励）不能提现。你需自行承担所得相关的纳税义务。',
+      body: '他人向你的 Ree 提问时支付的查询费，全额计入你的收入 credits；Ree 回答公开帖子或访客提问不产生查询费（见第 10 节）。收入 credits 不过期，可用于你自己的消耗，但并非全部可以提现：\n\n提问人用付费购买的额度（Plan、Pack，或本身可提现的收入 credits）支付的部分，自计入之日起满 30 天后可以提现；提问人用免费额度（注册赠送、新手任务、每日打卡、不可提现的邀请奖励等赠送 credits，兑换码，后台发放的额度，或由这些额度换来的收入 credits）支付的部分，只能用于消耗，不能提现。若支付查询费的那笔购买在这 30 天内退款或拒付，RE0 会先向提问人收回（见第 5 节）；只有无法从提问人处全部收回、形成待抵扣额度时，才会在未收回的金额以内，作废由这笔购买支付、尚未满 30 天且尚未使用的收入 credits。提问人之后补足欠款（或拒付被撤销）时，作废的收入 credits 会按已补足的比例恢复，保留原来的可提现日期。已满 30 天、已用于提现申请或已经用掉的部分不会因此收回。\n\n他人通过你的邀请链接注册新账号后，计入你的邀请，你获得平台当时设定的邀请奖励。{inviteRule}\n\n可提现的收入 credits（包括可提现的邀请奖励）达到提现门槛后可申请提现。统一提现门槛目前为 {payoutMinCredits} credits（{payoutMinUsd}），由平台设定并可能调整；平台也可以为个别账号设定不同的门槛，以该账号提现页面显示的为准。调整门槛只影响之后提交的申请。申请处理期间相应 credits 会被冻结，经人工审核后打款。首次提现前须通过人工身份验证并提交税务信息声明，收款方式为你本人的 PayPal 账户，PayPal 手续费由提现人承担。账号有未清的待抵扣额度或已被停用时，不能申请提现，已提交的申请也不会被批准或打款。Plan、Pack 与赠送 credits（注册赠送、新手任务、每日打卡与不可提现的邀请奖励）不能提现。你需自行承担所得相关的纳税义务。',
     },
     s8: {
       title: '知识与内容',
-      body: '你只能添加你有权使用的知识。整站抓取前须完成域名确权，私有仓库须经你的 GitHub 授权。你保留所添加内容的权利，并授予 RE0 为提供服务所需的处理许可（解析、转写、向量化与生成回答）。公开的 Ree 只展示简介与来源数量，回答中的引用只展示相关片段。违反法律或本条款的公开内容可能被管理员转为私有。',
+      body: '你只能添加你有权使用的知识。整站抓取前须完成域名确权，私有仓库须经你的 GitHub 授权。你保留所添加内容的权利，并授予 RE0 为提供服务所需的处理许可（解析、转写、向量化与生成回答）。公开的 Ree 主页展示简介、来源数量，以及它回答的公开帖子；回答中的引用只展示来源标题与相关片段，不展示完整的知识内容。违反法律或本条款的公开内容可能被管理员转为私有或下架。',
+    },
+    posts: {
+      title: '公开帖子、引用与举报',
+      body: '登录用户可以发布公开帖子提问。帖子一经公开，任何人（包括未登录的访客）都能看到它的问题、补充说明和回答，其他登录用户可以收藏、标记有帮助或引用它。发帖时可以选择匿名：帖子页、信息流、引用卡片和 Ree 主页都不显示你的名字和头像；但平台仍会记录发帖的账号，用于你管理自己的帖子、计费、防止滥用和处理举报。\n\n帖子公开前，问题与补充说明会先自动隐去看起来像手机号、邮箱、证件号、链接或 QQ、微信号的内容，再经过自动审核；未通过审核的帖子不会公开，只有你自己能看到。自动隐去和审核都可能遗漏或误判，不能保证帖子中不含个人信息，请不要在帖子里写入你或他人的联系方式与身份信息。Ree 的回答不经过这一步自动隐去。\n\n任何人都可以举报帖子或回答。一个帖子被 {postReportThreshold} 个不同的举报人举报后自动下架，一个回答被 {answerReportThreshold} 个不同的举报人举报后自动隐藏；管理员也可以下架帖子或隐藏回答，并可以恢复由管理员或举报下架、隐藏的内容；Ree 主可以隐藏自己 Ree 的回答，Ree 主隐藏的回答不会被恢复。下架的帖子不再出现在信息流、搜索、站点地图、Ree 主页和分享页中，作者本人仍可看到。\n\n其他登录用户可以在自己的公开帖子里引用公开的帖子或其中的一条回答，引用卡片显示被引用的问题、作者（按原帖的匿名设置）和回答摘要。被引用的内容被删除、下架、隐藏，或回答它的 Ree 不再公开后，卡片只显示“被引用的内容已不可见”，引用它的帖子仍然保留。原帖被下架或被引用的回答被隐藏时，引用它的帖子会交给管理员复核，复核前它们的回答保持公开，管理员可以保留或隐藏这些回答。\n\n你可以把自己的帖子移到回收站，它会立即对他人不可见，30 天内可以恢复，之后连同它的回答、收藏与举报记录永久删除。已被搜索引擎收录的页面，在搜索引擎更新前可能仍出现在其搜索结果中。账号被停用不会撤下它已经公开的帖子与回答，需要时由管理员下架。\n\n登录用户也可以把自己与某个 Ree 对话中的第一个问题及其回答公开，前提是该 Ree 的 Ree 主允许公开问答。公开前，问题和回答都会自动隐去上述内容（回答中的链接保留）并经过自动审核；通过后它和其他公开帖子一样公开，会出现在信息流、站内搜索、帖子页、该 Ree 的主页和分享页等处，并可能被搜索引擎收录；它显示为“一位用户”，不显示你的名字。对话在回收站期间它对他人不可见；清空对话或永久删除对话时，它一并删除。Ree 主关闭公开问答后，回答不再显示，问题仍可通过原来的帖子链接打开。',
+    },
+    reeAnswers: {
+      title: 'Ree 回答公开帖子',
+      body: '公开的 Ree 可能自动回答与它的知识相关的公开帖子，每个帖子最多由 {postMaxAnswers} 个 Ree 回答。回答全文，以及它引用的来源标题与相关片段，会公开显示在帖子页上；信息流和 Ree 主页显示摘要，可以展开全文。\n\n免费的 Ree（查询费为 0）默认参与；设置了查询费的 Ree，只有在 Ree 主于设置中打开“回答相关的公开帖子”后才参与。Ree 主可以随时关闭这一设置，关闭后不再回答新的帖子，已经公开的回答仍然保留，Ree 主可以逐条隐藏。\n\n回答帖子的模型费用由平台承担，不向 Ree 主收费；Ree 主也不会因回答帖子获得查询费或收入 credits。\n\nRE0 可能把参与回答公开帖子的 Ree 设置的示例问题，以 RE0 的名义作为帖子发布（标注“示例问题”），由相关的 Ree 按同样的规则回答。\n\n未登录的访客只能在免费 Ree 的分享页提问，每天有次数限制。访客的对话只保存在当前浏览器标签页中，不会公开，也不会出现在任何帖子里。',
     },
     s9: {
       title: '可接受使用',
@@ -57,7 +65,7 @@ export const zh = {
     },
     s10: {
       title: '责任限制与条款变更',
-      body: 'Ree 的回答基于你或 Ree 主提供的知识自动生成，可能不完整或有误，请结合引用自行判断。在法律允许的范围内，RE0 对间接损失不承担责任，直接责任以你在过去 12 个月内向 RE0 支付的金额为限。\n\n条款变更会在本页更新并标明日期；重大变更会在站内提前通知。对条款有疑问，请联系 legal@re0.io。',
+      body: 'Ree 的回答基于你或 Ree 主提供的知识自动生成，可能不完整或有误，请结合引用自行判断。在法律允许的范围内，RE0 对间接损失不承担责任，直接责任以你在过去 12 个月内向 RE0 支付的金额为限。\n\n条款变更会在本页更新，并标注最近更新日期。对条款有疑问，请联系 legal@re0.io。',
     },
   },
   privacy: {
@@ -66,6 +74,10 @@ export const zh = {
     s1: {
       title: '我们收集的信息',
       body: '账号信息：Google 或 GitHub 提供的邮箱、显示名称、头像与账号标识，以及你在设置中修改的资料与语言。\n\n你的知识与对话：你上传的文件、提交的链接与仓库、粘贴的文本、处理后的正文与检索片段，以及你的提问和 Ree 的回答。\n\n付款记录：Paddle 回传的交易号、订阅号、金额、币种、计费周期与退款状态。我们不接收也不保存银行卡号。\n\n使用记录：credit 流水、处理记录与必要的服务日志。',
+    },
+    public: {
+      title: '公开内容与访客提问',
+      body: '公开帖子：你发布的问题、补充说明、是否匿名，以及你的收藏、“有帮助”标记、举报与引用记录。帖子公开后任何人都能看到，通过审核且有回答显示的帖子页面可能被搜索引擎收录；没有回答、被下架或移到回收站的帖子页面会标记为不收录。匿名帖子对外不显示你的身份，但我们保存发帖的账号。帖子的问题、补充说明和回答会发送给模型服务商，用于自动审核、匹配与生成回答。\n\n访客提问：访客在分享页的对话内容只保存在浏览器标签页中，我们不在服务器上保存问题与回答的文字，也不会公开。为执行每日次数限制和防止滥用，我们保存浏览器标识、Cookie 标识与 IP 地址经加密哈希后的值及当天的次数，过期的记录会被清除。我们也记录每次回答对应的 Ree 与时间，不含内容。访客举报时，以 IP 地址的加密哈希作为举报人标识。\n\n限流：对未登录的访问（浏览帖子与 Ree、提问、举报等）限流时，以原始 IP 地址为键记录短时间内的请求次数，这些记录最长保留约 2 小时后清除。',
     },
     s2: {
       title: '使用目的',
@@ -85,11 +97,11 @@ export const zh = {
     },
     s6: {
       title: '保留期限',
-      body: '账号存续期间保留你的账号、知识与对话。移到回收站的知识与对话 30 天后清除。付款、退款与 credit 流水按会计与税务法规要求的期限保存。删除账号后，除法律要求保存的记录外，其余数据会在 30 天内删除。',
+      body: '账号存续期间保留你的账号、知识与对话。移到回收站的知识、对话与公开帖子 30 天后清除；对话被清除时，从它公开的问答一并删除。被下架或未通过审核的帖子保存在你的账号下，你可以随时把它们移到回收站。付款、退款与 credit 流水按会计与税务法规要求的期限保存。删除账号的请求由人工处理，请按第 9 节所述的方式向我们提出。处理后，你发布的公开帖子及其回答会被移除；法律要求保存的记录（如付款、退款与 credit 流水）会按法律要求的期限保留。',
     },
     s7: {
       title: 'Cookie',
-      body: '我们只使用维持登录与记住界面语言、侧栏状态所必需的 Cookie，不使用广告或跨站追踪 Cookie。Paddle 结账窗口会使用 Paddle 自己的 Cookie。',
+      body: '我们只使用维持登录与记住界面语言、侧栏状态所必需的 Cookie，以及访客在分享页提问时用于计算每日免费次数的 Cookie 和记录分享页访问（用于分享统计）的 Cookie，不使用广告或跨站追踪 Cookie。Paddle 结账窗口会使用 Paddle 自己的 Cookie。',
     },
     s8: {
       title: '你的权利',
@@ -97,13 +109,13 @@ export const zh = {
     },
     s9: {
       title: '安全与变更',
-      body: '数据在传输与存储时加密，第三方 API 凭据与授权令牌加密保存，管理后台需要密码与动态验证码，管理员的操作有审计记录。本政策变更会在本页更新并标明日期，重大变更会在站内提前通知。',
+      body: '数据在传输与存储时加密，第三方 API 凭据与授权令牌加密保存，管理后台需要密码与动态验证码，管理员的操作有审计记录。本政策变更会在本页更新，并标注最近更新日期。',
     },
   },
 };
 
 export const en: Shape<typeof zh> = {
-  updated: 'Last updated: November 13, 2026',
+  updated: 'Last updated: November 19, 2026',
   inviteRule: {
     withdrawable:
       'For the first {withdrawableInvites} invited sign-ups site-wide, in order of registration, the reward is paid as earned credits with no 30-day wait: it is withdrawable once credited, still subject to every payout condition in the next paragraph. Each account receives invitation rewards as earned credits for at most {withdrawableInvitesPerInviter} invited sign-ups; those beyond it do not use a site-wide place. Both numbers are the platform\'s current settings and may change. Invitation rewards beyond the site-wide quota or your own limit are paid as gift credits and cannot be withdrawn. Changing either number does not change the kind of a reward already paid.',
@@ -136,15 +148,23 @@ export const en: Shape<typeof zh> = {
     },
     s6: {
       title: 'Usage and settlement',
-      body: 'Each Ree that actually answers a question charges a 20-credit base fee; asking someone else’s Ree adds the query fee its owner set. An unanswered question costs nothing. With answer checking on, each answering Ree charges a further 10-credit check fee, returned if it does not answer or the check fails; a Ree round-table synthesis of several answers costs 30 credits, returned if it fails. Knowledge processing passes through actual costs from services called, including Firecrawl, embedding and transcription, with no character fee. USD costs are totaled, converted at 1 credit = $0.0001 and rounded up once. Initial reservations are refundable, not price caps. Shortfalls are reserved automatically; unused credits are returned. Insufficient balance stops processing. A failed run is charged for the costs already incurred and only unused credits are returned; what the balance cannot cover is owed and repaid from the next credits. Provider rates depend on the supplier and selected model; actual usage and costs appear in processing activity. Knowledge you have added is charged for storage while it is kept, by the space it takes (the uploaded file and its parsed text, passages and vectors) and for how long, settled daily; what the balance cannot cover is owed in the same way. Storage charges stop when the Ree is deleted.',
+      body: 'Each Ree that actually answers a question charges a 20-credit base fee; asking someone else’s Ree adds the query fee its owner set. An unanswered question costs nothing. With answer checking on, each answering Ree charges a further 10-credit check fee, returned if it does not answer or the check fails; a Ree round-table synthesis of several answers costs 30 credits, returned if it fails. Knowledge processing passes through actual costs from services called, including Firecrawl, embedding and transcription, with no character fee. USD costs are totaled, converted at 1 credit = $0.0001 and rounded up once. Public posts: the first {postFreePerDay} each day (UTC) are free, then {postFee} credits each, up to {postDailyLimit} a day. The fee is reserved when you post and returned if the post fails review or no Ree answers it (for a free post, the day\'s free post is given back); once a Ree answers it is settled, and it is not returned if the post is later deleted or taken down. A post\'s round-table summary costs {postSummaryFee} credits, returned if it fails or does not pass review; once an answer it drew on is no longer shown, the author can write it again, free up to {postSummaryFreeRewrites} times per post as long as none of the answers no longer shown belongs to the author\'s own Rees. Initial reservations are refundable, not price caps. Shortfalls are reserved automatically; unused credits are returned. Insufficient balance stops processing. A failed run is charged for the costs already incurred and only unused credits are returned; what the balance cannot cover is owed and repaid from the next credits. Provider rates depend on the supplier and selected model; actual usage and costs appear in processing activity. Knowledge you have added is charged for storage while it is kept, by the space it takes (the uploaded file and its parsed text, passages and vectors) and for how long, settled daily; what the balance cannot cover is owed in the same way. Storage charges stop when the Ree is deleted.',
     },
     s7: {
       title: 'Earned credits, invitation rewards and payouts',
-      body: 'Query fees others pay to ask your Rees become your earned credits in full. Earned credits do not expire and can be spent like any credits, but not all of them can be withdrawn:\n\nThe part an asker paid from purchased credits (Plan, Pack, or earned credits that are themselves withdrawable) can be withdrawn 30 days after it was credited. The part an asker paid from free credits (gift credits such as welcome, starter-task, daily check-in and non-withdrawable invitation rewards, redeem codes, credits granted by RE0, or earned credits that came from those) can be spent but never withdrawn. If the purchase that paid a query fee is refunded or charged back within those 30 days, RE0 first recovers the refund from the asker (section 5). Only if it cannot be recovered from the asker in full and an amount owed remains are earned credits that purchase paid for, less than 30 days old and not yet used, voided, up to the amount not recovered. When the asker later pays off the amount owed (or the chargeback is reversed), the voided earned credits are restored in proportion to what was paid, keeping their original withdrawal date. Credits past 30 days, already requested in a payout, or already spent are not taken back for this reason.\n\nWhen someone creates a new account through your invite link, the invitation counts as yours and you receive the invitation reward the platform sets at the time. {inviteRule}\n\nOnce your withdrawable earned credits, including withdrawable invitation rewards, reach the payout minimum, you may request a payout. The site-wide minimum is currently {payoutMinCredits} credits ({payoutMinUsd}); the platform sets it and may change it, and may set a different minimum for an individual account, shown on that account\'s payout page. A change applies to requests made after it. The credits are held while the request is processed and paid after manual review. Before the first payout you must pass a manual identity check and submit a tax declaration; payouts go to your own PayPal account, and PayPal fees are borne by you. While your account has an amount owed or is disabled, you cannot request a payout and a request already made is not approved or paid. Plan, Pack, and gift credits (welcome, starter tasks, daily check-ins and non-withdrawable invitation rewards) cannot be withdrawn. You are responsible for any taxes on your earnings.',
+      body: 'Query fees others pay to ask your Rees become your earned credits in full; answers to public posts and to visitors carry no query fee (section 10). Earned credits do not expire and can be spent like any credits, but not all of them can be withdrawn:\n\nThe part an asker paid from purchased credits (Plan, Pack, or earned credits that are themselves withdrawable) can be withdrawn 30 days after it was credited. The part an asker paid from free credits (gift credits such as welcome, starter-task, daily check-in and non-withdrawable invitation rewards, redeem codes, credits granted by RE0, or earned credits that came from those) can be spent but never withdrawn. If the purchase that paid a query fee is refunded or charged back within those 30 days, RE0 first recovers the refund from the asker (section 5). Only if it cannot be recovered from the asker in full and an amount owed remains are earned credits that purchase paid for, less than 30 days old and not yet used, voided, up to the amount not recovered. When the asker later pays off the amount owed (or the chargeback is reversed), the voided earned credits are restored in proportion to what was paid, keeping their original withdrawal date. Credits past 30 days, already requested in a payout, or already spent are not taken back for this reason.\n\nWhen someone creates a new account through your invite link, the invitation counts as yours and you receive the invitation reward the platform sets at the time. {inviteRule}\n\nOnce your withdrawable earned credits, including withdrawable invitation rewards, reach the payout minimum, you may request a payout. The site-wide minimum is currently {payoutMinCredits} credits ({payoutMinUsd}); the platform sets it and may change it, and may set a different minimum for an individual account, shown on that account\'s payout page. A change applies to requests made after it. The credits are held while the request is processed and paid after manual review. Before the first payout you must pass a manual identity check and submit a tax declaration; payouts go to your own PayPal account, and PayPal fees are borne by you. While your account has an amount owed or is disabled, you cannot request a payout and a request already made is not approved or paid. Plan, Pack, and gift credits (welcome, starter tasks, daily check-ins and non-withdrawable invitation rewards) cannot be withdrawn. You are responsible for any taxes on your earnings.',
     },
     s8: {
       title: 'Knowledge and content',
-      body: 'Add only knowledge you have the right to use. Whole-website crawls require a verified domain; private repositories require your GitHub authorization. You keep your rights to what you add and grant RE0 the processing needed to provide the service (parsing, transcription, embedding, and answer generation). Public Rees show only their description and how many sources they have; citations show only relevant excerpts. Public content that breaks the law or these terms may be made private by an administrator.',
+      body: 'Add only knowledge you have the right to use. Whole-website crawls require a verified domain; private repositories require your GitHub authorization. You keep your rights to what you add and grant RE0 the processing needed to provide the service (parsing, transcription, embedding, and answer generation). A public Ree\'s page shows its description, how many sources it has, and the public posts it answered; citations show only source titles and relevant excerpts, never the whole knowledge. Public content that breaks the law or these terms may be made private or taken down by an administrator.',
+    },
+    posts: {
+      title: 'Public posts, quotes and reports',
+      body: 'Signed-in users can ask in public posts. Once a post is public, anyone, including signed-out visitors, can see its question, details and answers, and other signed-in users can save it, mark it helpful or quote it. You can post anonymously: the post page, feeds, quote cards and Ree pages then show neither your name nor your avatar. RE0 still records which account posted, to let you manage your posts, to bill, to prevent abuse and to handle reports.\n\nBefore a post is public, its question and details are automatically stripped of what looks like phone numbers, email addresses, identity numbers, links, or QQ and WeChat ids, and then reviewed automatically. A post that fails review is not made public; only you can see it. Neither the automatic removal nor the review is guaranteed to catch everything or to be right every time, and neither guarantees a post holds no personal information: do not write your own or anyone else\'s contact or identity details in a post. Ree answers do not go through this automatic removal.\n\nAnyone can report a post or an answer. A post reported by {postReportThreshold} different reporters is taken down automatically, and an answer reported by {answerReportThreshold} different reporters is hidden automatically. Administrators can also take posts down or hide answers, and can restore what administrators or reports took down or hid; a Ree\'s owner can hide that Ree\'s answers, and an answer its owner hid is not restored. A post taken down no longer appears in feeds, search, the sitemap, Ree pages or share pages; its author can still see it.\n\nOther signed-in users can quote a public post, or one of its answers, in a public post of their own. The quote card shows the quoted question, its author (as the original post\'s anonymity setting allows) and an excerpt of the answer. Once the quoted content is deleted, taken down or hidden, or the Ree that answered is no longer public, the card says only that the quoted content is no longer available; the quoting post stays. When the original post is taken down, or the quoted answer is hidden, the posts quoting it go to an administrator for review; until then their answers stay public, and the administrator may keep or hide them.\n\nYou can move your own post to the trash. It is hidden from others at once and can be restored for 30 days; after that it is deleted for good, with its answers, saves and reports. Pages a search engine has already indexed may still appear in its results until it updates them. Disabling an account does not take down the posts and answers it already made public; an administrator takes them down where needed.\n\nA signed-in user can also make public the first question of their own conversation with a Ree, with its answer, where that Ree\'s owner allows public Q&A. Before it is public, both the question and the answer are stripped of the details above (links in the answer are kept) and reviewed automatically; once approved it is public like any other public post, appearing in feeds, site search, the post page, that Ree\'s page, share pages and elsewhere, and it may be indexed by search engines; it is shown as "a user", without your name. While the conversation is in the trash it is hidden from others; it is deleted when the conversation is cleared or deleted for good. Once the owner turns public Q&A off, the answer is no longer shown, but the question can still be opened at its post link.',
+    },
+    reeAnswers: {
+      title: 'Rees answering public posts',
+      body: 'A public Ree may automatically answer public posts related to its knowledge; at most {postMaxAnswers} Rees answer each post. The whole answer, with the titles and relevant excerpts of the sources it cites, is shown publicly on the post page; feeds and Ree pages show an excerpt that can be expanded.\n\nFree Rees (query fee 0) take part by default. A Ree with a query fee takes part only after its owner turns on "Answer related public posts" in its settings. The owner can turn it off at any time: the Ree then answers no new posts, its answers already public stay, and the owner can hide them one by one.\n\nRE0 pays the model cost of answering posts and charges the Ree\'s owner nothing; the owner earns no query fee or earned credits for answering posts.\n\nRE0 may post the example questions set on Rees that answer public posts as posts in RE0\'s name (marked as example questions), to be answered by related Rees under the same rules.\n\nSigned-out visitors can ask only on a free Ree\'s share page, a limited number of times a day. A visitor\'s chat stays in that browser tab only: it is never made public or shown in any post.',
     },
     s9: {
       title: 'Acceptable use',
@@ -152,7 +172,7 @@ export const en: Shape<typeof zh> = {
     },
     s10: {
       title: 'Liability and changes',
-      body: 'Answers are generated automatically from the knowledge you or the Ree’s owner provided and may be incomplete or wrong; check them against their citations. To the extent the law allows, RE0 is not liable for indirect losses, and its direct liability is limited to what you paid RE0 in the previous 12 months.\n\nChanges are published on this page with a date; material changes are announced in the app beforehand. Questions: legal@re0.io.',
+      body: 'Answers are generated automatically from the knowledge you or the Ree’s owner provided and may be incomplete or wrong; check them against their citations. To the extent the law allows, RE0 is not liable for indirect losses, and its direct liability is limited to what you paid RE0 in the previous 12 months.\n\nChanges are published on this page, marked with the date of the last update. Questions: legal@re0.io.',
     },
   },
   privacy: {
@@ -161,6 +181,10 @@ export const en: Shape<typeof zh> = {
     s1: {
       title: 'What we collect',
       body: 'Account details: the email, display name, avatar, and account id Google or GitHub provide, plus the profile and language you set.\n\nYour knowledge and conversations: files you upload, links and repositories you submit, text you paste, the extracted text and passages, and your questions and the answers.\n\nPayment records: the transaction and subscription ids, amounts, currency, billing periods, and refund states Paddle reports back. We never receive or store card numbers.\n\nUsage records: your credit ledger, processing records, and the service logs we need.',
+    },
+    public: {
+      title: 'Public content and visitor questions',
+      body: 'Public posts: the question, details and anonymity setting of what you post, and your saves, helpful marks, reports and quotes. A public post can be seen by anyone, and the page of a post that passed review and shows an answer may be indexed by search engines; the pages of posts with no answer shown, taken down or in the trash are marked not to be indexed. An anonymous post does not show who you are, but we keep which account posted it. A post\'s question, details and answers are sent to model providers for automatic review, matching and answering.\n\nVisitor questions: a visitor\'s chat on a share page stays in the browser tab; we do not store the text of the questions or answers on our servers, and it is never made public. To apply the daily limits and prevent abuse we keep keyed hashes of a browser identifier, a cookie id and the IP address, with that day\'s counts, and clear past records. We record which Ree answered and when, without the content. When a visitor reports something, a keyed hash of their IP address identifies the reporter.\n\nRate limits: rate limits on signed-out requests (browsing posts and Rees, asking, reporting and the like) count requests over short periods keyed on the raw IP address; these records are cleared within about 2 hours.',
     },
     s2: {
       title: 'Why we use it',
@@ -180,11 +204,11 @@ export const en: Shape<typeof zh> = {
     },
     s6: {
       title: 'Retention',
-      body: 'Your account, knowledge, and conversations are kept while your account exists. Knowledge and conversations moved to the trash are purged after 30 days. Payment, refund, and credit records are kept for the periods accounting and tax rules require. When you delete your account, everything else is deleted within 30 days.',
+      body: 'Your account, knowledge, and conversations are kept while your account exists. Knowledge, conversations and public posts moved to the trash are purged after 30 days; when a conversation is purged, the public Q&A made from it is deleted too. Posts taken down or not approved are kept under your account, and you can move them to the trash at any time. Payment, refund, and credit records are kept for the periods accounting and tax rules require. Requests to delete an account are handled by hand; make one as section 9 describes. Once it is handled, your public posts and their answers are removed; records the law requires us to keep (such as payment, refund and credit records) are kept for the periods it requires.',
     },
     s7: {
       title: 'Cookies',
-      body: 'We use only the cookies needed to keep you signed in and remember your language and sidebar setting; no advertising or cross-site tracking cookies. Paddle’s checkout uses Paddle’s own cookies.',
+      body: 'We use only the cookies needed to keep you signed in and remember your language and sidebar setting, plus, for visitors on share pages, a cookie that counts the day\'s free questions and one that records share-page visits for share statistics; no advertising or cross-site tracking cookies. Paddle’s checkout uses Paddle’s own cookies.',
     },
     s8: {
       title: 'Your rights',
@@ -192,7 +216,7 @@ export const en: Shape<typeof zh> = {
     },
     s9: {
       title: 'Security and changes',
-      body: 'Data is encrypted in transit and at rest; third-party credentials and authorization tokens are stored encrypted; the admin console requires a password and a one-time code, and administrators’ actions are audited. Changes to this policy are published on this page with a date; material changes are announced in the app beforehand.',
+      body: 'Data is encrypted in transit and at rest; third-party credentials and authorization tokens are stored encrypted; the admin console requires a password and a one-time code, and administrators’ actions are audited. Changes to this policy are published on this page, marked with the date of the last update.',
     },
   },
 };
