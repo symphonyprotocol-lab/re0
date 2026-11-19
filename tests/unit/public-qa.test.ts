@@ -85,6 +85,39 @@ describe('redact', () => {
     keep('比分 3:1，10:30 开始');
   });
 
+  it('removes the fourth round of bypasses (review 2026-11-19, round 4)', () => {
+    const zh = (text: string) => redact(text, 'zh');
+    for (const text of ['138丨0013丨8000', '138=0013=8000', '138^0013^8000', '138%0013%8000', '138&0013&8000', '138\u200b0013\u200b8000', '138\ufeff0013\ufeff8000']) {
+      expect(zh(text)).toBe('[已隐去]');
+    }
+    expect(redact('write me {at} qq {dot} com', 'en')).toBe('write [removed]');
+    expect(zh('邮箱 me＃qq．com')).toBe('邮箱 [已隐去]');
+    expect(zh('邮箱 m e @ q q . c o m')).toBe('邮箱 [已隐去]');
+    expect(zh('邮箱 meＡＴqq.com')).toBe('邮箱 [已隐去]');
+    /* Hinted ids: after QQ / 微信 / wx / vx and the like only. */
+    expect(zh('QQ 654321')).toBe('QQ [已隐去]');
+    expect(zh('QQ号：654321')).toBe('QQ号：[已隐去]');
+    expect(zh('微信号：linmei')).toBe('微信号：[已隐去]');
+    expect(zh('加 vx: linmei')).toBe('加 vx: [已隐去]');
+    expect(zh('wx lin_mei_88')).toBe('wx [已隐去]');
+  });
+
+  it('keeps the round 4 false positives: scores, tiers, sizes, round amounts, ISBN, order numbers', () => {
+    const keep = (text: string) => expect(redact(text, 'zh')).toBe(text);
+    keep('四门成绩 98:95:100:87');
+    keep('三档价格 99/199/299/399');
+    keep('尺码 36 37 38 39 40 41 42 都有');
+    keep('预算 1000 2000 3000 4000');
+    keep('ISBN 978-7-111-12345-6');
+    keep('ISBN 9787111123456');
+    keep('订单号 202611190001 没到');
+    /* Without a colon, an all-letter id is a word: kept. */
+    keep('微信 linmei 是谁');
+    expect(redact('the WeChat official account', 'en')).toBe('the WeChat official account');
+    expect(redact('look at example.com first', 'en')).toBe('look at example.com first');
+    expect(redact('I work at Google dot com', 'en')).toBe('I work at Google dot com');
+  });
+
   it('keeps the reader\'s own punctuation and dates', () => {
     expect(redact('2026-11-18 和 2026/11/18 出发，行吗？', 'zh')).toBe('2026-11-18 和 2026/11/18 出发，行吗？');
     expect(redact('Visit @Brazil Guide first', 'en')).toBe('Visit @Brazil Guide first');
