@@ -12,7 +12,7 @@ import { rewardSettings } from '@/lib/services/invites';
 import { sitePayoutMinimum } from '@/lib/services/payout-minimum';
 import { welcomeCredits } from '@/lib/services/signup-reward';
 import { QUERY_BASE_FEE } from '@/lib/constants';
-import { POST_DAILY_LIMIT, POST_MAX_ANSWERS, POST_REPORT_THRESHOLD, POST_SUMMARY_FEE, POST_SUMMARY_FREE_REWRITES } from '@/lib/domain/post';
+import { POST_DAILY_LIMIT, POST_MAX_ANSWERS, POST_PAID_AGREE_MAX, POST_REPORT_THRESHOLD, POST_SUMMARY_FEE, POST_SUMMARY_FREE_REWRITES } from '@/lib/domain/post';
 import { PUBLIC_QA_REPORT_THRESHOLD } from '@/lib/domain/public-qa';
 import type { Messages } from '@/i18n';
 import { fill, formatNumber } from '@/i18n/format';
@@ -29,6 +29,7 @@ export async function publicCopyValues(t: Messages, locale: Locale): Promise<Rec
     withdrawableInvitesPerInviter: n(rewards.withdrawableInvitesPerInviter),
     postBaseFee: n(QUERY_BASE_FEE),
     postMaxAutoCost: n(POST_MAX_ANSWERS * QUERY_BASE_FEE),
+    postAgreeMax: n(POST_PAID_AGREE_MAX),
     postDailyLimit: n(POST_DAILY_LIMIT),
     postSummaryFee: n(POST_SUMMARY_FEE),
     postSummaryFreeRewrites: n(POST_SUMMARY_FREE_REWRITES),
