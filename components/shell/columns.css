@@ -123,6 +123,15 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  /*
+   * explore.css gives .discovery-page `margin: auto`: in this flex column
+   * that shrinks the card to its content and centres it (a post page's rail
+   * with only "还没有 Ree 回答" in it, once that stylesheet arrives, e.g.
+   * after a refresh). The rail is always its column's full width.
+   */
+  margin: 0;
+  width: 100%;
+  align-self: stretch;
   padding: 0;
   max-width: none;
   background: transparent;
