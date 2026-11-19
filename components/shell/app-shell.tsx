@@ -10,6 +10,7 @@ import { BrandMark, BrandName } from '@/components/ui/brand-mark';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { UserAvatar } from '@/components/ui/ree-avatar';
 import { HistoryProvider, SearchShortcut } from '@/components/conversations/sidebar-history';
+import { ComposeLink, PostComposerDialog } from '@/components/posts/composer';
 import { WorkspaceMain } from '@/components/shell/workspace-main';
 import './shell.css';
 import './columns.css';
@@ -105,6 +106,7 @@ export function AppShell({ user, initialCollapsed, children }: { user: ShellUser
     <ShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true), activitiesPending: user.activities.visible && user.activities.dot, signedIn: true }}>
       <HistoryProvider>
         <SearchShortcut />
+        <PostComposerDialog />
         <div className="xshell">
           <Sidebar user={user} collapsed={collapsed} phone={phone} open={drawer} hidden={phone && !drawer} onClose={() => setDrawer(false)} />
           <WorkspaceMain collapsed={collapsed}>{children}</WorkspaceMain>
@@ -151,18 +153,18 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
         <NavItem href="/" icon="home" label={nav.homeFeed} active={pathname === '/'} />
         <NavItem href="/explore" icon="compass" label={nav.discover} active={pathname === '/explore' || pathname.startsWith('/r/')} />
         <NavItem href="/notifications" icon="bell" label={nav.notifications} active={pathname === '/notifications'} count={user.unreadNotices || undefined} />
-        <NavItem href="/me/posts" icon="chat" label={nav.myPosts} active={pathname.startsWith('/me/posts') || pathname.startsWith('/chats') || pathname === '/talk'} />
+        <NavItem href="/me/posts?tab=all" icon="chat" label={nav.myPosts} active={pathname.startsWith('/me/posts') || pathname.startsWith('/chats') || pathname === '/talk'} />
         <NavItem href="/rees" icon="ree" label={nav.rees} active={pathname.startsWith('/rees') || pathname.startsWith('/workspace') || pathname === '/videos'} count={user.reeCount} />
         <NavItem href="/saved" icon="bookmark" label={nav.saved} active={pathname === '/saved'} />
         {user.activities.visible && (
           <NavItem href="/activities" icon="gift" label={nav.activities} active={pathname.startsWith('/activities')} dot={user.activities.dot ? nav.activitiesPending : undefined} />
         )}
       </nav>
-      {/* "提问": a private question to Rees you pick -- today's new conversation (`/talk`). */}
-      <Link href="/talk?new=1" className="btn xpost" aria-label={nav.ask} title={nav.ask}>
+      {/* "发帖": the composer window on this page (`?compose=public`); its 私密提问 tab leads to `/talk`. */}
+      <ComposeLink className="btn xpost" label={nav.ask}>
         <Icon name="plus" className="size-5" />
         <span>{nav.ask}</span>
-      </Link>
+      </ComposeLink>
       <div className="chat-sidebar-footer sidebar-account-footer">
         <PlanMeter user={user} />
         <div className="user-row">
@@ -205,7 +207,7 @@ function BottomBar({ unread }: { unread: number }) {
     ['/', 'home', nav.homeFeed, pathname === '/'],
     ['/explore', 'compass', nav.discover, pathname === '/explore' || pathname.startsWith('/r/')],
     ['/notifications', 'bell', nav.notifications, pathname === '/notifications'],
-    ['/me/posts', 'chat', nav.myPosts, pathname.startsWith('/me/posts') || pathname.startsWith('/chats')],
+    ['/me/posts?tab=all', 'chat', nav.myPosts, pathname.startsWith('/me/posts') || pathname.startsWith('/chats')],
     ['/rees', 'ree', nav.rees, pathname.startsWith('/rees')],
   ];
   return (
@@ -218,9 +220,9 @@ function BottomBar({ unread }: { unread: number }) {
           </Link>
         ))}
       </nav>
-      <Link href="/talk?new=1" className="xfab" aria-label={nav.ask} title={nav.ask}>
+      <ComposeLink className="xfab" label={nav.ask}>
         <Icon name="plus" className="" />
-      </Link>
+      </ComposeLink>
     </>
   );
 }

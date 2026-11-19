@@ -31,9 +31,14 @@ export const PUBLIC_QA_ASK_ANCHOR = 'ask';
 
 /** A published question and answer as a page shows it. */
 export interface PublicQa {
+  /** The answer (`post_answer`). */
   id: string;
-  /** Who asked, as the page says it: a visitor or a signed-in user, never a name. */
+  /** The post it answers (`/p/[postId]`). */
+  postId: string;
+  /** Who asked, as the page says it: a visitor or a signed-in user. */
   asker: 'visitor' | 'user';
+  /** The author's name, for a public post they did not make anonymous; null otherwise ("一位用户"). */
+  author: string | null;
   question: string;
   answer: string;
   /** The answer was cut at `PUBLIC_QA_PREVIEW_CHARS`; `GET …/public-qa/[qaId]` has the whole. */
@@ -57,35 +62,89 @@ export interface PublicQaPage {
 const REDACTED = { zh: '[已隐去]', en: '[removed]' } as const;
 
 /*
- * Patterns run on a folded copy: full-width digits, letters, ＠ and the
- * separators a Chinese IME types (１３８…, me＠qq．com) become their ASCII
- * forms one character for one, so positions still line up with the text
- * kept. (Full NFKC would also turn the reader's ，。 into ,. -- so only these
- * characters are folded.)
+ * Patterns run on a folded copy, one character for one so positions still
+ * line up with the text kept (full NFKC would also turn the reader's ，。
+ * into ,. -- so only what matters here is folded):
+ * - full-width digits, letters, ＠ and separators (１３８…, me＠qq．com);
+ * - every way of writing a digit as one character: 〇零一…九, the formal
+ *   壹…玖, 两 and 幺, circled ①…⑨ -- so 138零零138零零零 and 壹叁捌… read as
+ *   the numbers they are;
+ * - list-style separators (，、～) as , and ~, dashes (—–) as -, and the
+ *   full-width ｜＋＊＃：；（） as their ASCII forms.
+ * Digits written as words in ordinary prose rarely run to seven in a row;
+ * the long-number rule below needs seven.
  */
-const FOLD = /[０-９Ａ-Ｚａ-ｚ＠．－＿／　]/g;
+const DIGIT_CHARS: Record<string, string> = {};
+for (const [digit, chars] of Object.entries({ 0: '〇零⓪', 1: '一壹幺①', 2: '二贰两②', 3: '三叁③', 4: '四肆④', 5: '五伍⑤', 6: '六陆⑥', 7: '七柒⑦', 8: '八捌⑧', 9: '九玖⑨' })) {
+  for (const char of chars) DIGIT_CHARS[char] = digit;
+}
+const OTHER_CHARS: Record<string, string> = { '　': ' ', '，': ',', '、': ',', '～': '~', '—': '-', '–': '-', '（': '(', '）': ')' };
+const FOLD = /[０-９Ａ-Ｚａ-ｚ＠．－＿／｜＋＊＃：；]/;
 function fold(text: string): string {
-  return text.replace(FOLD, (char) => (char === '　' ? ' ' : String.fromCharCode(char.charCodeAt(0) - 0xfee0)));
+  let out = '';
+  for (const char of text) {
+    out += DIGIT_CHARS[char] ?? OTHER_CHARS[char] ?? (FOLD.test(char) ? String.fromCharCode(char.charCodeAt(0) - 0xfee0) : char);
+  }
+  return out;
 }
 
-/* E-mail, with or without a top-level domain (me@qq), and spelled out: me (at) gmail (dot) com. */
+/*
+ * E-mail, with or without a top-level domain (me@qq), spaced out
+ * (me @ qq . com -- only with a domain ending, so "Ask @Brazil Guide" stays),
+ * and spelled out: me (at) gmail (dot) com, me（at）qq（dot）com,
+ * me at qq dot com, me at gmail.com, me艾特qq点com, me圈qq点com.
+ */
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*/g;
+const SPACED_EMAIL = /[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9-]+(?:\s*\.\s*[A-Za-z0-9-]+)*\s*\.\s*[a-z]{2,6}\b/gi;
+/* "at" before a domain with its ending: me at gmail.com. The ending is lower case, so "look at it.Then" stays. */
+const AT_DOMAIN = /\b[A-Za-z0-9._%+-]+\s+[Aa][Tt]\s+[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[a-z]{2,6}\b/g;
 const SPELLED_EMAIL = /[A-Za-z0-9._%+-]+\s*[([]\s*at\s*[)\]]\s*[A-Za-z0-9-]+(?:\s*[([]\s*dot\s*[)\]]\s*[A-Za-z0-9-]+)+/gi;
+const WORDED_EMAIL = /\b[A-Za-z0-9._%+-]+\s+at\s+[A-Za-z0-9-]+(?:\s+dot\s+[A-Za-z]{2,6})+\b/gi;
+const CHINESE_EMAIL = /[A-Za-z0-9._%+-]+\s*(?:艾特|圈a|圈)\s*[A-Za-z0-9-]+(?:\s*(?:点|dot)\s*[A-Za-z]{2,6})+/gi;
 /* Mainland identity card numbers: 17 digits and a check character. Letters may touch it (身份证号E…). */
 const ID_CARD = /(?<![0-9])[1-9][0-9]{5}(?:18|19|20)[0-9]{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12][0-9]|3[01])[0-9]{3}[0-9Xx](?![0-9])/g;
 /*
- * Any run of 7 or more digits, optionally with a leading + and spaces, dots,
- * dashes, slashes, underscores, middle dots or brackets between them: phone,
- * card, account, QQ and passport numbers. Only a digit next to it stops it,
- * so wx13800138000 and QQ12345678 are caught.
+ * Any run of 7 or more digits, optionally with a leading + and, between
+ * them, up to three separators -- spaces, dots, dashes, slashes,
+ * underscores, middle dots, brackets, | + * # : ; → …, and the list-style
+ * , ~ -- or any run of spaces: phone, card, account, QQ and passport
+ * numbers. Only a digit next to it stops it, so wx13800138000 and
+ * QQ12345678 are caught.
  */
-const LONG_NUMBER = /(?<![0-9])\+?(?:[0-9][\s().\-/_·]{0,3}){6,}[0-9](?![0-9])/g;
-/* The same in Chinese numerals: 一三八零零一三八零零零. */
-const CHINESE_DIGITS = /[零〇一二三四五六七八九两幺](?:[\s\-·]{0,2}[零〇一二三四五六七八九两幺]){6,}/g;
+const LONG_NUMBER = /(?<![0-9])\+?(?:[0-9](?:[\s().\-/_·,~|+*#:;→…]{0,3}|\s{4,})){6,}[0-9](?![0-9])/g;
 /* A date written with separators is not personal: 2026-11-18, 2026/11/18. */
 const DATE = /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$/;
+/* Thousands are not personal either: 1,200,000. */
+const THOUSANDS = /^\d{1,3}(?:,\d{3})+$/;
+/*
+ * Numbers in a list or a range -- 1200、1500、1800 or 1000~2000 -- are kept
+ * unless together they spell something personal:
+ * - a mainland mobile, with or without 86 (138，0013，8000, +86 138,0013,8000);
+ * - a mainland landline with its area code (021，6123，4567);
+ * - a card: 15 to 19 digits in groups of four (6222,0212,3456,7890) --
+ *   unless every group ends in 0, which is a list of round prices;
+ * - an identity number split up (110105,19491231,002X: 17 digits).
+ * Prices and counts in lists are common in questions; review is the
+ * second layer for what still gets through.
+ */
+const LIST_SEPARATED = /[,~]/;
+const MOBILE = /^(?:86)?1[3-9]\d{9}$/;
+const LANDLINE = /^0\d{9,11}$/;
+function cardLike(match: string, digits: string): boolean {
+  if (digits.length < 15 || digits.length > 19) return false;
+  const groups = match.split(/[^0-9]+/).filter(Boolean);
+  if (groups.length < 3 || groups.slice(0, -1).some((group) => group.length !== 4)) return digits.length === 17;
+  /* Only the four-digit groups: a numeral just after the list (…4000 四档) folds into a short last group. */
+  return !groups.filter((group) => group.length === 4).every((group) => group.endsWith('0'));
+}
+function ordinaryNumber(match: string): boolean {
+  const digits = match.replace(/[^0-9]/g, '');
+  const trimmed = match.trim();
+  if (digits.length < 7 || DATE.test(trimmed) || THOUSANDS.test(trimmed)) return true;
+  if (!LIST_SEPARATED.test(match)) return false;
+  return !(MOBILE.test(digits) || LANDLINE.test(digits) || cardLike(trimmed, digits));
+}
 const URL = /\b(?:https?:\/\/|www\.)[^\s<>"'）)】\]]+/gi;
-/* A four-digit year and plain small numbers are not personal: the long-number rule needs 7 digits. */
 
 /** Replaces each match of `pattern` in the folded copy at the same place in `text`. */
 function cut(text: string, folded: string, pattern: RegExp, mark: string, keep: (match: string) => boolean = () => false): [string, string] {
@@ -106,8 +165,9 @@ function cut(text: string, folded: string, pattern: RegExp, mark: string, keep: 
  * What an asker typed, with what could identify a person replaced: e-mail
  * addresses (also without a domain ending, or spelled out), identity card
  * numbers, long digit runs (phones, cards, accounts, QQ and passport
- * numbers, also in full-width or Chinese numerals, whatever separates or
- * precedes them) and, in the question only, links. The answer keeps its
+ * numbers, also in full-width, Chinese, formal or circled numerals and
+ * mixed, whatever separates or precedes them) and, in the question only,
+ * links. The answer keeps its
  * links: they come from the Ree's own sources.
  */
 export function redact(text: string, lang: 'zh' | 'en', options: { links?: boolean } = {}): string {
@@ -115,10 +175,13 @@ export function redact(text: string, lang: 'zh' | 'en', options: { links?: boole
   let pair: [string, string] = [text, fold(text)];
   pair = cut(...pair, EMAIL, mark);
   pair = cut(...pair, SPELLED_EMAIL, mark);
+  pair = cut(...pair, WORDED_EMAIL, mark);
+  pair = cut(...pair, SPACED_EMAIL, mark);
+  pair = cut(...pair, AT_DOMAIN, mark);
+  pair = cut(...pair, CHINESE_EMAIL, mark);
   pair = cut(...pair, ID_CARD, mark);
   if (options.links ?? true) pair = cut(...pair, URL, mark);
-  pair = cut(...pair, LONG_NUMBER, mark, (match) => match.replace(/[^0-9]/g, '').length < 7 || DATE.test(match.trim()));
-  pair = cut(...pair, CHINESE_DIGITS, mark);
+  pair = cut(...pair, LONG_NUMBER, mark, ordinaryNumber);
   return pair[0];
 }
 

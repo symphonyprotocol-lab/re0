@@ -11,6 +11,9 @@
 import { readFileSync } from 'node:fs';
 import { REEMBED_BATCH, WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+/* A slow file (about 30s alone): under a parallel suite a few cases come near the default 5s, so it gets its own. */
+vi.setConfig({ testTimeout: 30_000 });
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { fakeEmbedding, startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';

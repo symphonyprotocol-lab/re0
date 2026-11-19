@@ -302,7 +302,7 @@ export async function createReeFromDraft(ownerId: string): Promise<{ ree: Ree }>
 export async function updateRee(
   ownerId: string,
   id: string,
-  fields: ReeFields & { isPublic: boolean; color: unknown; avatarBlob: string | null; coverBlob?: string | null; publicQaEnabled?: boolean },
+  fields: ReeFields & { isPublic: boolean; color: unknown; avatarBlob: string | null; coverBlob?: string | null; publicQaEnabled?: boolean; answersPosts?: boolean | null },
 ): Promise<Ree | null> {
   const invalid = validateReeFields(fields, 3);
   if (invalid) throw new ReeInputError(invalid.error, invalid.step);
@@ -319,7 +319,7 @@ export async function updateRee(
     const [row] = await tx
       .update(schema.ree)
       /* A Ree an administrator took down stays private until it is restored (2.5). */
-      .set({ ...reeValues(fields), isPublic: sql`(${fields.isPublic} and "ree"."moderated_at" is null)`, isPublished: sql`(${fields.isPublic} and "ree"."is_published" and "ree"."moderated_at" is null)`, avatarBlob, coverBlob, ...(fields.publicQaEnabled === undefined ? {} : { publicQaEnabled: fields.publicQaEnabled }), updatedAt: new Date() })
+      .set({ ...reeValues(fields), isPublic: sql`(${fields.isPublic} and "ree"."moderated_at" is null)`, isPublished: sql`(${fields.isPublic} and "ree"."is_published" and "ree"."moderated_at" is null)`, avatarBlob, coverBlob, ...(fields.publicQaEnabled === undefined ? {} : { publicQaEnabled: fields.publicQaEnabled }), ...(typeof fields.answersPosts === 'boolean' ? { answersPosts: fields.answersPosts } : {}), updatedAt: new Date() })
       .where(and(eq(schema.ree.id, id), ownedLive(ownerId)))
       .returning();
     /* Private now: out of other people's conversations and out of discovery (8.2); the history stays. */

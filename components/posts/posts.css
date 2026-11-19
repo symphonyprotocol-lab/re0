@@ -1,0 +1,596 @@
+/*
+ * Public posts (v5, docs/design/discover-posts.html): the feed, the
+ * composer and its window, and a post's page with up to five answers.
+ * Same tokens and values as explore.css, feed.css and conversations.css.
+ */
+
+/* ---------------------------------------------------------------- the home */
+
+.discovery-page .post-home-tabs {
+  margin: 4px 0 18px;
+}
+.discovery-page .post-home-tabs .cl-tab {
+  font-size: 13px;
+}
+.discovery-page .post-sorts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+/* The composer: the signed-in viewer's box; for a visitor, the same card asks them to sign in. */
+.post-composer {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+.post-composer textarea {
+  width: 100%;
+  min-height: 64px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.post-composer textarea::placeholder {
+  color: #a3a8b9;
+}
+.post-composer-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #eef0f6;
+  color: #606670;
+  font-size: 11px;
+}
+.post-composer-foot .post-quota {
+  margin-left: auto;
+  font-family: var(--font-mono);
+}
+.post-composer-foot label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.post-composer-foot input {
+  accent-color: var(--color-blue);
+}
+.post-composer.is-visitor {
+  align-items: center;
+  background: var(--color-wash);
+}
+
+/* One post in the feed. */
+.post-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  padding: 18px 2px 12px;
+  border-bottom: 1px solid var(--color-line);
+  isolation: isolate;
+}
+.post-card::before {
+  content: '';
+  position: absolute;
+  inset: 6px -12px;
+  z-index: -1;
+  border-radius: 16px;
+  background: #f8f9fa;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+  pointer-events: none;
+}
+.post-card:hover::before {
+  opacity: 1;
+}
+.post-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: #606670;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.post-head strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.post-question {
+  margin-top: 3px;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.55;
+}
+.post-question a::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.post-card:hover .post-question {
+  color: var(--color-blue);
+}
+.post-answers-preview {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-wash);
+}
+.post-answerers {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #606670;
+  font-size: 11px;
+}
+.post-stack {
+  display: flex;
+}
+.post-stack > span {
+  margin-left: -6px;
+  border: 2px solid var(--color-wash);
+  border-radius: 50%;
+}
+.post-stack > span:first-child {
+  margin-left: 0;
+}
+.post-top-answer {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+.post-top-answer > span:first-child {
+  border-radius: 50%;
+}
+.post-top-answer strong {
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+.post-top-answer p {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #3b4361;
+  font-size: 12px;
+  line-height: 1.65;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.post-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+.post-state.is-gathering {
+  border: 1px solid #d6e6fb;
+  background: var(--color-soft);
+  color: var(--color-blue);
+}
+.post-state.is-unmatched {
+  border: 1px dashed #d6d6e8;
+  background: #eeedfa;
+  color: #3b4361;
+}
+.post-state.is-rejected {
+  border: 1px solid #f3d2cf;
+  background: #fdf3f2;
+  color: #b4372c;
+}
+.post-state a {
+  color: var(--color-blue);
+  font-weight: 550;
+}
+.post-actions {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 6px 0 0 -8px;
+}
+.post-actions .icon-btn {
+  width: auto;
+  min-width: 30px;
+  height: 30px;
+  gap: 4px;
+  padding: 0 7px;
+  color: #606670;
+  font: 500 11px var(--font-mono);
+}
+.post-actions .icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.post-actions .post-open {
+  margin-left: auto;
+  color: var(--color-blue);
+  font: 550 11px var(--font-sans);
+}
+.post-seed {
+  border-radius: 5px;
+  padding: 0 6px;
+  background: #f2edff;
+  color: #7255bd;
+  font-size: 10px;
+  font-weight: 550;
+}
+
+/* ------------------------------------------------------------ a post's page */
+
+.post-page-question {
+  margin-top: 10px;
+  color: var(--color-ink);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+.post-page-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  margin-top: 12px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.post-answer {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+.post-answer-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 11px;
+  color: #606670;
+}
+.post-answer-head strong {
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 650;
+}
+.post-answer-head .post-match {
+  margin-left: auto;
+  font-family: var(--font-mono);
+}
+.post-answer .answer-text {
+  margin-top: 10px;
+}
+.post-answer-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin: 10px 0 0 -8px;
+}
+.post-answer-foot .icon-btn {
+  width: auto;
+  min-width: 30px;
+  height: 28px;
+  gap: 4px;
+  padding: 0 8px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.post-answer-foot .icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.post-answer-foot .post-follow {
+  margin-left: auto;
+}
+.post-promo {
+  border-radius: 5px;
+  padding: 0 6px;
+  background: #fff7ea;
+  color: #a6651d;
+  font-size: 10px;
+  font-weight: 550;
+}
+.post-answer.is-streaming {
+  border-color: #d6e6fb;
+}
+.post-skipped {
+  margin-top: 14px;
+  color: var(--color-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.post-av-xs svg {
+  width: 15px;
+  height: 15px;
+}
+.discovery-page .post-sorts-divider {
+  align-self: center;
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: var(--color-line);
+}
+
+/* ------------------------------------------------------------ v5 additions */
+
+.post-feed {
+  padding: 0 18px;
+}
+.post-form {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.post-form textarea {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.post-form textarea.post-detail {
+  min-height: 56px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed #eef0f6;
+  font-size: 13px;
+}
+.post-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin-bottom: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--color-soft);
+  color: var(--color-blue);
+  font-size: 12px;
+}
+.post-hint {
+  margin-top: 4px;
+  color: #8a94ae;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.post-error {
+  margin-top: 4px;
+  color: #b4372c;
+  font-size: 12px;
+}
+.post-composer-foot .icon-btn {
+  width: auto;
+  gap: 4px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+.post-composer-foot .btn {
+  margin-left: 4px;
+}
+.post-dialog {
+  width: min(600px, calc(100vw - 32px));
+  max-height: calc(100dvh - 64px);
+  margin: 8vh auto auto;
+  padding: 0;
+  border: 0;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgb(15 23 42 / 0.22);
+}
+.post-dialog::backdrop {
+  background: rgb(15 23 42 / 0.4);
+}
+.post-dialog-body {
+  padding: 4px 20px 16px;
+}
+.post-dialog-body > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.post-dialog-body > header .cl-tabs {
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+.post-dialog-body > header .cl-tab {
+  font-size: 13px;
+}
+.post-dialog-body > header .cl-tab.active {
+  border-bottom-color: var(--color-blue);
+  color: var(--color-ink);
+}
+.post-page {
+  padding: 16px 18px 48px;
+}
+.post-page-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.post-page-head > div > strong {
+  font-size: 14px;
+}
+.post-page-detail {
+  margin-top: 8px;
+  color: #3b4361;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.post-page .post-actions {
+  margin-top: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-line);
+}
+.post-page .post-actions .ml-auto {
+  margin-left: auto;
+}
+.post-followups {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-wash);
+  font-size: 12px;
+}
+.post-followups a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--color-blue);
+}
+.post-answers-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-top: 18px;
+  font-size: 14px;
+}
+.post-answers-head small {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.post-summary-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d6e6fb;
+  border-radius: 12px;
+  background: var(--color-soft);
+  font-size: 12px;
+}
+.post-summary {
+  border-color: #d6e6fb;
+}
+.post-answer-head a strong:hover {
+  color: var(--color-blue);
+}
+.post-state .spinner {
+  width: 12px;
+  height: 12px;
+}
+.xcol > .post-composer {
+  margin: 0;
+  border-radius: 0;
+  border-width: 0 0 1px;
+}
+@media (max-width: 760px) {
+  .post-dialog {
+    margin-top: 4vh;
+  }
+}
+.post-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 18px 4px;
+  padding: 10px 16px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: var(--color-wash);
+  color: #8a94ae;
+  font-size: 13px;
+}
+
+/* 我的帖子 */
+.my-posts {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 32px 40px;
+}
+.my-posts.is-head {
+  max-width: 1540px;
+  padding-bottom: 0;
+}
+.my-posts.is-head .my-posts-tabs {
+  margin-bottom: 0;
+}
+@media (max-width: 760px) {
+  .my-posts {
+    padding: 16px 16px 32px;
+  }
+}
+.my-posts .my-posts-tabs {
+  margin-bottom: 14px;
+}
+.my-posts .cl-tab {
+  font-size: 13px;
+}
+.my-posts .cl-tab.active {
+  border-bottom-color: var(--color-blue);
+  color: var(--color-ink);
+}
+.my-posts .post-feed {
+  padding: 0;
+}
+.my-posts-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--color-line);
+}
+.my-posts-list a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--color-line);
+}
+.my-posts-list a:hover strong {
+  color: var(--color-blue);
+}
+.my-posts-list strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.my-posts-list small {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.my-posts-list .tag.is-public {
+  background: var(--color-soft);
+  color: var(--color-blue);
+}

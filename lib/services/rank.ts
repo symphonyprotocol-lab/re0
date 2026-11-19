@@ -36,10 +36,11 @@ export async function computeRanks(now = new Date()): Promise<number> {
       (coalesce(w.asked, 0) + coalesce(z.asked, 0))::int as asked7,
       greatest(w.last_at, z.last_at) as last_answered
     from ${schema.ree} r
+    /* 继续问 (posts.ts followUpPost): its first exchange is the post's, copied (copied_from_post), and counts nowhere here; what is asked after it counts like any question. Starting one is not a pull. */
     left join (
       select m.ree_id, count(*) as asked, count(*) filter (where not m.no_answer) as answered
       from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id join ${schema.ree} o on o.id = m.ree_id
-      where m.role = 'ree' and m.created_at >= ${since}::timestamptz and c.user_id <> o.owner_id
+      where m.role = 'ree' and not m.copied_from_post and m.created_at >= ${since}::timestamptz and c.user_id <> o.owner_id
       group by m.ree_id
     ) q on q.ree_id = r.id
     left join (
@@ -51,21 +52,21 @@ export async function computeRanks(now = new Date()): Promise<number> {
     left join (
       select cr.ree_id, count(*) as pulls
       from ${schema.conversationRee} cr join ${schema.conversation} c on c.id = cr.conversation_id join ${schema.ree} o on o.id = cr.ree_id
-      where cr.added_at >= ${since}::timestamptz and c.user_id <> o.owner_id
+      where cr.added_at >= ${since}::timestamptz and c.user_id <> o.owner_id and c.post_id is null
       group by cr.ree_id
     ) p on p.ree_id = r.id
     left join (
       /* The explore "回答最多" order, all time: once an hour here instead of over every message on every browse. */
       select m.ree_id, count(*) as answers
       from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id join ${schema.ree} o on o.id = m.ree_id
-      where m.role = 'ree' and not m.no_answer and c.user_id <> o.owner_id
+      where m.role = 'ree' and not m.no_answer and not m.copied_from_post and c.user_id <> o.owner_id
       group by m.ree_id
     ) a on a.ree_id = r.id
     left join (
       /* Explore's activity line: other people's questions this week and the latest answer, signed in ... */
       select m.ree_id, count(*) as asked, max(m.created_at) filter (where not m.no_answer) as last_at
       from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id join ${schema.ree} o on o.id = m.ree_id
-      where m.role = 'ree' and m.created_at >= ${week}::timestamptz and c.user_id <> o.owner_id
+      where m.role = 'ree' and not m.copied_from_post and m.created_at >= ${week}::timestamptz and c.user_id <> o.owner_id
       group by m.ree_id
     ) w on w.ree_id = r.id
     left join (

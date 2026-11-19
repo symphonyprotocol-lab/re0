@@ -35,6 +35,7 @@ import * as apiKeys from './pages/api-keys';
 import * as redeemAdmin from './pages/redeem-admin';
 import * as consoleConfirm from './pages/console-confirm';
 import * as invites from './pages/invites';
+import * as posts from './pages/posts';
 import type { Locale } from './locale';
 
 /* Step 5's pages sit in their own spread, so other steps' additions to the first object merge cleanly. */
@@ -52,7 +53,9 @@ const redeem = { redeemAdmin };
 const confirmations = { consoleConfirm };
 /* Invitations and starter tasks sit in their own spread too. */
 const invitations = { invites };
-const pages = { servicePricing, modelCalls, knowledgeCosts, pricingAdmin, common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, firecrawl, conversations, discover, ...step5, ...step6, ...step7, ...sharing, ...mcp, ...redeem, ...confirmations, ...invitations };
+/* v5's public posts sit in their own spread too. */
+const v5 = { posts };
+const pages = { servicePricing, modelCalls, knowledgeCosts, pricingAdmin, common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, firecrawl, conversations, discover, ...step5, ...step6, ...step7, ...sharing, ...mcp, ...redeem, ...confirmations, ...invitations, ...v5 };
 
 type Pages = typeof pages;
 export type Messages = { [K in keyof Pages]: Pages[K]['en'] };

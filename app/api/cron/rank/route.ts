@@ -12,7 +12,8 @@ export const maxDuration = 300;
  * Vercel Cron (vercel.json, hourly): materialises every public Ree's
  * 30-day quality signals and explore order into `ree.rank`, and clears old
  * rate-limit windows, anonymous chat's past days and expired user and
- * console sessions, and retries public answers left unchecked. Same `CRON_SECRET` gate as the other jobs. Idempotent.
+ * console sessions, and retries public answers left unchecked. Posts have
+ * their own job (`/api/cron/posts`, every 5 minutes). Same `CRON_SECRET` gate as the other jobs. Idempotent.
  */
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;

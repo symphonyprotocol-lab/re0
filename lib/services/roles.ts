@@ -61,7 +61,7 @@ export async function roleMetrics(executor: Executor, userId: string, now = new 
         where k.ree_id in (${rees}) and k.deleted_at is null and k.status = 'ready') as ready_sources,
       (select count(*)::int from ${schema.message} m
         join ${schema.conversation} c on c.id = m.conversation_id
-        where m.role = 'ree' and m.ree_id in (${rees}) and c.user_id <> ${userId}) as external_questions`);
+        where m.role = 'ree' and not m.copied_from_post and m.ree_id in (${rees}) and c.user_id <> ${userId}) as external_questions`);
   const row = result.rows[0] as { public_rees: number; ready_sources: number; external_questions: number };
   let helpful = 0;
   let unhelpful = 0;

@@ -22,6 +22,8 @@ export interface ReeFormState {
   queryFee: number;
   /** Settings only: askers may publish their answers on the Ree page (public Q&A). */
   publicQaEnabled?: boolean;
+  /** v5: answer public posts; null follows the default (free Rees answer, paid ones do not). Only in settings. */
+  answersPosts?: boolean | null;
 }
 
 type Change = (patch: Partial<ReeFormState>) => void;
@@ -316,6 +318,22 @@ export function PublishingFields({ value, onChange, moderated = false }: { value
             <span>{f.publicQa}</span>
           </label>
           <small>{f.publicQaHint}</small>
+        </div>
+      )}
+      {value.answersPosts !== undefined && (
+        <div className="field">
+          <label htmlFor="edit-answers-posts" className="flex items-start gap-2">
+            <input
+              id="edit-answers-posts"
+              name="answersPosts"
+              type="checkbox"
+              className="mt-1 accent-blue"
+              checked={value.answersPosts ?? (Number.isFinite(value.queryFee) ? value.queryFee === 0 : false)}
+              onChange={(event) => onChange({ answersPosts: event.target.checked })}
+            />
+            <span>{f.answersPosts}</span>
+          </label>
+          <small>{f.answersPostsHint}</small>
         </div>
       )}
     </>

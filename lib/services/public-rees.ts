@@ -33,6 +33,8 @@ export interface PublicRee {
   ownerSocialContacts: SocialContact[];
   role: 'normal' | 'verified' | 'official';
   queryFee: number;
+  /** v5: it answers public posts (the owner's choice, or free by default), so 发帖问它 can name it. */
+  takesPosts: boolean;
   /** The owner lets askers publish answers on the page (问答); off, the page offers no "回答后公开". */
   publicQaEnabled: boolean;
   price: number;
@@ -89,6 +91,7 @@ async function reeDetails(where: SQL): Promise<PublicRee | null> {
       ownerSocialContacts: schema.user.socialContacts,
       role: schema.user.role,
       queryFee: schema.ree.queryFee,
+      takesPosts: sql<boolean>`coalesce(${schema.ree.answersPosts}, ${schema.ree.queryFee} = 0)`,
       publicQaEnabled: schema.ree.publicQaEnabled,
       sources: readySources,
       answers: answersByOthers,

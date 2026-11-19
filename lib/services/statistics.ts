@@ -107,7 +107,8 @@ export async function answerCounts(reeIds: readonly string[], range: Range | nul
 }
 
 const savedAnswers = (reeIds: readonly string[], range: Range | null) =>
-  and(eq(schema.message.role, 'ree'), eq(schema.message.noAnswer, false), inArray(schema.message.reeId, [...reeIds]), ...within(schema.message.createdAt, range));
+  /* Not the copied first exchange of a 继续问: no one asked it here (posts.ts followUpPost). */
+  and(eq(schema.message.role, 'ree'), eq(schema.message.noAnswer, false), eq(schema.message.copiedFromPost, false), inArray(schema.message.reeId, [...reeIds]), ...within(schema.message.createdAt, range));
 
 /** Saved answers per Ree in a period. */
 export async function savedCounts(reeIds: readonly string[], range: Range | null): Promise<Map<string, number>> {

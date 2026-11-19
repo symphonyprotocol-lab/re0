@@ -56,6 +56,18 @@ export function ipBucket(ip: string): string {
 }
 
 /**
+ * The network a visitor's report counts for: IPv4 by address, IPv6 by /48 --
+ * wider than the /64 the anonymous rounds count by, since a home line is
+ * often delegated a /56 or /48 and one person must not be three reporters.
+ * Only for reports; the rounds keep `ipBucket`.
+ */
+export function reportBucket(ip: string): string {
+  const bucket = ipBucket(ip);
+  if (!bucket.endsWith('::/64')) return bucket;
+  return `${bucket.slice(0, -'::/64'.length).split(':').slice(0, 3).join(':')}::/48`;
+}
+
+/**
  * The daily caps an administrator sets (anonymous-chat-settings.ts): per
  * browser, per Ree, over the platform, per client address, and the factor
  * every key's attempts cap is of its rounds. `revision` guards a save

@@ -33,7 +33,6 @@ import {
   PUBLIC_QA_ANSWER_MAX_CHARS,
   PUBLIC_QA_MODERATION_ATTEMPTS,
   PUBLIC_QA_PAGE_SIZE,
-  PUBLIC_QA_REPORT_THRESHOLD,
   redact,
   type PublicQa,
   type PublicQaPage,
@@ -44,26 +43,16 @@ import { db, schema } from '@/lib/infra/db';
 import { publicRee } from '@/lib/services/explore';
 import { audit } from '@/lib/services/admin';
 import { generationForUser } from '@/lib/services/generation';
+import { answeredPostCounts, ownerActOnAnswer, reportAnswer, setAnswerHelpful, shownAnswer, visiblePost, type OwnerAction } from '@/lib/services/posts';
+import { syncPublicQa } from '@/lib/services/public-qa-sync';
 
-const { ree, reePublicQa: qa, reePublicQaVote: vote, reePublicQaReport: report, message, conversation } = schema;
+const { ree, reePublicQa: qa, message, conversation, post, postAnswer: answer, postAnswerVote: vote, postAnswerReport: report, user } = schema;
 
 /* --------------------------------------------------------------- visibility */
 
 /** The Ree is public and its owner lets answers be published. */
 function openRee(): SQL {
   return and(publicRee(), eq(ree.publicQaEnabled, true))!;
-}
-
-/** A signed-in asker's answer shows only while its message is in a conversation outside the trash. */
-function askerKeepsIt(): SQL {
-  return sql`(${qa.source} <> 'user' or exists (
-    select 1 from ${message} m join ${conversation} c on c.id = m.conversation_id
-    where m.id = ${qa.messageId} and c.deleted_at is null))`;
-}
-
-/** What anyone sees: published, on an open Ree, not taken down with its conversation. */
-function shown(): SQL {
-  return and(eq(qa.status, 'published'), openRee(), askerKeepsIt())!;
 }
 
 /* ---------------------------------------------------------------- snapshots */
@@ -98,7 +87,8 @@ export type PublishResult = { id: string } | 'not_found' | 'not_single_turn' | '
 
 /**
  * A signed-in asker publishes one of their answers: the Ree's reply to the
- * first question of a conversation they own, not in the trash, that answered
+ * first question of a conversation they own (not one started from a post:
+ * its answer is the post's own), not in the trash, that answered
  * (not a "no answer"), on a Ree that takes public answers.
  */
 export async function publishOwnAnswer(userId: string, reeId: string, messageId: string, lang: 'zh' | 'en'): Promise<PublishResult> {
@@ -107,7 +97,7 @@ export async function publishOwnAnswer(userId: string, reeId: string, messageId:
     .select({ id: message.id, conversationId: message.conversationId, content: message.content, citations: message.citations, noAnswer: message.noAnswer, reeId: message.reeId, createdAt: message.createdAt })
     .from(message)
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
-    .where(and(eq(message.id, messageId), eq(message.role, 'ree'), eq(message.reeId, reeId), eq(conversation.userId, userId), isNull(conversation.deletedAt), eq(conversation.kind, 'normal')))
+    .where(and(eq(message.id, messageId), eq(message.role, 'ree'), eq(message.reeId, reeId), eq(conversation.userId, userId), isNull(conversation.deletedAt), eq(conversation.kind, 'normal'), isNull(conversation.postId)))
     .limit(1);
   if (!reply) return 'not_found';
   if (reply.noAnswer || !reply.content.trim()) return 'no_answer';
@@ -170,6 +160,8 @@ export async function moderateSnapshot(id: string, judge: Judge = modelJudge, no
     .update(qa)
     .set(status === 'published' ? { status, publishedAt: now } : { status })
     .where(and(eq(qa.id, id), eq(qa.status, 'pending')));
+  /* v5: shown as a post with one answer from now on. A failure here is caught up by the hourly cron. */
+  if (status === 'published') await syncPublicQa().catch((error: unknown) => console.warn(`public answer ${id} not copied yet: ${error instanceof Error ? error.message : 'unknown'}`));
   return status;
 }
 
@@ -195,25 +187,63 @@ export async function moderatePending(judge: Judge = modelJudge, limit = 25, now
 
 /* ------------------------------------------------------------------ reading */
 
-const columns = {
-  id: qa.id,
-  source: qa.source,
-  question: qa.question,
-  answer: qa.answer,
-  citations: qa.citations,
-  helpful: qa.helpfulCount,
-  pinnedAt: qa.pinnedAt,
-  publishedAt: qa.publishedAt,
+/*
+ * v5: what was published is copied into posts (public-qa-sync.ts), and
+ * everything below reads and acts on the copies -- together with the
+ * answers the Ree gave to public posts. An item's `id` is the answer's id
+ * (`post_answer`), its `postId` the post's.
+ */
+
+const answerColumns = {
+  id: answer.id,
+  postId: post.id,
+  source: post.source,
+  anonymous: post.anonymous,
+  authorName: user.name,
+  question: post.question,
+  answer: answer.text,
+  citations: answer.citations,
+  helpful: answer.helpfulCount,
+  pinnedAt: answer.pinnedAt,
+  publishedAt: answer.answeredAt,
 };
-type Row = { id: string; source: PublicQaSource; question: string; answer: string; citations: CitationSnapshot[]; helpful: number; pinnedAt: Date | null; publishedAt: Date | null };
+type Row = {
+  id: string;
+  postId: string;
+  source: string;
+  anonymous: boolean;
+  authorName: string | null;
+  question: string;
+  answer: string;
+  citations: CitationSnapshot[];
+  helpful: number;
+  pinnedAt: Date | null;
+  publishedAt: Date | null;
+};
+
+/** Answers, their post and asker, and the answering Ree. */
+function answers() {
+  return db()
+    .select(answerColumns)
+    .from(answer)
+    .innerJoin(post, eq(post.id, answer.postId))
+    .innerJoin(ree, eq(ree.id, answer.reeId))
+    .leftJoin(user, eq(user.id, post.userId));
+}
+
+function shown(): SQL {
+  return and(shownAnswer(), visiblePost())!;
+}
 
 function toPublic(row: Row, voted: Set<string>, whole = false): PublicQa {
-  const { answer, truncated } = whole ? { answer: row.answer, truncated: false } : previewOf(row.answer);
+  const { answer: text, truncated } = whole ? { answer: row.answer, truncated: false } : previewOf(row.answer);
   return {
     id: row.id,
-    asker: row.source === 'user' ? 'user' : 'visitor',
+    postId: row.postId,
+    asker: row.source === 'anonymous' || row.source === 'share' ? 'visitor' : 'user',
+    author: row.source === 'post' && !row.anonymous && row.authorName ? row.authorName : null,
     question: row.question,
-    answer,
+    answer: text,
     truncated,
     citations: row.citations,
     helpful: row.helpful,
@@ -225,40 +255,41 @@ function toPublic(row: Row, voted: Set<string>, whole = false): PublicQa {
 
 async function votedBy(viewerId: string | undefined, ids: string[]): Promise<Set<string>> {
   if (!viewerId || ids.length === 0) return new Set();
-  const rows = await db().select({ id: vote.qaId }).from(vote).where(and(eq(vote.userId, viewerId), inArray(vote.qaId, ids)));
+  const rows = await db().select({ id: vote.answerId }).from(vote).where(and(eq(vote.userId, viewerId), inArray(vote.answerId, ids)));
   return new Set(rows.map((row) => row.id));
 }
 
+async function countShown(reeId: string): Promise<number> {
+  const [row] = await db()
+    .select({ total: sql<number>`count(*)::int` })
+    .from(answer)
+    .innerJoin(post, eq(post.id, answer.postId))
+    .innerJoin(ree, eq(ree.id, answer.reeId))
+    .where(and(eq(answer.reeId, reeId), shown()));
+  return row?.total ?? 0;
+}
+
 /**
- * One page of a Ree's stream: the pinned answer first on the first page,
- * then the newest; `before` is the last id of the previous page. Null when
- * the Ree is not public.
+ * One page of a Ree's answered posts: the pinned answer first on the first
+ * page, then the newest; `before` is the last id of the previous page. Null
+ * when the Ree is not public.
  */
 export async function listPublicQa(reeId: string, options: { before?: string | null; viewerId?: string; size?: number } = {}): Promise<PublicQaPage | null> {
   if (!isUuid(reeId)) return null;
   const size = options.size ?? PUBLIC_QA_PAGE_SIZE;
-  const [target] = await db().select({ id: ree.id, enabled: ree.publicQaEnabled }).from(ree).where(and(eq(ree.id, reeId), publicRee())).limit(1);
+  const [target] = await db().select({ id: ree.id }).from(ree).where(and(eq(ree.id, reeId), publicRee())).limit(1);
   if (!target) return null;
-  if (!target.enabled) return { items: [], total: 0, next: null };
-  const base = and(eq(qa.reeId, reeId), shown())!;
-  const total = (await db().select({ total: sql<number>`count(*)::int` }).from(qa).innerJoin(ree, eq(ree.id, qa.reeId)).where(base))[0]?.total ?? 0;
+  const base = and(eq(answer.reeId, reeId), shown())!;
+  const total = await countShown(reeId);
   let boundary: SQL | undefined;
   if (options.before) {
     if (!isUuid(options.before)) return null;
-    const [cursor] = await db().select({ publishedAt: qa.publishedAt, id: qa.id }).from(qa).where(and(eq(qa.id, options.before), eq(qa.reeId, reeId))).limit(1);
-    if (!cursor?.publishedAt) return { items: [], total, next: null };
-    boundary = sql`(${qa.publishedAt}, ${qa.id}) < (${cursor.publishedAt.toISOString()}::timestamptz, ${cursor.id}::uuid)`;
+    const [cursor] = await db().select({ at: answer.answeredAt, id: answer.id }).from(answer).where(and(eq(answer.id, options.before), eq(answer.reeId, reeId))).limit(1);
+    if (!cursor?.at) return { items: [], total, next: null };
+    boundary = sql`(${answer.answeredAt}, ${answer.id}) < (${cursor.at.toISOString()}::timestamptz, ${cursor.id}::uuid)`;
   }
-  const pinned = options.before
-    ? []
-    : await db().select(columns).from(qa).innerJoin(ree, eq(ree.id, qa.reeId)).where(and(base, isNotNull(qa.pinnedAt))).limit(1);
-  const rows = await db()
-    .select(columns)
-    .from(qa)
-    .innerJoin(ree, eq(ree.id, qa.reeId))
-    .where(and(base, isNull(qa.pinnedAt), boundary))
-    .orderBy(desc(qa.publishedAt), desc(qa.id))
-    .limit(size + 1);
+  const pinned = options.before ? [] : await answers().where(and(base, isNotNull(answer.pinnedAt))).limit(1);
+  const rows = await answers().where(and(base, isNull(answer.pinnedAt), boundary)).orderBy(desc(answer.answeredAt), desc(answer.id)).limit(size + 1);
   const page = [...pinned, ...rows.slice(0, size)] as Row[];
   const voted = await votedBy(options.viewerId, page.map((row) => row.id));
   return { items: page.map((row) => toPublic(row, voted)), total, next: rows.length > size ? rows[size - 1]!.id : null };
@@ -267,53 +298,31 @@ export async function listPublicQa(reeId: string, options: { before?: string | n
 /** One shown answer in full ("展开全文"). */
 export async function publicQaById(reeId: string, id: string, viewerId?: string): Promise<PublicQa | null> {
   if (!isUuid(reeId) || !isUuid(id)) return null;
-  const [row] = await db().select(columns).from(qa).innerJoin(ree, eq(ree.id, qa.reeId)).where(and(eq(qa.id, id), eq(qa.reeId, reeId), shown())).limit(1);
+  const [row] = await answers().where(and(eq(answer.id, id), eq(answer.reeId, reeId), shown())).limit(1);
   if (!row) return null;
   return toPublic(row as Row, await votedBy(viewerId, [row.id]), true);
 }
 
 /** The share page's picks ("大家问过的"): the pinned one, then the most helpful, then the newest. */
 export async function publicQaPicks(reeId: string, count: number): Promise<{ items: PublicQa[]; total: number }> {
-  const base = and(eq(qa.reeId, reeId), shown())!;
-  const rows = await db()
-    .select(columns)
-    .from(qa)
-    .innerJoin(ree, eq(ree.id, qa.reeId))
-    .where(base)
-    .orderBy(sql`${qa.pinnedAt} is null`, desc(qa.helpfulCount), desc(qa.publishedAt))
+  const rows = await answers()
+    .where(and(eq(answer.reeId, reeId), shown()))
+    .orderBy(sql`${answer.pinnedAt} is null`, desc(answer.helpfulCount), desc(answer.answeredAt))
     .limit(count);
-  const total = (await db().select({ total: sql<number>`count(*)::int` }).from(qa).innerJoin(ree, eq(ree.id, qa.reeId)).where(base))[0]?.total ?? 0;
-  return { items: (rows as Row[]).map((row) => toPublic(row, new Set())), total };
+  return { items: (rows as Row[]).map((row) => toPublic(row, new Set())), total: await countShown(reeId) };
 }
 
 /** Shown answers per Ree, for explore's activity line. */
 export async function publicQaCounts(reeIds: readonly string[]): Promise<Map<string, number>> {
-  if (reeIds.length === 0) return new Map();
-  const rows = await db()
-    .select({ reeId: qa.reeId, total: sql<number>`count(*)::int` })
-    .from(qa)
-    .innerJoin(ree, eq(ree.id, qa.reeId))
-    .where(and(inArray(qa.reeId, [...reeIds]), shown()))
-    .groupBy(qa.reeId);
-  return new Map(rows.map((row) => [row.reeId, row.total]));
+  return answeredPostCounts(reeIds);
 }
 
 /* ------------------------------------------------------------------ actions */
 
 /** "有帮助", once per signed-in user; answers the new count, or null when the answer is not shown. */
 export async function setHelpful(userId: string, reeId: string, id: string, on: boolean): Promise<{ helpful: number; voted: boolean } | null> {
-  if (!isUuid(reeId) || !isUuid(id)) return null;
-  return db().transaction(async (tx) => {
-    const [target] = await tx.select({ id: qa.id }).from(qa).innerJoin(ree, eq(ree.id, qa.reeId)).where(and(eq(qa.id, id), eq(qa.reeId, reeId), shown())).for('update', { of: qa });
-    if (!target) return null;
-    const changed = on
-      ? await tx.insert(vote).values({ qaId: id, userId }).onConflictDoNothing().returning({ id: vote.qaId })
-      : await tx.delete(vote).where(and(eq(vote.qaId, id), eq(vote.userId, userId))).returning({ id: vote.qaId });
-    const [row] = changed.length
-      ? await tx.update(qa).set({ helpfulCount: sql`greatest(${qa.helpfulCount} + ${on ? 1 : -1}, 0)` }).where(eq(qa.id, id)).returning({ helpful: qa.helpfulCount })
-      : await tx.select({ helpful: qa.helpfulCount }).from(qa).where(eq(qa.id, id));
-    return { helpful: row!.helpful, voted: on };
-  });
+  if (!isUuid(reeId)) return null;
+  return setAnswerHelpful(userId, id, on, reeId);
 }
 
 /**
@@ -322,88 +331,69 @@ export async function setHelpful(userId: string, reeId: string, id: string, on: 
  * an administrator restores it. False when the answer is not shown.
  */
 export async function reportPublicQa(reeId: string, id: string, reporter: string): Promise<boolean> {
-  if (!isUuid(reeId) || !isUuid(id)) return false;
-  return db().transaction(async (tx) => {
-    const [target] = await tx.select({ id: qa.id }).from(qa).innerJoin(ree, eq(ree.id, qa.reeId)).where(and(eq(qa.id, id), eq(qa.reeId, reeId), shown())).for('update', { of: qa });
-    if (!target) return false;
-    const added = await tx.insert(report).values({ qaId: id, reporterKey: reporter }).onConflictDoNothing().returning({ id: report.qaId });
-    if (added.length === 0) return true;
-    const [row] = await tx.update(qa).set({ reportCount: sql`${qa.reportCount} + 1` }).where(eq(qa.id, id)).returning({ reports: qa.reportCount });
-    if (row!.reports >= PUBLIC_QA_REPORT_THRESHOLD) {
-      await tx.update(qa).set({ status: 'hidden', hiddenBy: 'reports', pinnedAt: null }).where(and(eq(qa.id, id), eq(qa.status, 'published')));
-    }
-    return true;
-  });
+  if (!isUuid(reeId)) return false;
+  return reportAnswer(id, reporter, reeId);
 }
 
-export type OwnerAction = 'hide' | 'pin' | 'unpin';
+export type { OwnerAction };
 
 /** The Ree's owner hides an answer for good, or pins one (replacing the pinned one) or unpins it. */
 export async function ownerAct(userId: string, reeId: string, id: string, action: OwnerAction): Promise<boolean> {
-  if (!isUuid(reeId) || !isUuid(id)) return false;
-  return db().transaction(async (tx) => {
-    /* The Ree first: two pins at once take turns instead of both clearing and one tripping the one-pin index. */
-    const [owned] = await tx.select({ id: ree.id }).from(ree).where(and(eq(ree.id, reeId), eq(ree.ownerId, userId), isNull(ree.deletedAt))).for('update');
-    if (!owned) return false;
-    const [target] = await tx
-      .select({ id: qa.id })
-      .from(qa)
-      .where(and(eq(qa.id, id), eq(qa.reeId, reeId), eq(qa.status, 'published')))
-      .for('update');
-    if (!target) return false;
-    if (action === 'hide') {
-      await tx.update(qa).set({ status: 'hidden', hiddenBy: 'owner', pinnedAt: null }).where(eq(qa.id, id));
-    } else if (action === 'pin') {
-      await tx.update(qa).set({ pinnedAt: null }).where(and(eq(qa.reeId, reeId), isNotNull(qa.pinnedAt)));
-      await tx.update(qa).set({ pinnedAt: new Date() }).where(eq(qa.id, id));
-    } else {
-      await tx.update(qa).set({ pinnedAt: null }).where(eq(qa.id, id));
-    }
-    return true;
-  });
+  return ownerActOnAnswer(userId, reeId, id, action);
 }
 
 /* ------------------------------------------------------------- administrator */
 
 export interface AdminPublicQa {
   id: string;
-  source: PublicQaSource;
+  postId: string;
+  source: string;
   question: string;
   answer: string;
-  status: 'pending' | 'published' | 'hidden' | 'rejected';
+  status: 'published' | 'hidden';
   hiddenBy: 'owner' | 'admin' | 'reports' | null;
   reports: number;
   helpful: number;
   createdAt: string;
 }
 
-/** A Ree's public answers for the console, everything but rejected ones, reported first. */
+/** A Ree's answers for the console (shown and hidden), reported first. */
 export async function adminPublicQa(reeId: string, limit = 50): Promise<AdminPublicQa[]> {
   if (!isUuid(reeId)) return [];
   const rows = await db()
-    .select({ id: qa.id, source: qa.source, question: qa.question, answer: qa.answer, status: qa.status, hiddenBy: qa.hiddenBy, reports: qa.reportCount, helpful: qa.helpfulCount, createdAt: qa.createdAt })
-    .from(qa)
-    .where(and(eq(qa.reeId, reeId), or(eq(qa.status, 'published'), eq(qa.status, 'hidden'), eq(qa.status, 'pending'))))
-    .orderBy(desc(qa.reportCount), desc(qa.createdAt))
+    .select({ id: answer.id, postId: post.id, source: post.source, question: post.question, answer: answer.text, hiddenBy: answer.hiddenBy, reports: answer.reportCount, helpful: answer.helpfulCount, createdAt: answer.createdAt })
+    .from(answer)
+    .innerJoin(post, eq(post.id, answer.postId))
+    .where(and(eq(answer.reeId, reeId), eq(answer.state, 'answered')))
+    .orderBy(desc(answer.reportCount), desc(answer.createdAt))
     .limit(limit);
-  return rows.map((row) => ({ ...row, answer: previewOf(row.answer).answer, createdAt: row.createdAt.toISOString() }));
+  return rows.map((row) => ({ ...row, status: row.hiddenBy ? 'hidden' : 'published', answer: previewOf(row.answer).answer, createdAt: row.createdAt.toISOString() }));
 }
 
 /** An administrator hides an answer, or restores one an owner or reports hid; either is in the management log. */
 export async function adminSetPublicQa(administratorId: string, reeId: string, id: string, show: boolean): Promise<boolean> {
   if (!isUuid(reeId) || !isUuid(id)) return false;
   return db().transaction(async (tx) => {
-    const [before] = await tx.select({ status: qa.status, hiddenBy: qa.hiddenBy, question: qa.question }).from(qa).where(and(eq(qa.id, id), eq(qa.reeId, reeId))).for('update');
-    if (!before || before.status !== (show ? 'hidden' : 'published')) return false;
+    const [before] = await tx
+      .select({ hiddenBy: answer.hiddenBy, postId: answer.postId, question: post.question })
+      .from(answer)
+      .innerJoin(post, eq(post.id, answer.postId))
+      .where(and(eq(answer.id, id), eq(answer.reeId, reeId), eq(answer.state, 'answered')))
+      .for('update', { of: answer });
+    if (!before || (before.hiddenBy !== null) !== show) return false;
     /* The owner's hiding is theirs: an administrator restores only what an administrator or reports hid. */
     if (show && before.hiddenBy === 'owner') return false;
     if (show) {
-      await tx.update(qa).set({ status: 'published', hiddenBy: null, reportCount: 0, publishedAt: sql`coalesce(${qa.publishedAt}, now())` }).where(eq(qa.id, id));
-      await tx.delete(report).where(eq(report.qaId, id));
+      await tx.update(answer).set({ hiddenBy: null, reportCount: 0 }).where(eq(answer.id, id));
+      await tx.delete(report).where(eq(report.answerId, id));
     } else {
-      await tx.update(qa).set({ status: 'hidden', hiddenBy: 'admin', pinnedAt: null }).where(eq(qa.id, id));
+      await tx.update(answer).set({ hiddenBy: 'admin', pinnedAt: null }).where(eq(answer.id, id));
     }
-    await audit(tx, { administratorId, action: show ? 'ree.qa.restore' : 'ree.qa.hide', target: reeId, before: { qa: id, status: before.status, hiddenBy: before.hiddenBy, question: before.question.slice(0, 200) } });
+    await tx
+      .update(post)
+      .set({ answerCount: sql`(select count(*)::int from ${answer} a where a.post_id = ${before.postId} and a.state = 'answered' and a.hidden_by is null)` })
+      .where(and(eq(post.id, before.postId), eq(post.answerState, 'done')));
+    await audit(tx, { administratorId, action: show ? 'ree.qa.restore' : 'ree.qa.hide', target: reeId, before: { qa: id, status: before.hiddenBy ? 'hidden' : 'published', hiddenBy: before.hiddenBy, question: before.question.slice(0, 200) } });
     return true;
   });
 }

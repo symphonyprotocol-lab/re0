@@ -574,6 +574,10 @@ export const USER_RATE_LIMITS = {
   comment: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
   /* "有帮助", "举报" and publishing an answer on the Ree page's public Q&A. */
   publicQa: [{ windowSeconds: 60, limit: 30 }, { windowSeconds: 3_600, limit: 300 }],
+  /* Publishing a public post (v5): each one embeds, searches and calls up to five models; the daily ceiling is POST_DAILY_LIMIT. */
+  post: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
+  /* "有帮助", "举报", "收藏", "继续问" and the round table on posts. */
+  postAction: [{ windowSeconds: 60, limit: 30 }, { windowSeconds: 3_600, limit: 300 }],
   uploadToken: [{ windowSeconds: 60, limit: 30 }, { windowSeconds: 3_600, limit: 200 }],
   domainVerify: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
   /* `/api/explore` without a question; a question has its own EXPLORE_RATE_LIMIT. */
