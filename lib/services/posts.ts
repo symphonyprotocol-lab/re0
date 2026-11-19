@@ -1106,10 +1106,12 @@ async function holdBaseFee(userId: string, answerId: string, reeId: string, now:
 }
 
 /**
- * The paid Rees waiting for this post's author, with what agreeing costs
- * now; those agreed to and being written; and those agreed to that could
- * not answer (refunded, to agree again). Only Rees that may still answer --
- * one gone private, off posts or free is closed by `closeUnavailableRequests`.
+ * The Rees waiting for this post's author (paid ones, and free ones the
+ * balance could not cover), with what agreeing costs now; those agreed to
+ * and being written; and those agreed to that could not answer (refunded,
+ * maybe to agree again). Only Rees that may still answer -- one gone private,
+ * off posts or deleted is closed by `closeUnavailableRequests`; one that
+ * turned free stays, at the base fee.
  */
 async function paidRequestsFor(postId: string, userId: string): Promise<PaidRequestView[]> {
   const owner = alias(user, 'paid_request_owner');
