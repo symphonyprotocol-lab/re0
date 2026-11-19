@@ -286,7 +286,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
             <span className="min-w-0 flex-1">
               <strong>{p.summaryTitle}</strong>：{post.summaryStale ? (post.summaryRewriteFree ? p.summaryStale : p.summaryStalePaid) : fill(p.summaryHint, { n: shown.length })}
             </span>
-            <button type="button" className="btn secondary sm" disabled={busy === 'summary'} onClick={() => void summarize()}>
+            <button type="button" className="btn-secondary btn-sm" disabled={busy === 'summary'} onClick={() => void summarize()}>
               {busy === 'summary' ? <i className="spinner" /> : null}
               {post.summaryStale && post.summaryRewriteFree ? p.summaryAgain : fill(p.summaryGo, { fee: POST_SUMMARY_FEE })}
             </button>
@@ -339,14 +339,14 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
               </button>
             )}
             {mine && live && (
-              <button type="button" className="btn secondary sm post-follow" title={p.followUpHint} disabled={busy === entry.id} onClick={() => void followUp(entry)}>
+              <button type="button" className="btn-secondary btn-sm post-follow" title={p.followUpHint} disabled={busy === entry.id} onClick={() => void followUp(entry)}>
                 <Icon name="chat" className="" />
                 {fill(p.followUp, { name: entry.reeName })}
               </button>
             )}
             {/* Anyone else asks on in public, quoting this answer (the author's 继续问 is private). */}
             {!mine && live && (
-              <Link href={quoteHref(entry.id)} className="btn secondary sm post-follow" title={q.quoteAnswerHint}>
+              <Link href={quoteHref(entry.id)} className="btn-secondary btn-sm post-follow" title={q.quoteAnswerHint}>
                 <Icon name="chat" className="" />
                 {fill(q.quoteAnswer, { name: entry.reeName })}
               </Link>
@@ -397,12 +397,12 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
                   {entry.state === 'exhausted' && <span className="basis-full text-[12px] text-muted">{p.paidExhausted}</span>}
                   {/* Found no answer, or failed again: refunded, no more tries (each costs a model call). */}
                   {(entry.state === 'awaiting' || entry.state === 'refunded') && (
-                    <button type="button" className="btn primary sm" disabled={busy === entry.id} onClick={() => void agree(entry)}>
+                    <button type="button" className="btn btn-sm" disabled={busy === entry.id} onClick={() => void agree(entry)}>
                       {busy === entry.id ? <i className="spinner" /> : null}
                       {fill(entry.state === 'refunded' ? p.paidAgain : p.paidAgree, { n: formatNumber(entry.price, locale) })}
                     </button>
                   )}
-                  <button type="button" className="btn secondary sm" disabled={busy === entry.id} onClick={() => void decline(entry)}>
+                  <button type="button" className="btn-secondary btn-sm" disabled={busy === entry.id} onClick={() => void decline(entry)}>
                     {p.paidDecline}
                   </button>
                   {lacking === entry.id && (
