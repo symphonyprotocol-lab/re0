@@ -20,7 +20,7 @@ const render = (element: ReturnType<typeof createElement>) => renderToStaticMark
 
 describe('public Q&A switched off', () => {
   it('never offers a visitor 回答后公开: their answers stay in their tab (2026-11-19)', () => {
-    const html = render(createElement(AnonymousChat, { ree, loginHref: '/login', shareToken: 'token' }));
+    const html = render(createElement(AnonymousChat, { ree, loginHref: '/login', shareToken: 'token', shareSlug: 'x' }));
     expect(html).not.toContain('type="checkbox"');
     expect(html).toContain(t.discover.public.anonymous.onlyYou);
   });

@@ -74,13 +74,13 @@ function refusalOf(error: Error): (Partial<AnonymousQuota> & { error?: string })
 const storageKey = (reeId: string) => `re0:anonymous-chat:${reeId}`;
 
 /**
- * Anonymous chat on a free Ree's public page or share page (lib/services/anonymous-chat.ts):
+ * Anonymous chat on a free Ree's share page, the only place a visitor asks (lib/services/anonymous-chat.ts):
  * a signed-out visitor asks without signing in, up to the day's free
  * questions, and sees how many are left. The transcript lives in this tab's
  * sessionStorage only. Once the day's questions are used, asking opens a
  * dialog that signs them in and brings them back to this page.
  */
-export function AnonymousChat({ ree, loginHref, shareToken, followUp }: {
+export function AnonymousChat({ ree, loginHref, shareToken, shareSlug, followUp }: {
   ree: AnonymousRee;
   /** "我也问一句": a question to put in the box, with a fresh `at` each time. */
   followUp?: { text: string; at: number } | null;
@@ -88,6 +88,8 @@ export function AnonymousChat({ ree, loginHref, shareToken, followUp }: {
   loginHref: string;
   /** The share page's token for this Ree (anonymous-chat.ts `shareAskToken`): visitors ask only there. */
   shareToken: string;
+  /** The share page's slug: a token past its 12 hours is renewed from `/api/share/[slug]/ask-token` once, then the question is asked again. */
+  shareSlug: string;
 }) {
   const { t } = useI18n();
   const a = t.discover.public.anonymous;
@@ -100,6 +102,9 @@ export function AnonymousChat({ ree, loginHref, shareToken, followUp }: {
   const [limit, setLimit] = useState<'visitor' | 'network' | 'capacity' | null>(null);
   const [citation, setCitation] = useState<CitationSnapshot | null>(null);
   const pendingQuestion = useRef('');
+  const token = useRef(shareToken);
+  /* A renewed token is tried once per question; a second refusal asks for a reload. */
+  const renewed = useRef(false);
   const api = `/api/rees/${ree.id}/anonymous-chat`;
 
   const transport = useMemo(
@@ -110,11 +115,11 @@ export function AnonymousChat({ ree, loginHref, shareToken, followUp }: {
           headers: { [FINGERPRINT_HEADER]: await browserFingerprint() },
           body: (() => {
             const history = historyOf(messages.slice(0, -1));
-            return { question: pendingQuestion.current, history, shareToken };
+            return { question: pendingQuestion.current, history, shareToken: token.current };
           })(),
         }),
       }),
-    [api, shareToken],
+    [api],
   );
 
   const { messages, sendMessage, status, setMessages } = useChat<ReeUIMessage>({
@@ -136,6 +141,21 @@ export function AnonymousChat({ ree, loginHref, shareToken, followUp }: {
           blocked: refused === 'visitor' ? (body.blocked ?? null) : refused,
         }));
         setLimit(refused);
+        return;
+      }
+      /* The page's token expired (open more than 12 hours): renew it once and ask again; failing that, a reload. */
+      if (body.error === 'share_page_only') {
+        if (renewed.current) return toast(a.expired);
+        renewed.current = true;
+        void fetch(`/api/share/${shareSlug}/ask-token`, { method: 'POST' })
+          .then((response) => (response.ok ? (response.json() as Promise<{ token: string }>) : null))
+          .then((fresh) => {
+            if (!fresh?.token) return toast(a.expired);
+            token.current = fresh.token;
+            setInput('');
+            void sendMessage({ text: pendingQuestion.current });
+          })
+          .catch(() => toast(a.expired));
         return;
       }
       if (body.error === 'anonymous_unavailable') {
@@ -201,6 +221,7 @@ export function AnonymousChat({ ree, loginHref, shareToken, followUp }: {
       return;
     }
     pendingQuestion.current = text;
+    renewed.current = false;
     setInput('');
     void sendMessage({ text });
   };

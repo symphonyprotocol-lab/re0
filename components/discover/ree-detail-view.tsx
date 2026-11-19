@@ -212,7 +212,7 @@ export function ReeDetailView({
             <div role="tabpanel" hidden={tab !== 'qa'}>
               {askBox}
               {qa && qa.items.length > 0 ? (
-                <PublicQaList ree={qaRee} initial={qa} signedIn={Boolean(viewerId)} owner={owner} loginHref={loginHref(self({}))} renderedAt={renderedAt} onFollowUp={askAbout} />
+                <PublicQaList ree={qaRee} initial={qa} signedIn={Boolean(viewerId)} owner={owner} loginHref={loginHref(self({}))} followUpLoginHref={loginHref(`${self({})}#${PUBLIC_QA_ASK_ANCHOR}`)} renderedAt={renderedAt} onFollowUp={askAbout} />
               ) : (
                 <div className="ree-qa-empty">
                   <span className="mb-2 grid size-9 place-items-center rounded-lg bg-soft text-blue">
