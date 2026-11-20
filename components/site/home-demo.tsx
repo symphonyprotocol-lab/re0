@@ -187,8 +187,8 @@ export function DemoTrigger({ label }: { label: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" className="btn secondary large" onClick={() => setOpen(true)}>
-        <Icon name="play" />
+      <button type="button" className="btn-secondary btn-sm" onClick={() => setOpen(true)}>
+        <Icon name="play" className="size-4" />
         {label}
       </button>
       <Modal

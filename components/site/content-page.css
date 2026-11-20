@@ -494,3 +494,9 @@
     padding: 16px;
   }
 }
+
+/* The answer demo inside the hero card draws no vertical rule of its own (v6: the sidebar's is the only one); its source panel sits on a wash instead. */
+.xp-hero .demo-source-panel {
+  border-right: 0;
+  background: var(--color-wash);
+}
