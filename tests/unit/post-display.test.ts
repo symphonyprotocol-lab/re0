@@ -16,6 +16,7 @@ import type { PostView } from '@/lib/domain/post';
 vi.mock('next/navigation', () => ({ usePathname: () => '/p/x', useRouter: () => ({ refresh: () => {}, push: () => {} }), useSearchParams: () => new URLSearchParams() }));
 
 const { PostDetail } = await import('@/components/posts/post-detail');
+const { PostCard } = await import('@/components/posts/post-card');
 
 describe('plainOf', () => {
   it('drops Markdown marks from an answer as the feed showed it raw', () => {
@@ -38,7 +39,7 @@ const citation = { index: 2, title: '组件状态清单', excerpt: '默认、悬
 const post: PostView = {
   id: '00000000-0000-4000-8000-000000000001', question: '按钮组件规范？', detail: '', lang: 'zh', category: null,
   author: { kind: 'user', name: 'Lin', avatar: null, mine: false }, status: 'published', answerState: 'done', answered: 2, candidates: 2, skipped: 0,
-  helpful: 0, saved: false, createdAt: '2026-11-19T00:00:00.000Z',
+  helpful: 0, voted: false, saved: false, createdAt: '2026-11-19T00:00:00.000Z',
   answers: [ree('a', '设计系统顾问'), ree('b', 'APAGE')],
   summary: {
     state: 'done',
@@ -58,5 +59,24 @@ describe('a post\'s round-table summary', () => {
     expect(html).toMatch(/<button[^>]*class="synthesis-source"[^>]*>设计系统顾问 2<\/button><button[^>]*class="synthesis-source"[^>]*>设计系统顾问 7<\/button>/);
     expect(html).toMatch(/<span class="synthesis-source plain">APAGE 3<\/span>/);
     expect(html).not.toContain('设计系统顾问 2设计系统顾问 7');
+  });
+});
+
+describe('a post\'s 👍 and 💬 (2026-11-20)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const render = (node: (props: any) => React.ReactNode, props: Record<string, unknown>) => renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: createElement(node as never, props as never) }));
+
+  it('lets a signed-in reader press 有帮助 on the post; a visitor goes to sign in', () => {
+    const signedIn = render(PostCard, { post: { ...post, helpful: 3, voted: true }, now: 0, signedIn: true });
+    expect(signedIn).toMatch(/<button type="button" class="icon-btn" aria-pressed="true" title="有帮助"[^>]*><svg[^>]*class="text-blue"/);
+    const visitor = render(PostCard, { post, now: 0, signedIn: false });
+    expect(visitor).toMatch(/<a title="登录后可以标记有帮助" aria-label="有帮助 0" class="workspace-link icon-btn" href="\/login\?returnTo=%2Fp%2F00000000-0000-4000-8000-000000000001">/);
+  });
+
+  it('opens the post at its answers from the card, and scrolls to them on the post', () => {
+    expect(render(PostCard, { post, now: 0, signedIn: false })).toMatch(/<a title="回答" aria-label="回答 \d+" class="workspace-link icon-btn" href="(\/zh)?\/p\/00000000-0000-4000-8000-000000000001#answers">/);
+    const page = render(PostDetail, { initial: post, signedIn: false, now: 0, loginHref: '/login' });
+    expect(page).toContain('<a href="#answers" class="icon-btn" title="回答"');
+    expect(page).toMatch(/<div class="post-answers-head scroll-mt-24" id="answers">/);
   });
 });

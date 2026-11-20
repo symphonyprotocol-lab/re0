@@ -12,7 +12,7 @@ import { Markdown } from '@/components/chat/markdown';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { useToast } from '@/components/ui/toast';
-import { AuthorAvatar, authorName, PostState, QuoteCard } from '@/components/posts/post-card';
+import { AuthorAvatar, authorName, PostHelpful, PostState, QuoteCard } from '@/components/posts/post-card';
 import { PostFeed } from '@/components/posts/post-feed';
 import { FollowupComposer, type FollowupComposerHandle } from '@/components/posts/followup-composer';
 import './posts.css';
@@ -124,7 +124,12 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
   }
 
   const helpful = (entry: PostAnswerView) =>
-    call(entry.id, `/api/posts/answers/${entry.id}/helpful`, { method: 'POST', body: JSON.stringify({ on: !entry.voted }) }, (body) => replace(entry.id, { helpful: Number(body.helpful) || 0, voted: body.voted === true }));
+    call(entry.id, `/api/posts/answers/${entry.id}/helpful`, { method: 'POST', body: JSON.stringify({ on: !entry.voted }) }, (body) => {
+      const count = Number(body.helpful) || 0;
+      /* A first-round answer's vote is part of the post's total too. */
+      if (post.answers.some((other) => other.id === entry.id)) setPost((current) => ({ ...current, helpful: Math.max(0, current.helpful + count - entry.helpful) }));
+      replace(entry.id, { helpful: count, voted: body.voted === true });
+    });
   const report = (entry: PostAnswerView) => {
     setConfirm(null);
     return call(entry.id, `/api/posts/answers/${entry.id}/report`, { method: 'POST' }, () => toast(p.reported));
@@ -491,14 +496,24 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
         </div>
       )}
       <div className="post-actions">
-        <span className="icon-btn" title={c.helpful}>
-          <Icon name="thumbUp" className="" />
-          {formatNumber(post.helpful, locale)}
-        </span>
-        <span className="icon-btn" title={c.answers}>
+        <PostHelpful post={post} signedIn={signedIn} loginHref={loginHref} onChange={(change) => setPost((current) => ({ ...current, ...change }))} />
+        {/* On the post itself the answer count scrolls to the answers. */}
+        <a
+          href="#answers"
+          className="icon-btn"
+          title={c.answers}
+          aria-label={`${c.answers} ${formatNumber(post.answered, locale)}`}
+          onClick={(event) => {
+            const target = document.getElementById('answers');
+            if (!target) return;
+            event.preventDefault();
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            window.history.replaceState(null, '', '#answers');
+          }}
+        >
           <Icon name="chat" className="" />
           {formatNumber(post.answered, locale)}
-        </span>
+        </a>
         {signedIn && live && (
           <button type="button" className="icon-btn" aria-pressed={post.saved} disabled={busy === 'save'} title={post.saved ? c.unsave : c.save} aria-label={post.saved ? c.unsave : c.save} onClick={() => void save()}>
             <Icon name="bookmark" className={post.saved ? 'text-blue' : ''} />
@@ -549,7 +564,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
       )}
 
       {shown.length > 0 && (
-        <div className="post-answers-head">
+        <div className="post-answers-head scroll-mt-24" id="answers">
           <strong>{fill(p.answersHeading, { n: formatNumber(shown.length, locale) })}</strong>
           {post.candidates > 0 && <small>{fill(p.matchedNote, { candidates: formatNumber(post.candidates, locale) })}</small>}
         </div>
