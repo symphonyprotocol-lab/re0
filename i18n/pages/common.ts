@@ -51,7 +51,6 @@ export const zh = {
     signOut: '退出登录',
   },
   language: { label: '界面语言', current: '界面语言：{name}', switchTo: 'English' },
-  website: '返回官网',
   actions: {
     save: '保存',
     cancel: '取消',
@@ -152,7 +151,6 @@ export const en: Shape<typeof zh> = {
     signOut: 'Sign out',
   },
   language: { label: 'Interface language', current: 'Interface language: {name}', switchTo: '简体中文' },
-  website: 'Website',
   actions: {
     save: 'Save',
     cancel: 'Cancel',

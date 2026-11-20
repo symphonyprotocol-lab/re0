@@ -5,7 +5,6 @@ import { Fragment, type ReactNode } from 'react';
 import { useI18n } from '@/i18n/client';
 import { Icon } from '@/components/ui/icons';
 import { useShell } from '@/components/shell/app-shell';
-import { LanguageMenu } from '@/components/ui/language-menu';
 
 export interface Crumb {
   label: string;
@@ -22,14 +21,13 @@ export interface ContextTab {
 /**
  * The fixed top bar every workspace page renders first (prototype app.js
  * `shell` / `workspaceHeader`, styles in ./shell.css): the menu and
- * fold buttons, breadcrumbs (the way back up), page actions, 中 / EN and
- * 返回官网, and an optional context row -- a Ree's tabs, the settings tabs,
+ * fold buttons, breadcrumbs (the way back up), page actions, and an optional context row -- a Ree's tabs, the settings tabs,
  * or the wizard's steps -- that scrolls sideways on a phone. It also renders
  * its own in-flow spacer, so content always starts below it. On a phone the
  * crumbs shrink to fit, and with three or more the first one is left out.
  *
  * `mobileBack` is a Ree's pages on a phone (prototype `.ree-workspace-shell`):
- * the first row is only ← back, the Ree's name and the language, and
+ * the first row is only ← back and the Ree's name, and
  * `rowActions` (the public page link, a source's previous / next) sit at the
  * end of the context row at every width.
  */
@@ -109,13 +107,8 @@ export function Topbar({
             </nav>
           </div>
           <div className="topbar-right">
+            {/* No language or 返回官网 here (v6): the language is in the sidebar's last line, the site is the shell itself. */}
             {actions && <div className="flex items-center gap-2">{actions}</div>}
-            <LanguageMenu signedIn className="btn-ghost shell-language" />
-            {/* The way out to the public site (prototype app.js "返回官网"). */}
-            <Link href="/" className="text-link shell-site-link">
-              {t.common.website}
-              <Icon name="external" className="" />
-            </Link>
           </div>
         </div>
         {hasRow && (

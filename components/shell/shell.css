@@ -635,25 +635,6 @@ html:has(.app-main .context-nav-row) {
   color: #acb6c9;
 }
 
-/* 中 / EN and 返回官网 (app.js `shell`). */
-.topbar-right > .shell-language {
-  min-height: 32px;
-  gap: 8px;
-  padding: 5px;
-  font-size: 10px;
-}
-.topbar-right > .shell-language > svg {
-  width: 16px;
-  height: 16px;
-}
-.shell-site-link {
-  font-size: 11px;
-}
-.shell-site-link > svg {
-  width: 18px;
-  height: 18px;
-}
-
 /* The second row: a Ree's tabs, the settings tabs, the wizard's steps. */
 .context-nav-row {
   display: flex;
@@ -1016,9 +997,6 @@ html:has(.app-main .context-nav-row) {
   .app-main .topbar .header-breadcrumbs {
     font-size: 10px;
   }
-  .app-main .topbar .shell-site-link {
-    display: none;
-  }
 }
 @media (max-width: 560px) {
   .topbar-location {
@@ -1085,7 +1063,7 @@ html:has(.app-main .context-nav-row) {
   }
   .ree-workspace-shell .topbar-location > .mobile-menu,
   .ree-workspace-shell .header-breadcrumbs,
-  .ree-workspace-shell .topbar-right > :not(.shell-language) {
+  .ree-workspace-shell .topbar-right > * {
     display: none;
   }
   .ree-workspace-shell .ree-mobile-location {
@@ -1120,14 +1098,6 @@ html:has(.app-main .context-nav-row) {
     font-weight: 550;
     color: #4e5e7b;
     text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .ree-workspace-shell .topbar-main .topbar-right .shell-language {
-    display: inline-flex;
-    gap: 5px;
-    min-height: 40px;
-    padding: 8px 10px;
-    font-size: 11px;
     white-space: nowrap;
   }
   .ree-workspace-shell .context-nav-row {

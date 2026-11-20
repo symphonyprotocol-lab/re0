@@ -6,6 +6,7 @@ import { useShell } from '@/components/shell/app-shell';
 import { useI18n } from '@/i18n/client';
 import { BrandMark, BrandName } from '@/components/ui/brand-mark';
 import { Icon } from '@/components/ui/icons';
+import { LanguageMenu } from '@/components/ui/language-menu';
 import './columns.css';
 
 /**
@@ -45,10 +46,13 @@ export function FeedColumns({ title, back, tabs, rail, heading = true, wide = fa
               {activitiesPending && <i className="nav-dot" aria-hidden="true" />}
             </button>
           ) : (
-            /* A visitor's phone: the bottom bar is the sign-in (v6), so the head only leads to Rees. */
-            <Link href="/explore" className="icon-btn" aria-label={t.common.nav.discover} title={t.common.nav.discover}>
-              <Icon name="compass" className="" />
-            </Link>
+            /* A visitor's phone: the bottom bar is the sign-in (v6), so the head leads to Rees and has the language -- there is no sidebar. */
+            <div className="xtop-actions">
+              <LanguageMenu quiet className="icon-btn xtop-language" />
+              <Link href="/explore" className="icon-btn" aria-label={t.common.nav.discover} title={t.common.nav.discover}>
+                <Icon name="compass" className="" />
+              </Link>
+            </div>
           )}
         </div>
         <header className="xcol-head">

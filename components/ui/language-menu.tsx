@@ -25,7 +25,12 @@ import './language-menu.css';
  * Elsewhere they are buttons: the choice is saved, then the page renders
  * again in it. Until then the button is busy and ignores another choice.
  */
-export function LanguageMenu({ signedIn = false, className = 'btn ghost sm' }: { signedIn?: boolean; className?: string }) {
+export function LanguageMenu({ signedIn = false, className = 'btn ghost sm', quiet = false }: {
+  signedIn?: boolean;
+  className?: string;
+  /** A footer link beside 隐私 · 条款 (the sidebar's, v6): a text-high globe and the language, no caret. */
+  quiet?: boolean;
+}) {
   const { t, locale } = useI18n();
   const router = useRouter();
   const here = splitLocale(usePathname());
@@ -78,7 +83,7 @@ export function LanguageMenu({ signedIn = false, className = 'btn ghost sm' }: {
     <RowMenu
       label={t.common.language.label}
       triggerLabel={fill(t.common.language.current, { name: LOCALE_NAMES[locale] })}
-      triggerClassName={`${className} language-menu-trigger`}
+      triggerClassName={`${className} language-menu-trigger${quiet ? ' is-quiet' : ''}`}
       width={168}
       busy={busy}
       prerender={Boolean(here)}
@@ -87,7 +92,7 @@ export function LanguageMenu({ signedIn = false, className = 'btn ghost sm' }: {
         <>
           <Icon name="globe" className="language-menu-globe" />
           <span lang={HTML_LANG[locale]}>{LOCALE_NAMES[locale]}</span>
-          <Icon name="chevronDown" className="language-menu-caret" />
+          {!quiet && <Icon name="chevronDown" className="language-menu-caret" />}
         </>
       }
     />
