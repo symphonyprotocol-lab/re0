@@ -10,6 +10,7 @@ import { formatNumber } from '@/i18n/format';
 import { FeedColumns } from '@/components/shell/feed-columns';
 import { PostDetail } from '@/components/posts/post-detail';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
+import { Icon } from '@/components/ui/icons';
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -37,7 +38,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-/** `/p/[id]` -- a post's page in the three-column frame; the right column lists the Rees that answered. */
+/**
+ * `/p/[id]` -- a post's page in the three-column frame; the right column
+ * lists the Rees that answered. A private post (only its author gets it from
+ * `getPost`) is titled 私密提问, and its right column first says what
+ * private means.
+ */
 export default async function PostPage({ params }: Props) {
   const { id } = await params;
   const [user, { t, locale }] = await Promise.all([currentUser(), serverMessages()]);
@@ -47,10 +53,24 @@ export default async function PostPage({ params }: Props) {
   const quoting = post.quotes > 0 ? await listFeed('latest', { quotesOf: id, viewerId: user?.id }) : undefined;
   const p = t.posts.page;
   const answered = post.answers.filter((entry) => entry.state === 'answered');
+  const isPrivate = post.visibility === 'private';
   const rail = (
     <div className="discovery-page">
+      {isPrivate && (
+        <section className="rail-card private-rail">
+          <h3>
+            <Icon name="lock" className="size-4" />
+            {p.privateRailTitle}
+          </h3>
+          <ul>
+            <li>{p.privateRail1}</li>
+            <li>{p.privateRail2}</li>
+            <li>{p.privateRail3}</li>
+          </ul>
+        </section>
+      )}
       <section className="rail-card">
-        <h3>{p.railTitle}</h3>
+        <h3>{isPrivate ? p.privateRailRees : p.railTitle}</h3>
         {answered.length === 0 ? (
           <p className="text-[12px] text-muted">{p.railEmpty}</p>
         ) : (
@@ -70,7 +90,7 @@ export default async function PostPage({ params }: Props) {
     </div>
   );
   return (
-    <FeedColumns title={p.back} back="/" rail={rail}>
+    <FeedColumns title={isPrivate ? p.privateTitle : p.back} back={isPrivate ? '/me/posts?tab=private' : '/'} rail={rail}>
       <PostDetail initial={post} quoting={quoting} signedIn={Boolean(user)} now={Date.now()} loginHref={`/login?returnTo=${encodeURIComponent(`/p/${id}`)}`} />
     </FeedColumns>
   );

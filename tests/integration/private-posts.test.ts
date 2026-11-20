@@ -150,6 +150,19 @@ describeWithDb('private posts (私密提问)', () => {
     expect(found).toEqual([expect.objectContaining({ reeId: near.reeId, price: BASE + 10, paid: true, similarity: 0.9 })]);
   });
 
+  it('picks Rees for 选 Ree / 加 Ree: public ones and the viewer\'s own, never someone else\'s private one', async () => {
+    const viewer = await user('pp-pick', 1_000);
+    const paid = await makeRee({ queryFee: 15 });
+    const own = await makeRee({ isPublic: false, ownerId: viewer });
+    const hidden = await makeRee({ isPublic: false });
+    const [paidName] = await db().select({ name: schema.ree.name }).from(schema.ree).where(eq(schema.ree.id, paid.reeId));
+    const found = await privatePosts.privateReeOptions(viewer, { q: paidName!.name });
+    expect(found).toEqual([expect.objectContaining({ reeId: paid.reeId, price: BASE + 15, paid: true, similarity: null })]);
+    const named = await privatePosts.privateReeOptions(viewer, { ids: [hidden.reeId, own.reeId, paid.reeId, 'nope'] });
+    expect(named.map((entry) => [entry.reeId, entry.price])).toEqual([[own.reeId, BASE], [paid.reeId, BASE + 15]]);
+    expect(await privatePosts.privateReeOptions(viewer, { ids: [] })).toEqual([]);
+  });
+
   it('is invisible to everyone but its author', async () => {
     const free = await makeRee();
     const author = await user('pp-author2', 1_000);

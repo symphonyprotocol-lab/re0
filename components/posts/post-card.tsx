@@ -147,10 +147,23 @@ export function PostState({ post }: { post: PostView }) {
   return null;
 }
 
+/** "私密 · 仅你可见": a private post's mark, where a public one shows its category. */
+export function PrivateBadge() {
+  const { t } = useI18n();
+  return (
+    <span className="private-badge">
+      <Icon name="lock" className="" />
+      {t.posts.page.privateBadge}
+    </span>
+  );
+}
+
 /**
  * One post in a feed (v5): who asked and when, the question, the Rees that
  * answered and the top answer, cut; or where it stands. The whole card
- * opens the post; save and copy link sit above that.
+ * opens the post; save and copy link sit above that. A private post (only
+ * ever in its author's 我的帖子) shows its mark and its rename, and none of
+ * 有帮助, save or copy link: nobody else could use them.
  */
 export function PostCard({ post: initial, now, signedIn }: { post: PostView; now: number; signedIn: boolean }) {
   const { t, locale } = useI18n();
@@ -161,6 +174,7 @@ export function PostCard({ post: initial, now, signedIn }: { post: PostView; now
   const top = post.answers[0];
   const href = `/p/${post.id}`;
   const category = post.category ? (t.common.categories[post.category as keyof typeof t.common.categories] ?? null) : null;
+  const isPrivate = post.visibility === 'private';
 
   async function toggleSave() {
     setBusy(true);
@@ -180,18 +194,25 @@ export function PostCard({ post: initial, now, signedIn }: { post: PostView; now
   }
 
   return (
-    <article className="post-card" aria-label={post.question}>
+    <article className="post-card" aria-label={post.title ?? post.question}>
       <AuthorAvatar author={post.author} />
       <div className="min-w-0">
         <div className="post-head">
           <strong>{authorName(t, post.author)}</strong>
           <span>· {formatRelative(post.createdAt, now, locale, t.discover.public.qa.justNow)}</span>
-          {category && <span className="tag">{category}</span>}
+          {isPrivate ? <PrivateBadge /> : category && <span className="tag">{category}</span>}
+          {isPrivate && post.pinned && (
+            <span className="tag" title={t.posts.mine.pinned}>
+              <Icon name="pin" className="size-3" />
+              {t.posts.mine.pinned}
+            </span>
+          )}
+          {isPrivate && post.archived && <span className="tag">{t.posts.mine.archived}</span>}
           {post.author.kind === 'example' && <span className="post-seed">{c.exampleTag}</span>}
           {post.deleted && <span className="tag">{c.trashed}</span>}
         </div>
         <p className="post-question">
-          <Link href={href}>{post.question}</Link>
+          <Link href={href}>{(isPrivate && post.title) || post.question}</Link>
         </p>
         {post.quote && (
           <div className="post-quote-slot">
@@ -216,20 +237,22 @@ export function PostCard({ post: initial, now, signedIn }: { post: PostView; now
           <PostState post={post} />
         )}
         <div className="post-actions">
-          <PostHelpful post={post} signedIn={signedIn} onChange={(change) => setPost((current) => ({ ...current, ...change }))} />
+          {!isPrivate && <PostHelpful post={post} signedIn={signedIn} onChange={(change) => setPost((current) => ({ ...current, ...change }))} />}
           {/* The answer count opens the post at its answers. */}
           <Link href={`${href}#answers`} className="icon-btn" title={c.answers} aria-label={`${c.answers} ${formatNumber(post.answered, locale)}`}>
             <Icon name="chat" className="" />
             {formatNumber(post.answered, locale)}
           </Link>
-          {signedIn && (
+          {signedIn && !isPrivate && (
             <button type="button" className="icon-btn" aria-pressed={post.saved} disabled={busy} title={post.saved ? c.unsave : c.save} aria-label={post.saved ? c.unsave : c.save} onClick={() => void toggleSave()}>
               <Icon name="bookmark" className={post.saved ? 'text-blue' : ''} />
             </button>
           )}
-          <button type="button" className="icon-btn" title={c.share} aria-label={c.share} onClick={() => void copyLink()}>
-            <Icon name="link" className="" />
-          </button>
+          {!isPrivate && (
+            <button type="button" className="icon-btn" title={c.share} aria-label={c.share} onClick={() => void copyLink()}>
+              <Icon name="link" className="" />
+            </button>
+          )}
           {/* Published follow-ups (追问), beside 查看全部回答; a follow-up never lifts the post in 最新. */}
           {post.followupCount > 0 && (
             <Link href={`${href}#followup`} className="fu-count" title={fill(c.followups, { n: formatNumber(post.followupCount, locale) })}>

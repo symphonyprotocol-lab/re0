@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { CitationSnapshot } from '@/lib/domain/answer';
-import { FOLLOWUP_FOLD_HEAD, FOLLOWUP_FOLD_TAIL, FOLLOWUP_ROUND_ANSWERS, POST_SUMMARY_FEE, type FollowupView, type PaidRequestView, type PostAnswerView, type PostPage, type PostView } from '@/lib/domain/post';
+import { FOLLOWUP_FOLD_HEAD, FOLLOWUP_FOLD_TAIL, FOLLOWUP_ROUND_ANSWERS, POST_SUMMARY_FEE, POST_TITLE_MAX, type FollowupView, type PaidRequestView, type PostAnswerView, type PostPage, type PostView } from '@/lib/domain/post';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber, formatRelative } from '@/i18n/format';
 import { AnswerText, CitationChips, CitationDrawer, Typing } from '@/components/chat/message-parts';
@@ -12,7 +12,7 @@ import { Markdown } from '@/components/chat/markdown';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { useToast } from '@/components/ui/toast';
-import { AuthorAvatar, authorName, PostHelpful, PostState, QuoteCard } from '@/components/posts/post-card';
+import { AuthorAvatar, authorName, PostHelpful, PostState, PrivateBadge, QuoteCard } from '@/components/posts/post-card';
 import { PostFeed } from '@/components/posts/post-feed';
 import { FollowupComposer, type FollowupComposerHandle } from '@/components/posts/followup-composer';
 import './posts.css';
@@ -25,6 +25,13 @@ const POLL_MS = 2_500;
  * 继续问 and 引用; the round-table summary; then the thread of follow-ups
  * (追问) and the box to ask one. While Rees are still answering the page
  * asks again every few seconds.
+ *
+ * A private post (私密提问, only ever shown to its author) keeps the same
+ * page with its own marks and actions: "私密 · 仅你可见" for the category;
+ * 置顶 · 归档 · 重命名 · 转为公开 · 移到回收站 on the post; 有帮助 · 没帮助 ·
+ * 复制 · 继续问 and what each answer cost on an answer; no match score (the
+ * author chose the Rees), no save, link, quote or report anywhere; and the
+ * thread's box can add Rees (加 Ree).
  */
 export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { initial: PostView; quoting?: PostPage; signedIn: boolean; now: number; loginHref: string }) {
   const { t, locale } = useI18n();
@@ -45,6 +52,10 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
     if (window.location.hash.startsWith('#f-')) setThreadOpen(true);
   }, []);
   const mine = post.author.kind !== 'visitor' && post.author.kind !== 'example' && post.author.mine;
+  const isPrivate = post.visibility === 'private';
+  /* 重命名 in place (the text being edited), and 转为公开's confirmation with its 匿名 choice. */
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState<{ anonymous: boolean } | null>(null);
   const q = t.posts.quote;
   /* "引用提问": the composer over this page with the quote; a visitor signs in first and comes back to it. */
   const quoteHref = (answerId?: string) => {
@@ -126,9 +137,42 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
   const helpful = (entry: PostAnswerView) =>
     call(entry.id, `/api/posts/answers/${entry.id}/helpful`, { method: 'POST', body: JSON.stringify({ on: !entry.voted }) }, (body) => {
       const count = Number(body.helpful) || 0;
+      const voted = body.voted === true;
       /* A first-round answer's vote is part of the post's total too. */
       if (post.answers.some((other) => other.id === entry.id)) setPost((current) => ({ ...current, helpful: Math.max(0, current.helpful + count - entry.helpful) }));
-      replace(entry.id, { helpful: count, voted: body.voted === true });
+      /* On a private post 有帮助 and 没帮助 exclude each other: the server took the other mark back. */
+      replace(entry.id, voted && entry.unvoted ? { helpful: count, voted, unvoted: false, unhelpful: Math.max(0, entry.unhelpful - 1) } : { helpful: count, voted });
+    });
+  const unhelpful = (entry: PostAnswerView) =>
+    call(entry.id, `/api/posts/answers/${entry.id}/unhelpful`, { method: 'POST', body: JSON.stringify({ on: !entry.unvoted }) }, (body) => {
+      const count = Number(body.helpful) || 0;
+      if (post.answers.some((other) => other.id === entry.id)) setPost((current) => ({ ...current, helpful: Math.max(0, current.helpful + count - entry.helpful) }));
+      replace(entry.id, { unhelpful: Number(body.unhelpful) || 0, unvoted: body.unvoted === true, helpful: count, voted: body.voted === true });
+    });
+  /* 复制 on a private answer: its text, without the citation markers. */
+  const copyAnswer = (entry: PostAnswerView) =>
+    navigator.clipboard.writeText(entry.text.replace(/ ?\[\d{1,2}\]/g, '')).then(() => toast(p.answerCopied), () => toast(t.common.errors.generic));
+  const update = (key: string, change: { pinned?: boolean; archived?: boolean; title?: string | null }, after?: () => void) =>
+    call(key, `/api/posts/${post.id}`, { method: 'PATCH', body: JSON.stringify(change) }, (body) => {
+      setPost((current) => ({ ...current, pinned: body.pinned === true, archived: body.archived === true, title: typeof body.title === 'string' ? body.title : null }));
+      after?.();
+    }, (code) => (code === 'title_too_long' ? fill(p.renameTooLong, { n: POST_TITLE_MAX }) : null));
+  const rename = () => {
+    const title = (renaming ?? '').trim();
+    if (title.length > POST_TITLE_MAX) return toast(fill(p.renameTooLong, { n: POST_TITLE_MAX }));
+    return update('rename', { title: title || null }, () => setRenaming(null));
+  };
+  /* 转为公开: a new public post copying the question and the first round, reviewed; this one stays. Once only. */
+  const makePublic = () =>
+    call('publish', `/api/posts/${post.id}/publish`, { method: 'POST', body: JSON.stringify({ anonymous: publishing?.anonymous === true }) }, (body) => {
+      setPost((current) => ({ ...current, publishedCopyId: String(body.id) }));
+      setPublishing(null);
+      toast(p.makePublicDone);
+    }, (code) => {
+      if (code !== 'already') return null;
+      void refresh();
+      setPublishing(null);
+      return p.madePublic;
     });
   const report = (entry: PostAnswerView) => {
     setConfirm(null);
@@ -236,12 +280,39 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
         {entry.official && <span className="tag">{c.official}</span>}
         {entry.paid && <span className="tag">{p.paidTag}</span>}
         {entry.pinned && <Icon name="pin" className="size-3" />}
-        {entry.similarity !== null && <span className="post-match">{fill(p.match, { score: entry.similarity.toFixed(2) })}</span>}
+        {entry.similarity !== null && !isPrivate && <span className="post-match">{fill(p.match, { score: entry.similarity.toFixed(2) })}</span>}
       </div>
       <div className="answer-text studio-conversation" style={{ background: 'transparent' }}>
         <AnswerText text={entry.text} citations={entry.citations} onCitation={(found) => setCitation({ entry: found, answer: entry })} />
         <CitationChips citations={entry.citations} onCitation={(found) => setCitation({ entry: found, answer: entry })} />
       </div>
+      {isPrivate ? (
+        <div className="post-answer-foot">
+          {open && (
+            <>
+              <button type="button" className="icon-btn" aria-pressed={entry.voted} disabled={busy === entry.id} onClick={() => void helpful(entry)}>
+                <Icon name="thumbUp" className={entry.voted ? 'text-blue' : ''} />
+                {c.helpful}
+              </button>
+              <button type="button" className="icon-btn" aria-pressed={entry.unvoted} disabled={busy === entry.id} onClick={() => void unhelpful(entry)}>
+                <Icon name="thumbDown" className={entry.unvoted ? 'text-blue' : ''} />
+                {p.unhelpful}
+              </button>
+            </>
+          )}
+          <button type="button" className="icon-btn" onClick={() => void copyAnswer(entry)}>
+            <Icon name="copy" className="" />
+            {p.copyAnswer}
+          </button>
+          {open && live && askable.has(entry.reeId) && !post.followupBlocked && (
+            <button type="button" className="icon-btn" onClick={() => followUp(entry)}>
+              <Icon name="reply" className="" />
+              {fill(p.followUp, { name: entry.reeName })}
+            </button>
+          )}
+          {entry.cost !== null && entry.cost > 0 && <span className="answer-cost">{fill(p.answerCost, { n: formatNumber(entry.cost, locale) })}</span>}
+        </div>
+      ) : (
       <div className="post-answer-foot">
         {!open ? null : signedIn ? (
           <button type="button" className="icon-btn" aria-pressed={entry.voted} disabled={busy === entry.id} onClick={() => void helpful(entry)}>
@@ -285,6 +356,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
           </Link>
         )}
       </div>
+      )}
     </article>
   );
 
@@ -372,7 +444,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
               <div className="min-w-0">
                 <strong>
                   {who}
-                  {round.author.poster && (asker || round.author.name) && <span className="tag ml-1.5">{t2.poster}</span>}
+                  {round.author.poster && !isPrivate && (asker || round.author.name) && <span className="tag ml-1.5">{t2.poster}</span>}
                 </strong>
                 <span className="fu-round-meta">
                   {number ? `${fill(t2.round, { n: number })} · ` : ''}
@@ -467,6 +539,26 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
     );
   };
 
+  /* On the post itself the answer count scrolls to the answers. */
+  const answersLink = (
+    <a
+      href="#answers"
+      className="icon-btn"
+      title={c.answers}
+      aria-label={`${c.answers} ${formatNumber(post.answered, locale)}`}
+      onClick={(event) => {
+        const target = document.getElementById('answers');
+        if (!target) return;
+        event.preventDefault();
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        window.history.replaceState(null, '', '#answers');
+      }}
+    >
+      <Icon name="chat" className="" />
+      {formatNumber(post.answered, locale)}
+    </a>
+  );
+
   return (
     <div className="post-page">
       {post.deleted && (
@@ -483,37 +575,101 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
           <strong>{authorName(t, post.author)}</strong>
           <div className="post-head">
             <span>{formatRelative(post.createdAt, now, locale, t.discover.public.qa.justNow)}</span>
-            {category && <span className="tag">{category}</span>}
+            {isPrivate ? <PrivateBadge /> : category && <span className="tag">{category}</span>}
             {post.author.kind === 'example' && <span className="post-seed">{c.exampleTag}</span>}
           </div>
         </div>
       </header>
-      <h2 className="post-page-question">{post.question}</h2>
+      {/* A renamed private post leads with its title; the question it asked follows. */}
+      <h2 className="post-page-question">{(isPrivate && post.title) || post.question}</h2>
+      {isPrivate && post.title && <p className="post-page-detail">{post.question}</p>}
       {post.detail && <p className="post-page-detail">{post.detail}</p>}
       {post.quote && (
         <div className="mt-3">
           <QuoteCard quote={post.quote} now={now} />
         </div>
       )}
+      {isPrivate ? (
+        <>
+          <div className="post-actions">
+            {answersLink}
+            {live && (
+              <>
+                <button type="button" className="icon-btn" aria-pressed={post.pinned} disabled={busy === 'pin'} onClick={() => void update('pin', { pinned: !post.pinned })}>
+                  <Icon name="pin" className={post.pinned ? 'text-blue' : ''} />
+                  {post.pinned ? p.unpin : p.pin}
+                </button>
+                <button type="button" className="icon-btn" aria-pressed={post.archived} disabled={busy === 'archive'} onClick={() => void update('archive', { archived: !post.archived })}>
+                  <Icon name="archive" className={post.archived ? 'text-blue' : ''} />
+                  {post.archived ? p.unarchive : p.archive}
+                </button>
+                <button type="button" className="icon-btn" aria-expanded={renaming !== null} onClick={() => setRenaming((current) => (current === null ? (post.title ?? post.question).slice(0, POST_TITLE_MAX) : null))}>
+                  <Icon name="text" className="" />
+                  {p.rename}
+                </button>
+              </>
+            )}
+            {post.publishedCopyId ? (
+              <Link href={`/p/${post.publishedCopyId}`} className="icon-btn is-make-public ml-auto">
+                <Icon name="globe" className="" />
+                {p.madePublic} →
+              </Link>
+            ) : (
+              live && (
+                <button type="button" className="icon-btn is-make-public ml-auto" aria-expanded={publishing !== null} onClick={() => setPublishing((current) => (current ? null : { anonymous: false }))}>
+                  <Icon name="globe" className="" />
+                  {p.makePublic}
+                </button>
+              )
+            )}
+            {!post.deleted && (
+              <button type="button" className={`icon-btn${post.publishedCopyId || live ? '' : ' ml-auto'}`} disabled={busy === 'trash'} onClick={() => void trash(true)}>
+                <Icon name="trash" className="" />
+                {p.trash}
+              </button>
+            )}
+          </div>
+          {renaming !== null && (
+            <form
+              className="private-rename"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void rename();
+              }}
+            >
+              <input type="text" aria-label={p.renameLabel} placeholder={p.renameHint} value={renaming} maxLength={POST_TITLE_MAX} autoFocus onChange={(event) => setRenaming(event.target.value)} />
+              <button type="submit" className="btn btn-sm" disabled={busy === 'rename'}>
+                {busy === 'rename' ? <i className="spinner" /> : null}
+                {p.renameSave}
+              </button>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setRenaming(null)}>
+                {t.common.actions.cancel}
+              </button>
+            </form>
+          )}
+          {publishing && (
+            <div className="private-publish" role="dialog" aria-label={p.makePublicTitle}>
+              <strong>{p.makePublicTitle}</strong>
+              <p>{p.makePublicBody}</p>
+              <label>
+                <input type="checkbox" checked={publishing.anonymous} onChange={(event) => setPublishing({ anonymous: event.target.checked })} />
+                {p.makePublicAnonymous}
+              </label>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setPublishing(null)}>
+                {t.common.actions.cancel}
+              </button>
+              <button type="button" className="btn btn-sm" disabled={busy === 'publish'} onClick={() => void makePublic()}>
+                {busy === 'publish' ? <i className="spinner" /> : <Icon name="globe" className="size-3.5" />}
+                {p.makePublicGo}
+              </button>
+            </div>
+          )}
+          {post.archived && !post.deleted && <p className="post-skipped">{p.archivedNote}</p>}
+        </>
+      ) : (
       <div className="post-actions">
         <PostHelpful post={post} signedIn={signedIn} loginHref={loginHref} onChange={(change) => setPost((current) => ({ ...current, ...change }))} />
-        {/* On the post itself the answer count scrolls to the answers. */}
-        <a
-          href="#answers"
-          className="icon-btn"
-          title={c.answers}
-          aria-label={`${c.answers} ${formatNumber(post.answered, locale)}`}
-          onClick={(event) => {
-            const target = document.getElementById('answers');
-            if (!target) return;
-            event.preventDefault();
-            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            window.history.replaceState(null, '', '#answers');
-          }}
-        >
-          <Icon name="chat" className="" />
-          {formatNumber(post.answered, locale)}
-        </a>
+        {answersLink}
         {signedIn && live && (
           <button type="button" className="icon-btn" aria-pressed={post.saved} disabled={busy === 'save'} title={post.saved ? c.unsave : c.save} aria-label={post.saved ? c.unsave : c.save} onClick={() => void save()}>
             <Icon name="bookmark" className={post.saved ? 'text-blue' : ''} />
@@ -547,6 +703,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
           </button>
         )}
       </div>
+      )}
 
       <PostState post={post} />
 
@@ -566,7 +723,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
       {shown.length > 0 && (
         <div className="post-answers-head scroll-mt-24" id="answers">
           <strong>{fill(p.answersHeading, { n: formatNumber(shown.length, locale) })}</strong>
-          {post.candidates > 0 && <small>{fill(p.matchedNote, { candidates: formatNumber(post.candidates, locale) })}</small>}
+          {isPrivate ? <small>{fill(p.chosenNote, { n: formatNumber(post.answers.length, locale) })}</small> : post.candidates > 0 && <small>{fill(p.matchedNote, { candidates: formatNumber(post.candidates, locale) })}</small>}
         </div>
       )}
 
@@ -613,7 +770,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
           <div className="post-summary-cta">
             <Icon name="sparkle" className="size-4 text-blue" />
             <span className="min-w-0 flex-1">
-              <strong>{p.summaryTitle}</strong>：{post.summaryStale ? (post.summaryRewriteFree ? p.summaryStale : p.summaryStalePaid) : fill(p.summaryHint, { n: shown.length })}
+              <strong>{p.summaryTitle}</strong>：{post.summaryStale ? (post.summaryRewriteFree ? p.summaryStale : p.summaryStalePaid) : fill(isPrivate ? p.summaryHintPrivate : p.summaryHint, { n: shown.length })}
             </span>
             <button type="button" className="btn-secondary btn-sm" disabled={busy === 'summary'} onClick={() => void summarize()}>
               {busy === 'summary' ? <i className="spinner" /> : null}
@@ -627,13 +784,13 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
 
       {waiting.map((entry) => waitingArticle(entry))}
 
-      {mine && post.spent !== null && post.spent > 0 && <p className="post-skipped">{fill(p.spent, { n: formatNumber(post.spent, locale) })}</p>}
+      {mine && post.spent !== null && post.spent > 0 && <p className="post-skipped">{fill(isPrivate ? p.privateSpent : p.spent, { n: formatNumber(post.spent, locale) })}</p>}
 
       {mine && live && post.paidRequests.length > 0 && paidSection(post.paidRequests, null)}
 
-      {post.answerState === 'done' && post.skipped > 0 && post.answered > 0 && <p className="post-skipped">{fill(p.skipped, { n: formatNumber(post.skipped, locale) })}</p>}
+      {!isPrivate && post.answerState === 'done' && post.skipped > 0 && post.answered > 0 && <p className="post-skipped">{fill(p.skipped, { n: formatNumber(post.skipped, locale) })}</p>}
 
-      {(post.followups.length > 0 || (live && shown.length > 0)) && (
+      {(post.followups.length > 0 || (live && (shown.length > 0 || (isPrivate && post.answerState === 'done')))) && (
         <section className="fu-thread" aria-label={t2.title}>
           {published.length > 0 && (
             <div className="post-answers-head">
@@ -650,8 +807,8 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
               roundArticle(entry)
             ),
           )}
-          {live && shown.length > 0 && (
-            <FollowupComposer ref={composer} postId={post.id} candidates={post.followupCandidates} signedIn={signedIn} loginHref={loginHref} blocked={post.followupBlocked} onAsked={() => void refresh()} />
+          {live && (shown.length > 0 || (isPrivate && post.answerState === 'done')) && (
+            <FollowupComposer ref={composer} postId={post.id} isPrivate={isPrivate} candidates={post.followupCandidates} signedIn={signedIn} loginHref={loginHref} blocked={post.followupBlocked} onAsked={() => void refresh()} />
           )}
         </section>
       )}

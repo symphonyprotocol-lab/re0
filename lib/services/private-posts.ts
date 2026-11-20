@@ -27,7 +27,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { InsufficientCredits } from '@/lib/domain/credits';
-import { isUuid } from '@/lib/domain/list';
+import { isUuid, likePattern } from '@/lib/domain/list';
 import {
   FOLLOWUP_POST_MAX,
   POST_CANDIDATES,
@@ -305,6 +305,54 @@ export async function suggestPrivateRees(userId: string, question: string, searc
       const price = maxCostFor(row, userId);
       return { reeId: row.id, reeSlug: row.slug, reeName: row.name, reeAvatar: row.avatar, reeColor: row.color, price, paid: price > QUERY_BASE_FEE, similarity: Math.round(hit.similarity * 100) / 100 };
     });
+}
+
+/** Rees one picker lists. */
+const PICKER_RESULTS = 20;
+
+/**
+ * The private composer's "选 Ree" and the thread's "加 Ree": Rees this user
+ * may ask privately -- public ones and their own -- that have ready
+ * knowledge (any other could only answer "nothing found"), matching `q` by
+ * name, introduction or tag; their own first, then the most active. `ids`
+ * resolves Rees named by a link (`?compose=private&rees=…`) instead, in the
+ * order given; one they may not ask is left out, never revealed.
+ */
+export async function privateReeOptions(userId: string, input: { q?: string | null; ids?: readonly string[] }): Promise<PrivateReeOption[]> {
+  const ids = (input.ids ?? []).filter((id) => isUuid(id)).slice(0, PRIVATE_POST_MAX_REES);
+  const q = input.q?.trim().slice(0, 200) ?? '';
+  const pattern = q ? likePattern(q) : null;
+  const ready = sql`exists (select 1 from ${schema.knowledge} k where k.ree_id = ${ree.id} and k.status = 'ready' and k.enabled and k.deleted_at is null)`;
+  const rows = await db()
+    .select({ id: ree.id, slug: ree.slug, name: ree.name, avatar: ree.avatarBlob, color: ree.color, ownerId: ree.ownerId, queryFee: ree.queryFee })
+    .from(ree)
+    .where(
+      and(
+        isNull(ree.deletedAt),
+        or(publicRee(), eq(ree.ownerId, userId)),
+        ready,
+        ids.length || input.ids ? inArray(ree.id, ids.length ? ids : [randomUUID()]) : undefined,
+        pattern ? or(sql`${ree.name} ilike ${pattern}`, sql`${ree.description} ilike ${pattern}`, sql`exists (select 1 from unnest(${ree.tags}) tag where tag ilike ${pattern})`) : undefined,
+      ),
+    )
+    .orderBy(desc(sql`${ree.ownerId} = ${userId}`), desc(sql`coalesce((${ree.rank} ->> 'activity30')::int, 0)`), desc(ree.createdAt))
+    .limit(input.ids ? PRIVATE_POST_MAX_REES : PICKER_RESULTS);
+  const ordered = input.ids ? ids.map((id) => rows.find((row) => row.id === id)).filter((row): row is (typeof rows)[number] => Boolean(row)) : rows;
+  return ordered.map((row) => {
+    const price = maxCostFor(row, userId);
+    return { reeId: row.id, reeSlug: row.slug, reeName: row.name, reeAvatar: row.avatar, reeColor: row.color, price, paid: price > QUERY_BASE_FEE, similarity: null };
+  });
+}
+
+/** 我的帖子 › 私密's Ree filter: every Ree asked in the author's private posts (first round or follow-up), by name. */
+export async function myPrivateReeOptions(userId: string): Promise<{ id: string; name: string }[]> {
+  return db()
+    .selectDistinct({ id: ree.id, name: ree.name })
+    .from(answer)
+    .innerJoin(post, eq(post.id, answer.postId))
+    .innerJoin(ree, eq(ree.id, answer.reeId))
+    .where(and(eq(post.userId, userId), eq(post.visibility, 'private'), inArray(post.source, ['post', 'api'])))
+    .orderBy(asc(ree.name));
 }
 
 /* ------------------------------------------------------------- follow-ups */
