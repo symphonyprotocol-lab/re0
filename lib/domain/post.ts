@@ -140,9 +140,9 @@ export interface FollowupView {
   declined: string[];
   /** What this follow-up's answers cost the asker; null for anyone else. */
   spent: number | null;
-  /** The asker's AI answer when no Ree answered this follow-up; null for anyone else, and when there is none. */
+  /** The AI answer when no Ree answered this follow-up: its asker's own, or, on a public post, one that passed review; null otherwise. */
   aiAnswer: AiAnswerView | null;
-  /** 继续问 AI: asked under the author's AI answer to a public post no Ree answered; only the author ever gets one. */
+  /** 继续问 AI: asked under the AI answer of a public post no Ree answered, answered by the AI alone; a public follow-up like any other. */
   aiOnly: boolean;
 }
 
@@ -167,11 +167,16 @@ export interface PrivateReeOption extends FollowupCandidate {
  * round -- a public post nothing matched, a private post whose chosen Rees
  * all found nothing, a follow-up no Ree answered -- the asker gets one
  * general answer from the platform's free-tier model, at the base fee of a
- * question. It names no sources, is marked as not a Ree's, and only the
- * asker ever sees it: it is never an answer in any count, list or feed.
+ * question. It names no sources and is marked as not a Ree's. On a public
+ * post everyone reads it once it passes review (2026-11-21); on a private
+ * post only its author. It is never a Ree's answer in any count or figure:
+ * the post stays 待回答.
  */
 export const AI_ANSWER_STATES = ['running', 'answered', 'failed', 'skipped_balance'] as const;
 export type AiAnswerState = (typeof AI_ANSWER_STATES)[number];
+/** A public post's AI answer is reviewed before anyone but its asker reads it. */
+export const AI_ANSWER_REVIEWS = ['pending', 'passed', 'rejected'] as const;
+export type AiAnswerReview = (typeof AI_ANSWER_REVIEWS)[number];
 /** What one AI answer costs its asker: the base fee of a question, never more. */
 export const AI_ANSWER_FEE = QUERY_BASE_FEE;
 /** The longest answer the model may write, and how long it may take before the answer fails (and the fee goes back). */
@@ -179,11 +184,12 @@ export const AI_ANSWER_MAX_OUTPUT_TOKENS = 600;
 export const AI_ANSWER_TIMEOUT_MS = 60_000;
 /** An AI answer still `running` after this belongs to no live run: the posts sweep fails it and gives the fee back. */
 export const AI_ANSWER_STALE_MS = 5 * 60_000;
-/** The feed card's preview of the asker's AI answer. */
+/** The feed card's preview of the AI answer. */
 export const AI_ANSWER_PREVIEW_CHARS = 90;
 
 /**
- * The asker's AI answer to a round, as only they get it. `text` is the whole
+ * The AI answer to a round as the viewer gets it: their own (they asked and
+ * paid), or, on a public post, one that passed review. `text` is the whole
  * Markdown on the post page and a plain excerpt in a feed. `retry`: skipped
  * for a short balance, it may be generated once by hand
  * ("生成 AI 回答 · 20 credits"). `folded`: a Ree has answered the round
@@ -194,11 +200,18 @@ export interface AiAnswerView {
   state: AiAnswerState;
   text: string;
   truncated: boolean;
+  /** The asker's own vote; null for anyone else. */
   vote: 'helpful' | 'unhelpful' | null;
-  /** What it cost: the fee once answered, otherwise 0. */
+  /** What it cost: the fee once answered, otherwise 0; 0 for anyone but its asker. */
   cost: number;
   retry: boolean;
   folded: boolean;
+  /** The viewer asked it: they vote on it, and read it before (or without) review. */
+  mine: boolean;
+  /** Its review on a public post (null on a private one); anyone else only ever gets `passed`. */
+  review: AiAnswerReview | null;
+  /** The viewer reads it on a private post: only they ever do. */
+  private: boolean;
 }
 
 /** How many answered posts a share page shows ("大家问过的"); the rest are on the Ree page. */

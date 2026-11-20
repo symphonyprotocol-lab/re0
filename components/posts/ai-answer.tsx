@@ -12,17 +12,20 @@ import './posts.css';
 import { Pending } from '@/components/posts/pending';
 
 /*
- * AI 通用回答 (design draft 1, approved 2026-11-20): what the asker -- and
- * only the asker -- sees when no Ree answered a round. Never mistaken for a
- * Ree's answer: a dashed grey card with a sparkle mark instead of an avatar,
- * "无出处 · 仅供参考" and "仅你可见", no citations, and a note saying what it
- * is; then the ways to an answer with sources.
+ * AI 通用回答 (design draft 1, approved 2026-11-20): what a round no Ree
+ * answered shows -- its asker at once; on a public post everyone, visitors
+ * included, once it passed review (2026-11-21); on a private post only its
+ * author ("仅你可见"). Never mistaken for a Ree's answer: a dashed grey card
+ * with a sparkle mark instead of an avatar, "无出处 · 仅供参考", no
+ * citations, and a note saying what it is; then, for the asker, the ways to
+ * an answer with sources. Its asker also reads where its review stands.
  */
 
 /**
- * The card itself: the answer, its note, and 有帮助 · 没帮助 · 复制 with what
- * it cost. `onAskAi`: 继续问 AI, where the box below asks the AI alone (a
- * public post no Ree answered, or a private thread no Ree is in).
+ * The card itself: the answer, its note, and 有帮助 · 没帮助 (its asker
+ * only) · 复制 with what it cost. `onAskAi`: 继续问 AI, where the box below
+ * asks the AI alone (a public post no Ree answered, or a private thread no
+ * Ree is in).
  */
 export function AiAnswerCard({ ai, compact = false, onChange, onAskAi }: { ai: AiAnswerView; compact?: boolean; onChange: (next: AiAnswerView) => void; onAskAi?: () => void }) {
   const { t, locale } = useI18n();
@@ -52,24 +55,34 @@ export function AiAnswerCard({ ai, compact = false, onChange, onAskAi }: { ai: A
         </span>
         <strong>{a.title}</strong>
         <span className="ai-tag">{a.noSource}</span>
-        <span className="ai-tag is-private">
-          <Icon name="lock" className="" />
-          {a.onlyYou}
-        </span>
+        {ai.private ? (
+          <span className="ai-tag is-private">
+            <Icon name="lock" className="" />
+            {a.onlyYou}
+          </span>
+        ) : (
+          ai.mine && ai.review === 'pending' ? <span className="ai-tag is-private">{a.reviewPending}</span> : ai.mine && ai.review === 'rejected' ? <span className="ai-tag is-private">{a.reviewRejected}</span> : null
+        )}
       </div>
       <div className="answer-text studio-conversation" style={{ background: 'transparent' }}>
         <Markdown className="answer-markdown" text={ai.text} citation={() => null} />
       </div>
       <p className="ai-note">{a.note}</p>
+      {!ai.private && ai.mine && ai.review === 'pending' && <p className="ai-note">{a.reviewPendingNote}</p>}
+      {!ai.private && ai.mine && ai.review === 'rejected' && <p className="ai-note">{a.reviewRejectedNote}</p>}
       <div className="post-answer-foot">
-        <button type="button" className="icon-btn" aria-pressed={ai.vote === 'helpful'} disabled={busy} onClick={() => void vote('helpful')}>
-          <Icon name="thumbUp" className={ai.vote === 'helpful' ? 'text-blue' : ''} />
-          {a.helpful}
-        </button>
-        <button type="button" className="icon-btn" aria-pressed={ai.vote === 'unhelpful'} disabled={busy} onClick={() => void vote('unhelpful')}>
-          <Icon name="thumbDown" className={ai.vote === 'unhelpful' ? 'text-blue' : ''} />
-          {a.unhelpful}
-        </button>
+        {ai.mine && (
+          <>
+            <button type="button" className="icon-btn" aria-pressed={ai.vote === 'helpful'} disabled={busy} onClick={() => void vote('helpful')}>
+              <Icon name="thumbUp" className={ai.vote === 'helpful' ? 'text-blue' : ''} />
+              {a.helpful}
+            </button>
+            <button type="button" className="icon-btn" aria-pressed={ai.vote === 'unhelpful'} disabled={busy} onClick={() => void vote('unhelpful')}>
+              <Icon name="thumbDown" className={ai.vote === 'unhelpful' ? 'text-blue' : ''} />
+              {a.unhelpful}
+            </button>
+          </>
+        )}
         <button type="button" className="icon-btn" onClick={() => void copy()}>
           <Icon name="copy" className="" />
           {a.copy}
@@ -87,7 +100,8 @@ export function AiAnswerCard({ ai, compact = false, onChange, onAskAi }: { ai: A
 }
 
 /**
- * The AI answer of one round as it stands for its asker: being written; the
+ * The AI answer of one round as it stands for the viewer (only its asker
+ * ever gets it while written or skipped): being written; the
  * card; one line to unfold once a Ree has answered; or, skipped for a short
  * balance, the top-up and "生成 AI 回答 · 20 credits" (once). `note`: the
  * line above the card. `postId` and `followupId` name the round for the
@@ -209,7 +223,7 @@ export function AiGuide({ items, children }: { items: AiGuideItem[]; children?: 
   );
 }
 
-/** The asker's own feed card: their AI answer's first lines, greyed, marked as not a Ree's -- in place of "暂时没有 Ree 能回答". */
+/** A feed card's AI answer, for everyone on a public post once it passed review (its asker at once): its first lines, greyed, marked as not a Ree's -- in place of "暂时没有 Ree 能回答". */
 export function AiPreview({ ai }: { ai: AiAnswerView }) {
   const { t } = useI18n();
   const a = t.posts.ai;

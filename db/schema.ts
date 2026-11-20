@@ -51,6 +51,7 @@ import {
   POST_STATUSES,
   POST_TITLE_MAX,
   POST_VISIBILITIES,
+  type AiAnswerReview,
   type AiAnswerState,
   type AnswerHider,
   type AnswerState,
@@ -1533,6 +1534,13 @@ export const postAiAnswer = pgTable(
     /** What it was charged (the fee once answered); 0 until then. */
     price: integer('price').notNull().default(0),
     vote: text('vote').$type<'helpful' | 'unhelpful'>(),
+    /**
+     * On a public post, the review it needs before anyone but its asker reads
+     * it: `pending` once written, then `passed` or `rejected`. Null on a
+     * private post (only its author ever reads it) and while not written.
+     */
+    review: text('review').$type<AiAnswerReview>(),
+    reviewAttempts: integer('review_attempts').notNull().default(0),
     /** When it started running (again, after a by-hand retry): what the sweep times it by. */
     startedAt: timestampTz('started_at'),
     createdAt: createdAt(),
@@ -1543,8 +1551,10 @@ export const postAiAnswer = pgTable(
     uniqueIndex('post_ai_answer_followup_key').on(t.followupId).where(sql`followup_id is not null`),
     index('post_ai_answer_running_idx').on(t.startedAt).where(sql`state = 'running'`),
     index('post_ai_answer_user_idx').on(t.userId),
+    index('post_ai_answer_review_idx').on(t.answeredAt).where(sql`review = 'pending'`),
     check('post_ai_answer_state_check', oneOf('state', [...AI_ANSWER_STATES])),
     check('post_ai_answer_vote_check', sql`vote is null or vote in ('helpful', 'unhelpful')`),
+    check('post_ai_answer_review_check', sql`review is null or review in ('pending', 'passed', 'rejected')`),
     check('post_ai_answer_text_check', sql`char_length(text) <= ${sql.raw(String(PUBLIC_QA_ANSWER_MAX_CHARS))}`),
   ],
 );

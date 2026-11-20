@@ -1,12 +1,14 @@
 /**
- * 继续问 AI: on a public post no Ree answered, its author asks on under
- * their AI answer. The AI answers each follow-up at the base fee (given
- * back when it fails, skipped for a short balance and then generated once
- * by hand), with the post's question and the earlier AI rounds -- never a
- * Ree's text. Only the author ever sees these follow-ups: for everyone else
- * the post stays 待回答 with none, and nobody else may ask. Once a Ree is
- * brought in (请 Ree 回答) the AI thread folds, kept, and follow-ups are
- * public again.
+ * 继续问 AI: on a public post no Ree answered, follow-ups under its AI
+ * answer go to the AI alone. Its author asks at once; anyone else signed in
+ * once that AI answer passed review (visitors get the sign-in line). They
+ * are public follow-ups like any other (2026-11-21): reviewed, counted,
+ * seen by all, their AI answers reviewed before anyone but the asker reads
+ * them; whoever asks pays the base fee (given back when it fails, skipped
+ * for a short balance and then generated once by hand), with the post's
+ * question and the earlier AI rounds -- never a Ree's text. Once a Ree is
+ * brought in (请 Ree 回答) the AI thread folds, kept, and follow-ups go to
+ * the Rees again.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -75,10 +77,13 @@ async function makeRee() {
 }
 
 const approve: Judge = async () => ({ publish: true });
-/* A 继续问 AI is never reviewed: a review would fail the test. */
-const noReview: Judge = async () => {
-  throw new Error('reviewed');
+/* Questions pass; an AI answer's review cannot run (it stays pending for the sweep). */
+const holdAi: Judge = async (_question, answer) => {
+  if (answer) throw new Error('review down');
+  return { publish: true };
 };
+/* Questions are refused. */
+const refuse: Judge = async () => ({ publish: false });
 const noMatch: Matcher = async () => ({ answerers: [], candidates: 4, skipped: 4, vector: null });
 const says = (text: string): AnswerOne => async () => ({ state: 'answered', text, citations: [], model: 'stub' });
 
@@ -90,11 +95,11 @@ function aiStub(text: string | Error, seen: AiAnswerInput[] = []): AiAnswerer {
   };
 }
 
-/** A public post nothing matched, its author's AI answer written. */
-async function aiOnlyPost(author: string, first = 'Water less often.') {
+/** A public post nothing matched, its author's AI answer written (and, with `approve`, passed review). */
+async function aiOnlyPost(author: string, first = 'Water less often.', judge: Judge = approve) {
   const posted = await posts.publishPost(author, { question: `Why are my monstera leaves yellow? ${crypto.randomUUID()}`, detail: 'It sits by a north window.', lang: 'en' });
   if (!posted.ok) throw new Error(posted.error);
-  await posts.processPost(posted.id, { judge: approve, match: noMatch, aiAnswer: aiStub(first) });
+  await posts.processPost(posted.id, { judge, match: noMatch, aiAnswer: aiStub(first) });
   return posted.id;
 }
 
@@ -120,15 +125,17 @@ const request = (url: string, body?: unknown) =>
 const pageJson = async (id: string) => JSON.stringify(await (await getRoute(request(`/api/posts/${id}`), { params: Promise.resolve({ id }) })).json());
 
 describeWithDb('继续问 AI on a public post no Ree answered', () => {
-  it('lets the author ask on, answered by the AI at the base fee with the thread so far, seen by nobody else', async () => {
+  it('lets the author ask on at once and anyone signed in once the AI answer passed review: reviewed, counted, seen by all, paid by whoever asks', async () => {
     const author = await user('aif-author', 200);
     const other = await user('aif-reader', 100);
-    const id = await aiOnlyPost(author, 'Water less often.');
+    const id = await aiOnlyPost(author, 'Water less often.', holdAi);
     expect(await balanceOf(db(), author)).toBe(200 - AI_ANSWER_FEE);
+    const firstAi = (await db().select().from(schema.postAiAnswer).where(eq(schema.postAiAnswer.postId, id)))[0]!;
+    expect(firstAi).toMatchObject({ followupId: null, review: 'pending', reviewAttempts: 1 });
 
-    /* Only the author gets the box. Anyone else: no first-round Ree, no box, refused by the service and the route. */
+    /* Before review passes: only the author gets the box; anyone else is refused by the service and the route. */
     expect((await posts.getPost(id, author))!).toMatchObject({ followupAiOnly: true, followupCandidates: [], followupBlocked: null });
-    expect((await posts.getPost(id, other))!.followupAiOnly).toBe(false);
+    expect((await posts.getPost(id, other))!).toMatchObject({ followupAiOnly: false, aiAnswer: null });
     expect((await posts.getPost(id))!.followupAiOnly).toBe(false);
     expect(await followups.askFollowup(other, id, { question: 'Me too?', lang: 'en' })).toEqual({ ok: false, error: 'no_candidates' });
     await signIn(other);
@@ -136,11 +143,18 @@ describeWithDb('继续问 AI on a public post no Ree answered', () => {
     expect(refused.status).toBe(422);
     expect(await refused.json()).toMatchObject({ error: 'no_candidates' });
     await signIn(null);
-    expect((await askRoute(request(`/api/posts/${id}/followups`, { question: 'Me too?' }), { params: Promise.resolve({ id }) })).status).toBe(401);
-    /* No Ree to @. */
-    expect(await followups.askFollowup(author, id, { question: 'Which pot?', mentionReeIds: [crypto.randomUUID()], lang: 'en' })).toEqual({ ok: false, error: 'mention_unavailable' });
 
-    /* Through the route: published at once (no review), answered after the response. */
+    /* The sweep reviews it: now anyone signed in may ask on, and a visitor gets the sign-in line (and is refused). */
+    await ai.sweepAiAnswers(new Date(Date.now() + 120_000), { judge: approve });
+    expect((await db().select().from(schema.postAiAnswer).where(eq(schema.postAiAnswer.id, firstAi.id)))[0]).toMatchObject({ review: 'passed', reviewAttempts: 2 });
+    expect((await posts.getPost(id, other))!).toMatchObject({ followupAiOnly: true, followupCandidates: [], aiAnswer: { id: firstAi.id, mine: false, review: 'passed', cost: 0, vote: null } });
+    expect((await posts.getPost(id))!).toMatchObject({ followupAiOnly: true, aiAnswer: { id: firstAi.id, mine: false } });
+    expect((await askRoute(request(`/api/posts/${id}/followups`, { question: 'Me too?' }), { params: Promise.resolve({ id }) })).status).toBe(401);
+    /* No Ree to @, for anyone. */
+    expect(await followups.askFollowup(author, id, { question: 'Which pot?', mentionReeIds: [crypto.randomUUID()], lang: 'en' })).toEqual({ ok: false, error: 'mention_unavailable' });
+    expect(await followups.askFollowup(other, id, { question: 'Which pot?', mentionReeIds: [crypto.randomUUID()], lang: 'en' })).toEqual({ ok: false, error: 'mention_unavailable' });
+
+    /* The author through the route: pending like any public follow-up, reviewed and answered after the response. */
     await signIn(author);
     later.length = 0;
     const made = await askRoute(request(`/api/posts/${id}/followups`, { question: 'How often should I water it?', clientToken: crypto.randomUUID() }), { params: Promise.resolve({ id }) });
@@ -149,60 +163,89 @@ describeWithDb('继续问 AI on a public post no Ree answered', () => {
     later.length = 0;
     await signIn(null);
     const first = ((await made.json()) as { id: string }).id;
-    expect(await followupRow(first)).toMatchObject({ aiOnly: true, status: 'published', answerState: 'waiting', mentionReeIds: [] });
+    expect(await followupRow(first)).toMatchObject({ aiOnly: true, status: 'pending', answerState: 'waiting', mentionReeIds: [] });
+    expect((await posts.getPost(id, other))!.followups).toEqual([]);
     const seen: AiAnswerInput[] = [];
-    await followups.processFollowup(first, { judge: noReview, aiAnswer: aiStub('Once a week [1].', seen) });
+    await followups.processFollowup(first, { judge: approve, aiAnswer: aiStub('Once a week [1].', seen) });
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ userId: author, question: 'How often should I water it?', thread: { postQuestion: expect.stringContaining('north window'), earlierAnswer: 'Water less often.', earlierRounds: [] } });
-    expect(await aiRowOf(first)).toMatchObject({ state: 'answered', userId: author, price: AI_ANSWER_FEE, text: 'Once a week.' });
-    expect(await followupRow(first)).toMatchObject({ answerState: 'done', candidates: 0 });
+    expect(await aiRowOf(first)).toMatchObject({ state: 'answered', userId: author, price: AI_ANSWER_FEE, text: 'Once a week.', review: 'passed' });
+    expect(await followupRow(first)).toMatchObject({ status: 'published', answerState: 'done', candidates: 0 });
+    expect((await postRow(id)).followupCount).toBe(1);
     expect(await balanceOf(db(), author)).toBe(200 - 2 * AI_ANSWER_FEE);
 
-    /* The next one carries the earlier AI rounds: the question and the AI's answer to it. */
-    const second = await ask(author, id, 'And in winter?');
+    /* Someone else asks on: reviewed, answered by the AI with the thread they can read, and they pay (谁问谁出钱). */
+    const theirs = await ask(other, id, 'And in winter?');
+    expect(await followupRow(theirs)).toMatchObject({ aiOnly: true, status: 'pending' });
     const seen2: AiAnswerInput[] = [];
-    await followups.processFollowup(second, { judge: noReview, aiAnswer: aiStub('Less in winter.', seen2) });
+    await followups.processFollowup(theirs, { judge: approve, aiAnswer: aiStub('Less in winter.', seen2) });
+    expect(seen2[0]).toMatchObject({ userId: other, question: 'And in winter?' });
     expect(seen2[0]!.thread).toMatchObject({ earlierAnswer: 'Water less often.', earlierRounds: [{ question: 'How often should I water it?', answer: 'Once a week.' }] });
     const prompt = aiAnswerPrompt(seen2[0]!.question, seen2[0]!.detail, seen2[0]!.thread);
     expect(prompt).toContain('Why are my monstera leaves yellow?');
     expect(prompt).toContain('- How often should I water it?\n  Your general answer: Once a week.');
-    expect(await balanceOf(db(), author)).toBe(200 - 3 * AI_ANSWER_FEE);
-    expect(await ledger(author)).toEqual([['ai_answer_hold', -AI_ANSWER_FEE], ['ai_answer_settle', 0], ['ai_answer_hold', -AI_ANSWER_FEE], ['ai_answer_settle', 0], ['ai_answer_hold', -AI_ANSWER_FEE], ['ai_answer_settle', 0]]);
+    expect(await aiRowOf(theirs)).toMatchObject({ state: 'answered', userId: other, price: AI_ANSWER_FEE, review: 'passed' });
+    expect(await balanceOf(db(), other)).toBe(100 - AI_ANSWER_FEE);
+    expect(await balanceOf(db(), author)).toBe(200 - 2 * AI_ANSWER_FEE);
+    expect(await ledger(other)).toEqual([['ai_answer_hold', -AI_ANSWER_FEE], ['ai_answer_settle', 0]]);
+    expect((await postRow(id)).followupCount).toBe(2);
+    /* The AI answer's notice goes to its asker only; the poster hears of a follow-up as of any public one. */
+    expect(await db().select().from(schema.notice).where(and(eq(schema.notice.userId, other), eq(schema.notice.kind, 'post_ai_answer')))).toHaveLength(1);
+    expect(await db().select().from(schema.notice).where(and(eq(schema.notice.userId, author), eq(schema.notice.kind, 'post_ai_answer')))).toHaveLength(2);
 
-    /* The author reads the thread with its AI answers. */
+    /* A question that fails review is refused like any follow-up: never public, no AI answer, nothing charged. */
+    const refusedQ = await ask(other, id, 'Something not allowed');
+    await followups.processFollowup(refusedQ, { judge: refuse, aiAnswer: aiStub('unused') });
+    expect(await followupRow(refusedQ)).toMatchObject({ status: 'rejected' });
+    expect(await aiRowOf(refusedQ)).toBeUndefined();
+    expect(await balanceOf(db(), other)).toBe(100 - AI_ANSWER_FEE);
+    expect((await postRow(id)).followupCount).toBe(2);
+
+    /* Everyone reads the thread and its AI answers; the post stays 待回答 with no Ree answer. */
     const mine = (await posts.getPost(id, author))!;
-    expect(mine.followups.map((entry) => [entry.question, entry.aiOnly, entry.aiAnswer?.state, entry.aiAnswer?.folded])).toEqual([
-      ['How often should I water it?', true, 'answered', false],
+    expect(mine.followups.map((entry) => [entry.question, entry.aiOnly, entry.aiAnswer?.state, entry.aiAnswer?.mine])).toEqual([
+      ['How often should I water it?', true, 'answered', true],
       ['And in winter?', true, 'answered', false],
     ]);
-
-    /* Nobody else: no follow-ups, no count, still 待回答. */
-    expect((await postRow(id)).followupCount).toBe(0);
-    for (const viewer of [other, undefined]) {
-      const theirs = (await posts.getPost(id, viewer))!;
-      expect(theirs.followups).toEqual([]);
-      expect(theirs.followupCount).toBe(0);
-      expect(theirs.aiAnswer).toBeNull();
+    for (const viewer of [undefined, await user('aif-third')]) {
+      const page = (await posts.getPost(id, viewer))!;
+      expect(page.followups.map((entry) => [entry.question, entry.aiAnswer?.text, entry.aiAnswer?.mine, entry.aiAnswer?.cost])).toEqual([
+        ['How often should I water it?', 'Once a week.', false, 0],
+        ['And in winter?', 'Less in winter.', false, 0],
+      ]);
+      expect(page).toMatchObject({ followupCount: 2, answered: 0, aiAnswer: { text: 'Water less often.' } });
       const card = (await posts.listFeed('latest', { viewerId: viewer, size: 50 })).items.find((entry) => entry.id === id)!;
-      expect(card.followupCount).toBe(0);
-      expect(card.followups).toEqual([]);
+      expect(card.followupCount).toBe(2);
+      expect(card.aiAnswer).toMatchObject({ state: 'answered', mine: false });
       expect((await posts.listFeed('unanswered', { viewerId: viewer, size: 50 })).items.map((entry) => entry.id)).toContain(id);
     }
-    await signIn(other);
-    const asOther = await pageJson(id);
-    expect(asOther).not.toContain('How often should I water it?');
-    expect(asOther).not.toContain('Once a week');
-    await signIn(null);
-    const asVisitor = await pageJson(id);
-    expect(asVisitor).not.toContain('And in winter?');
-    expect(asVisitor).not.toContain('Less in winter');
-    /* Nobody else can report what they cannot see, and the author hears of nothing as a poster. */
-    expect(await followups.reportFollowup(first, `user:${other}`)).toBe(false);
-    expect(await db().select().from(schema.notice).where(and(eq(schema.notice.userId, author), eq(schema.notice.kind, 'post_followup')))).toEqual([]);
+    expect((await postRow(id)).answerCount).toBe(0);
+    expect(await pageJson(id)).toContain('Less in winter');
+    expect(await pageJson(id)).not.toContain('Something not allowed');
 
-    /* Deleting one leaves the post's count alone. */
-    expect(await followups.deleteFollowup(author, second)).toBe(true);
-    expect((await postRow(id)).followupCount).toBe(0);
+    /* Public, so reportable; deleting one takes it out of the count. */
+    expect(await followups.reportFollowup(first, `user:${other}`)).toBe(true);
+    expect(await followups.deleteFollowup(other, theirs)).toBe(true);
+    expect((await postRow(id)).followupCount).toBe(1);
+  });
+
+  it('keeps a follow-up’s AI answer its asker’s while its review is pending or refused', async () => {
+    const author = await user('aif-author', 200);
+    const other = await user('aif-reader', 100);
+    const id = await aiOnlyPost(author);
+    const asked = await ask(other, id, 'Is it the pot?');
+    await followups.processFollowup(asked, { judge: holdAi, aiAnswer: aiStub('Maybe the pot.') });
+    expect(await aiRowOf(asked)).toMatchObject({ state: 'answered', review: 'pending' });
+    const roundOf = async (viewer?: string) => (await posts.getPost(id, viewer))!.followups.find((entry) => entry.id === asked)!;
+    expect((await roundOf(other)).aiAnswer).toMatchObject({ mine: true, review: 'pending', cost: AI_ANSWER_FEE });
+    expect((await roundOf(author)).aiAnswer).toBeNull();
+    expect((await roundOf()).aiAnswer).toBeNull();
+    /* Refused: still theirs alone, the fee kept (they got the answer). */
+    await ai.sweepAiAnswers(new Date(Date.now() + 120_000), { judge: async (_q, answer) => ({ publish: !answer }) });
+    expect(await aiRowOf(asked)).toMatchObject({ review: 'rejected' });
+    expect((await roundOf(other)).aiAnswer).toMatchObject({ mine: true, review: 'rejected' });
+    expect((await roundOf(author)).aiAnswer).toBeNull();
+    expect(await balanceOf(db(), other)).toBe(100 - AI_ANSWER_FEE);
   });
 
   it('gives the fee back when the model fails, and skips a short balance until one generation by hand', async () => {
@@ -211,7 +254,7 @@ describeWithDb('继续问 AI on a public post no Ree answered', () => {
     expect(await balanceOf(db(), author)).toBe(100 - AI_ANSWER_FEE);
 
     const failing = await ask(author, id, 'Is it the light?');
-    await followups.processFollowup(failing, { judge: noReview, aiAnswer: aiStub(new Error('model down')) });
+    await followups.processFollowup(failing, { judge: approve, aiAnswer: aiStub(new Error('model down')) });
     expect(await aiRowOf(failing)).toMatchObject({ state: 'failed', price: 0 });
     expect(await balanceOf(db(), author)).toBe(100 - AI_ANSWER_FEE);
     expect((await ledger(author)).slice(-2)).toEqual([['ai_answer_hold', -AI_ANSWER_FEE], ['ai_answer_refund', AI_ANSWER_FEE]]);
@@ -219,7 +262,7 @@ describeWithDb('继续问 AI on a public post no Ree answered', () => {
     /* Asked with the fee in hand, spent elsewhere before the AI's turn: skipped, nothing charged. */
     const short = await ask(author, id, 'Is it the pot?');
     await drain(author);
-    await followups.processFollowup(short, { judge: noReview, aiAnswer: aiStub('unused') });
+    await followups.processFollowup(short, { judge: approve, aiAnswer: aiStub('unused') });
     expect(await aiRowOf(short)).toMatchObject({ state: 'skipped_balance', holdId: null, price: 0 });
     expect((await posts.getPost(id, author))!.followups.find((entry) => entry.id === short)!.aiAnswer).toMatchObject({ state: 'skipped_balance', retry: true, cost: 0 });
     expect(await ai.retryAiAnswer(author, id, short)).toEqual({ ok: false, error: 'insufficient', balance: 0, needed: AI_ANSWER_FEE });
@@ -234,13 +277,13 @@ describeWithDb('继续问 AI on a public post no Ree answered', () => {
     expect(await ai.retryAiAnswer(author, id, short)).toEqual({ ok: false, error: 'already' });
   });
 
-  it('folds the AI thread once a Ree is brought in (请 Ree 回答), never feeds the AI a Ree’s text, and makes follow-ups public again', async () => {
+  it('folds the AI thread once a Ree is brought in (请 Ree 回答), never feeds the AI a Ree’s text, and sends follow-ups to the Rees again', async () => {
     const free = await makeRee();
     const author = await user('aif-author', 300);
     const other = await user('aif-reader', 100);
     const id = await aiOnlyPost(author, 'Water less often.');
     const first = await ask(author, id, 'How often should I water it?');
-    await followups.processFollowup(first, { judge: noReview, aiAnswer: aiStub('Once a week.') });
+    await followups.processFollowup(first, { judge: approve, aiAnswer: aiStub('Once a week.') });
     /* Asked before the Ree came, answered after. */
     const pending = await ask(author, id, 'And in winter?');
 
@@ -253,7 +296,7 @@ describeWithDb('继续问 AI on a public post no Ree answered', () => {
 
     /* The pending one still goes to the AI alone, with the AI rounds and no Ree text. */
     const seen: AiAnswerInput[] = [];
-    await followups.processFollowup(pending, { judge: noReview, matchFollowup: async () => ({ similarity: new Map([[free.reeId, 0.9]]), vector: null }), answerOne: says('unused'), aiAnswer: aiStub('Less in winter.', seen) });
+    await followups.processFollowup(pending, { judge: approve, matchFollowup: async () => ({ similarity: new Map([[free.reeId, 0.9]]), vector: null }), answerOne: says('unused'), aiAnswer: aiStub('Less in winter.', seen) });
     expect(seen).toHaveLength(1);
     expect(JSON.stringify(seen[0])).not.toContain('Ree secret');
     expect(seen[0]!.thread).toMatchObject({ earlierAnswer: 'Water less often.', earlierRounds: [{ question: 'How often should I water it?', answer: 'Once a week.' }] });
@@ -270,17 +313,21 @@ describeWithDb('继续问 AI on a public post no Ree answered', () => {
     expect(mine.followupAiOnly).toBe(false);
     expect(mine.followupCandidates.map((entry) => entry.reeId)).toEqual([free.reeId]);
     expect(await balanceOf(db(), author)).toBe(300 - 3 * AI_ANSWER_FEE - BASE);
-    expect((await posts.getPost(id, other))!.followups).toEqual([]);
+    /* Anyone else reads them too, folded the same way. */
+    expect((await posts.getPost(id, other))!.followups.map((entry) => [entry.aiOnly, entry.aiAnswer?.folded, entry.aiAnswer?.mine])).toEqual([
+      [true, true, false],
+      [true, true, false],
+    ]);
 
     /* From now on follow-ups are public: reviewed, counted, seen and asked by anyone, answered by the first round's Ree. */
     const open = await ask(author, id, 'Should I repot it?');
     expect(await followupRow(open)).toMatchObject({ aiOnly: false, status: 'pending' });
     await followups.processFollowup(open, { judge: approve, matchFollowup: async () => ({ similarity: new Map([[free.reeId, 0.9]]), vector: null }), answerOne: says('Repot in spring.'), aiAnswer: aiStub('unused') });
     expect(await followupRow(open)).toMatchObject({ status: 'published', answerState: 'done' });
-    expect((await postRow(id)).followupCount).toBe(1);
+    expect((await postRow(id)).followupCount).toBe(3);
     const theirs = (await posts.getPost(id, other))!;
-    expect(theirs.followups.map((entry) => entry.question)).toEqual(['Should I repot it?']);
-    expect(theirs.followups[0]!.answers.map((entry) => entry.text)).toEqual(['Repot in spring.']);
+    expect(theirs.followups.map((entry) => entry.question)).toEqual(['How often should I water it?', 'And in winter?', 'Should I repot it?']);
+    expect(theirs.followups[2]!.answers.map((entry) => entry.text)).toEqual(['Repot in spring.']);
     const asked = await followups.askFollowup(other, id, { question: 'Which soil?', lang: 'en' });
     expect(asked.ok).toBe(true);
   });
