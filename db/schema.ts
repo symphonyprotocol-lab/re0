@@ -41,6 +41,7 @@ import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
 import { TASK_KINDS, type TaskKind } from '@/lib/domain/invites';
 import { PAGE_KINDS, type PageKind } from '@/lib/domain/traffic';
 import {
+  AI_ANSWER_STATES,
   ANSWER_HIDERS,
   ANSWER_STATES,
   FOLLOWUP_STATUSES,
@@ -50,6 +51,7 @@ import {
   POST_STATUSES,
   POST_TITLE_MAX,
   POST_VISIBILITIES,
+  type AiAnswerState,
   type AnswerHider,
   type AnswerState,
   type FollowupStatus,
@@ -587,6 +589,10 @@ export const CREDIT_ENTRY_REASONS = [
   'post_hold',
   'post_settle',
   'post_refund',
+  /* AI 通用回答: the base fee for the general answer an asker gets when no Ree answered, to the platform once written, given back otherwise. */
+  'ai_answer_hold',
+  'ai_answer_settle',
+  'ai_answer_refund',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -1651,6 +1657,45 @@ export const postSave = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.postId] }), index('post_save_recent_idx').on(t.userId, t.createdAt.desc(), t.postId.desc())],
 );
 
+/**
+ * AI 通用回答: the general answer an asker gets when no Ree answered a round
+ * (lib/services/ai-answers.ts) -- the first round of a post (`followup_id`
+ * null) or one follow-up -- one per round. Apart from `post_answer` on
+ * purpose: it is no Ree's answer, so no count, rank, feed, summary or Ree
+ * page ever reads it. Only `user_id`, who asked the round and pays for it,
+ * ever sees it. `vote` is their 有帮助 / 没帮助, for its quality only.
+ */
+export const postAiAnswer = pgTable(
+  'post_ai_answer',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    followupId: uuid('followup_id').references((): AnyPgColumn => postFollowup.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    state: text('state').$type<AiAnswerState>().notNull().default('running'),
+    text: text('text').notNull().default(''),
+    model: text('model'),
+    /** The base fee held while it is written: settled once answered, released otherwise. */
+    holdId: uuid('hold_id'),
+    /** What it was charged (the fee once answered); 0 until then. */
+    price: integer('price').notNull().default(0),
+    vote: text('vote').$type<'helpful' | 'unhelpful'>(),
+    /** When it started running (again, after a by-hand retry): what the sweep times it by. */
+    startedAt: timestampTz('started_at'),
+    createdAt: createdAt(),
+    answeredAt: timestampTz('answered_at'),
+  },
+  (t) => [
+    uniqueIndex('post_ai_answer_post_key').on(t.postId).where(sql`followup_id is null`),
+    uniqueIndex('post_ai_answer_followup_key').on(t.followupId).where(sql`followup_id is not null`),
+    index('post_ai_answer_running_idx').on(t.startedAt).where(sql`state = 'running'`),
+    index('post_ai_answer_user_idx').on(t.userId),
+    check('post_ai_answer_state_check', oneOf('state', [...AI_ANSWER_STATES])),
+    check('post_ai_answer_vote_check', sql`vote is null or vote in ('helpful', 'unhelpful')`),
+    check('post_ai_answer_text_check', sql`char_length(text) <= ${sql.raw(String(PUBLIC_QA_ANSWER_MAX_CHARS))}`),
+  ],
+);
+
 /* ------------------------------------------------------------- step 5 */
 
 /**
@@ -1686,7 +1731,7 @@ export const verificationRequest = pgTable(
   ],
 );
 
-export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal'] as const;
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal', 'post_ai_answer'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**

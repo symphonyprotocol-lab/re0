@@ -131,17 +131,19 @@ describeWithDb('public posts', () => {
     const nobody = await publish(author, `${QUESTION} first try`);
     await posts.processPost(nobody.id, stub([]));
     expect(await postRow(nobody.id)).toMatchObject({ answerState: 'done', answerCount: 0 });
-    expect(await balanceOf(db(), author)).toBe(100);
+    /* No Ree answered: nothing for the Rees; the author's AI general answer (ai-answers.ts) takes the base fee instead. */
+    expect(await balanceOf(db(), author)).toBe(100 - QUERY_BASE_FEE);
 
     /* Rees were found but none could answer: their holds come back. */
     const { reeId } = await publicRee();
     const posted = await publish(author);
     await posts.processPost(posted.id, stub([reeId], false));
-    expect(await balanceOf(db(), author)).toBe(100);
+    expect(await balanceOf(db(), author)).toBe(100 - 2 * QUERY_BASE_FEE);
     const [row] = await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.postId, posted.id));
     expect((await entries(author, row!.id)).map((entry) => entry.reason).sort()).toEqual(['query_hold', 'query_refund']);
     expect((await posts.listFeed('unanswered')).items.map((item) => item.id)).toContain(posted.id);
-    expect(await db().select().from(schema.notice).where(eq(schema.notice.refId, posted.id))).toHaveLength(0);
+    /* No answer notice; only the AI answer's. */
+    expect((await db().select().from(schema.notice).where(eq(schema.notice.refId, posted.id))).map((entry) => entry.kind)).toEqual(['post_ai_answer']);
   });
 
   it('charges nothing for a post review refuses, keeps a failed review for the cron, and refuses a post below one base fee', async () => {
@@ -251,7 +253,9 @@ describeWithDb('public posts', () => {
     expect(await balanceOf(db(), author)).toBe(100 - QUERY_BASE_FEE);
     await posts.processStalePosts();
     expect(await postRow(paid.id)).toMatchObject({ answerState: 'done', answerCount: 0 });
-    expect(await balanceOf(db(), author)).toBe(100);
+    /* The Ree's fee came back; settled with no Ree answer, the author got the AI answer its run never reached, at the base fee. */
+    expect(await balanceOf(db(), author)).toBe(100 - QUERY_BASE_FEE);
+    expect((await db().select().from(schema.postAiAnswer).where(eq(schema.postAiAnswer.postId, paid.id)))[0]?.state).toBe('answered');
 
     const shown = await publish(author, `${QUESTION} shown`);
     await posts.processPost(shown.id, stub([reeId]));

@@ -81,6 +81,7 @@ import { balanceOf, creditQueryFee, placeHold, releaseHold, settleHold } from '@
 import { publicRee, searchRees } from '@/lib/services/explore';
 import { generationForUser } from '@/lib/services/generation';
 import { audit } from '@/lib/services/admin';
+import { aiAnswersFor, aiRoundKey, answerWithAi, type AiAnswerer } from '@/lib/services/ai-answers';
 import { notify } from '@/lib/services/notices';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
 import { questionRewriter } from '@/lib/services/question-rewrite';
@@ -485,6 +486,8 @@ export interface ProcessDeps {
   judge?: Judge;
   match?: Matcher;
   answerOne?: AnswerOne;
+  /** AI 通用回答 when no Ree answered (ai-answers.ts); the model by default. */
+  aiAnswer?: AiAnswerer;
   now?: () => Date;
 }
 
@@ -562,6 +565,8 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
     console.warn(`post ${id} answering failed: ${error instanceof Error ? error.message : 'unknown'}`);
   }
   await finishPost(id, now());
+  /* No Ree answered (or will, on the author's word): the author gets an AI answer instead, at the base fee. */
+  await answerWithAi(id, null, deps);
 }
 
 /**
@@ -637,7 +642,8 @@ export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOp
   handled += await sweepPaidRequests(now);
   /* Follow-ups (追问) the request left behind: the same three steps, cheap first. */
   const followups = await import('@/lib/services/post-followups');
-  handled += await followups.settleStaleFollowups(now);
+  handled += await followups.settleStaleFollowups(now, deps);
+  handled += await (await import('@/lib/services/ai-answers')).sweepAiAnswers(now);
   for (;;) {
     const dead = await db()
       .select({ id: post.id })
@@ -645,7 +651,11 @@ export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOp
       .where(and(eq(post.answerState, 'answering'), lt(post.publishedAt, new Date(now.getTime() - POST_ANSWERING_STALE_MS))))
       .orderBy(asc(post.publishedAt))
       .limit(100);
-    for (const row of dead) await finishPost(row.id, now);
+    for (const row of dead) {
+      await finishPost(row.id, now);
+      /* Settled here with no Ree answer: the AI answer its run never got to. */
+      await answerWithAi(row.id, null, deps).catch((error: unknown) => console.warn(`post ${row.id} ai answer failed: ${error instanceof Error ? error.message : 'unknown'}`));
+    }
     handled += dead.length;
     if (dead.length < 100 || Date.now() - started > budget) break;
   }
@@ -837,6 +847,14 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
   const spent = authorView ? await spentOn(rows[0]!.id) : null;
   /* The thread of follow-ups (追问), on the post's page only. */
   const thread = options.whole && rows.length === 1 ? await (await import('@/lib/services/post-followups')).threadFor(rows[0]!, viewerId) : null;
+  /*
+   * The author's own AI answer to the first round (ai-answers.ts): only the
+   * posts the viewer wrote, so nobody else ever gets one; folded once a Ree
+   * has answered.
+   */
+  const asked = viewerId ? rows.filter((row) => row.userId === viewerId).map((row) => row.id) : [];
+  const answeredRounds = new Set(rows.filter((row) => answers.some((entry) => entry.postId === row.id && entry.shown)).map((row) => aiRoundKey(row.id, null)));
+  const ai = await aiAnswersFor(viewerId, { postIds: asked }, { whole: options.whole, answeredRounds });
   /* For its author, on the post's page: whether rewriting a stale summary is free (`freeRewrite`). */
   const rewriteFree = new Map<string, boolean>();
   for (const row of rows) {
@@ -883,6 +901,7 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
       followUps: followUps.filter((entry, at, all) => all.findIndex((other) => other.id === entry.id) === at).map((entry) => ({ id: entry.id, title: entry.title, reeName: entry.reeName })),
       paidRequests: requests,
       spent,
+      aiAnswer: ai.get(aiRoundKey(row.id, null)) ?? null,
       followupCount: row.followupCount,
       followups: thread?.followups ?? [],
       followupCandidates: thread?.candidates ?? [],
@@ -1438,6 +1457,52 @@ function askedBy(userId: string): SQL {
     and(firstRound(), eq(post.userId, userId), eq(post.source, 'post'), eq(post.answerState, 'done')),
     and(isNotNull(answer.followupId), eq(followup.userId, userId), eq(followup.status, 'published'), isNull(followup.deletedAt), eq(followup.answerState, 'done')),
   )!;
+}
+
+export type ReeRequestOutcome =
+  | { ok: true; id: string; state: 'answering' | 'awaiting' }
+  | { ok: false; error: 'not_found' | 'unavailable' | 'already' | 'busy' | 'answered' };
+
+/**
+ * "请 Ree 回答" (AI 通用回答 design, 待拍板 3): on their own public post no
+ * Ree answered, the author asks one public Ree that takes posts and has
+ * ready knowledge to answer its first round -- the landing place of the
+ * guidance's "@ 一个 Ree", since new Rees never match old posts on their
+ * own. It answers at its price like a matched Ree: a free Ree (or the
+ * author's own) holds the base fee and answers at once (`answerPaid`, run
+ * by the caller); a paid Ree, or one the balance cannot cover, becomes a
+ * request card the author agrees to (`agreePaidAnswer`). One at a time:
+ * refused while another Ree is answering or waits (`busy`), once a Ree has
+ * answered (`answered`), and for a Ree already asked here (`already`). The
+ * AI answer stays, folded under the Ree's answer, and is not refunded.
+ */
+export async function requestReeAnswer(userId: string, postId: string, reeId: string, now = new Date()): Promise<ReeRequestOutcome> {
+  if (!isUuid(postId) || !isUuid(reeId)) return { ok: false, error: 'not_found' };
+  const [target] = await db()
+    .select({ id: post.id, answerState: post.answerState, shown: sql<boolean>`${hasShownAnswer()}` })
+    .from(post)
+    .where(and(eq(post.id, postId), eq(post.userId, userId), eq(post.source, 'post'), visiblePost()))
+    .limit(1);
+  if (!target || target.answerState !== 'done') return { ok: false, error: 'not_found' };
+  if (target.shown) return { ok: false, error: 'answered' };
+  const [candidate] = await db().select({ id: ree.id, ownerId: ree.ownerId, queryFee: ree.queryFee }).from(ree).where(and(eq(ree.id, reeId), requestOpen())).limit(1);
+  if (!candidate || !(await readyRees([reeId])).has(reeId)) return { ok: false, error: 'unavailable' };
+  const paid = candidate.queryFee > 0 && candidate.ownerId !== userId;
+  const made = await db().transaction(async (tx) => {
+    /* The post's own lock order (as `finishPost`): two requests at once take turns. */
+    await tx.select({ id: post.id }).from(post).where(eq(post.id, postId)).for('update');
+    const round = await tx.select({ reeId: answer.reeId, state: answer.state }).from(answer).where(and(eq(answer.postId, postId), firstRound()));
+    if (round.some((entry) => entry.reeId === reeId)) return 'already' as const;
+    if (round.some((entry) => ['queued', 'answering', 'awaiting'].includes(entry.state))) return 'busy' as const;
+    const [row] = await tx
+      .insert(answer)
+      .values({ postId, reeId, mentioned: true, similarity: null, state: paid ? 'awaiting' : 'answering', createdAt: now })
+      .returning({ id: answer.id });
+    return row!.id;
+  });
+  if (made === 'already' || made === 'busy') return { ok: false, error: made };
+  if (paid) return { ok: true, id: made, state: 'awaiting' };
+  return (await holdBaseFee(userId, made, reeId, now)) ? { ok: true, id: made, state: 'answering' } : { ok: true, id: made, state: 'awaiting' };
 }
 
 /** The author does not want this Ree's answer: it is gone for good. Nothing was charged for it. */
