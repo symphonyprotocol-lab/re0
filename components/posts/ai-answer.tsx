@@ -9,6 +9,7 @@ import { fill, formatNumber } from '@/i18n/format';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
 import './posts.css';
+import { Pending } from '@/components/posts/pending';
 
 /*
  * AI 通用回答 (design draft 1, approved 2026-11-20): what the asker -- and
@@ -125,8 +126,7 @@ export function AiRound({ ai, postId, followupId = null, note, compact = false, 
   if (ai.state === 'running') {
     return (
       <div className="post-state is-gathering">
-        <i className="spinner" />
-        <span>{a.running}</span>
+        <Pending label={a.running} />
       </div>
     );
   }

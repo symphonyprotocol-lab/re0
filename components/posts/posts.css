@@ -1555,3 +1555,53 @@ a.post-quote:hover {
 .ai-ask-only {
   margin-top: 6px;
 }
+
+/* A post's waiting line (pending.tsx): three dots bouncing in turn before the words; still with reduced motion. */
+.pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.pending-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 12px;
+}
+.pending-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.3;
+  animation: pending-dot 1.1s ease-in-out infinite;
+}
+.pending-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.pending-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.post-answer .pending {
+  margin-top: 6px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+@keyframes pending-dot {
+  0%,
+  70%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pending-dots i {
+    animation: none;
+    opacity: 0.55;
+  }
+}

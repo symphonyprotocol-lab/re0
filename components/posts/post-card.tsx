@@ -11,6 +11,7 @@ import { ReeAvatar, UserAvatar } from '@/components/ui/ree-avatar';
 import { useToast } from '@/components/ui/toast';
 import { AiPreview } from '@/components/posts/ai-answer';
 import './posts.css';
+import { Pending } from '@/components/posts/pending';
 
 export function authorName(t: Messages, author: PostAuthor): string {
   const c = t.posts.card;
@@ -126,12 +127,11 @@ export function PostState({ post }: { post: PostView }) {
   if (post.status === 'rejected') return <div className="post-state is-rejected">{c.rejected}</div>;
   /* Only its author sees a taken-down post: say why. */
   if (post.status === 'hidden') return <div className="post-state is-rejected">{post.hiddenBy === 'reports' ? c.hiddenReports : c.hiddenAdmin}</div>;
-  if (post.status === 'pending') return <div className="post-state is-gathering"><i className="spinner" />{c.pending}</div>;
+  if (post.status === 'pending') return <div className="post-state is-gathering"><Pending label={c.pending} /></div>;
   if (post.answerState !== 'done') {
     return (
       <div className="post-state is-gathering">
-        <i className="spinner" />
-        {post.answered > 0 ? fill(c.answeringSome, { n: post.answered }) : c.answering}
+        <Pending label={post.answered > 0 ? fill(c.answeringSome, { n: post.answered }) : c.answering} />
       </div>
     );
   }
