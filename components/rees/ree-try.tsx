@@ -13,6 +13,7 @@ import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { useToast } from '@/components/ui/toast';
 import '@/components/posts/posts.css';
+import { Pending } from '@/components/posts/pending';
 
 /** How often the list is read again while a question is being answered. */
 const POLL_MS = 2_500;
@@ -214,8 +215,7 @@ export function ReeTry({ ree, readiness, initial }: { ree: TryRee; readiness: { 
                   ))}
                   {item.answerState !== 'done' ? (
                     <div className="post-state is-gathering">
-                      <i className="spinner" />
-                      {a.answering}
+                      <Pending label={a.answering} />
                     </div>
                   ) : answers.length === 0 ? (
                     <div className="post-state is-unmatched">{a.noAnswer}</div>

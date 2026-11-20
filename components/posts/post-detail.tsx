@@ -7,7 +7,7 @@ import type { CitationSnapshot } from '@/lib/domain/answer';
 import { FOLLOWUP_FOLD_HEAD, FOLLOWUP_FOLD_TAIL, FOLLOWUP_ROUND_ANSWERS, POST_SUMMARY_FEE, POST_TITLE_MAX, type AiAnswerView, type FollowupView, type PaidRequestView, type PostAnswerView, type PostPage, type PostView, type PrivateReeOption } from '@/lib/domain/post';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber, formatRelative } from '@/i18n/format';
-import { AnswerText, CitationChips, CitationDrawer, Typing } from '@/components/posts/answer-parts';
+import { AnswerText, CitationChips, CitationDrawer } from '@/components/posts/answer-parts';
 import { Markdown } from '@/components/posts/markdown';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
@@ -19,6 +19,7 @@ import { AiGuide, AiRound, type AiGuideItem } from '@/components/posts/ai-answer
 import { composeHref } from '@/components/posts/composer';
 import { PrivateReePicker } from '@/components/posts/ree-picker';
 import './posts.css';
+import { Pending } from '@/components/posts/pending';
 
 const POLL_MS = 2_500;
 /** A round just settled with no Ree may still get its AI answer (written right after): the page keeps asking this long. */
@@ -414,9 +415,8 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
       <div className="post-answer-head">
         <ReeAvatar avatar={entry.reeAvatar} color={entry.reeColor} size="sm" />
         <strong>{entry.reeName}</strong>
-        <span className="post-match">{p.answering}</span>
       </div>
-      <Typing />
+      <Pending label={p.answering} />
     </article>
   );
 
@@ -439,10 +439,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
             <span className="tag">{fill(p.paidPrice, { n: formatNumber(entry.price, locale) })}</span>
           </div>
           {entry.state === 'answering' ? (
-            <>
-              <span className="text-[12px] text-muted">{p.paidAnswering}</span>
-              <Typing />
-            </>
+            <Pending label={p.paidAnswering} />
           ) : (
             <div className="post-answer-foot">
               {entry.state === 'refunded' && <span className="basis-full text-[12px] text-muted">{p.paidRefunded}</span>}
@@ -567,16 +564,14 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
             <div className="fu-round-answers">
               {round.status === 'pending' && (
                 <div className="post-state is-gathering">
-                  <i className="spinner" />
-                  <span>{t2.pending}</span>
+                  <Pending label={t2.pending} />
                 </div>
               )}
               {round.status === 'rejected' && <div className="post-state is-rejected">{t2.rejected}</div>}
               {round.status === 'hidden' && <div className="post-state is-rejected">{round.hiddenBy === 'admin' ? t2.hiddenAdmin : t2.hiddenReports}</div>}
               {round.status === 'published' && round.answerState !== 'done' && running.length === 0 && (
                 <div className="post-state is-gathering">
-                  <i className="spinner" />
-                  <span>{round.mentions.length ? t2.waitingMention : t2.answering}</span>
+                  <Pending label={round.mentions.length ? t2.waitingMention : t2.answering} />
                 </div>
               )}
               {(folded ? shownAnswers.slice(0, FOLLOWUP_ROUND_ANSWERS) : shownAnswers).map((entry) => answerArticle(entry, open, round))}
@@ -590,7 +585,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
               {/* A paid Ree waits for the asker: they see its card below; anyone else that it is being asked. */}
               {open && round.answerState === 'done' && !asker && round.awaiting > 0 && shownAnswers.length === 0 && running.length === 0 && (
                 <div className="post-state is-gathering">
-                  <span>{t2.waitingMention}</span>
+                  <Pending label={t2.waitingMention} />
                 </div>
               )}
               {open && round.answerState === 'done' && shownAnswers.length === 0 && running.length === 0 && round.paidRequests.length === 0 && round.awaiting === 0 && (
@@ -872,8 +867,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
         </article>
       ) : post.summary?.state === 'running' ? (
         <div className="post-state is-gathering">
-          <i className="spinner" />
-          {p.summaryRunning}
+          <Pending label={p.summaryRunning} />
         </div>
       ) : (
         mine && shown.length >= 2 && post.answerState === 'done' && live && (
