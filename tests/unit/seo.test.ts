@@ -13,7 +13,8 @@ describe('publicPage', () => {
     const meta = publicPage({ path: '/pricing', title: 'Pricing', description: 'd', locale: 'en' });
     expect(meta.alternates?.canonical).toBe('https://re0.io/en/pricing');
     expect(meta.alternates?.languages).toEqual({ zh: 'https://re0.io/zh/pricing', en: 'https://re0.io/en/pricing', 'x-default': 'https://re0.io/pricing' });
-    expect(meta.openGraph).toMatchObject({ url: 'https://re0.io/en/pricing', locale: 'en_US', alternateLocale: ['zh_CN'], images: [{ url: '/opengraph-image' }] });
+    expect(meta.openGraph).toMatchObject({ url: 'https://re0.io/en/pricing', locale: 'en_US', alternateLocale: ['zh_CN'], images: [{ url: '/og/site/en', alt: 'RE0 — Ask once. Many Rees answer.' }] });
+    expect(publicPage({ path: '/pricing', title: 'Pricing', description: 'd', locale: 'zh' }).twitter).toMatchObject({ card: 'summary_large_image', images: [{ url: '/og/site/zh' }] });
     expect(publicPage({ path: '/', title: 'RE0', description: 'd', locale: 'zh' }).alternates?.canonical).toBe('https://re0.io/zh');
   });
 

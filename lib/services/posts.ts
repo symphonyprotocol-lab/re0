@@ -1011,6 +1011,47 @@ export async function postMeta(id: string): Promise<{ question: string; detail: 
   return row ?? null;
 }
 
+/** A Ree as the post's link preview shows it: its name and its avatar (an image, else a color). */
+export interface CoverRee {
+  name: string;
+  avatar: string | null;
+  color: string;
+}
+
+/**
+ * What a post's link preview (lib/og/post-image.tsx) and its page's Open
+ * Graph tags need, in one read so the two never disagree: `private` -- only
+ * its author may know it exists, so no image and no title; `gone` --
+ * hidden, deleted, rejected or not yet approved, so the site's image in the
+ * post's language; or the post as anyone may read it, with the Rees whose
+ * answers anyone may read, in the page's order (the first one leads the
+ * preview). Null for no such post.
+ */
+export type PostCover =
+  | { state: 'private' }
+  | { state: 'gone'; lang: 'zh' | 'en' }
+  | { state: 'shown'; lang: 'zh' | 'en'; question: string; detail: string; answers: number; rees: CoverRee[]; first: (CoverRee & { id: string; text: string; helpful: number }) | null };
+
+export async function postCover(id: string): Promise<PostCover | null> {
+  if (!isUuid(id)) return null;
+  const [row] = await db()
+    .select({ visibility: post.visibility, lang: post.lang, question: post.question, detail: post.detail, visible: sql<boolean>`(${visiblePost()})` })
+    .from(post)
+    .where(eq(post.id, id))
+    .limit(1);
+  if (!row) return null;
+  if (row.visibility === 'private') return { state: 'private' };
+  if (!row.visible) return { state: 'gone', lang: row.lang };
+  const shown = await db()
+    .select({ id: answer.id, text: answer.text, helpful: answer.helpfulCount, name: ree.name, avatar: ree.avatarBlob, color: ree.color })
+    .from(answer)
+    .innerJoin(ree, eq(ree.id, answer.reeId))
+    .where(and(eq(answer.postId, id), firstRound(), shownAnswer()))
+    .orderBy(desc(answer.mentioned), desc(answer.helpfulCount), sql`${answer.similarity} desc nulls last`, asc(answer.createdAt));
+  const rees = shown.map((entry) => ({ name: entry.name, avatar: entry.avatar, color: entry.color }));
+  return { state: 'shown', lang: row.lang, question: row.question, detail: row.detail, answers: shown.length, rees, first: shown[0] ?? null };
+}
+
 /** For the sitemap: visible posts with an answer anyone can read now, newest first. */
 export async function indexablePosts(limit = 5000): Promise<{ id: string; at: Date }[]> {
   return db()

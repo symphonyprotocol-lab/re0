@@ -1,28 +1,12 @@
 import { ImageResponse } from 'next/og';
 import { QUERY_BASE_FEE } from '@/lib/constants';
+import { ogFonts } from '@/lib/og/font';
+import { OG_SIZE } from '@/lib/og/parts';
 import { OgWordmark } from '@/lib/og/wordmark';
 import { publicReeBySlug } from '@/lib/services/public-rees';
 import { introsFor } from '@/lib/services/video';
 import type { IntroProps } from '@/lib/domain/video';
 import { AVATAR_COLORS, mix, POSTER } from '@/video/theme';
-
-/** The card's size; each route's `opengraph-image.tsx` declares the same literal for Next. */
-export const OG_SIZE = { width: 1200, height: 630 };
-
-/**
- * Glyphs for the card's own text, subset by Google Fonts' `text=` so a
- * Chinese name does not render as boxes. Without the network, the default
- * font is used.
- */
-async function fontFor(text: string): Promise<ArrayBuffer | null> {
-  try {
-    const css = await fetch(`https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@700&text=${encodeURIComponent(text)}`, { signal: AbortSignal.timeout(3_000) }).then((response) => response.text());
-    const url = /src: url\(([^)]+)\) format\('(?:opentype|truetype)'\)/.exec(css)?.[1];
-    return url ? await fetch(url, { signal: AbortSignal.timeout(3_000) }).then((response) => response.arrayBuffer()) : null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * The introduction's poster (step 7, 8.4 "Open Graph 图换成视频首帧"): the
@@ -75,14 +59,15 @@ export async function reeOpenGraphImage(slug: string): Promise<ImageResponse> {
   const video = ree ? ((await introsFor([ree.id])).get(ree.id) ?? null) : null;
   if (ree && video) {
     const text = `${video.scenes.opening.name}${video.scenes.opening.position}MEETYOURKNOWLEDGECOMPANIONANEWVOICE.`;
-    const font = await fontFor(text);
-    return new ImageResponse(firstFrame(video, ree.color, Boolean(font)), { ...OG_SIZE, fonts: font ? [{ name: 'Noto Sans SC', data: font, weight: 700, style: 'normal' }] : undefined });
+    const fonts = await ogFonts(text, [700]);
+    return new ImageResponse(firstFrame(video, ree.color, Boolean(fonts)), { ...OG_SIZE, fonts: fonts ?? undefined });
   }
   const name = ree?.name ?? 'RE0';
   const description = (ree?.description ?? '').slice(0, 120);
   const price = ree ? `${QUERY_BASE_FEE + ree.queryFee} credits / answer` : '';
   const facts = ree ? `${ree.sources} sources · ${ree.answers} answers` : '';
-  const font = await fontFor(`${name}${description}${price}${facts}`);
+  const fonts = await ogFonts(`${name}${description}${price}${facts}`, [700]);
+  const font = Boolean(fonts);
   return new ImageResponse(
     (
       <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: 72, background: 'linear-gradient(135deg, #0b1a4a 0%, #091135 55%, #123a7a 100%)', color: 'white', fontFamily: font ? 'Noto Sans SC' : undefined }}>
@@ -97,6 +82,6 @@ export async function reeOpenGraphImage(slug: string): Promise<ImageResponse> {
         </div>
       </div>
     ),
-    { ...OG_SIZE, fonts: font ? [{ name: 'Noto Sans SC', data: font, weight: 700, style: 'normal' }] : undefined },
+    { ...OG_SIZE, fonts: fonts ?? undefined },
   );
 }

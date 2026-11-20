@@ -2,9 +2,8 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { currentUser } from '@/lib/http/session';
-import { absoluteUrl, localeUrl, oneLine, SITE_NAME, UNLISTED_ROBOTS } from '@/lib/seo';
-import { localeAlternates } from '@/i18n/paths';
-import { getPost, listFeed, postMeta } from '@/lib/services/posts';
+import { getPost, listFeed, postCover } from '@/lib/services/posts';
+import { postMetadata } from '@/lib/og/post-meta';
 import { serverMessages } from '@/i18n/server';
 import { formatNumber } from '@/i18n/format';
 import { FeedColumns } from '@/components/shell/feed-columns';
@@ -16,26 +15,12 @@ type Props = { params: Promise<{ id: string }> };
 
 /**
  * Per-language URLs like a public Ree's (`/zh/p/…`, `/en/p/…`: the page's
- * own words follow the reader, the post keeps its own); indexed only once it
- * is published and a Ree answered it (P11), so an empty or pending post
- * never lands in search results.
+ * own words follow the reader, the post keeps its own), with the post's own
+ * cover as its link preview (lib/og/post-meta.ts says when).
  */
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const [{ id }, { locale }] = await Promise.all([params, serverMessages()]);
-  const meta = await postMeta(id);
-  if (!meta) return { title: { absolute: SITE_NAME }, robots: UNLISTED_ROBOTS };
-  const path = `/p/${id}`;
-  const url = localeUrl(locale, path);
-  const title = oneLine(meta.question, 70);
-  const description = oneLine(meta.detail || meta.question, 160);
-  return {
-    title,
-    description,
-    alternates: { canonical: url, languages: localeAlternates(path, absoluteUrl) },
-    openGraph: { type: 'article', siteName: SITE_NAME, url, title, description },
-    twitter: { card: 'summary', title, description },
-    ...(meta.answered > 0 ? {} : { robots: UNLISTED_ROBOTS }),
-  };
+  return postMetadata(id, await postCover(id), locale);
 }
 
 /**

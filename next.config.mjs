@@ -6,15 +6,15 @@
  *
  * Content-Security-Policy: pages get theirs from middleware.ts, built per
  * request around a nonce (lib/http/csp.ts). Everything middleware skips --
- * API routes, `/media` blobs, Next's static files, public/ -- is never a
- * document, so it gets a policy that allows nothing. `CSP_REPORT_ONLY=1`
- * sends both as Report-Only instead (the kill switch; README "Security
- * headers").
+ * API routes, `/media` blobs, `/og` preview images, Next's static files,
+ * public/ -- is never a document, so it gets a policy that allows nothing.
+ * `CSP_REPORT_ONLY=1` sends both as Report-Only instead (the kill switch;
+ * README "Security headers").
  */
 const POLICY_HEADER = process.env.CSP_REPORT_ONLY === '1' ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy';
 const NON_DOCUMENT_POLICY = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 /* Middleware's matcher, inverted: the paths it does not run on. */
-const NON_DOCUMENT_PATHS = ['/api/:path*', '/media/:path*', '/_next/static/:path*', '/_next/image', '/video/:path*', '/favicon.ico'];
+const NON_DOCUMENT_PATHS = ['/api/:path*', '/media/:path*', '/og/:path*', '/_next/static/:path*', '/_next/image', '/video/:path*', '/favicon.ico'];
 
 const SECURITY_HEADERS = [
   { key: 'Strict-Transport-Security', value: 'max-age=63072000' },
