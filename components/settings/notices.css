@@ -29,12 +29,12 @@
   padding: 0;
   list-style: none;
 }
+/* No line between notices (v6): space separates them, as in the feed. */
 .notices-card .notice-row {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 18px 0;
-  border-top: 1px solid #edf0f7;
+  padding: 15px 0;
 }
 .notices-card .notice-row:last-child {
   padding-bottom: 0;

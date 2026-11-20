@@ -163,6 +163,63 @@
   font-family: var(--font-mono);
 }
 
+/* The pricing estimator (estimator.tsx), as a card. */
+.xpage .pricing-estimator {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 28px;
+  align-items: center;
+  padding: 20px 22px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+.xpage .pricing-estimator h2 {
+  font-size: 15px;
+  font-weight: 750;
+}
+.xpage .pricing-estimator > div > p {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.xpage .pricing-estimator label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.xpage .pricing-estimator label strong {
+  color: var(--color-ink);
+  font: 12px var(--font-mono);
+}
+.xpage .pricing-estimator input[type='range'] {
+  width: 100%;
+  accent-color: var(--color-blue);
+}
+.xpage .pricing-estimator > div:last-child > p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.xpage .pricing-estimator .mono {
+  color: var(--color-ink);
+  font-size: 22px;
+}
+.xpage .pricing-estimator > div:last-child > p span {
+  margin-left: auto;
+  color: var(--color-muted);
+}
+.xpage .estimator-share {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
 /* Questions and answers. */
 .xp-faq details + details {
   border-top: 1px solid #edf0f7;
@@ -423,7 +480,8 @@
   }
   .xp-grid3,
   .xp-hero,
-  .xp-plan {
+  .xp-plan,
+  .xpage .pricing-estimator {
     grid-template-columns: minmax(0, 1fr);
   }
   .xp-hero {

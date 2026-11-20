@@ -279,11 +279,15 @@
 .ree-ask-share input {
   accent-color: var(--color-blue);
 }
+/* A Ree's answered posts and conversations: no box around each (v6), 30px between them, as in the feed. */
 .ree-qa-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 30px;
   margin-top: 20px;
+}
+.ree-qa-item {
+  min-width: 0;
 }
 .ree-qa-meta {
   display: flex;
@@ -322,9 +326,15 @@
 }
 .ree-qa-foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
   margin: 8px 0 0 42px;
+}
+@media (max-width: 760px) {
+  .ree-qa-foot {
+    margin-left: 0;
+  }
 }
 .ree-qa-foot .icon-btn {
   width: auto;
@@ -342,8 +352,12 @@
 .ree-qa-foot .ree-qa-follow {
   color: var(--color-blue);
 }
+/* The viewer's own question stands out on a soft ground instead of a border. */
 .ree-qa-mine {
-  border-color: #d6e6fb;
+  margin-inline: -12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--color-soft);
 }
 .ree-qa-private {
   border-radius: 5px;
