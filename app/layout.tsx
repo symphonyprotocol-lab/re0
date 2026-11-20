@@ -9,6 +9,7 @@ import { ogLocale, SITE_NAME } from '@/lib/seo';
 import { ToastProvider } from '@/components/ui/toast';
 import { NavigationProvider } from '@/components/shell/navigation-provider';
 import { LocaleBoundary } from '@/components/shell/locale-boundary';
+import { PageView } from '@/components/shell/page-view';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
@@ -50,6 +51,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       <body className="min-h-dvh font-sans">
         <I18nProvider locale={locale} t={t}>
           <LocaleBoundary locale={locale} preferred={preferred} account={account} />
+          <PageView />
           <ToastProvider><NavigationProvider>{children}</NavigationProvider></ToastProvider>
         </I18nProvider>
       </body>

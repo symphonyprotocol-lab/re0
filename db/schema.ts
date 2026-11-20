@@ -39,6 +39,7 @@ import type { RoleMetrics } from '@/lib/domain/roles';
 import type { ReeRank } from '@/lib/domain/explore';
 import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
 import { TASK_KINDS, type TaskKind } from '@/lib/domain/invites';
+import { PAGE_KINDS, type PageKind } from '@/lib/domain/traffic';
 import {
   ANSWER_HIDERS,
   ANSWER_STATES,
@@ -2114,6 +2115,80 @@ export const reeShareEvent = pgTable(
     check('ree_share_event_visit_slot_check', sql`(kind = 'visit') = (visit_slot is not null)`),
   ],
 );
+
+/* -------------------------------------------------------------- Traffic */
+
+/**
+ * Site-wide traffic (console 「流量」, lib/services/traffic.ts): one row per
+ * page view the root layout's beacon reports, kept `TRAFFIC_RETENTION_DAYS`.
+ * A visitor is the share page's `re0_visitor` cookie id; no IP and no user
+ * agent is stored, and of the referrer only its host. `source` is the
+ * visit's, decided on its landing view and copied onto later ones; `path`
+ * has no query and no language prefix (lib/domain/traffic.ts).
+ */
+export const siteView = pgTable(
+  'site_view',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    visitorId: text('visitor_id').notNull(),
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
+    path: text('path').notNull(),
+    pageKind: text('page_kind').$type<PageKind>().notNull(),
+    landing: boolean('landing').notNull(),
+    source: text('source').notNull(),
+    referrerHost: text('referrer_host'),
+    utmSource: text('utm_source'),
+    utmMedium: text('utm_medium'),
+    utmCampaign: text('utm_campaign'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('site_view_visitor_idx').on(t.visitorId, t.createdAt),
+    index('site_view_created_idx').on(t.createdAt),
+    check('site_view_page_kind_check', oneOf('page_kind', PAGE_KINDS)),
+    check('site_view_path_check', sql`char_length(path) between 1 and 300`),
+    check('site_view_source_check', sql`char_length(source) between 1 and 100`),
+  ],
+);
+
+/**
+ * Finished days of `site_view`, rolled up by the daily cron
+ * (`/api/cron/traffic`) and kept for good. Each day has a row per grouping
+ * set: `source` and `page_kind` are `''` where the row covers all of them,
+ * so `('', '')` is the day's exact total and visitors are exact per row
+ * (never summed over sources or kinds). `visits` counts landing views.
+ */
+export const siteTrafficDay = pgTable(
+  'site_traffic_day',
+  {
+    day: date('day', { mode: 'string' }).notNull(),
+    source: text('source').notNull(),
+    pageKind: text('page_kind').notNull(),
+    views: integer('views').notNull(),
+    visitors: integer('visitors').notNull(),
+    visits: integer('visits').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.source, t.pageKind] })],
+);
+
+/** Landing views per finished day, source and page, for 「落地页」. */
+export const siteTrafficLanding = pgTable(
+  'site_traffic_landing',
+  {
+    day: date('day', { mode: 'string' }).notNull(),
+    source: text('source').notNull(),
+    path: text('path').notNull(),
+    pageKind: text('page_kind').notNull(),
+    visits: integer('visits').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.source, t.path] })],
+);
+
+/** The days the rollup has finished: their figures come from the two tables above, not from `site_view`. */
+export const siteTrafficRollup = pgTable('site_traffic_rollup', {
+  day: date('day', { mode: 'string' }).primaryKey(),
+  rolledAt: timestampTz('rolled_at').notNull().defaultNow(),
+});
 
 /* ------------------------------------------------------------------ MCP */
 

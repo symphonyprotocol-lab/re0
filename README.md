@@ -57,7 +57,7 @@ Environment (`.env.local`, or `vercel env pull`):
 | `GITHUB_APP_SLUG` | the name in the GitHub App's public URL, used to open its installation page for personal accounts and organizations |
 | `GITHUB_READ_TOKEN` | optional: a GitHub token (a fine-grained token with public-repository read-only access is enough) for importing public repositories when the owner has no GitHub connection, or their connection cannot see the repository. Unset, those reads go to GitHub unauthenticated: four API calls per import or refresh (one when it is added, three when it is processed) against 60 an hour per server IP, shared with every other tenant on that IP, and file bodies from raw.githubusercontent.com, which throttles anonymous clients too (a throttled import fails as `rate_limited` and can be reprocessed). Set it before bulk-importing public repositories. It is only ever used for repositories GitHub reports as public |
 | `CLAIM_DNS_RESOLVERS` | optional: comma-separated resolvers for the domain check's TXT lookup |
-| `CRON_SECRET` | protects `/api/cron/*` -- `purge-trash`, `expire-plan`, `rank`, `reembed`, `knowledge`, `posts` and the others (Vercel Cron sends it); unset, the routes stay shut. Locally nothing schedules them: `npm run cron:local -- posts` runs one against `localhost:3000` (it retries a post whose review failed, starts posts never answered, settles dead runs) |
+| `CRON_SECRET` | protects `/api/cron/*` -- `purge-trash`, `expire-plan`, `rank`, `reembed`, `knowledge`, `posts`, `traffic` and the others (Vercel Cron sends it); unset, the routes stay shut. Locally nothing schedules them: `npm run cron:local -- posts` runs one against `localhost:3000` (it retries a post whose review failed, starts posts never answered, settles dead runs) |
 | `PADDLE_API_KEY`, `PADDLE_CLIENT_TOKEN`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_ENVIRONMENT` (`sandbox` or `production`) | Paddle Billing: server API key, the public token Paddle.js uses, the notification destination's secret. All of these plus the two price ids, or checkout stays off |
 | `PADDLE_PLAN_PRICE_ID`, `PADDLE_PACK_PRICE_ID` | the catalogue prices: Plan USD 10 monthly (quantity 1), Pack USD 10 (quantity 1–10) |
 | `PADDLE_CHECKOUT_BASE_URL` | optional: the origin a transaction's checkout link points at, when it is not `APP_BASE_URL` (Paddle will not take `localhost`) |
@@ -86,6 +86,15 @@ npm run db:down       # stop the containers; the volume keeps the data
 To start the local database over: `docker compose down -v`, then `npm run db:up` and `npm run db:migrate`. `npm run db:reset-dev -- --confirm=<endpoint id>` does the same for a non-production Neon branch, should one be used again (guarded, see the script).
 
 Preview deployments are retired: `vercel.json` builds without touching a database except in production (`db:deploy`). `db:prepare-preview` still exists for a Preview build that sets `ALLOW_PREVIEW_DATABASE_RESET=1` on purpose, and refuses otherwise.
+
+## Site traffic
+
+The console's 流量 page (`/admin/traffic`) shows first-party figures: page views, visitors and inbound visits, by source and landing page. The root layout mounts a beacon (`components/shell/page-view.tsx` → `POST /api/track/view`) that reports each page open and each client-side move to a new route; the rules are in `lib/domain/traffic.ts`, the storage and the report in `lib/services/traffic.ts`.
+
+- A visitor is the `re0_visitor` cookie the share page already uses. No IP and no user agent is stored, and of the referrer only its host. Crawlers and link-preview fetchers (by user agent), `/admin/**` and API paths are not counted.
+- A visit is a visitor's activity with no gap longer than half an hour. Its source is decided on its first page: `utm_source` first, then the referrer's host (`t.co` / `twitter.com` / `x.com` → `twitter`), no referrer → `direct`. Apps that strip the referrer make a link look `direct`, so links posted by hand should carry `?utm_source=twitter`.
+- Raw views (`site_view`) are kept 90 days. `/api/cron/traffic` (daily, 00:20 UTC+8) rolls each finished UTC+8 day up into `site_traffic_day` / `site_traffic_landing`; the page reads days not rolled up yet from raw views.
+- What it cannot count: how often a tweet or a search result was shown (that happens on the other platform), and the static `re0-landing/index.html`, which this app does not serve.
 
 ## Security headers
 
