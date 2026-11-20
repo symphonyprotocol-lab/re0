@@ -63,7 +63,22 @@
   gap: 14px;
 }
 
-/* Pricing: the three ways to pay. */
+/*
+ * Pricing: the three ways to pay. The cards share the grid's rows
+ * (subgrid): eyebrow, title, price, credits, note, button, list -- so each
+ * row lines up across the three whatever the words' length or language,
+ * and the buttons sit on one line. The recommended card's ribbon sits on
+ * its top border and takes no row.
+ */
+.xp-grid3:has(> .xp-tier) {
+  grid-template-rows: repeat(7, auto);
+}
+.xp-grid3 > .xp-tier {
+  display: grid;
+  grid-row: span 7;
+  grid-template-rows: subgrid;
+  row-gap: 10px;
+}
 .xp-tier {
   position: relative;
   display: flex;
@@ -83,7 +98,23 @@
   font-weight: 750;
 }
 .xp-ribbon {
-  align-self: flex-start;
+  position: absolute;
+  top: 0;
+  left: 18px;
+  transform: translateY(-50%);
+  border: 1px solid #9cc7f2;
+  border-radius: 999px;
+  padding: 2px 9px;
+  background: #eef6fe;
+  color: var(--color-blue);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.xp-action {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .xp-price {
   color: var(--color-ink);
@@ -108,6 +139,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  align-self: start;
   margin-top: 4px;
   padding-top: 10px;
   border-top: 1px solid #edf0f7;

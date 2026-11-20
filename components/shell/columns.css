@@ -7,7 +7,7 @@
  */
 
 .xshell .sidebar .nav {
-  margin-top: 18px;
+  margin-top: 0;
   gap: 2px;
 }
 .xshell .sidebar .nav a {
@@ -31,13 +31,26 @@
   flex-direction: column;
   gap: 10px;
 }
+/* The sidebar's last line, signed in or not (sidebar-links.tsx): 隐私 · 条款 · the language, one size, one grey, one baseline. */
 .xshell .sidebar .xnav-links {
   display: flex;
   flex-wrap: wrap;
+  /* Every item is one 16px line of 11px text, so centring them puts the words on one baseline (a button with a leading svg has no text baseline of its own). */
+  align-items: center;
   gap: 4px 12px;
   padding: 0 10px;
   color: var(--color-muted);
   font-size: 11px;
+  line-height: 16px;
+}
+.xshell .sidebar .xnav-links a:hover {
+  color: var(--color-ink);
+}
+.xshell .sidebar .xnav-language {
+  height: 16px;
+}
+.xshell .sidebar-account-footer .xnav-links {
+  padding: 10px 4px 0;
 }
 .xshell .sidebar .xnav-visitor {
   display: flex;
@@ -63,7 +76,6 @@
   position: sticky;
   top: 0;
   z-index: 5;
-  border-bottom: 1px solid var(--color-line);
   background: rgb(255 255 255 / 0.92);
   backdrop-filter: blur(12px);
 }
@@ -71,13 +83,24 @@
   font-size: 18px;
   font-weight: 750;
 }
+/*
+ * The head's title row is the header line's height (shell.css, v6): its
+ * bottom line runs on from the one under the sidebar's logo. Tabs, where a
+ * page has them, are a second row under it with a line of their own.
+ */
 .xcol-title {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 18px 4px;
+  height: var(--header-line);
+  padding: 0 18px;
+  border-bottom: 1px solid var(--color-line);
   font-size: 18px;
   font-weight: 750;
+}
+.xcol-head:has(> .xcol-title + *) {
+  border-bottom: 1px solid var(--color-line);
 }
 .xcol-title .icon-btn {
   margin-left: -6px;
@@ -124,7 +147,8 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 12px 0 40px;
+  /* The first block (a 38px search box, or a card's top) sits centred on the head's title row: (56 - 38) / 2. */
+  padding: 9px 0 40px;
 }
 .xrail .discovery-page {
   display: flex;
@@ -389,6 +413,19 @@
     gap: 8px;
   }
 }
+/* A visitor's phone has no sidebar: the language is the head's globe, beside the way to Rees. */
+.xtop-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.xtop .xtop-language > span {
+  display: none;
+}
+.xtop .xtop-language > svg.language-menu-globe {
+  width: 20px;
+  height: 20px;
+}
 .xtop .wordmark {
   display: inline-flex;
   align-items: center;
@@ -406,9 +443,30 @@
     padding: 0;
   }
   .xshell .sidebar.is-collapsed .xpost > span,
-  .xshell .sidebar.is-collapsed .xnav-visitor,
-  .xshell .sidebar.is-collapsed .xnav-links {
+  .xshell .sidebar.is-collapsed .xnav-visitor {
     display: none;
+  }
+  /* The icon rail keeps only the language: its globe, centred, the name in its tooltip and label. */
+  .xshell .sidebar.is-collapsed .xnav-links {
+    justify-content: center;
+    padding: 8px 0 0;
+  }
+  .xshell .sidebar.is-collapsed .xnav-links > a,
+  .xshell .sidebar.is-collapsed .xnav-language > span {
+    display: none;
+  }
+  .xshell .sidebar.is-collapsed .xnav-language {
+    justify-content: center;
+    width: 32px;
+    height: 28px;
+    border-radius: 8px;
+  }
+  .xshell .sidebar.is-collapsed .xnav-language:hover {
+    background: #edf3ff;
+  }
+  .xshell .sidebar.is-collapsed .xnav-language > svg.language-menu-globe {
+    width: 16px;
+    height: 16px;
   }
 }
 /* The visitor's bar is the sign-in only where there is no left navigation (phones, v6); room for it there. */

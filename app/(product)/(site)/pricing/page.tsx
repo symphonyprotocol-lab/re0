@@ -217,16 +217,18 @@ function PlanCard({
       {recommended && <span className="tag blue xp-ribbon">{recommended}</span>}
       <span className="eyebrow">{eyebrow}</span>
       <h2>{title}</h2>
-      <p className="xp-price">
-        {price}
-        {per && <small>/ {per}</small>}
-      </p>
-      {promotion}
+      <div>
+        <p className="xp-price">
+          {price}
+          {per && <small>/ {per}</small>}
+        </p>
+        {promotion}
+      </div>
       <p className="xp-credits">
         {grant} credits{grantPer ? ` / ${grantPer}` : ''}
       </p>
       <p className="xp-note">{note}</p>
-      {action}
+      <div className="xp-action">{action}</div>
       <ul>
         {perks.map((perk) => (
           <li key={perk}>

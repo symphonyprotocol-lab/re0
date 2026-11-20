@@ -63,6 +63,16 @@ describe('价格 in the shell (v6)', () => {
     expect(html).toContain('xmain-grid is-wide');
   });
 
+  it("keeps the cards' rows the same, the ribbon outside them, so the buttons line up (subgrid, content-page.css)", async () => {
+    const t = messages('zh');
+    const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await PricingPage() }));
+    const cards = html.split('<article class="xp-tier').slice(1).map((card) => card.slice(0, card.indexOf('</article>')));
+    expect(cards).toHaveLength(3);
+    /* The price and its promotion are one row; the button and the locked reason another. */
+    for (const card of cards) expect(card).toMatch(/<div><p class="xp-price">[\s\S]*<\/div><p class="xp-credits">[\s\S]*<p class="xp-note">[^<]*<\/p><div class="xp-action">/);
+    expect(cards.filter((card) => card.includes('xp-ribbon'))).toHaveLength(1);
+  });
+
   it('keeps the old footer\'s small print: Paddle, the terms and the privacy policy', async () => {
     const t = messages('zh');
     const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await PricingPage() }));

@@ -4,11 +4,11 @@ import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { ShellProvider, useMediaQuery } from '@/components/shell/app-shell';
+import { SidebarLinks } from '@/components/shell/sidebar-links';
 import { RouteMotion } from '@/components/shell/workspace-main';
 import { SignInLink } from '@/components/site/site-nav';
 import { BrandMark, BrandName } from '@/components/ui/brand-mark';
 import { Icon, type IconName } from '@/components/ui/icons';
-import { LanguageMenu } from '@/components/ui/language-menu';
 import { useI18n } from '@/i18n/client';
 import { stripLocale } from '@/i18n/paths';
 import './shell.css';
@@ -55,11 +55,7 @@ export function VisitorShell({ children }: { children: ReactNode }) {
             <div className="xnav-visitor">
               <SignInLink label={t.site.nav.signIn} className="btn w-full justify-center" />
             </div>
-            <div className="xnav-links">
-              <Link href="/legal/privacy">{t.site.visitor.privacy}</Link>
-              <Link href="/legal/terms">{t.site.visitor.terms}</Link>
-              <LanguageMenu className="btn-ghost shell-language" />
-            </div>
+            <SidebarLinks />
           </div>
         </aside>
         <div className="app-main">

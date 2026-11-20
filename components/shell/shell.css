@@ -635,25 +635,6 @@ html:has(.app-main .context-nav-row) {
   color: #acb6c9;
 }
 
-/* 中 / EN and 返回官网 (app.js `shell`). */
-.topbar-right > .shell-language {
-  min-height: 32px;
-  gap: 8px;
-  padding: 5px;
-  font-size: 10px;
-}
-.topbar-right > .shell-language > svg {
-  width: 16px;
-  height: 16px;
-}
-.shell-site-link {
-  font-size: 11px;
-}
-.shell-site-link > svg {
-  width: 18px;
-  height: 18px;
-}
-
 /* The second row: a Ree's tabs, the settings tabs, the wizard's steps. */
 .context-nav-row {
   display: flex;
@@ -1016,9 +997,6 @@ html:has(.app-main .context-nav-row) {
   .app-main .topbar .header-breadcrumbs {
     font-size: 10px;
   }
-  .app-main .topbar .shell-site-link {
-    display: none;
-  }
 }
 @media (max-width: 560px) {
   .topbar-location {
@@ -1085,7 +1063,7 @@ html:has(.app-main .context-nav-row) {
   }
   .ree-workspace-shell .topbar-location > .mobile-menu,
   .ree-workspace-shell .header-breadcrumbs,
-  .ree-workspace-shell .topbar-right > :not(.shell-language) {
+  .ree-workspace-shell .topbar-right > * {
     display: none;
   }
   .ree-workspace-shell .ree-mobile-location {
@@ -1120,14 +1098,6 @@ html:has(.app-main .context-nav-row) {
     font-weight: 550;
     color: #4e5e7b;
     text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .ree-workspace-shell .topbar-main .topbar-right .shell-language {
-    display: inline-flex;
-    gap: 5px;
-    min-height: 40px;
-    padding: 8px 10px;
-    font-size: 11px;
     white-space: nowrap;
   }
   .ree-workspace-shell .context-nav-row {
@@ -1171,5 +1141,41 @@ html:has(.app-main .context-nav-row) {
   .sidebar-usage-meter > i,
   .sidebar.is-collapsed :is(.nav a, .chat-sidebar-tool)::after {
     transition: none;
+  }
+}
+
+/*
+ * One header line (v6): the sidebar's logo area, a feed column's title row
+ * and the top bar of the full-width pages are all 56px, a little taller than
+ * the logo, and their bottom lines are one line across the window (the line
+ * is the last pixel row of the 56). Tabs and a page's context row sit under
+ * it. The admin console keeps its own bar (console.css).
+ */
+html:has(.xshell) {
+  --workspace-bar-height: 56px;
+  --header-line: 56px;
+}
+.xshell .sidebar,
+.xshell .sidebar.is-collapsed {
+  padding-top: 0;
+}
+.xshell .sidebar > .wordmark {
+  flex: none;
+  box-sizing: border-box;
+  height: calc(var(--header-line) - 1px);
+}
+.xshell .sidebar .nav {
+  border-top-color: var(--color-line);
+}
+.xshell .topbar-main {
+  height: calc(var(--navigation-base) - 1px);
+}
+@media (max-width: 760px) {
+  /* Phones have no sidebar beside the column: a shorter title row. */
+  html:has(.xshell) {
+    --header-line: 48px;
+  }
+  .xshell .sidebar-close {
+    top: calc((var(--header-line) - 1px - 28px) / 2);
   }
 }

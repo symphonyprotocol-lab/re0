@@ -12,6 +12,7 @@ import { UserAvatar } from '@/components/ui/ree-avatar';
 import { HistoryProvider, SearchShortcut } from '@/components/conversations/sidebar-history';
 import { ComposeLink, PostComposerDialog } from '@/components/posts/composer';
 import { WorkspaceMain } from '@/components/shell/workspace-main';
+import { SidebarLinks } from '@/components/shell/sidebar-links';
 import './shell.css';
 import './columns.css';
 import { stripLocale } from '@/i18n/paths';
@@ -203,6 +204,7 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
             </button>
           </form>
         </div>
+        <SidebarLinks signedIn />
       </div>
     </aside>
   );
