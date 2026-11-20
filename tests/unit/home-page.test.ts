@@ -63,10 +63,11 @@ describe('the visitor\'s 首页', () => {
     expect(html).toContain(t.posts.explore.noPosts);
   });
 
-  it('says nothing of asking without an account: visitors ask only on share pages (2026-11-19)', async () => {
+  it('says nothing of asking without an account: visitors must sign in to ask (2026-11-21)', async () => {
     const t = messages('zh');
     const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await HomePage({ searchParams: Promise.resolve({}) }) }));
     expect(html).not.toContain('xfree-note');
-    expect(html).not.toContain(t.discover.explore.railFree);
+    expect(html).not.toContain('免登录提问');
+    expect('railFree' in t.discover.explore).toBe(false);
   });
 });

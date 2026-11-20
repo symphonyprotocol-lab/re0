@@ -22,7 +22,7 @@ export const zh = {
     generate: '生成带旁白的视频 · 最多 {n} 积分',
     switchHint: '这个类型还没有视频。生成后才能预览和保存；已保存的视频不受影响。',
     visual: '画面设计 · {layout} · {subject}',
-    layouts: { 'web-app': '网页操作', device: '设备演示', conversation: '问答对话', workflow: '流程演示' },
+    layouts: { 'web-app': '网页操作', device: '设备演示', conversation: '问答', workflow: '流程演示' },
     unavailable: '配音暂不可用',
     priceChanged: '生成价格有变，请查看新价格后重试。',
     generating: '正在生成「{kind}」的脚本与旁白…',

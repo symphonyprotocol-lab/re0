@@ -1960,10 +1960,10 @@ export const videoExportPricing = pgTable('video_export_pricing', {
 ]);
 
 /**
- * Beyond 4: anonymous chat's daily caps, set in the console's pricing page
- * (lib/services/anonymous-chat-settings.ts): per browser, per Ree, over the
- * platform, per client address, and the attempts factor. No row means the
- * defaults in lib/constants.ts.
+ * Beyond 4: anonymous chat's daily caps, once set in the console's pricing
+ * page: per browser, per Ree, over the platform, per client address, and
+ * the attempts factor. Nothing reads or writes it since anonymous chat and
+ * its form went (2026-11); kept as it was.
  */
 export const anonymousChatSettings = pgTable('anonymous_chat_settings', {
   id: integer('id').primaryKey().default(1),

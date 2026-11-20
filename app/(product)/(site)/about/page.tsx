@@ -162,7 +162,7 @@ export default async function AboutPage() {
 
       <section>
         <div className="xp-head">
-          <p className="eyebrow">LESS SETUP. MORE CONVERSATION.</p>
+          <p className="eyebrow">LESS SETUP. MORE ANSWERS.</p>
           <h2>
             {h.workflowTitle}
             {h.workflowEm}

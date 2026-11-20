@@ -34,7 +34,7 @@ export const zh = {
     followupPaidRequests: '{n} 个 Ree 可以回答你的追问「{question}」，等你确认。',
     postAiAnswer: '没有 Ree 能回答你的帖子「{question}」，AI 先给了你一个通用回答。',
     followupAiAnswer: '没有 Ree 能回答你的追问「{question}」，AI 先给了你一个通用回答。',
-    chatsRemoval: '私密提问已改成私密帖子，以前的对话已经删除。',
+    chatsRemoval: '旧的私密对话已随改版删除，私密提问现在是私密帖子。',
   },
   open: {
     ree: '查看 Ree',
@@ -78,7 +78,7 @@ export const en: Shape<typeof zh> = {
     followupPaidRequests: '{n} Rees can answer your follow-up “{question}” once you agree.',
     postAiAnswer: 'No Ree could answer your post “{question}”, so the AI gave you a general answer for now.',
     followupAiAnswer: 'No Ree could answer your follow-up “{question}”, so the AI gave you a general answer for now.',
-    chatsRemoval: 'Private questions are now private posts; your old conversations have been deleted.',
+    chatsRemoval: 'Your old private conversations were deleted with the redesign; private questions are now private posts.',
   },
   open: {
     ree: 'View Ree',

@@ -5,7 +5,7 @@ export const zh = {
   title: 'Ree 管理',
   overview: {
     title: '平台概览',
-    lede: '从知识到对话，关注平台正在发生的每一步。',
+    lede: '从知识到回答，关注平台正在发生的每一步。',
     period: '近 30 天 · UTC+8',
     cards: {
       users: '用户总数',
@@ -327,7 +327,7 @@ export const en: Shape<typeof zh> = {
   title: 'Rees',
   overview: {
     title: 'Platform overview',
-    lede: 'Understand how knowledge becomes conversations across the platform.',
+    lede: 'Understand how knowledge becomes answers across the platform.',
     period: 'Last 30 days · UTC+8',
     cards: {
       users: 'Users',
@@ -350,7 +350,7 @@ export const en: Shape<typeof zh> = {
       votesNote: "Askers' feedback on AI answers",
     },
     trend: {
-      title: 'Knowledge, connected through conversation.',
+      title: 'Knowledge, connected through questions.',
       lede: 'Successful answers over the last 30 days · daily (UTC+8)',
       daily: 'Daily',
       legend: 'Answers',
