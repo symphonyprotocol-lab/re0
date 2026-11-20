@@ -48,12 +48,15 @@ import {
   POST_DETAIL_MAX,
   POST_SOURCES,
   POST_STATUSES,
+  POST_TITLE_MAX,
+  POST_VISIBILITIES,
   type AnswerHider,
   type AnswerState,
   type FollowupStatus,
   type PostAnswerState,
   type PostSource,
   type PostStatus,
+  type PostVisibility,
 } from '@/lib/domain/post';
 import { PUBLIC_QA_ANSWER_MAX_CHARS, PUBLIC_QA_HIDERS, PUBLIC_QA_SOURCES, PUBLIC_QA_STATUSES, type PublicQaHider, type PublicQaSource, type PublicQaStatus } from '@/lib/domain/public-qa';
 import { MODEL_KINDS, VIDEO_EXPORT_TEMPLATES, VIDEO_TEMPLATES, type ModelKind } from '@/lib/constants';
@@ -1355,6 +1358,17 @@ export const post = pgTable(
     /** The author; null for a visitor's published answer and RE0's examples. Deleting the account deletes their posts. */
     userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
     source: text('source').$type<PostSource>().notNull(),
+    /**
+     * `private` (私密提问): only the author ever sees it (`visiblePost` is public
+     * only); it skips review and goes straight to `published`.
+     */
+    visibility: text('visibility').$type<PostVisibility>().notNull().default('public'),
+    /** A private post's owner actions: 置顶, 归档, and 重命名 (null shows the question). */
+    pinnedAt: timestampTz('pinned_at'),
+    archivedAt: timestampTz('archived_at'),
+    title: text('title'),
+    /** The public post 转为公开 copied this private one into: one copy per private post. */
+    publishedCopyId: uuid('published_copy_id').references((): AnyPgColumn => post.id, { onDelete: 'set null' }),
     /** The public Q&A row this post was copied from. */
     legacyQaId: uuid('legacy_qa_id').references(() => reePublicQa.id, { onDelete: 'set null' }),
     /** For a Q&A a signed-in asker published from a conversation: it shows only while that conversation is out of the trash, and purging it deletes the post. */
@@ -1405,7 +1419,7 @@ export const post = pgTable(
     answeredAt: timestampTz('answered_at'),
   },
   (t) => [
-    index('post_feed_idx').on(t.publishedAt.desc(), t.id.desc()).where(sql`status = 'published' and deleted_at is null`),
+    index('post_feed_idx').on(t.publishedAt.desc(), t.id.desc()).where(sql`status = 'published' and deleted_at is null and visibility = 'public'`),
     index('post_user_idx').on(t.userId, t.createdAt.desc()).where(sql`user_id is not null`),
     index('post_pending_idx').on(t.createdAt).where(sql`status = 'pending' or answer_state <> 'done'`),
     uniqueIndex('post_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
@@ -1424,6 +1438,10 @@ export const post = pgTable(
     check('post_question_check', sql`char_length(question) between 1 and 4000`),
     check('post_detail_check', sql`char_length(detail) <= ${sql.raw(String(POST_DETAIL_MAX))}`),
     check('post_published_check', sql`(status = 'published') <= (published_at is not null)`),
+    check('post_visibility_check', oneOf('visibility', [...POST_VISIBILITIES])),
+    check('post_title_check', sql`title is null or char_length(title) between 1 and ${sql.raw(String(POST_TITLE_MAX))}`),
+    /* 试问 and MCP asks are private by nature. */
+    check('post_private_source_check', sql`source not in ('test', 'api') or visibility = 'private'`),
   ],
 );
 
@@ -1541,6 +1559,47 @@ export const postAnswerVote = pgTable(
   },
   (t) => [primaryKey({ columns: [t.answerId, t.userId] }), index('post_answer_vote_user_idx').on(t.userId)],
 );
+
+/** "没帮助" on a private post's answer: its author only (public answers have no 👎). */
+export const postAnswerFeedback = pgTable(
+  'post_answer_feedback',
+  {
+    answerId: uuid('answer_id').notNull().references(() => postAnswer.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.answerId, t.userId] })],
+);
+
+/**
+ * What the conversations counted before private posts replaced them,
+ * frozen by migration 0066 so the figures stay when the conversation tables
+ * go (PR B): each Ree's answers to other people (explore `answersByOthers`,
+ * rank `answers_all`), other people's 有用 / 没用 (`votesByOthers`), and
+ * other people's questions, answered or not (roles `external_questions`).
+ * Readers add the same figures counted from posts.
+ */
+export const reeLegacyStats = pgTable('ree_legacy_stats', {
+  reeId: uuid('ree_id')
+    .primaryKey()
+    .references(() => ree.id, { onDelete: 'cascade' }),
+  answersByOthers: integer('answers_by_others').notNull().default(0),
+  helpful: integer('helpful').notNull().default(0),
+  unhelpful: integer('unhelpful').notNull().default(0),
+  answersAll: integer('answers_all').notNull().default(0),
+  questionsByOthers: integer('questions_by_others').notNull().default(0),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+});
+
+/** The role threshold's conversation figures per user (roles.ts `roleMetrics`), frozen like `ree_legacy_stats`. */
+export const userLegacyStats = pgTable('user_legacy_stats', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  externalQuestions: integer('external_questions').notNull().default(0),
+  helpful: integer('helpful').notNull().default(0),
+  unhelpful: integer('unhelpful').notNull().default(0),
+});
 
 /** "有帮助" on a post itself: one per signed-in user. */
 export const postVote = pgTable(

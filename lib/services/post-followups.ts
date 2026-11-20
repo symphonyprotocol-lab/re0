@@ -56,7 +56,7 @@ import { db, schema, type Executor } from '@/lib/infra/db';
 import { maxCostFor } from '@/lib/services/answer';
 import { embedQuestion, type QuestionVector } from '@/lib/services/chat';
 import { balanceOf, releaseHold } from '@/lib/services/credits';
-import { nearestPassages } from '@/lib/services/explore';
+import { nearestPassages, publicRee } from '@/lib/services/explore';
 import { notify } from '@/lib/services/notices';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
 import {
@@ -70,6 +70,7 @@ import {
   shownAnswer,
   spentOn,
   takesPosts,
+  unvotedBy,
   visiblePost,
   votedBy,
   type AnswerOne,
@@ -86,7 +87,7 @@ export function shownFollowup(): SQL {
 
 /* ------------------------------------------------------------ candidates */
 
-interface FirstRoundRee {
+export interface FirstRoundRee {
   reeId: string;
   slug: string;
   name: string;
@@ -108,6 +109,22 @@ async function firstRoundRees(postId: string): Promise<FirstRoundRee[]> {
     .innerJoin(ree, eq(ree.id, answer.reeId))
     .where(and(eq(answer.postId, postId), firstRound(), shownAnswer(), takesPosts()))
     .orderBy(desc(answer.mentioned), desc(answer.helpfulCount), sql`${answer.similarity} desc nulls last`, asc(answer.createdAt));
+}
+
+/**
+ * The Rees of a private post's thread (私密提问): every Ree any of its
+ * answers came from, first round or follow-up, in the order they joined --
+ * while it can still be asked: public, or the author's own.
+ */
+export async function privateThreadRees(postId: string, authorId: string): Promise<FirstRoundRee[]> {
+  const rows = await db()
+    .select({ reeId: ree.id, slug: ree.slug, name: ree.name, avatar: ree.avatarBlob, color: ree.color, ownerId: ree.ownerId, queryFee: ree.queryFee, joined: sql<Date>`min(${answer.createdAt})` })
+    .from(answer)
+    .innerJoin(ree, eq(ree.id, answer.reeId))
+    .where(and(eq(answer.postId, postId), isNull(ree.deletedAt), or(publicRee(), eq(ree.ownerId, authorId))))
+    .groupBy(ree.id)
+    .orderBy(sql`min(${answer.createdAt})`);
+  return rows.map(({ joined: _joined, ...rest }) => rest);
 }
 
 /* ----------------------------------------------------------------- asking */
@@ -418,6 +435,9 @@ export async function finishFollowup(id: string, now = new Date()): Promise<void
       .from(answer)
       .where(eq(answer.followupId, id));
     await tx.update(followup).set({ answerState: 'done', answeredAt: now }).where(eq(followup.id, id));
+    /* On a private post the asker is its author, on its page: no notice. */
+    const [thread] = await tx.select({ visibility: post.visibility }).from(post).where(eq(post.id, target.postId));
+    if (thread?.visibility === 'private') return;
     const question = target.question.slice(0, 80);
     if ((counted?.answered ?? 0) > 0) await notify(tx, { userId: target.userId, kind: 'followup_answered', params: { question, answers: counted!.answered, followup: id }, refId: target.postId });
     if ((counted?.waiting ?? 0) > 0) await notify(tx, { userId: target.userId, kind: 'post_paid_requests', params: { question, n: counted!.waiting }, refId: target.postId });
@@ -501,7 +521,8 @@ export async function threadFor(row: PostRow, viewerId: string | undefined): Pro
     )
     .orderBy(asc(followup.createdAt), asc(followup.id));
   const live = row.status === 'published' && !row.deletedAt;
-  const firstRees = viewerId && live ? await firstRoundRees(row.id) : [];
+  /* A private thread may ask every Ree already in it (private-posts.ts); a public one its first round's. */
+  const firstRees = viewerId && live ? (row.visibility === 'private' ? await privateThreadRees(row.id, viewerId) : await firstRoundRees(row.id)) : [];
   const candidates: FollowupCandidate[] = firstRees.map((entry) => {
     const price = maxCostFor({ ownerId: entry.ownerId, queryFee: entry.queryFee }, viewerId!);
     return { reeId: entry.reeId, reeSlug: entry.slug, reeName: entry.name, reeAvatar: entry.avatar, reeColor: entry.color, price, paid: price > QUERY_BASE_FEE };
@@ -512,6 +533,8 @@ export async function threadFor(row: PostRow, viewerId: string | undefined): Pro
   const readable = rows.filter((entry) => entry.followup.status === 'published' || entry.followup.userId === viewerId).map((entry) => entry.followup.id);
   const answers = await answersFor([], readable);
   const voted = await votedBy(viewerId, answers.map((entry) => entry.id));
+  /* Only the author ever reads a private thread: their "没帮助" marks and what each answer cost. */
+  const own = row.visibility === 'private' && viewerId === row.userId ? { unvoted: await unvotedBy(viewerId, answers.map((entry) => entry.id)) } : null;
   const mentionIds = [...new Set(rows.flatMap((entry) => entry.followup.mentionReeIds))];
   const named = mentionIds.length ? await db().select({ id: ree.id, name: ree.name }).from(ree).where(inArray(ree.id, mentionIds)) : [];
   const mine = rows.filter((entry) => entry.followup.userId === viewerId);
@@ -549,9 +572,10 @@ export async function threadFor(row: PostRow, viewerId: string | undefined): Pro
         candidates: entry.candidates,
         skipped: entry.skipped,
         createdAt: (entry.publishedAt ?? entry.createdAt).toISOString(),
-        answers: hiddenToViewer ? [] : answers.filter((other) => other.followupId === entry.id && (other.shown || entry.answerState !== 'done')).map((other) => answerView(other, voted, true)),
+        answers: hiddenToViewer ? [] : answers.filter((other) => other.followupId === entry.id && (other.shown || entry.answerState !== 'done')).map((other) => answerView(other, voted, true, own)),
         awaiting: hiddenToViewer ? 0 : (waitingRows.find((other) => other.followupId === entry.id)?.n ?? 0),
-        paidRequests: asker && entry.status === 'published' ? (requests.find(([key]) => key === entry.id)?.[1] ?? []) : [],
+        /* A private thread has no requests: its author paid for every Ree when asking. */
+        paidRequests: asker && entry.status === 'published' && row.visibility === 'public' ? (requests.find(([key]) => key === entry.id)?.[1] ?? []) : [],
         declined: asker ? declined.filter((other) => other.followupId === entry.id).map((other) => other.name) : [],
         spent: asker ? (spent.find(([key]) => key === entry.id)?.[1] ?? 0) : null,
       };

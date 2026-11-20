@@ -39,6 +39,7 @@ import { citationSnapshots, type CitationSnapshot } from '@/lib/domain/answer';
 import { InsufficientCredits } from '@/lib/domain/credits';
 import { isUuid } from '@/lib/domain/list';
 import {
+  AUTHORED_SOURCES,
   POST_ANSWERING_STALE_MS,
   POST_CANDIDATES,
   POST_DAILY_LIMIT,
@@ -84,19 +85,49 @@ import { notify } from '@/lib/services/notices';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
 import { questionRewriter } from '@/lib/services/question-rewrite';
 
-const { post, postVote, postAnswer: answer, postAnswerVote: vote, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user, message, conversation } = schema;
+const { post, postVote, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user, message, conversation } = schema;
 
 /* --------------------------------------------------------------- visibility */
 
-/** Published, out of the author's trash, and -- copied from a conversation -- while that conversation is too. */
+/**
+ * Public, published, out of the author's trash, and -- copied from a
+ * conversation -- while that conversation is too. A private post is never
+ * visible to anyone but its author, who reads it through `ownPrivatePost`.
+ */
 export function visiblePost(): SQL {
   return and(
+    eq(post.visibility, 'public'),
     eq(post.status, 'published'),
     isNull(post.deletedAt),
     sql`(${post.source} <> 'conversation' or exists (
       select 1 from ${message} m join ${conversation} c on c.id = m.conversation_id
       where m.id = ${post.messageId} and c.deleted_at is null))`,
   )!;
+}
+
+/** The author's own private post, live (out of the trash): what they may read and act on that nobody else may. */
+export function ownPrivatePost(userId: string): SQL {
+  return and(eq(post.userId, userId), eq(post.visibility, 'private'), eq(post.status, 'published'), isNull(post.deletedAt))!;
+}
+
+/** A post this user may read and act on as a reader: a visible one, or their own live private one. */
+export function readablePost(userId: string): SQL {
+  return or(visiblePost(), ownPrivatePost(userId))!;
+}
+
+/** The author's own posts, whatever their state: the sources a signed-in author writes (not visitors', RE0's or copied Q&A). */
+export function authoredBy(userId: string): SQL {
+  return and(eq(post.userId, userId), inArray(post.source, [...AUTHORED_SOURCES]))!;
+}
+
+/**
+ * An answer its private post's author reads: given and not hidden, whatever
+ * its Ree's visibility now -- the author's own private Ree may answer them,
+ * and a public Ree going private does not take back what it told them (as a
+ * conversation kept its replies). Needs `post_answer`.
+ */
+export function privateAnswerShown(): SQL {
+  return sql`(${answer.state} = 'answered' and ${answer.hiddenBy} is null and exists (select 1 from ${post} pp where pp.id = ${answer.postId} and pp.visibility = 'private'))`;
 }
 
 /** An answer anyone may read: given, not hidden, its Ree public (and a copied Q&A's Ree keeps public Q&A on). Needs `ree` joined. */
@@ -111,9 +142,9 @@ export function shownAnswer(): SQL {
  * answered lists and the sitemap at once.
  */
 export function hasShownAnswer(): SQL {
-  return sql`exists (select 1 from ${answer} sa join ${ree} on ${ree.id} = sa.ree_id
+  return sql`(${post.visibility} = 'public' and exists (select 1 from ${answer} sa join ${ree} on ${ree.id} = sa.ree_id
     where sa.post_id = ${post.id} and sa.followup_id is null and sa.state = 'answered' and sa.hidden_by is null
-      and ${publicRee()} and (sa.legacy_qa_id is null or ${ree.publicQaEnabled}))`;
+      and ${publicRee()} and (sa.legacy_qa_id is null or ${ree.publicQaEnabled})))`;
 }
 
 /** An answer of the post's first round, not of a follow-up (追问): what the counts, the cards, the summary and the Ree pages are about. */
@@ -346,10 +377,11 @@ export async function moderatePost(id: string, judge: Judge = modelJudge, now = 
     .where(and(eq(post.id, id), eq(post.status, 'pending'), lt(post.moderationAttempts, PUBLIC_QA_MODERATION_ATTEMPTS)))
     .returning({ question: post.question, detail: post.detail, attempts: post.moderationAttempts });
   if (!row) return 'gone';
+  /* A new post has no answer yet and its question is reviewed alone; a private post made public (转为公开) brings its answers, reviewed with it. */
+  const copied = await db().select({ text: answer.text }).from(answer).where(and(eq(answer.postId, id), firstRound(), eq(answer.state, 'answered'))).orderBy(asc(answer.createdAt));
   let verdict: boolean | null = null;
   try {
-    /* No answer yet: the question is reviewed alone. */
-    verdict = (await judge([row.question, row.detail].filter(Boolean).join('\n\n'), '')).publish;
+    verdict = (await judge([row.question, row.detail].filter(Boolean).join('\n\n'), copied.map((entry) => entry.text).join('\n\n'))).publish;
   } catch (error) {
     console.warn(`post ${id} review failed: ${error instanceof Error ? error.message : 'unknown'}`);
   }
@@ -470,7 +502,8 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
     [row] = await db().select().from(post).where(eq(post.id, id)).limit(1);
     if (!row) return;
   }
-  if (row.status !== 'published' || row.answerState !== 'waiting') return;
+  /* A private post is answered by the Rees its author chose (private-posts.ts), never matched. */
+  if (row.status !== 'published' || row.answerState !== 'waiting' || row.visibility === 'private') return;
   const [claimed] = await db().update(post).set({ answerState: 'answering' }).where(and(eq(post.id, id), eq(post.answerState, 'waiting'))).returning({ id: post.id });
   if (!claimed) return;
   const subject = [row.question, row.detail].filter(Boolean).join('\n');
@@ -553,12 +586,14 @@ export async function finishPost(id: string, now = new Date()): Promise<void> {
     const [waiting] = await tx.select({ n: sql<number>`count(*)::int` }).from(answer).where(and(eq(answer.postId, id), firstRound(), eq(answer.state, 'awaiting')));
     const requests = waiting?.n ?? 0;
     await tx.update(post).set({ answerState: 'done', answerCount: answered, answeredAt: now }).where(eq(post.id, id));
-    if (answered > 0 && target.userId && target.source === 'post') {
-      await notify(tx, { userId: target.userId, kind: 'post_answered', params: { question: target.question.slice(0, 80), answers: answered }, refId: id });
+    /* A private post's author is on its page, waiting for the answers they asked for: no notice. */
+    const told = target.source === 'post' && target.visibility === 'public' ? target.userId : null;
+    if (answered > 0 && told) {
+      await notify(tx, { userId: told, kind: 'post_answered', params: { question: target.question.slice(0, 80), answers: answered }, refId: id });
     }
     /* One notice for all of a post's requests: paid Rees, and free ones the balance could not cover. */
-    if (requests > 0 && target.userId && target.source === 'post') {
-      await notify(tx, { userId: target.userId, kind: 'post_paid_requests', params: { question: target.question.slice(0, 80), n: requests }, refId: id });
+    if (requests > 0 && told) {
+      await notify(tx, { userId: told, kind: 'post_paid_requests', params: { question: target.question.slice(0, 80), n: requests }, refId: id });
     }
   });
 }
@@ -678,6 +713,10 @@ export interface AnswerRow {
   role: string;
   shown: boolean;
   feeHoldId: string | null;
+  baseHoldId: string | null;
+  price: number | null;
+  /** "没帮助" marks (private posts only). */
+  unhelpful: number;
 }
 
 /** The first round's answers of these posts (shown, and running); `followupIds`: those follow-ups' answers instead. */
@@ -700,19 +739,30 @@ export async function answersFor(postIds: string[], followupIds?: string[]): Pro
       avatar: ree.avatarBlob,
       color: ree.color,
       role: user.role,
-      shown: sql<boolean>`(${shownAnswer()})`,
+      /* A private post's answers follow `privateAnswerShown`: its author is the only reader. */
+      shown: sql<boolean>`(${shownAnswer()} or ${privateAnswerShown()})`,
       feeHoldId: answer.feeHoldId,
+      baseHoldId: answer.baseHoldId,
+      price: answer.price,
+      unhelpful: sql<number>`(select count(*)::int from ${feedback} uf where uf.answer_id = ${answer.id})`,
     })
     .from(answer)
     .innerJoin(ree, eq(ree.id, answer.reeId))
     .innerJoin(user, eq(user.id, ree.ownerId))
-    .where(and(followupIds ? inArray(answer.followupId, followupIds) : and(inArray(answer.postId, postIds), firstRound()), or(shownAnswer(), inArray(answer.state, ['queued', 'answering']))))
+    .where(and(followupIds ? inArray(answer.followupId, followupIds) : and(inArray(answer.postId, postIds), firstRound()), or(shownAnswer(), privateAnswerShown(), inArray(answer.state, ['queued', 'answering']))))
     .orderBy(desc(answer.mentioned), desc(answer.helpfulCount), sql`${answer.similarity} desc nulls last`, asc(answer.createdAt));
 }
 
 export async function votedBy(viewerId: string | undefined, ids: string[]): Promise<Set<string>> {
   if (!viewerId || ids.length === 0) return new Set();
   const rows = await db().select({ id: vote.answerId }).from(vote).where(and(eq(vote.userId, viewerId), inArray(vote.answerId, ids)));
+  return new Set(rows.map((row) => row.id));
+}
+
+/** The answers among these the viewer marked "没帮助". */
+export async function unvotedBy(viewerId: string | undefined, ids: string[]): Promise<Set<string>> {
+  if (!viewerId || ids.length === 0) return new Set();
+  const rows = await db().select({ id: feedback.answerId }).from(feedback).where(and(eq(feedback.userId, viewerId), inArray(feedback.answerId, ids)));
   return new Set(rows.map((row) => row.id));
 }
 
@@ -728,7 +778,11 @@ async function savedBy(viewerId: string | undefined, ids: string[]): Promise<Set
   return new Set(rows.map((row) => row.id));
 }
 
-export function answerView(row: AnswerRow, voted: Set<string>, whole: boolean): PostAnswerView {
+/**
+ * `own`: the viewer is the author of a private post, who alone sees what each
+ * answer cost them and their "没帮助" marks (`unvoted`).
+ */
+export function answerView(row: AnswerRow, voted: Set<string>, whole: boolean, own: { unvoted: Set<string> } | null = null): PostAnswerView {
   /* A feed shows a plain-text excerpt (no Markdown marks); the post page renders the whole Markdown. */
   const cut = whole || row.state !== 'answered' ? { answer: row.text, truncated: false } : previewOf(plainOf(row.text), POST_PREVIEW_CHARS);
   return {
@@ -748,6 +802,10 @@ export function answerView(row: AnswerRow, voted: Set<string>, whole: boolean): 
     voted: voted.has(row.id),
     pinned: row.pinnedAt !== null,
     paid: row.feeHoldId !== null,
+    unhelpful: own ? row.unhelpful : 0,
+    unvoted: own ? own.unvoted.has(row.id) : false,
+    /* Charged only once answered: a hold given back cost nothing. */
+    cost: own ? (row.state === 'answered' && row.baseHoldId ? (row.price ?? 0) : 0) : null,
   };
 }
 
@@ -759,6 +817,9 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
   const ids = rows.map((row) => row.id);
   const [answers, saved, postVoted] = await Promise.all([answersFor(ids), savedBy(viewerId, ids), postVotedBy(viewerId, ids)]);
   const voted = await votedBy(viewerId, answers.map((row) => row.id));
+  /* A private post is only ever read by its author (the queries above made sure). */
+  const ownPrivate = new Set(rows.filter((row) => row.visibility === 'private' && viewerId && row.userId === viewerId).map((row) => row.id));
+  const unvoted = ownPrivate.size ? await unvotedBy(viewerId, answers.filter((row) => ownPrivate.has(row.postId)).map((row) => row.id)) : new Set<string>();
   const followUps = options.whole && viewerId && rows.length === 1 && rows[0]!.userId === viewerId
     ? await db()
         .select({ id: conversation.id, title: conversation.title, reeName: ree.name })
@@ -769,8 +830,9 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
         .orderBy(desc(conversation.updatedAt))
     : [];
   const [quotes, quoteCounts] = await Promise.all([quotesFor(rows, viewerId), quoteCountsFor(ids)]);
-  const authorView = options.whole && viewerId && rows.length === 1 && rows[0]!.userId === viewerId && rows[0]!.source === 'post';
-  const requests = authorView ? await paidRequestsFor(rows[0]!.id, viewerId) : [];
+  const authorView = options.whole && viewerId && rows.length === 1 && rows[0]!.userId === viewerId && (AUTHORED_SOURCES as readonly string[]).includes(rows[0]!.source);
+  /* A private post has no requests: its author chose and paid for every Ree when asking. */
+  const requests = authorView && rows[0]!.visibility === 'public' ? await paidRequestsFor(rows[0]!.id, viewerId) : [];
   const spent = authorView ? await spentOn(rows[0]!.id) : null;
   /* The thread of follow-ups (追问), on the post's page only. */
   const thread = options.whole && rows.length === 1 ? await (await import('@/lib/services/post-followups')).threadFor(rows[0]!, viewerId) : null;
@@ -789,6 +851,11 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
     const listed = options.whole ? [...picked, ...pending] : picked.slice(0, 1);
     return {
       id: row.id,
+      visibility: row.visibility,
+      title: row.title,
+      pinned: row.pinnedAt !== null,
+      archived: row.archivedAt !== null,
+      publishedCopyId: row.publishedCopyId,
       question: row.question,
       detail: row.detail,
       lang: row.lang,
@@ -803,7 +870,7 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
       voted: postVoted.has(row.id),
       saved: saved.has(row.id),
       createdAt: (row.publishedAt ?? row.createdAt).toISOString(),
-      answers: listed.map((entry) => answerView(entry, voted, options.whole)),
+      answers: listed.map((entry) => answerView(entry, voted, options.whole, ownPrivate.has(row.id) ? { unvoted } : null)),
       quote: row.quoteKind ? (quotes.get(row.id) ?? { kind: row.quoteKind, available: false }) : null,
       quotes: quoteCounts.get(row.id) ?? 0,
       summary: row.summaryState === 'done' && row.summaryContent && !summaryStale(row.summaryAnswers, new Set(shown.map((entry) => entry.id)))
@@ -925,7 +992,8 @@ export async function unansweredCount(): Promise<number> {
  */
 export async function getPost(id: string, viewerId?: string): Promise<PostView | null> {
   if (!isUuid(id)) return null;
-  const mine = viewerId ? and(eq(post.userId, viewerId), eq(post.source, 'post')) : undefined;
+  /* The author also reads their own pending, rejected, trashed and private posts. */
+  const mine = viewerId ? authoredBy(viewerId) : undefined;
   const [row] = await selectPosts(and(eq(post.id, id), mine ? or(visiblePost(), mine) : visiblePost()), [desc(post.createdAt)], 1);
   if (!row) return null;
   return (await viewsOf([row], viewerId, { whole: true }))[0] ?? null;
@@ -952,28 +1020,64 @@ export async function indexablePosts(limit = 5000): Promise<{ id: string; at: Da
     .limit(limit);
 }
 
-export type MinePostsView = 'public' | 'trash';
+/** 我的帖子's tabs: 全部, 公开, 私密 and 回收站. */
+export type MinePostsView = 'all' | 'public' | 'private' | 'trash';
 
-/** The author's public posts (any state) or their trash, newest first, paged by offset. */
-export async function listMyPosts(userId: string, view: MinePostsView, page = 1, size = POST_PAGE_SIZE): Promise<{ items: PostView[]; total: number; page: number; size: number }> {
-  const where = and(eq(post.userId, userId), eq(post.source, 'post'), view === 'trash' ? isNotNull(post.deletedAt) : isNull(post.deletedAt));
+/** 私密's 筛选: text, a Ree that answered, asked since, pinned only, and archived (hidden unless asked for, then only those). */
+export interface MinePostsFilter {
+  q?: string | null;
+  reeId?: string | null;
+  since?: Date | null;
+  pinned?: boolean;
+  archived?: boolean;
+}
+
+/** What 我的帖子 lists: the author's posts and MCP asks; a Ree owner's 试问 stays on its Ree's test page. */
+function listedMine(userId: string): SQL {
+  return and(eq(post.userId, userId), inArray(post.source, ['post', 'api']))!;
+}
+
+function mineWhere(userId: string, view: MinePostsView, filter: MinePostsFilter): SQL {
+  const q = filter.q?.trim();
+  return and(
+    listedMine(userId),
+    view === 'trash' ? isNotNull(post.deletedAt) : isNull(post.deletedAt),
+    view === 'public' ? eq(post.visibility, 'public') : view === 'private' ? eq(post.visibility, 'private') : undefined,
+    /* An archived private post leaves the lists until the filter asks for archived ones. */
+    view === 'trash' ? undefined : filter.archived ? isNotNull(post.archivedAt) : isNull(post.archivedAt),
+    filter.pinned ? isNotNull(post.pinnedAt) : undefined,
+    filter.since ? sql`${post.createdAt} >= ${filter.since.toISOString()}::timestamptz` : undefined,
+    filter.reeId && isUuid(filter.reeId) ? sql`exists (select 1 from ${answer} fa where fa.post_id = ${post.id} and fa.ree_id = ${filter.reeId}::uuid)` : undefined,
+    q ? sql`(${searchable} || ' ' || coalesce(${post.title}, '')) ilike ${`%${q.replace(/[%_\\]/g, '\\$&')}%`}` : undefined,
+  )!;
+}
+
+/**
+ * The author's posts (any state) of one tab, newest first, paged by offset;
+ * on 私密 the pinned ones first.
+ */
+export async function listMyPosts(userId: string, view: MinePostsView, page = 1, size = POST_PAGE_SIZE, filter: MinePostsFilter = {}): Promise<{ items: PostView[]; total: number; page: number; size: number }> {
+  const where = mineWhere(userId, view, filter);
   const [counted] = await db().select({ n: sql<number>`count(*)::int` }).from(post).where(where);
   const total = counted?.n ?? 0;
   const current = Math.max(1, Math.min(page, Math.max(1, Math.ceil(total / size))));
-  const rows = await selectPosts(where, [desc(post.createdAt), desc(post.id)], size, (current - 1) * size);
+  const order = view === 'private' ? [sql`${post.pinnedAt} desc nulls last`, desc(post.createdAt), desc(post.id)] : [desc(post.createdAt), desc(post.id)];
+  const rows = await selectPosts(where, order, size, (current - 1) * size);
   return { items: await viewsOf(rows, userId, { whole: false }), total, page: current, size };
 }
 
-/** How many public posts and trashed ones the author has, for the tabs. */
-export async function myPostCounts(userId: string): Promise<{ public: number; trash: number }> {
+/** How many posts each tab has, for the tabs (archived private posts left out, as the lists leave them out). */
+export async function myPostCounts(userId: string): Promise<{ all: number; public: number; private: number; trash: number }> {
   const [row] = await db()
     .select({
-      public: sql<number>`count(*) filter (where ${post.deletedAt} is null)::int`,
+      all: sql<number>`count(*) filter (where ${post.deletedAt} is null and ${post.archivedAt} is null)::int`,
+      public: sql<number>`count(*) filter (where ${post.deletedAt} is null and ${post.visibility} = 'public')::int`,
+      private: sql<number>`count(*) filter (where ${post.deletedAt} is null and ${post.visibility} = 'private' and ${post.archivedAt} is null)::int`,
       trash: sql<number>`count(*) filter (where ${post.deletedAt} is not null)::int`,
     })
     .from(post)
-    .where(and(eq(post.userId, userId), eq(post.source, 'post')));
-  return { public: row?.public ?? 0, trash: row?.trash ?? 0 };
+    .where(listedMine(userId));
+  return { all: row?.all ?? 0, public: row?.public ?? 0, private: row?.private ?? 0, trash: row?.trash ?? 0 };
 }
 
 /** Posts the viewer saved, newest save first. */
@@ -995,7 +1099,7 @@ export async function setPostTrashed(userId: string, id: string, trashed: boolea
   const rows = await db()
     .update(post)
     .set({ deletedAt: trashed ? now : null })
-    .where(and(eq(post.id, id), eq(post.userId, userId), eq(post.source, 'post'), trashed ? isNull(post.deletedAt) : isNotNull(post.deletedAt)))
+    .where(and(eq(post.id, id), authoredBy(userId), trashed ? isNull(post.deletedAt) : isNotNull(post.deletedAt)))
     .returning({ id: post.id });
   return rows.length > 0;
 }
@@ -1017,14 +1121,25 @@ export async function setPostSaved(userId: string, id: string, saved: boolean): 
   return true;
 }
 
-/** The shown answer, locked, for the actions below. */
-async function lockShown(tx: Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0], id: string, reeId?: string) {
+/**
+ * The shown answer, locked, for the actions below. `voterId`: a vote, which
+ * a private post's author may also cast on its answers (nobody else may);
+ * without it (a report) only a public post's answer is found.
+ */
+async function lockShown(tx: Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0], id: string, reeId?: string, voterId?: string) {
   const [row] = await tx
     .select({ id: answer.id, reeId: answer.reeId, ownerId: ree.ownerId })
     .from(answer)
     .innerJoin(ree, eq(ree.id, answer.reeId))
     .innerJoin(post, eq(post.id, answer.postId))
-    .where(and(eq(answer.id, id), reeId ? eq(answer.reeId, reeId) : undefined, shownAnswer(), visiblePost(), shownFollowupOf()))
+    .where(
+      and(
+        eq(answer.id, id),
+        reeId ? eq(answer.reeId, reeId) : undefined,
+        voterId ? or(and(shownAnswer(), visiblePost()), and(privateAnswerShown(), ownPrivatePost(voterId)))! : and(shownAnswer(), visiblePost()),
+        shownFollowupOf(),
+      ),
+    )
     .for('update', { of: answer });
   return row ?? null;
 }
@@ -1033,7 +1148,9 @@ async function lockShown(tx: Parameters<Parameters<ReturnType<typeof db>['transa
 export async function setAnswerHelpful(userId: string, id: string, on: boolean, reeId?: string): Promise<{ helpful: number; voted: boolean } | null> {
   if (!isUuid(id)) return null;
   return db().transaction(async (tx) => {
-    if (!(await lockShown(tx, id, reeId))) return null;
+    if (!(await lockShown(tx, id, reeId, userId))) return null;
+    /* 有帮助 and 没帮助 (a private post's answers only) exclude each other. */
+    if (on) await tx.delete(feedback).where(and(eq(feedback.answerId, id), eq(feedback.userId, userId)));
     const changed = on
       ? await tx.insert(vote).values({ answerId: id, userId }).onConflictDoNothing().returning({ id: vote.answerId })
       : await tx.delete(vote).where(and(eq(vote.answerId, id), eq(vote.userId, userId))).returning({ id: vote.answerId });
@@ -1106,7 +1223,8 @@ export async function ownerActOnAnswer(userId: string, reeId: string, id: string
     const [target] = await tx
       .select({ id: answer.id, postId: answer.postId })
       .from(answer)
-      .where(and(eq(answer.id, id), eq(answer.reeId, reeId), eq(answer.state, 'answered'), isNull(answer.hiddenBy)))
+      /* Never a private post's: its question is its author's alone, even to the Ree's owner. */
+      .where(and(eq(answer.id, id), eq(answer.reeId, reeId), eq(answer.state, 'answered'), isNull(answer.hiddenBy), sql`exists (select 1 from ${post} op where op.id = ${answer.postId} and op.visibility = 'public')`))
       .for('update');
     if (!target) return false;
     if (action === 'hide') {
@@ -1437,7 +1555,8 @@ async function freeRewrite(userId: string, target: typeof post.$inferSelect, sho
  */
 export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en', judge: Judge = modelJudge): Promise<SummaryOutcome> {
   if (!isUuid(id)) return 'not_found';
-  const [target] = await db().select().from(post).where(and(eq(post.id, id), eq(post.userId, userId), eq(post.source, 'post'), visiblePost())).limit(1);
+  /* A private post's summary is its author's alone, like the post. */
+  const [target] = await db().select().from(post).where(and(eq(post.id, id), authoredBy(userId), readablePost(userId))).limit(1);
   if (!target) return 'not_found';
   const shown = await answersFor([id]).then((rows) => rows.filter((row) => row.shown));
   const stale = target.summaryState === 'done' && summaryStale(target.summaryAnswers, new Set(shown.map((row) => row.id)));
@@ -1506,10 +1625,10 @@ export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en
     await giveBack();
     return 'failed';
   }
-  /* The same review as the post's question: a summary is public text too. A review that cannot run counts as failed (fee back). */
-  let verdict: boolean | null = null;
+  /* The same review as the post's question: a summary is public text too. A review that cannot run counts as failed (fee back). A private post's is read by its author alone and, like the post, skips it. */
+  let verdict: boolean | null = target.visibility === 'private' ? true : null;
   try {
-    verdict = (await judge([target.question, target.detail].filter(Boolean).join('\n\n'), content)).publish;
+    if (verdict === null) verdict = (await judge([target.question, target.detail].filter(Boolean).join('\n\n'), content)).publish;
   } catch (error) {
     console.warn(`post ${id} summary review failed: ${error instanceof Error ? error.message : 'unknown'}`);
   }
@@ -1620,6 +1739,8 @@ export async function adminPosts(options: { view?: 'reported' | 'hidden' | 'quot
   const view = options.view ?? 'reported';
   const where = and(
     inArray(post.status, ['published', 'hidden']),
+    /* Private posts are their authors' alone, administrators included. */
+    eq(post.visibility, 'public'),
     view === 'reported' ? sql`${post.reportCount} > 0` : view === 'hidden' ? eq(post.status, 'hidden') : view === 'quotes' ? isNotNull(post.quoteReviewAt) : undefined,
     options.q?.trim() ? sql`${searchable} ilike ${`%${options.q.trim().replace(/[%_\\]/g, '\\$&')}%`}` : undefined,
   );

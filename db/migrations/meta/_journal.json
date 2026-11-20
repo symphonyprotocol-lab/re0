@@ -449,6 +449,13 @@
       "when": 1795159500831,
       "tag": "0065_post_votes",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1795165414564,
+      "tag": "0066_private_posts",
+      "breakpoints": true
     }
   ]
 }
