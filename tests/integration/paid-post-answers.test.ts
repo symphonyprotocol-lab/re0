@@ -37,13 +37,11 @@ const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
 const { POST: reportPostRoute } = await import('@/app/api/posts/[id]/report/route');
-const { publishOwnAnswer } = await import('@/lib/services/public-qa');
 const { reeCards } = await import('@/lib/services/explore');
 const { consoleAdministrator } = await import('../fixtures/console-administrator');
 const writes = {
   publish: (await import('@/app/api/posts/route')).POST,
   summary: (await import('@/app/api/posts/[id]/summary/route')).POST,
-  followUp: (await import('@/app/api/posts/[id]/follow-up/route')).POST,
   save: (await import('@/app/api/posts/[id]/save/route')).POST,
   trash: (await import('@/app/api/posts/[id]/route')).PATCH,
   helpful: (await import('@/app/api/posts/answers/[answerId]/helpful/route')).POST,

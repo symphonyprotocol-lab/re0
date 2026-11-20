@@ -341,8 +341,6 @@ export interface PostView {
   quote: PostQuote | null;
   /** Visible posts that quote this one. */
   quotes: number;
-  /** The author's earlier private follow-up conversations from this post (before 追问 moved into the post), only for the author. */
-  followUps: { id: string; title: string; reeName: string | null }[];
   /** Published follow-ups (追问), for the cards. */
   followupCount: number;
   /** The thread under the first round, on the post's page only (oldest first); empty in feeds. */

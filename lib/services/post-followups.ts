@@ -53,8 +53,8 @@ import {
 import { PUBLIC_QA_MODERATION_ATTEMPTS, redact } from '@/lib/domain/public-qa';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { db, schema, type Executor } from '@/lib/infra/db';
-import { maxCostFor } from '@/lib/services/answer';
-import { embedQuestion, type QuestionVector } from '@/lib/services/chat';
+import { maxCostFor } from '@/lib/services/grounded-answer';
+import { embedQuestion, type QuestionVector } from '@/lib/services/retrieval';
 import { aiAnswersFor, aiRoundKey, answerWithAi, type AiAnswerer } from '@/lib/services/ai-answers';
 import { balanceOf, releaseHold } from '@/lib/services/credits';
 import { nearestPassages, publicRee } from '@/lib/services/explore';

@@ -16,14 +16,13 @@ import { POST_DETAIL_MAX, POST_QUESTION_MAX } from '@/lib/domain/post';
 import { isUuid } from '@/lib/domain/list';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { db, schema } from '@/lib/infra/db';
-import { maxCostFor, readyRees, type Emit } from '@/lib/services/answer';
+import { maxCostFor, readyRees, type Emit } from '@/lib/services/grounded-answer';
 import type { ApiKeyCaller } from '@/lib/services/api-keys';
 import { balanceOf } from '@/lib/services/credits';
-import { usableBy } from '@/lib/services/conversations';
 import { allowSearch, answersByOthers, explore, hitRateBucket, readySources } from '@/lib/services/explore';
 import { groundedAnswer, ownPrivatePost, type AnswerOne } from '@/lib/services/posts';
 import { askPrivateFollowup, processPrivateFollowup, processPrivatePost, publishPrivatePost } from '@/lib/services/private-posts';
-import type { Ree } from '@/lib/services/rees';
+import { usableBy, type Ree } from '@/lib/services/rees';
 
 export type McpErrorCode =
   | 'rate_limited'

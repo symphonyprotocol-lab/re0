@@ -1,8 +1,8 @@
 /**
  * The user-route limiter (lib/http/rate-limit.ts): once an account's window
- * is full, asking, creating conversations, changing participants, upload
- * tokens and domain checks answer 429 before doing any work, and another
- * account is unaffected.
+ * is full, asking (a private question), upload tokens, domain checks and
+ * browsing answer 429 before doing any work, and another account is
+ * unaffected.
  */
 import { freezeDateAtWindowStart, TEST_DATABASE_URL, uniqueName } from './setup';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,9 +12,7 @@ import { USER_RATE_LIMITS } from '@/lib/constants';
 import { SESSION_COOKIE } from '@/lib/http/cookies';
 import { db, schema } from '@/lib/infra/db';
 import { sessionTokenHash } from '@/lib/services/auth';
-import { POST as createChat } from '@/app/api/chats/route';
-import { POST as ask } from '@/app/api/chats/[id]/messages/route';
-import { PUT as setParticipants } from '@/app/api/chats/[id]/rees/route';
+import { POST as ask } from '@/app/api/posts/private/route';
 import { POST as uploadToken } from '@/app/api/upload-token/route';
 import { POST as verifyDomain } from '@/app/api/domains/[id]/verify/route';
 import { GET as browse } from '@/app/api/explore/route';
@@ -51,13 +49,11 @@ function post(path: string, payload: unknown, method = 'POST') {
   return new NextRequest(`${base}${path}`, { method, headers: { origin: base, 'content-type': 'application/json' }, body: JSON.stringify(payload) });
 }
 
-const conversationId = '0c8f4f43-1f0a-4cf5-9f44-8a4c7bd5e222';
+const domainId = '0c8f4f43-1f0a-4cf5-9f44-8a4c7bd5e222';
 const routes: [RateLimitName, () => Promise<Response>][] = [
-  ['conversation', () => createChat(post('/api/chats', {}))],
-  ['ask', () => ask(post(`/api/chats/${conversationId}/messages`, { question: 'hi' }), { params: Promise.resolve({ id: conversationId }) })],
-  ['participants', () => setParticipants(post(`/api/chats/${conversationId}/rees`, { reeIds: [] }, 'PUT'), { params: Promise.resolve({ id: conversationId }) })],
+  ['ask', () => ask(post('/api/posts/private', { question: 'hi', reeIds: [] }))],
   ['uploadToken', () => uploadToken(post('/api/upload-token', { purpose: 'avatar', contentType: 'image/png', size: 10 }))],
-  ['domainVerify', () => verifyDomain(post(`/api/domains/${conversationId}/verify`, {}), { params: Promise.resolve({ id: conversationId }) })],
+  ['domainVerify', () => verifyDomain(post(`/api/domains/${domainId}/verify`, {}), { params: Promise.resolve({ id: domainId }) })],
   ['browse', () => browse(new NextRequest(`${base}/api/explore?sort=answers`))],
 ];
 
@@ -76,7 +72,7 @@ suite('user route rate limits', () => {
     token = undefined;
     vi.unstubAllEnvs();
     await db().delete(schema.rateBucket).where(like(schema.rateBucket.key, '%:user:%'));
-    if (ids.length) await db().delete(schema.conversation).where(inArray(schema.conversation.userId, ids));
+    if (ids.length) await db().delete(schema.post).where(inArray(schema.post.userId, ids));
     if (ids.length) await db().delete(schema.user).where(inArray(schema.user.id, ids));
   });
 

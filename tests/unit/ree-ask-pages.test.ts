@@ -42,7 +42,7 @@ const post: PostView = {
   author: { kind: 'user', name: '周舟', avatar: null, mine: false }, status: 'published', answerState: 'done', answered: 2, candidates: 3, skipped: 0,
   helpful: 3, voted: false, saved: false, createdAt: '2026-11-20T00:00:00.000Z',
   answers: [{ id: '00000000-0000-4000-8000-0000000000a1', reeId: ree.id, reeSlug: 'tax', reeName: '个税顾问', reeAvatar: null, reeColor: 'default', official: false, similarity: 0.8, state: 'answered', text: '每年 3 月 1 日至 6 月 30 日 [1]。', truncated: false, citations: [], helpful: 3, voted: false, pinned: true, paid: false, unhelpful: 0, unvoted: false, cost: null }],
-  summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, followUps: [], paidRequests: [], spent: null, aiAnswer: null, followupCount: 0, followups: [],
+  summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, paidRequests: [], spent: null, aiAnswer: null, followupCount: 0, followups: [],
   followupCandidates: [], followupBlocked: null, deleted: false,
 };
 vi.mock('@/lib/services/public-rees', async (original) => ({ ...(await original<typeof import('@/lib/services/public-rees')>()), publicReeBySlug: async () => ree }));
@@ -68,7 +68,6 @@ function expectPostsAndBox(html: string) {
   expect(html).toContain('每年 3 月 1 日至 6 月 30 日');
   expect(html).not.toContain('ree-qa-item');
   expect(html).not.toContain('rounded-2xl rounded-br-md');
-  expect(html).not.toContain(t.discover.public.qa.publishSignedIn);
   expect(html).toContain('aria-label="向 个税顾问 提问"');
   expect(html).toMatch(/<span class="fu-chip ask-chip">.*个税顾问<\/span>/);
   expect(html).toContain('role="radiogroup" aria-label="谁能看到"');

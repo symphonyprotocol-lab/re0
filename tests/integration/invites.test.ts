@@ -17,8 +17,7 @@ import { ensureInviteCode, inviteLanding, inviteOverview, invitePanel, rewardSet
 import { activities, activitiesIndicator } from '@/lib/services/task-rewards';
 import { setReePublished } from '@/lib/services/rees';
 import { addReeComment } from '@/lib/services/ree-comments';
-import { holdQuestion } from '@/lib/services/answer';
-import { testConversation } from '@/lib/services/chat';
+import { publishPrivatePost } from '@/lib/services/private-posts';
 import type { Administrator } from '@/lib/services/admin';
 import { checkIn, checkInStatus } from '@/lib/services/check-in';
 import { checkInDay, invitePanelCopy } from '@/lib/domain/invites';
@@ -355,7 +354,7 @@ describeWithDb('invitations and starter tasks', () => {
     });
     const hop = async (payer: string, owner: string, fee: number) => {
       const [ree] = await db().insert(schema.ree).values({ ownerId: owner, name: 'Hop', slug: uniqueName('hop2'), queryFee: fee, isPublic: true, isPublished: true }).returning();
-      const holdId = await db().transaction((tx) => placeHold(tx, { userId: payer, kind: 'chat', ledger: 'chat_fee', amount: fee, refId: randomUUID(), reeId: ree!.id }));
+      const holdId = await db().transaction((tx) => placeHold(tx, { userId: payer, kind: 'post', ledger: 'chat_fee', amount: fee, refId: randomUUID(), reeId: ree!.id }));
       await db().transaction(async (tx) => {
         const paid = await settleHold(tx, holdId, fee, { reeId: ree!.id, note: 'hop', ledger: 'chat_fee' });
         await creditQueryFee(tx, { ownerId: owner, reeId: ree!.id, reeName: 'Hop', replyId: randomUUID(), allocations: paid!.chargedAllocations });
@@ -456,14 +455,14 @@ describeWithDb('invitations and starter tasks', () => {
     await signUp('funding-spender-invitee', await ensureInviteCode(db(), spender.userId));
     const owner = await verified('funding-owner');
     const [ree] = await db().insert(schema.ree).values({ ownerId: owner.userId, name: 'Hop', slug: uniqueName('hop'), queryFee: 10_000, isPublic: true, isPublished: true }).returning();
-    const [conversation] = await db().insert(schema.conversation).values({ userId: spender.userId }).returning();
-    const [question] = await db().insert(schema.message).values({ conversationId: conversation!.id, role: 'user', content: 'question' }).returning();
-    const holdId = await db().transaction((tx) => placeHold(tx, { userId: spender.userId, kind: 'chat', ledger: 'chat_fee', amount: 600_000, refId: question!.id, reeId: ree!.id }));
+    /* A conversation answer from before migration 0070: settled as the conversations did, traced as 0070 kept it. */
+    const questionId = randomUUID();
+    const holdId = await db().transaction((tx) => placeHold(tx, { userId: spender.userId, kind: 'post', ledger: 'chat_fee', amount: 600_000, refId: questionId, reeId: ree!.id }));
     const replyId = randomUUID();
     await db().transaction(async (tx) => {
       const paid = await settleHold(tx, holdId, 600_000, { reeId: ree!.id, note: ree!.name, ledger: 'chat_fee' });
       await creditQueryFee(tx, { ownerId: owner.userId, reeId: ree!.id, reeName: ree!.name, replyId, allocations: paid!.chargedAllocations });
-      await tx.insert(schema.message).values({ id: replyId, conversationId: conversation!.id, role: 'ree', reeId: ree!.id, content: 'answer', requestId: question!.id, costCredits: 600_000 });
+      await tx.insert(schema.payoutTraceLegacy).values({ replyId, requestId: questionId, reeId: ree!.id, askerId: spender.userId, askedAt: new Date() });
     });
     const [earned] = await db().select().from(schema.creditGrant).where(and(eq(schema.creditGrant.userId, owner.userId), eq(schema.creditGrant.source, 'earned')));
     expect(earned).toMatchObject({ amount: 600_000, inviteFunded: true });
@@ -592,8 +591,7 @@ describeWithDb('invitations and starter tasks', () => {
     expect(await entriesOf(owner.userId, 'task_first_ree')).toHaveLength(1);
 
     /* First question: two questions at once, one reward. */
-    const conversation = await testConversation(owner.userId, ree!.id);
-    const asks = await Promise.all([1, 2].map((index) => holdQuestion({ userId: owner.userId, lang: 'en', conversation, targets: [ree! as never], question: `Question ${index}?` })));
+    const asks = await Promise.all([1, 2].map((index) => publishPrivatePost(owner.userId, { question: `Question ${index}?`, reeIds: [ree!.id], fees: { [ree!.id]: 20 }, lang: 'en' })));
     expect(asks.every((ask) => ask.ok)).toBe(true);
     expect(await entriesOf(owner.userId, 'task_first_question')).toHaveLength(1);
 
@@ -667,8 +665,7 @@ describeWithDb('invitations and starter tasks', () => {
     const [paid] = await entriesOf(user.userId, 'task_first_comment');
     expect(paid).toMatchObject({ delta: 700 });
 
-    const conversation = await testConversation(user.userId, ree!.id);
-    await holdQuestion({ userId: user.userId, lang: 'en', conversation, targets: [ree! as never], question: 'Does it pay?' });
+    expect(await publishPrivatePost(user.userId, { question: 'Does it pay?', reeIds: [ree!.id], fees: { [ree!.id]: 20 }, lang: 'en' })).toMatchObject({ ok: true });
     expect((await entriesOf(user.userId, 'task_first_question'))[0]).toMatchObject({ delta: 3_333 });
     expect(await balanceOf(db(), user.userId)).toBe(700 + 3_333);
 

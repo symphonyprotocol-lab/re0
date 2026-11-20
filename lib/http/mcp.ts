@@ -10,8 +10,8 @@ import type { AuthInfo, CallToolResult, ServerContext } from '@modelcontextproto
 import { createMcpHandler } from 'mcp-handler';
 import { z } from 'zod';
 import { MCP_SEARCH_MAX, QUESTION_MAX_CHARS } from '@/lib/constants';
-import { clientIp } from '@/lib/http/conversations';
-import type { AnswerEvent } from '@/lib/services/answer';
+import { clientIp } from '@/lib/http/client-ip';
+import type { AnswerEvent } from '@/lib/services/grounded-answer';
 import type { ApiKeyCaller } from '@/lib/services/api-keys';
 import { allowToolCall, askReeTool, getReeTool, listMyReesTool, MCP_QUESTION_MAX, McpToolError, searchReesTool, topUpUrl } from '@/lib/services/mcp';
 import { POST_QUESTION_MAX } from '@/lib/domain/post';

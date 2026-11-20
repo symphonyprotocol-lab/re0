@@ -31,8 +31,8 @@ const { balanceOf } = await import('@/lib/services/credits');
 const knowledge = await import('@/lib/services/knowledge');
 const library = await import('@/lib/services/knowledge-library');
 const rees = await import('@/lib/services/rees');
-const chat = await import('@/lib/services/chat');
-const { answer } = await import('@/lib/services/answer');
+const chat = await import('@/lib/services/retrieval');
+const privatePosts = await import('@/lib/services/private-posts');
 const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
@@ -174,16 +174,18 @@ describeWithDb('answering from the library', () => {
   it('stops answering from a paused source, and its old citations still open', async () => {
     const { userId, ree } = await userWithRee();
     const id = await readyText(userId, ree, 'Refund policy', 'Refunds are issued to the original payment method within 14 days.');
-    const conversation = await chat.testConversation(userId, ree.id);
-    await (await answer({ userId, lang: 'zh', conversation, targets: [ree], question: 'When are refunds issued to the original payment method?' })).text();
-    const [cited] = (await chat.messagesOf(conversation.id)).filter((message) => message.role === 'ree');
+    const made = await privatePosts.publishPrivatePost(userId, { question: 'When are refunds issued to the original payment method?', reeIds: [ree.id], fees: { [ree.id]: 20 }, lang: 'zh' });
+    if (!made.ok) throw new Error(made.error);
+    await privatePosts.processPrivatePost(made.id);
+    const citedAnswer = () => db().select().from(schema.postAnswer).where(eq(schema.postAnswer.postId, made.id));
+    const [cited] = await citedAnswer();
     expect(cited!.citations[0]).toMatchObject({ knowledgeId: id, title: 'Refund policy' });
 
     await library.runBatch(userId, ree.id, { action: 'pause', ids: [id] });
     expect((await chat.retrieve(ree.id, 'When are refunds issued to the original payment method?')).passages).toHaveLength(0);
     expect(await knowledge.readiness(ree.id)).toEqual({ ready: 0, processing: 0 });
     /* The snapshot is still there, and the source still opens for its owner. */
-    const [still] = (await chat.messagesOf(conversation.id)).filter((message) => message.role === 'ree');
+    const [still] = await citedAnswer();
     expect(still!.citations[0]!.excerpt).toContain('14 days');
     expect((await knowledge.knowledgeDetail(ree.id, id))?.enabled).toBe(false);
 

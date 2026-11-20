@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { clientIp } from '@/lib/http/conversations';
+import { clientIp } from '@/lib/http/client-ip';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { fail, json } from '@/lib/http/respond';
 import { currentUser, sameOrigin } from '@/lib/http/session';

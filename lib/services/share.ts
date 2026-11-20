@@ -15,9 +15,9 @@
  *   share page within `SHARE_ATTRIBUTION_HOURS`, once per post (2026-11-20;
  *   before, a conversation that took the Ree in, once per conversation --
  *   those rows are still counted);
- * - an anonymous answer (a free Ree asked signed out on the share page)
- *   counts for the share page under the same visit rule, as a figure of its
- *   own: it is not a conversation.
+ * - an anonymous answer (a free Ree asked signed out on the share page,
+ *   until 2026-11-19) counted for the share page under the same visit rule,
+ *   as a figure of its own: it is not a conversion.
  */
 import { and, eq, gte, isNull, or, sql } from 'drizzle-orm';
 import type { Range } from '@/lib/domain/statistics';
@@ -32,7 +32,7 @@ export const SHARE_VISIT_SLOT_SECONDS = 1_800;
 export const SHARE_IP_PER_MINUTE = 60;
 /** New visits per IP per Ree per hour (an office behind one address still counts). */
 export const SHARE_IP_PER_REE_HOUR = 30;
-/** The post (or, before, the conversation) must have asked the Ree this recently to count as a conversion. */
+/** The post must have asked the Ree this recently to count as a conversion. */
 export const SHARE_CONVERSION_MINUTES = 30;
 /** ...and the browser must have visited the share page this recently. */
 export const SHARE_ATTRIBUTION_HOURS = 24;
@@ -84,74 +84,43 @@ async function visitedRecently(reeId: string, visitorId: string, now: Date): Pro
 }
 
 /**
- * A post published from `/s/[slug]` (its 向 … 提问 box), or -- before the
- * chat pages went -- a conversation started or joined there. A post must be
+ * A post published from `/s/[slug]` (its 向 … 提问 box). The post must be
  * the user's own, made just now, and ask the Ree: a public post naming it,
- * or a private post it was asked in; a conversation must be theirs and have
- * just taken the Ree in. And this browser must have visited the share page
- * -- so an old post or conversation cannot be claimed, nor someone else's.
+ * or a private post it was asked in. And this browser must have visited the
+ * share page -- so an old post cannot be claimed, nor someone else's.
  */
-export async function recordShareConversion(input: { slug: string; visitorId: string; userId: string; conversationId?: string | null; postId?: string | null }, now = new Date()): Promise<ConversionResult> {
-  const byPost = Boolean(input.postId);
-  const target = byPost ? input.postId : input.conversationId;
+export async function recordShareConversion(input: { slug: string; visitorId: string; userId: string; postId: string }, now = new Date()): Promise<ConversionResult> {
+  const target = input.postId;
   if (!isUuid(target)) return 'not_found';
   const ree = await publicReeRef(input.slug);
   if (!ree) return 'not_found';
   if (input.userId === ree.ownerId) return 'owner';
-  let madeAt: Date | null = null;
-  if (byPost) {
-    const { post, postAnswer } = schema;
-    const [asked] = await db()
-      .select({ createdAt: post.createdAt })
-      .from(post)
-      .where(
-        and(
-          eq(post.id, target),
-          eq(post.userId, input.userId),
-          eq(post.source, 'post'),
-          isNull(post.deletedAt),
-          or(
-            and(eq(post.visibility, 'public'), eq(post.mentionReeId, ree.id)),
-            and(eq(post.visibility, 'private'), sql`exists (select 1 from ${postAnswer} sa where sa.post_id = ${post.id} and sa.ree_id = ${ree.id} and sa.followup_id is null)`),
-          ),
+  const { post, postAnswer } = schema;
+  const [asked] = await db()
+    .select({ createdAt: post.createdAt })
+    .from(post)
+    .where(
+      and(
+        eq(post.id, target),
+        eq(post.userId, input.userId),
+        eq(post.source, 'post'),
+        isNull(post.deletedAt),
+        or(
+          and(eq(post.visibility, 'public'), eq(post.mentionReeId, ree.id)),
+          and(eq(post.visibility, 'private'), sql`exists (select 1 from ${postAnswer} sa where sa.post_id = ${post.id} and sa.ree_id = ${ree.id} and sa.followup_id is null)`),
         ),
-      )
-      .limit(1);
-    madeAt = asked?.createdAt ?? null;
-  } else {
-    const [member] = await db()
-      .select({ addedAt: schema.conversationRee.addedAt })
-      .from(schema.conversation)
-      .innerJoin(schema.conversationRee, and(eq(schema.conversationRee.conversationId, schema.conversation.id), eq(schema.conversationRee.reeId, ree.id)))
-      .where(and(eq(schema.conversation.id, target), eq(schema.conversation.userId, input.userId)))
-      .limit(1);
-    madeAt = member?.addedAt ?? null;
-  }
-  if (!madeAt) return 'not_found';
-  if (madeAt.getTime() < now.getTime() - SHARE_CONVERSION_MINUTES * 60_000) return 'unattributed';
+      ),
+    )
+    .limit(1);
+  if (!asked) return 'not_found';
+  if (asked.createdAt.getTime() < now.getTime() - SHARE_CONVERSION_MINUTES * 60_000) return 'unattributed';
   if (!(await visitedRecently(ree.id, input.visitorId, now))) return 'unattributed';
   const inserted = await db()
     .insert(schema.reeShareEvent)
-    .values(
-      byPost
-        ? { reeId: ree.id, kind: 'post', visitorId: input.visitorId, userId: input.userId, postId: target, createdAt: now }
-        : { reeId: ree.id, kind: 'conversation', visitorId: input.visitorId, userId: input.userId, conversationId: target, createdAt: now },
-    )
+    .values({ reeId: ree.id, kind: 'post', visitorId: input.visitorId, userId: input.userId, postId: target, createdAt: now })
     .onConflictDoNothing()
     .returning({ id: schema.reeShareEvent.id });
   return inserted.length ? 'recorded' : 'repeat';
-}
-
-/**
- * Anonymous chat on the share page (anonymous-chat.ts): the visitor id an
- * answer is attributed to, when this browser visited this Ree's share page
- * within `SHARE_ATTRIBUTION_HOURS` -- the rule a conversion follows -- and
- * otherwise none, so a request merely claiming the share page counts
- * nothing there.
- */
-export async function shareVisitorFor(reeId: string, visitorId: string | null | undefined, now = new Date()): Promise<string | null> {
-  if (!isUuid(visitorId)) return null;
-  return (await visitedRecently(reeId, visitorId, now)) ? visitorId : null;
 }
 
 export interface ShareStatistics {

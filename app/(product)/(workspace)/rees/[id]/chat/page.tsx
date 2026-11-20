@@ -17,8 +17,7 @@ export async function generateMetadata(): Promise<Metadata> {
 /**
  * `/rees/[id]/chat`: 试问 -- the owner tries a Ree against its own knowledge.
  * Each question is a private post (`source = 'test'`, lib/services/ree-try.ts)
- * shown as an answer card, not a chat; the old test conversation is left
- * alone until PR B removes it.
+ * shown as an answer card, not a chat.
  */
 export default async function ReeTryPage({ params }: { params: Promise<{ id: string }> }) {
   const user = (await currentUser())!;

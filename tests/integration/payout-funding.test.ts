@@ -5,10 +5,12 @@
  * signals -- one dominant payer, fresh accounts, askers who ask no one else,
  * a shared e-mail, fees at the maximum, refunded purchases. Read-only.
  *
- * Questions are settled here with the same calls, in the same order, as
- * `lib/services/answer.ts` settles an answered question's query fee (hold,
- * settle, `paidShare`, one earned grant per paying purchase plus one for the
- * free part, the reply row), without a model stream in front of it.
+ * Conversation answers (before migration 0070) are settled here with the
+ * same calls, in the same order, as the conversations settled an answered
+ * question's query fee (hold, settle, `paidShare`, one earned grant per
+ * paying purchase plus one for the free part), and traced as 0070 left them
+ * (`payout_trace_legacy`); private-post answers through posts.ts
+ * `closeAnswer` itself.
  */
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
@@ -68,12 +70,16 @@ async function boughtPack(userId: string, credits: number) {
   return purchase!;
 }
 
-/** One answered question, its query fee settled the way `answer.ts` settles it. */
+/**
+ * One answered conversation question from before migration 0070, its query
+ * fee settled the way the conversations settled it, and its reply traced as
+ * 0070 kept it (`payout_trace_legacy`) once the messages were gone.
+ */
 async function ask(askerId: string, ree: { id: string; ownerId: string; name: string }, fee: number) {
-  const [conversation] = await db().insert(schema.conversation).values({ userId: askerId }).returning();
-  const [question] = await db().insert(schema.message).values({ conversationId: conversation!.id, role: 'user', content: 'question' }).returning();
-  const holdId = await db().transaction((tx) => placeHold(tx, { userId: askerId, kind: 'chat', amount: fee, refId: question!.id, reeId: ree.id, ledger: 'chat_fee' }));
+  const questionId = randomUUID();
   const replyId = randomUUID();
+  /* A `chat` hold then; nothing places one now, and the kind plays no part in the trace. */
+  const holdId = await db().transaction((tx) => placeHold(tx, { userId: askerId, kind: 'post', amount: fee, refId: questionId, reeId: ree.id, ledger: 'chat_fee' }));
   await db().transaction(async (tx) => {
     const paid = await settleHold(tx, holdId, fee, { reeId: ree.id, note: ree.name, ledger: 'chat_fee' });
     const share = await paidShare(tx, paid!.chargedAllocations);
@@ -82,7 +88,7 @@ async function ask(askerId: string, ree: { id: string; ownerId: string; name: st
       addGrant(tx, { userId: ree.ownerId, source: 'earned', amount, reason: 'query_fee_earned', refId: replyId, reeId: ree.id, note: ree.name, withdrawableAt, fundingPurchaseId });
     for (const [purchaseId, amount] of share.byPurchase) if (amount > 0) await credit(amount, matures, purchaseId);
     if (share.free > 0) await credit(share.free, null, null);
-    await tx.insert(schema.message).values({ id: replyId, conversationId: conversation!.id, role: 'ree', reeId: ree.id, content: 'answer', requestId: question!.id, costCredits: fee });
+    await tx.insert(schema.payoutTraceLegacy).values({ replyId, requestId: questionId, reeId: ree.id, askerId, askedAt: new Date() });
   });
 }
 

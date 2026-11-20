@@ -2,7 +2,7 @@
  * What a Ree's public figures count since private posts replaced private
  * conversations: the frozen conversation figures (`ree_legacy_stats`,
  * migration 0066) plus the same figures counted from posts, so nothing
- * changes when the conversation tables go (PR B).
+ * changed when migration 0070 dropped the conversation tables.
  *
  * From posts, a question to a Ree is one of its `post_answer` rows, first
  * round or follow-up, on a published post someone other than its owner

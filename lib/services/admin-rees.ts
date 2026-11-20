@@ -5,9 +5,7 @@
  * a source; and the takedown and restore.
  *
  * A takedown turns the Ree private, marks it moderated (its owner cannot
- * republish it), removes it from other people's conversations (history
- * stays, as when an owner makes a Ree private) and out of discovery, and
- * tells the owner why. Restoring makes it public again and rebuilds its
+ * republish it), takes it out of discovery, and tells the owner why. Restoring makes it public again and rebuilds its
  * discovery profile.
  */
 import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
@@ -18,7 +16,6 @@ import type { ReesView, ReeVisibility } from '@/lib/domain/admin-lists';
 import { clampPage, likePattern, param, type ListResult } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
 import { AdminInputError, audit, assertConsole, type Administrator } from '@/lib/services/admin';
-import { detachRee } from '@/lib/services/conversations';
 import { notify } from '@/lib/services/notices';
 import { refreshProfile } from '@/lib/services/profile';
 import { sourceState, sourceSummary } from '@/lib/services/statistics';
@@ -266,14 +263,12 @@ export async function takeDownRee(administratorId: string, reeId: string, rawRea
       .update(schema.ree)
       .set({ isPublic: false, isPublished: false, moderatedAt: now, moderatedBy: administratorId, moderatedReason: reason, updatedAt: now })
       .where(eq(schema.ree.id, reeId));
-    /* Out of other people's conversations, history kept, as when an owner makes a Ree private (step 4). */
-    const conversations = await detachRee(tx, reeId, { includeOwner: false });
     await audit(tx, {
       administratorId,
       action: 'ree.takedown',
       target: reeId,
       before: { visibility: ree.isPublished ? 'public' : 'unpublished', name: ree.name },
-      after: { visibility: 'moderated', reason, conversationsLeft: conversations },
+      after: { visibility: 'moderated', reason },
     });
     await notify(tx, { userId: ree.ownerId, kind: 'takedown', text: reason, params: { ree: ree.name, reeId }, refId: reeId });
   });

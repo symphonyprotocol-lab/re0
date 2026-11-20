@@ -118,7 +118,7 @@ export const zh = {
     takedown: {
       label: '下架 Ree',
       title: '将这个 Ree 下架？',
-      body: '下架后 Ree 转为私有，并从其他用户的对话中移除（对话历史保留）；所有者会收到通知并看到原因，且不能自行重新公开。',
+      body: '下架后 Ree 转为私有，不再出现在 Rees 页和其他用户的提问里（已有回答保留）；所有者会收到通知并看到原因，且不能自行重新公开。',
       confirm: '确认下架',
     },
     restore: {
@@ -439,7 +439,7 @@ export const en: Shape<typeof zh> = {
     takedown: {
       label: 'Take down Ree',
       title: 'Take down this Ree?',
-      body: 'The Ree becomes private and leaves other people’s conversations (their history stays). The owner is notified with the reason and cannot republish it.',
+      body: 'The Ree becomes private and leaves Rees and other people’s questions (existing answers stay). The owner is notified with the reason and cannot republish it.',
       confirm: 'Take down',
     },
     restore: {

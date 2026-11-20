@@ -78,6 +78,47 @@ export async function runBackfill(name: 'legacy-stats' | 'api-key-usage' | 'chat
   throw new Error(`no backfill named ${name}`);
 }
 
+/** A migration file's statements, as the deploy runs them: split on `--> statement-breakpoint`, comment-only pieces left out. */
+async function statementsOf(url: URL): Promise<string[]> {
+  const { readFileSync } = await import('node:fs');
+  return readFileSync(url, 'utf8')
+    .split('--> statement-breakpoint')
+    .filter((statement) => statement.replace(/--[^\n]*|\/\*[\s\S]*?\*\//g, '').trim());
+}
+
+async function conversationTablesExist(): Promise<boolean> {
+  const { db } = await import('@/lib/infra/db');
+  const { sql } = await import('drizzle-orm');
+  const result = await db().execute<{ present: boolean }>(sql`select to_regclass('public.conversation') is not null as present`);
+  return result.rows[0]!.present;
+}
+
+/**
+ * The conversation tables, and the columns that pointed at them, back as
+ * they were before migration 0070 dropped them (tests/fixtures/
+ * pre-0070-conversations.sql), so a test can seed old conversations. Empty;
+ * a no-op while they exist. `dropConversationTables` puts the database back.
+ */
+export async function restoreConversationTables(): Promise<void> {
+  if (await conversationTablesExist()) return;
+  const { db } = await import('@/lib/infra/db');
+  const { sql } = await import('drizzle-orm');
+  for (const statement of await statementsOf(new URL('../fixtures/pre-0070-conversations.sql', import.meta.url))) await db().execute(sql.raw(statement));
+}
+
+/** Migration 0070's statements in order, its own table's creation left out once that table exists (as it does after the suite's migrations). */
+export async function migration0070(): Promise<string[]> {
+  return (await statementsOf(new URL('../../db/migrations/0070_drop_conversations.sql', import.meta.url))).filter((statement) => !/create table "payout_trace_legacy"/i.test(statement));
+}
+
+/** Runs migration 0070 against what the test seeded: the guard, the payout snapshot, the purge and the drops. A no-op once the tables are gone. */
+export async function dropConversationTables(): Promise<void> {
+  if (!(await conversationTablesExist())) return;
+  const { db } = await import('@/lib/infra/db');
+  const { sql } = await import('drizzle-orm');
+  for (const statement of await migration0070()) await db().execute(sql.raw(statement));
+}
+
 /**
  * Every integration file starts with the invitation, starter task and
  * check-in rewards off (amounts 0, invitations on), so suites about other things see

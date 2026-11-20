@@ -32,14 +32,12 @@ const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
 const { POST: reportPostRoute } = await import('@/app/api/posts/[id]/report/route');
-const { publishOwnAnswer } = await import('@/lib/services/public-qa');
 const { reeCards } = await import('@/lib/services/explore');
 const { consoleAdministrator } = await import('../fixtures/console-administrator');
 const { roleMetrics } = await import('@/lib/services/roles');
 const { savedCounts } = await import('@/lib/services/statistics');
 const { computeRanks } = await import('@/lib/services/rank');
 const { adminOverview } = await import('@/lib/services/admin-overview');
-const { setFeedback } = await import('@/lib/services/conversations');
 const privatePosts = await import('@/lib/services/private-posts');
 const { QUERY_BASE_FEE } = await import('@/lib/constants');
 const { POST_SUMMARY_FREE_REWRITES } = await import('@/lib/domain/post');
@@ -122,23 +120,14 @@ async function figures(ownerId: string, reeId: string) {
 }
 
 describeWithDb('public posts, review round 3', () => {
-  it('counts the copied exchange of 继续问 nowhere, and a real question after it like any (N1)', async () => {
+  it('counts a private question to a post\'s Ree like any question (N1)', async () => {
     const { ownerId, reeId } = await publicRee();
     const author = await user('r3-follow', 500);
     const posted = await publish(author);
     await posts.processPost(posted.id, stub([reeId]));
-    const [shown] = (await posts.getPost(posted.id))!.answers;
     const before = await figures(ownerId, reeId);
 
-    const conversationIds: string[] = [];
-    for (let index = 0; index < 4; index += 1) conversationIds.push((await posts.followUpPost(author, posted.id, shown!.id))!);
-    expect(await figures(ownerId, reeId)).toEqual(before);
-
-    /* The copied answer takes no vote either. */
-    const [copied] = await db().select({ id: schema.message.id }).from(schema.message).where(and(eq(schema.message.conversationId, conversationIds[0]!), eq(schema.message.role, 'ree')));
-    await expect(setFeedback(author, copied!.id, 'up')).rejects.toThrow();
-
-    /* A real question after it -- a private question to the same Ree now -- is charged and counts. */
+    /* A private question to the same Ree is charged and counts. */
     const balance = await balanceOf(db(), author);
     const asked = await privatePosts.publishPrivatePost(author, { question: 'And when are refunds issued to the card?', reeIds: [reeId], fees: { [reeId]: QUERY_BASE_FEE }, lang: 'en' });
     if (!asked.ok) throw new Error(asked.error);

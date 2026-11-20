@@ -4,7 +4,7 @@
  * window the route answers 429 with `retry-after` before doing any work.
  */
 import { USER_RATE_LIMITS } from '@/lib/constants';
-import { clientIp } from '@/lib/http/conversations';
+import { clientIp } from '@/lib/http/client-ip';
 import { fail } from '@/lib/http/respond';
 import { hitRateBucket } from '@/lib/services/rate-limit';
 
