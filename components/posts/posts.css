@@ -48,9 +48,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 14px;
-  margin-top: 8px;
-  padding-top: 10px;
-  border-top: 1px solid #eef0f6;
+  /* No line inside the composer (v6): its one line is the bottom one, drawn where it meets the feed. */
+  margin-top: 10px;
   color: #606670;
   font-size: 11px;
 }
@@ -71,20 +70,25 @@
   background: var(--color-wash);
 }
 
-/* One post in the feed. */
+/*
+ * One post in the feed (v6): no line between posts -- 15px above and below
+ * each, so 30px between them -- and the whole post tinted while the pointer
+ * is on it (on a phone, while a finger presses it), as Rees are. Every list
+ * of posts uses this card: 首页, 我的帖子, 收藏, search, a Ree's answered
+ * posts, a post's quotes.
+ */
 .post-card {
   position: relative;
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr);
   gap: 12px;
-  padding: 18px 2px 12px;
-  border-bottom: 1px solid var(--color-line);
+  padding: 15px 2px;
   isolation: isolate;
 }
 .post-card::before {
   content: '';
   position: absolute;
-  inset: 6px -12px;
+  inset: 3px -12px;
   z-index: -1;
   border-radius: 16px;
   background: #f8f9fa;
@@ -128,9 +132,12 @@
 .post-answers-preview {
   margin-top: 10px;
   padding: 10px 12px;
-  border: 1px solid var(--color-line);
   border-radius: 12px;
-  background: var(--color-wash);
+  background: #f4f5fa;
+}
+/* On the tinted post the answer turns white, so the two greys never sit on each other. */
+.post-card:hover .post-answers-preview {
+  background: #ffffff;
 }
 .post-answerers {
   display: flex;
@@ -144,8 +151,11 @@
 }
 .post-stack > span {
   margin-left: -6px;
-  border: 2px solid var(--color-wash);
+  border: 2px solid #f4f5fa;
   border-radius: 50%;
+}
+.post-card:hover .post-stack > span {
+  border-color: #ffffff;
 }
 .post-stack > span:first-child {
   margin-left: 0;
@@ -184,17 +194,17 @@
   font-size: 12px;
 }
 .post-state.is-gathering {
-  border: 1px solid #d6e6fb;
+  border: 1px solid transparent;
   background: var(--color-soft);
   color: var(--color-blue);
 }
 .post-state.is-unmatched {
-  border: 1px dashed #d6d6e8;
+  border: 1px solid transparent;
   background: #eeedfa;
   color: #3b4361;
 }
 .post-state.is-rejected {
-  border: 1px solid #f3d2cf;
+  border: 1px solid transparent;
   background: #fdf3f2;
   color: #b4372c;
 }
@@ -708,4 +718,23 @@ a.post-quote:hover {
   background: #eef0f6;
   color: var(--color-muted);
   cursor: default;
+}
+
+/* Phones have no hover: the tint shows while a finger presses the post, edge to edge, and nothing stays tinted after a tap. */
+@media (hover: none) {
+  .post-card:hover::before {
+    opacity: 0;
+  }
+  .post-card:hover .post-question {
+    color: var(--color-ink);
+  }
+  .post-card:hover .post-answers-preview {
+    background: #f4f5fa;
+  }
+  .post-card:active::before {
+    inset: 0 -18px;
+    border-radius: 0;
+    opacity: 1;
+    transition: none;
+  }
 }

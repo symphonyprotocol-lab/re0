@@ -16,18 +16,47 @@
   --context-bar-height: 44px;
 }
 
+/* ---- The frame -------------------------------------------------------- */
+
+/*
+ * v6 (docs/design/v6): the sidebar and the main column sit in one box at
+ * most 1280px wide, centred, with equal gaps either side -- 248px sidebar,
+ * 24px gap, then the main column (640 + 28 + 340 on the feed pages, or one
+ * 1008px column). The page is white; the only vertical line is the
+ * sidebar's right edge. From 1023px down the sidebar is its 68px icon rail;
+ * phones drop the box and open the sidebar as a drawer.
+ */
+body:has(.xshell) {
+  background: #ffffff;
+}
+.xshell {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  column-gap: 24px;
+  width: min(1280px, calc(100% - 32px));
+  min-height: 100vh;
+  margin-inline: auto;
+}
+.xshell > .sidebar {
+  grid-column: 1;
+}
+.xshell > .app-main {
+  grid-column: 2;
+}
+
 /* ---- Sidebar ---------------------------------------------------------- */
 
 .sidebar {
-  position: fixed;
-  inset: 0 auto 0 0;
+  position: sticky;
+  top: 0;
   z-index: 30;
   display: flex;
   flex-direction: column;
-  width: 252px;
+  height: 100vh;
+  height: 100dvh;
   padding: 24px 13px 15px;
   overflow-y: auto;
-  background: #fbfbff;
+  background: #ffffff;
   border-right: 1px solid var(--color-line);
 }
 .sidebar svg {
@@ -492,12 +521,11 @@
 
 .app-main {
   --color-bg: #ffffff;
-  --navigation-sidebar: 252px;
+  --navigation-sidebar: 0px;
   --navigation-base: var(--workspace-bar-height);
   --navigation-height: var(--navigation-base);
   min-width: 0;
   min-height: 100vh;
-  margin-left: 252px;
   background: var(--color-bg);
 }
 .app-main:has(.context-nav-row) {
@@ -509,14 +537,14 @@ html:has(.app-main) {
 html:has(.app-main .context-nav-row) {
   scroll-padding-top: calc(var(--workspace-bar-height) + var(--context-bar-height) + 16px);
 }
-/* The bar is fixed; this keeps the page below it. */
+/* The bar sticks to the top inside the box (v6); it takes its own place in the flow. */
 .topbar-spacer {
-  height: var(--navigation-height);
+  display: none;
 }
 
 .app-main .topbar {
-  position: fixed;
-  inset: 0 0 auto var(--navigation-sidebar);
+  position: sticky;
+  top: 0;
   z-index: 25;
   display: flex;
   flex-direction: column;
@@ -728,24 +756,18 @@ html:has(.app-main .context-nav-row) {
 /* ---- Collapsed rail (≥ 761px) ----------------------------------------- */
 
 @media (min-width: 761px) {
-  .app-main {
-    transition: margin-left 0.2s ease;
-  }
-  .app-main .topbar {
-    transition: left 0.2s ease;
+  .xshell {
+    transition: grid-template-columns 0.2s ease;
   }
   .sidebar {
-    transition:
-      width 0.2s ease,
-      padding 0.2s ease;
+    transition: padding 0.2s ease;
   }
-  .app-main.sidebar-collapsed {
-    --navigation-sidebar: 68px;
-    margin-left: 68px;
+  /* Folded by the user, or 1023px and narrower (app-shell.tsx folds it there): the 68px icon rail. */
+  .xshell:has(> .sidebar.is-collapsed) {
+    grid-template-columns: 68px minmax(0, 1fr);
   }
   .sidebar.is-collapsed {
     align-items: stretch;
-    width: 68px;
     padding: 24px 10px 15px;
   }
   .sidebar.is-collapsed > .wordmark {
@@ -873,6 +895,19 @@ html:has(.app-main .context-nav-row) {
 
 /* ---- Breakpoints ------------------------------------------------------ */
 
+/* 761–1023px: the icon rail, set by the shell; the grid takes its width before the page hydrates, and the fold button has nothing to do here. */
+@media (min-width: 761px) and (max-width: 1023px) {
+  .xshell {
+    grid-template-columns: 68px minmax(0, 1fr);
+  }
+  .xshell > .sidebar {
+    overflow-x: hidden;
+  }
+  .sidebar-collapse {
+    display: none;
+  }
+}
+
 @media (max-width: 1180px) {
   .topbar-main {
     gap: 17px;
@@ -912,7 +947,18 @@ html:has(.app-main .context-nav-row) {
   :root {
     --workspace-bar-height: 62px;
   }
+  /* No box on a phone: the main column is the page, the sidebar a drawer over it. */
+  .xshell {
+    display: block;
+    width: 100%;
+  }
   .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    /* Over the phone's bottom bar and ask button (columns.css, 40/41). */
+    z-index: 50;
+    width: 252px;
+    height: auto;
     transform: translateX(-100%);
     transition: transform 0.25s;
   }
@@ -930,10 +976,6 @@ html:has(.app-main .context-nav-row) {
   }
   .chat-history-row > .icon-btn {
     opacity: 1;
-  }
-  .app-main {
-    --navigation-sidebar: 0px;
-    margin-left: 0;
   }
   .topbar .mobile-menu {
     display: inline-flex;

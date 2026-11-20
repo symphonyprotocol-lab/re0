@@ -19,13 +19,13 @@
   flex-direction: column;
   min-width: 0;
 }
+/* Rees are separated as posts are (v6, posts.css .post-card): no line, 30px between them, a tint while the pointer is on one or a finger presses it. */
 .discovery-page .feed-ree {
   position: relative;
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
   gap: 12px;
-  padding: 18px 2px 14px;
-  border-bottom: 1px solid var(--color-line);
+  padding: 15px 2px;
   isolation: isolate;
 }
 .discovery-page .feed-ree:first-child {
@@ -34,7 +34,7 @@
 .discovery-page .feed-ree::before {
   content: '';
   position: absolute;
-  inset: 6px -12px;
+  inset: 3px -12px;
   z-index: -1;
   border-radius: 16px;
   background: #f8f9fa;
@@ -369,4 +369,16 @@
   flex-direction: column;
   gap: 12px;
   margin-top: 12px;
+}
+
+@media (hover: none) {
+  .discovery-page .feed-ree:hover::before {
+    opacity: 0;
+  }
+  .discovery-page .feed-ree:active::before {
+    inset: 0 -18px;
+    border-radius: 0;
+    opacity: 1;
+    transition: none;
+  }
 }

@@ -53,6 +53,21 @@ export interface ShellUser {
 }
 
 const PHONE = '(max-width: 760px)';
+/** Between phones and 1024px the sidebar is always its 68px icon rail (v6), whatever the user chose. */
+const RAIL = '(min-width: 761px) and (max-width: 1023px)';
+
+/** Whether a media query matches now, following it as the window changes; false on the server. */
+export function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const list = window.matchMedia(query);
+    const sync = () => setMatches(list.matches);
+    sync();
+    list.addEventListener('change', sync);
+    return () => list.removeEventListener('change', sync);
+  }, [query]);
+  return matches;
+}
 
 /**
  * The workspace frame (prototype app.js `shell`, conversations.js `sidebar`,
@@ -64,16 +79,11 @@ const PHONE = '(max-width: 760px)';
 export function AppShell({ user, initialCollapsed, children }: { user: ShellUser; initialCollapsed: boolean; children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [drawer, setDrawer] = useState(false);
-  const [phone, setPhone] = useState(false);
+  const phone = useMediaQuery(PHONE);
+  const rail = useMediaQuery(RAIL);
+  const folded = collapsed || rail;
   const pathname = usePathname();
   useEffect(() => setDrawer(false), [pathname]);
-  useEffect(() => {
-    const query = window.matchMedia(PHONE);
-    const sync = () => setPhone(query.matches);
-    sync();
-    query.addEventListener('change', sync);
-    return () => query.removeEventListener('change', sync);
-  }, []);
   /* The open drawer closes on Escape and on a tap beside it (prototype app.js); that tap only closes it, it does not also press what lies under the dimmed page. */
   useEffect(() => {
     if (!drawer) return;
@@ -103,13 +113,13 @@ export function AppShell({ user, initialCollapsed, children }: { user: ShellUser
     });
   };
   return (
-    <ShellContext.Provider value={{ collapsed, toggleCollapsed, openDrawer: () => setDrawer(true), activitiesPending: user.activities.visible && user.activities.dot, signedIn: true }}>
+    <ShellContext.Provider value={{ collapsed: folded, toggleCollapsed, openDrawer: () => setDrawer(true), activitiesPending: user.activities.visible && user.activities.dot, signedIn: true }}>
       <HistoryProvider>
         <SearchShortcut />
         <PostComposerDialog />
         <div className="xshell">
-          <Sidebar user={user} collapsed={collapsed} phone={phone} open={drawer} hidden={phone && !drawer} onClose={() => setDrawer(false)} />
-          <WorkspaceMain collapsed={collapsed}>{children}</WorkspaceMain>
+          <Sidebar user={user} collapsed={folded} phone={phone} open={drawer} hidden={phone && !drawer} onClose={() => setDrawer(false)} />
+          <WorkspaceMain collapsed={folded}>{children}</WorkspaceMain>
           <BottomBar unread={user.unreadNotices} />
         </div>
       </HistoryProvider>
