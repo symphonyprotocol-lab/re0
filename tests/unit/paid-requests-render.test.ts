@@ -25,6 +25,7 @@ const base: PostView = {
   summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, followUps: [],
   paidRequests: [{ id: 'q1', reeId: 'r2', reeSlug: 'tax', reeName: 'Tax desk', reeAvatar: null, reeColor: 'default', ownerName: 'Mei', similarity: 0.71, mentioned: false, price: 70, state: 'awaiting' }],
   spent: 20,
+  aiAnswer: null,
   followupCount: 0,
   followups: [],
   followupCandidates: [],
