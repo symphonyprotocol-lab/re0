@@ -28,6 +28,7 @@ import { useI18n } from '@/i18n/client';
 import { useReePreviewDraft } from '@/lib/client/ree-preview';
 import type { IntroProps } from '@/lib/domain/video';
 import '@/components/discover/feed.css';
+import '@/components/ui/tabs.css';
 
 type Search = Record<string, string | string[] | undefined>;
 type Tab = 'qa' | 'comments' | 'intro';

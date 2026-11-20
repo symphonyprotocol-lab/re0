@@ -4,6 +4,7 @@ import { formatNumber } from '@/i18n/format';
 import { isUuid } from '@/lib/domain/list';
 import type { MinePostsFilter } from '@/lib/services/posts';
 import { Icon } from '@/components/ui/icons';
+import '@/components/ui/tabs.css';
 
 export type MyPostsTab = 'all' | 'public' | 'private' | 'trash';
 

@@ -10,6 +10,7 @@ import { Icon } from '@/components/ui/icons';
 import { listSavedPosts } from '@/lib/services/posts';
 import { PostFeed } from '@/components/posts/post-feed';
 import '@/components/discover/explore.css';
+import '@/components/ui/tabs.css';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();

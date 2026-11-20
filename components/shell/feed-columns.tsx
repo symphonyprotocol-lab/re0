@@ -8,6 +8,7 @@ import { BrandMark, BrandName } from '@/components/ui/brand-mark';
 import { Icon } from '@/components/ui/icons';
 import { LanguageMenu } from '@/components/ui/language-menu';
 import './columns.css';
+import '@/components/ui/tabs.css';
 
 /**
  * The centre and right columns of the three-column frame (v5): a sticky

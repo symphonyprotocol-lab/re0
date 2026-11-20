@@ -13,6 +13,7 @@ import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
 import './posts.css';
+import '@/components/ui/tabs.css';
 
 /**
  * Leaving the composer window for another page. Closing a `<dialog>` fires

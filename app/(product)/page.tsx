@@ -17,6 +17,7 @@ import { feedTabOf, FEED_TABS, type FeedTab } from '@/lib/domain/post';
 import { listFeed, unansweredCount } from '@/lib/services/posts';
 import { HomeComposer } from '@/components/posts/composer';
 import { PostFeed } from '@/components/posts/post-feed';
+import '@/components/ui/tabs.css';
 
 /** 首页 shows this many Rees until there are posts; 发现 has them all. */
 const HOME_REES = 6;
