@@ -4,11 +4,10 @@
  * follow-ups, owner actions, 转为公开 and 没帮助. And the legacy counters
  * frozen from the conversation tables before they go.
  */
-import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { pointModelsAt, runBackfill, TEST_DATABASE_URL, uniqueName } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import type { AnswerOne } from '@/lib/services/posts';
 
@@ -344,15 +343,7 @@ describeWithDb('private posts (私密提问)', () => {
 /* ---------------------------------------------------------- legacy counters */
 
 /** The backfill exactly as migration 0066 runs it. */
-async function runLegacyBackfill(): Promise<void> {
-  const file = readFileSync(new URL('../../db/migrations/0066_private_posts.sql', import.meta.url), 'utf8');
-  const start = file.indexOf('-- legacy-stats backfill begin');
-  const end = file.indexOf('-- legacy-stats backfill end');
-  expect(start).toBeGreaterThan(0);
-  for (const statement of file.slice(start, end).split('--> statement-breakpoint')) {
-    if (statement.replace(/--.*$/gm, '').trim()) await db().execute(sql.raw(statement));
-  }
-}
+const runLegacyBackfill = () => runBackfill('legacy-stats');
 
 describeWithDb('legacy counters from conversations', () => {
   it('backfills what explore, rank and roles count from conversations today', async () => {

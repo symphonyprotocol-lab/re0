@@ -1369,6 +1369,8 @@ export const post = pgTable(
     title: text('title'),
     /** The public post 转为公开 copied this private one into: one copy per private post. */
     publishedCopyId: uuid('published_copy_id').references((): AnyPgColumn => post.id, { onDelete: 'set null' }),
+    /** The API key an MCP ask (`source = 'api'`) came through, for the key's usage; null once the key is deleted. */
+    apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
     /** The public Q&A row this post was copied from. */
     legacyQaId: uuid('legacy_qa_id').references(() => reePublicQa.id, { onDelete: 'set null' }),
     /** For a Q&A a signed-in asker published from a conversation: it shows only while that conversation is out of the trash, and purging it deletes the post. */
@@ -1423,6 +1425,8 @@ export const post = pgTable(
     index('post_user_idx').on(t.userId, t.createdAt.desc()).where(sql`user_id is not null`),
     index('post_pending_idx').on(t.createdAt).where(sql`status = 'pending' or answer_state <> 'done'`),
     uniqueIndex('post_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
+    /* The counts leave out a 转为公开 copy (its answers were counted on the private post): looked up per answer. */
+    index('post_published_copy_idx').on(t.publishedCopyId).where(sql`published_copy_id is not null`),
     index('post_quote_idx').on(t.quotePostId).where(sql`quote_post_id is not null`),
     index('post_quote_review_idx').on(t.quoteReviewAt).where(sql`quote_review_at is not null`),
     check('post_quote_kind_check', sql`quote_kind is null or quote_kind in ('post', 'answer')`),
@@ -1471,6 +1475,8 @@ export const postFollowup = pgTable(
     skipped: integer('skipped').notNull().default(0),
     /** The composer's token: the same token, or the same text under the same post within a minute, asks once. */
     clientToken: uuid('client_token'),
+    /** The API key an MCP continuation of a private post came through (`post.api_key_id` for its first question). */
+    apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     publishedAt: timestampTz('published_at'),
@@ -1680,7 +1686,7 @@ export const verificationRequest = pgTable(
   ],
 );
 
-export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered'] as const;
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**
@@ -2348,6 +2354,13 @@ export const apiKey = pgTable(
     lastUsedAt: timestampTz('last_used_at'),
     expiresAt: timestampTz('expires_at'),
     revokedAt: timestampTz('revoked_at'),
+    /**
+     * What the key asked and spent through MCP conversations, frozen by
+     * migration 0067 before PR B deletes them; its usage adds the private
+     * posts asked through it (api-keys.ts `usageOf`).
+     */
+    legacyQuestions: integer('legacy_questions').notNull().default(0),
+    legacySpent: integer('legacy_spent').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [

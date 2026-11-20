@@ -129,6 +129,9 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
         action: o.post,
         reason: null,
       };
+    case 'chats_removal':
+      /* Once, by migration 0067: private conversations became private posts, and the old ones go a week later. */
+      return { line: l.chatsRemoval, icon: 'info', href: '/me/posts?tab=private', action: o.privatePosts, reason: null };
     default:
       return { line: l.other, icon: 'info', href: null, action: null, reason };
   }

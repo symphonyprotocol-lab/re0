@@ -56,6 +56,7 @@ import { endpointFor } from '@/lib/infra/ai/models';
 import type { IntroProps } from '@/lib/domain/video';
 import { introsFor } from '@/lib/services/video';
 import { votesByOthers } from '@/lib/services/ree-feedback';
+import { answersByOthersOf } from '@/lib/services/ree-counts';
 import { hitRateBucket } from '@/lib/services/rate-limit';
 import { untimed, type Timing } from '@/lib/infra/timing';
 import { SEARCH_INDEXES } from '@/lib/infra/search-indexes';
@@ -72,12 +73,13 @@ export function publicRee(): SQL {
 export const readySources = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = ${reeId} and k.status = 'ready' and k.enabled and k.deleted_at is null)`;
 /**
  * Successful answers to other people, all time: the public count, the
- * "most answered" order and MCP's figure. Answers to signed-out visitors
+ * "most answered" order and MCP's figure -- the conversations' frozen count
+ * plus the posts' (ree-counts.ts). Answers to signed-out visitors
  * (anonymous-chat.ts) are left out -- anyone, the owner signed out
  * included, could ask for them -- so what is shown and what orders agree;
  * the owner's own statistics count them.
  */
-export const answersByOthers = sql<number>`(select count(*)::int from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id where m.ree_id = ${reeId} and m.role = 'ree' and not m.no_answer and c.user_id <> ${reeOwner} and not m.copied_from_post)`;
+export const answersByOthers = answersByOthersOf(reeId, reeOwner);
 
 export interface ReeCard {
   id: string;

@@ -12,7 +12,7 @@
 import { WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { pointModelsAt, runBackfill, TEST_DATABASE_URL, uniqueName } from './setup';
 import { consoleAdministrator } from '../fixtures/console-administrator';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 
@@ -84,7 +84,7 @@ async function publicRee(ownerId: string, options: { ready?: number; isPublic?: 
   return ree!;
 }
 
-/** `count` questions from `askerId` to the Ree, each answered, with feedback `up`/`down` on the first ones. */
+/** `count` questions from `askerId` to the Ree in a conversation, each answered, with feedback `up`/`down` on the first ones. */
 async function questions(askerId: string, reeId: string, count: number, votes: { up: number; down: number } = { up: 0, down: 0 }, at = new Date()) {
   const [conversation] = await db().insert(schema.conversation).values({ userId: askerId, title: 'q' }).returning({ id: schema.conversation.id });
   await db().insert(schema.conversationRee).values({ conversationId: conversation!.id, reeId });
@@ -100,6 +100,8 @@ async function questions(askerId: string, reeId: string, count: number, votes: {
   for (let index = 0; index < votes.up + votes.down; index += 1) {
     await db().execute(sql`insert into ree_feedback (message_id, user_id, vote) values (${ids[index]!}, ${askerId}, ${index < votes.up ? 'up' : 'down'})`);
   }
+  /* Conversations are history now: the figures read them as the release froze them (legacy-stats.test.ts). */
+  await runBackfill('legacy-stats');
   return { conversationId: conversation!.id, replies: ids };
 }
 

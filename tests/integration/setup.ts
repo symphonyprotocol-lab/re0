@@ -53,6 +53,32 @@ export function freezeDateAtWindowStart(windowSeconds = 60): Date {
 }
 
 /**
+ * Runs a migration's hand-written backfill again -- the SQL between
+ * `-- <name> begin` and `-- <name> end` -- so a test can freeze what it seeded
+ * in the conversation tables, as the release did: `legacy-stats` (0066,
+ * `ree_legacy_stats` / `user_legacy_stats`), `api-key-usage` and
+ * `chats-removal-notice` (0067). Each overwrites or skips what it wrote, so
+ * they may run any number of times.
+ */
+export async function runBackfill(name: 'legacy-stats' | 'api-key-usage' | 'chats-removal-notice'): Promise<void> {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const { db } = await import('@/lib/infra/db');
+  const { sql } = await import('drizzle-orm');
+  const dir = new URL('../../db/migrations/', import.meta.url);
+  for (const file of readdirSync(dir).filter((entry) => entry.endsWith('.sql'))) {
+    const text = readFileSync(new URL(file, dir), 'utf8');
+    const begin = text.indexOf(`-- ${name} backfill begin`);
+    if (begin < 0) continue;
+    const end = text.indexOf(`-- ${name} backfill end`, begin);
+    for (const statement of text.slice(begin, end).split('--> statement-breakpoint')) {
+      if (statement.replace(/--[^\n]*|\/\*[\s\S]*?\*\//g, '').trim()) await db().execute(sql.raw(statement));
+    }
+    return;
+  }
+  throw new Error(`no backfill named ${name}`);
+}
+
+/**
  * Every integration file starts with the invitation, starter task and
  * check-in rewards off (amounts 0, invitations on), so suites about other things see
  * the balances they always did. tests/integration/invites.test.ts turns

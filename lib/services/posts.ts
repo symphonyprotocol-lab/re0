@@ -75,7 +75,7 @@ import { PUBLIC_QA_MODERATION_ATTEMPTS, PUBLIC_QA_REPORT_THRESHOLD, plainOf, pre
 import { cleanSynthesis, letterAnswers, synthesisInstructions, synthesisPrompt } from '@/lib/domain/synthesis';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
-import { maxCostFor, readyRees, streamGroundedAnswer } from '@/lib/services/answer';
+import { maxCostFor, readyRees, streamGroundedAnswer, type Emit } from '@/lib/services/answer';
 import { embedQuestion, retrieve, type QuestionVector } from '@/lib/services/chat';
 import { balanceOf, creditQueryFee, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
 import { publicRee, searchRees } from '@/lib/services/explore';
@@ -448,7 +448,8 @@ export const searchMatcher: Matcher = async ({ question, mentionReeId, excludePa
 export type AnswerResult = { state: 'answered'; text: string; citations: CitationSnapshot[]; model: string | null } | { state: 'no_answer' | 'failed'; model: string | null };
 
 /** `turns`: the exchange so far, for a follow-up (追问): the post's question and this Ree's own answers, nobody else's. */
-export type AnswerOne = (input: { reeId: string; subject: string; lang: 'zh' | 'en'; vector: QuestionVector | null; context?: QuoteContext | null; turns?: { role: 'user' | 'assistant'; content: string }[] }) => Promise<AnswerResult>;
+/** `emit`: the answer's text as it is written (MCP's progress); posts are never streamed to a page. */
+export type AnswerOne = (input: { reeId: string; subject: string; lang: 'zh' | 'en'; vector: QuestionVector | null; context?: QuoteContext | null; turns?: { role: 'user' | 'assistant'; content: string }[]; emit?: Emit }) => Promise<AnswerResult>;
 
 /** What a quoting post brings to its answers: the quoted question, and the quoted answer when an answer was quoted. Context only, never evidence. */
 export interface QuoteContext {
@@ -457,7 +458,7 @@ export interface QuoteContext {
 }
 
 /** One Ree's answer from its own knowledge, on the platform's model; never streamed to anyone. */
-export const groundedAnswer: AnswerOne = async ({ reeId, subject, lang, vector, context, turns: earlier }) => {
+export const groundedAnswer: AnswerOne = async ({ reeId, subject, lang, vector, context, turns: earlier, emit }) => {
   const [target] = await db().select().from(ree).where(eq(ree.id, reeId)).limit(1);
   if (!target || !(await readyRees([reeId])).has(reeId)) return { state: 'no_answer', model: null };
   let model: string | null = null;
@@ -471,7 +472,7 @@ export const groundedAnswer: AnswerOne = async ({ reeId, subject, lang, vector, 
       ? [{ role: 'user', content: context.question }, { role: 'assistant', content: context.answer }]
       : []);
     const asked = context && !context.answer ? `${subject}\n\n(${context.question})` : subject;
-    const { declined, text } = await streamGroundedAnswer({ generation, ree: target, lang, subject: asked, passages: found.passages, turns }, () => undefined);
+    const { declined, text } = await streamGroundedAnswer({ generation, ree: target, lang, subject: asked, passages: found.passages, turns }, emit ?? (() => undefined));
     if (declined || !text.trim()) return { state: 'no_answer', model };
     return { state: 'answered', text: text.trim(), citations: citationSnapshots(text, found.passages), model };
   } catch (error) {
@@ -1030,6 +1031,16 @@ export interface MinePostsFilter {
   since?: Date | null;
   pinned?: boolean;
   archived?: boolean;
+}
+
+/** A Ree owner's 试问 of one of their Rees (private posts, `source = 'test'`), newest first, as the post page shows them (ree-try.ts). */
+export async function reeTryPosts(userId: string, reeId: string, limit: number): Promise<PostView[]> {
+  const rows = await selectPosts(
+    and(eq(post.userId, userId), eq(post.source, 'test'), isNull(post.deletedAt), sql`exists (select 1 from ${answer} ta where ta.post_id = ${post.id} and ta.ree_id = ${reeId})`),
+    [desc(post.createdAt), desc(post.id)],
+    limit,
+  );
+  return viewsOf(rows, userId, { whole: true });
 }
 
 /** What 我的帖子 lists: the author's posts and MCP asks; a Ree owner's 试问 stays on its Ree's test page. */

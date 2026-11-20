@@ -2,13 +2,14 @@
  * The explore ranking, materialised every hour into `ree.rank` (rebuild-
  * proposal.md 4, 8.3 "explore 排序分每小时物化"): for each public Ree, the
  * last 30 days of other people's questions, answers, votes and pulls into
- * conversations, and the quality score made from them. Idempotent.
+ * private posts, and the quality score made from them. Idempotent.
  */
 import { sql } from 'drizzle-orm';
 import { QUALITY_WINDOW_DAYS } from '@/lib/constants';
 import { qualityScore, type ReeRank } from '@/lib/domain/explore';
 import { db, schema } from '@/lib/infra/db';
 import { clearRateBuckets } from '@/lib/services/explore';
+import { ANSWERED, ASKED, askedByOthers } from '@/lib/services/ree-counts';
 
 type Counts = Record<string, unknown> & {
   id: string;
@@ -25,49 +26,67 @@ type Counts = Record<string, unknown> & {
 export async function computeRanks(now = new Date()): Promise<number> {
   const since = new Date(now.getTime() - QUALITY_WINDOW_DAYS * 86_400_000).toISOString();
   const week = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+  const owner = sql.raw('o.owner_id');
+  /*
+   * From posts (ree-counts.ts): the 30-day and 7-day windows count posts only
+   * -- the conversations have rolled out of them -- and the all-time order
+   * adds the conversations' frozen count. A pull is a Ree someone else chose
+   * for a private post, or added to one (加 Ree): its first answer row there.
+   */
   const counted = await db().execute<Counts>(sql`
     select r.id,
       coalesce(q.asked, 0)::int as asked,
       coalesce(q.answered, 0)::int as answered,
       coalesce(v.up, 0)::int as up,
-      coalesce(v.down, 0)::int as down,
+      coalesce(d.down, 0)::int as down,
       coalesce(p.pulls, 0)::int as pulls,
-      coalesce(a.answers, 0)::int as answers_all,
+      (coalesce(ls.answers_all, 0) + coalesce(a.answers, 0))::int as answers_all,
       (coalesce(w.asked, 0) + coalesce(z.asked, 0))::int as asked7,
       greatest(w.last_at, z.last_at) as last_answered
     from ${schema.ree} r
-    /* 继续问 (posts.ts followUpPost): its first exchange is the post's, copied (copied_from_post), and counts nowhere here; what is asked after it counts like any question. Starting one is not a pull. */
+    left join ${schema.reeLegacyStats} ls on ls.ree_id = r.id
     left join (
-      select m.ree_id, count(*) as asked, count(*) filter (where not m.no_answer) as answered
-      from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id join ${schema.ree} o on o.id = m.ree_id
-      where m.role = 'ree' and not m.copied_from_post and m.created_at >= ${since}::timestamptz and c.user_id <> o.owner_id
-      group by m.ree_id
+      select a.ree_id, count(*) as asked, count(*) filter (where ${ANSWERED}) as answered
+      from ${schema.postAnswer} a join ${schema.post} p on p.id = a.post_id join ${schema.ree} o on o.id = a.ree_id
+      where ${ASKED} and a.created_at >= ${since}::timestamptz and ${askedByOthers(owner)}
+      group by a.ree_id
     ) q on q.ree_id = r.id
     left join (
-      select m.ree_id, count(*) filter (where f.vote = 'up') as up, count(*) filter (where f.vote = 'down') as down
-      from ${schema.reeFeedback} f join ${schema.message} m on m.id = f.message_id join ${schema.ree} o on o.id = m.ree_id
-      where f.created_at >= ${since}::timestamptz and f.user_id <> o.owner_id
-      group by m.ree_id
+      select a.ree_id, count(*) as up
+      from ${schema.postAnswerVote} x join ${schema.postAnswer} a on a.id = x.answer_id join ${schema.post} p on p.id = a.post_id join ${schema.ree} o on o.id = a.ree_id
+      where x.created_at >= ${since}::timestamptz and x.user_id <> o.owner_id and p.source <> 'test'
+      group by a.ree_id
     ) v on v.ree_id = r.id
     left join (
-      select cr.ree_id, count(*) as pulls
-      from ${schema.conversationRee} cr join ${schema.conversation} c on c.id = cr.conversation_id join ${schema.ree} o on o.id = cr.ree_id
-      where cr.added_at >= ${since}::timestamptz and c.user_id <> o.owner_id and c.post_id is null
-      group by cr.ree_id
+      select a.ree_id, count(*) as down
+      from ${schema.postAnswerFeedback} x join ${schema.postAnswer} a on a.id = x.answer_id join ${schema.post} p on p.id = a.post_id join ${schema.ree} o on o.id = a.ree_id
+      where x.created_at >= ${since}::timestamptz and x.user_id <> o.owner_id and p.source <> 'test'
+      group by a.ree_id
+    ) d on d.ree_id = r.id
+    left join (
+      select pulled.ree_id, count(*) as pulls
+      from (
+        select a.ree_id, a.post_id, min(a.created_at) as first_at
+        from ${schema.postAnswer} a join ${schema.post} p on p.id = a.post_id join ${schema.ree} o on o.id = a.ree_id
+        where p.visibility = 'private' and p.source in ('post', 'api') and p.user_id <> o.owner_id
+        group by a.ree_id, a.post_id
+      ) pulled
+      where pulled.first_at >= ${since}::timestamptz
+      group by pulled.ree_id
     ) p on p.ree_id = r.id
     left join (
-      /* The explore "回答最多" order, all time: once an hour here instead of over every message on every browse. */
-      select m.ree_id, count(*) as answers
-      from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id join ${schema.ree} o on o.id = m.ree_id
-      where m.role = 'ree' and not m.no_answer and not m.copied_from_post and c.user_id <> o.owner_id
-      group by m.ree_id
+      /* The explore "回答最多" order, all time: once an hour here instead of over every answer on every browse. */
+      select a.ree_id, count(*) as answers
+      from ${schema.postAnswer} a join ${schema.post} p on p.id = a.post_id join ${schema.ree} o on o.id = a.ree_id
+      where ${ANSWERED} and ${askedByOthers(owner)}
+      group by a.ree_id
     ) a on a.ree_id = r.id
     left join (
       /* Explore's activity line: other people's questions this week and the latest answer, signed in ... */
-      select m.ree_id, count(*) as asked, max(m.created_at) filter (where not m.no_answer) as last_at
-      from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id join ${schema.ree} o on o.id = m.ree_id
-      where m.role = 'ree' and not m.copied_from_post and m.created_at >= ${week}::timestamptz and c.user_id <> o.owner_id
-      group by m.ree_id
+      select a.ree_id, count(*) as asked, max(a.answered_at) filter (where ${ANSWERED}) as last_at
+      from ${schema.postAnswer} a join ${schema.post} p on p.id = a.post_id join ${schema.ree} o on o.id = a.ree_id
+      where ${ASKED} and a.created_at >= ${week}::timestamptz and ${askedByOthers(owner)}
+      group by a.ree_id
     ) w on w.ree_id = r.id
     left join (
       /* ... and signed out. */

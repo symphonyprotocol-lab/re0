@@ -5,7 +5,8 @@
  * exactly as the web does (20 + the owner's query fee, the fee credited to
  * the owner), tagged with the key; too few credits or a low `max_cost` is a
  * tool error that charges and saves nothing; calls are limited per key; and
- * MCP conversations stay out of the web's lists and routes.
+ * each question is the caller's private post (`source = 'api'`), continued
+ * as a private follow-up, seen by nobody else.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { freezeDateAtWindowStart, pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
@@ -19,13 +20,12 @@ const { createSession } = await import('@/lib/services/auth');
 const { balanceOf } = await import('@/lib/services/credits');
 const knowledge = await import('@/lib/services/knowledge');
 const rees = await import('@/lib/services/rees');
-const conversations = await import('@/lib/services/conversations');
+const posts = await import('@/lib/services/posts');
 const apiKeys = await import('@/lib/services/api-keys');
 const { hitRateBucket } = await import('@/lib/services/explore');
 const route = await import('@/app/api/mcp/route');
 const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
-const { parseConversationQuery } = await import('@/lib/domain/conversation');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
 const { MCP_RATE_LIMIT } = await import('@/lib/constants');
 
@@ -227,9 +227,11 @@ describeWithDb('MCP server: tools', () => {
     expect(await balanceOf(db(), asker)).toBe(before - 50);
     expect(await balanceOf(db(), owner)).toBe(ownerBefore + 30);
 
+    /* The question is the caller's private post (source api), tagged with the key; its id is the conversation's. */
     const conversationId = first.structuredContent!.conversation_id as string;
-    const [conversation] = await db().select().from(schema.conversation).where(eq(schema.conversation.id, conversationId));
-    expect(conversation).toMatchObject({ kind: 'mcp', userId: asker });
+    const [thread] = await db().select().from(schema.post).where(eq(schema.post.id, conversationId));
+    expect(thread).toMatchObject({ source: 'api', visibility: 'private', status: 'published', userId: asker, apiKeyId: key.id, answerState: 'done' });
+    expect(first.structuredContent!.message_id).toBe((await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.postId, conversationId)))[0]!.id);
     const holds = await db().select().from(schema.creditHold).where(eq(schema.creditHold.userId, asker));
     expect(holds.map((hold) => [hold.amount, hold.status]).sort()).toEqual([
       [20, 'settled'],
@@ -241,10 +243,11 @@ describeWithDb('MCP server: tools', () => {
     const earned = await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, owner), eq(schema.creditEntry.reason, 'query_fee_earned')));
     expect(earned.map((entry) => entry.delta)).toEqual([30]);
 
+    /* A continuation is a private follow-up on that post, through the same key. */
     const followUp = await call(client, 'ask_ree', { ree: ree.id, question: 'And when is store credit forced?', conversation_id: conversationId });
     expect(followUp.structuredContent).toMatchObject({ conversation_id: conversationId });
-    const asked = await db().select().from(schema.message).where(and(eq(schema.message.conversationId, conversationId), eq(schema.message.role, 'user')));
-    expect(asked.map((row) => row.apiKeyId)).toEqual([key.id, key.id]);
+    const asked = await db().select().from(schema.postFollowup).where(eq(schema.postFollowup.postId, conversationId));
+    expect(asked.map((row) => [row.apiKeyId, row.userId, row.status])).toEqual([[key.id, asker, 'published']]);
     const [usage] = (await apiKeys.listApiKeys(asker)).filter((item) => item.id === key.id);
     expect(usage).toMatchObject({ questions: 2 });
     expect(usage!.spent).toBe(50 + (followUp.structuredContent!.cost as number));
@@ -254,10 +257,29 @@ describeWithDb('MCP server: tools', () => {
     const borrowed = await call(client, 'ask_ree', { ree: other.id, question: QUESTION, conversation_id: conversationId });
     expect(borrowed).toMatchObject({ isError: true, structuredContent: { error: 'invalid_conversation' } });
 
-    /* The web never lists or answers it. */
-    const listed = await conversations.listConversations(asker, parseConversationQuery(new URLSearchParams()));
-    expect(listed.items.map((item) => item.id)).not.toContain(conversationId);
-    expect(await conversations.liveConversation(asker, conversationId)).toBeNull();
+    /* Nobody else can continue it; its owner reads it under 我的帖子 → 私密. */
+    const { secret: strangerSecret } = await apiKeys.createApiKey(await person(), { name: 'k' });
+    const stranger = await connect(strangerSecret);
+    expect(await call(stranger, 'ask_ree', { ree: ree.id, question: QUESTION, conversation_id: conversationId })).toMatchObject({ isError: true, structuredContent: { error: 'invalid_conversation' } });
+    await stranger.close();
+    expect((await posts.listMyPosts(asker, 'private')).items.map((item) => item.id)).toContain(conversationId);
+    expect(await posts.getPost(conversationId)).toBeNull();
+    await client.close();
+  });
+
+  it('keeps a long question as the post\'s question and detail; a continuation is one question\'s length', async () => {
+    const ree = await reeOf(await person());
+    const asker = await person();
+    const { secret } = await apiKeys.createApiKey(asker, { name: 'k' });
+    const client = await connect(secret);
+    const long = `${QUESTION} ${'Please include every exception to the rule. '.repeat(10)}`.trim();
+    const first = await call(client, 'ask_ree', { ree: ree.id, question: long });
+    expect(first.isError).toBeFalsy();
+    const [thread] = await db().select().from(schema.post).where(eq(schema.post.id, first.structuredContent!.conversation_id as string));
+    expect(thread!.question.length).toBeLessThanOrEqual(300);
+    expect(`${thread!.question} ${thread!.detail}`).toBe(long);
+    const refused = await call(client, 'ask_ree', { ree: ree.id, question: long, conversation_id: thread!.id });
+    expect(refused).toMatchObject({ isError: true, structuredContent: { error: 'invalid_question' } });
     await client.close();
   });
 
@@ -288,7 +310,7 @@ describeWithDb('MCP server: tools', () => {
     expect(short.structuredContent!.top_up_url).toContain('/settings?tab=balance');
 
     expect(await db().select().from(schema.creditHold).where(eq(schema.creditHold.userId, asker))).toHaveLength(0);
-    expect(await db().select().from(schema.conversation).where(eq(schema.conversation.userId, asker))).toHaveLength(0);
+    expect(await db().select().from(schema.post).where(eq(schema.post.userId, asker))).toHaveLength(0);
     expect(await balanceOf(db(), asker)).toBe(10);
     await client.close();
   });

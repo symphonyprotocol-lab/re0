@@ -27,14 +27,15 @@ import type { VerificationsView } from '@/lib/domain/admin-lists';
 import { db, schema, type Executor } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
 import { notify } from '@/lib/services/notices';
+import { ASKED, askedByOthers } from '@/lib/services/ree-counts';
 
 export type VerificationRow = typeof schema.verificationRequest.$inferSelect;
 
 /* ------------------------------------------------------------ the figures */
 
 /**
- * Tables later steps add (step 4's `ree_feedback`, step 6's `payout`) are
- * read only once they exist, so this step runs before and after them.
+ * Tables later steps add (step 6's `payout`) are read only once they exist,
+ * so this step runs before and after them.
  */
 const present = new Set<string>();
 async function tableExists(executor: Executor, name: string): Promise<boolean> {
@@ -54,31 +55,35 @@ export async function roleMetrics(executor: Executor, userId: string, now = new 
   const [account] = await executor.select({ createdAt: schema.user.createdAt }).from(schema.user).where(eq(schema.user.id, userId)).limit(1);
   if (!account) throw new AdminInputError('not_found');
   const rees = countedRees(userId);
+  const owner = sql`${userId}::uuid`;
+  /*
+   * Other people's questions (answered or not) and votes: the conversations'
+   * frozen figures of the counted Rees (`ree_legacy_stats`, per Ree, so a Ree
+   * going private still takes its share out) plus the same from posts
+   * (ree-counts.ts).
+   */
   const result = await executor.execute(sql`
     select
       (select count(*)::int from (${rees}) counted) as public_rees,
       (select count(*)::int from ${schema.knowledge} k
         where k.ree_id in (${rees}) and k.deleted_at is null and k.status = 'ready') as ready_sources,
-      (select count(*)::int from ${schema.message} m
-        join ${schema.conversation} c on c.id = m.conversation_id
-        where m.role = 'ree' and not m.copied_from_post and m.ree_id in (${rees}) and c.user_id <> ${userId}) as external_questions`);
-  const row = result.rows[0] as { public_rees: number; ready_sources: number; external_questions: number };
-  let helpful = 0;
-  let unhelpful = 0;
-  if (await tableExists(executor, 'ree_feedback')) {
-    const votes = await executor.execute(sql`
-      select count(*) filter (where f.vote = 'up')::int as up, count(*) filter (where f.vote = 'down')::int as down
-      from ree_feedback f join ${schema.message} m on m.id = f.message_id
-      where m.ree_id in (${rees}) and f.user_id <> ${userId}`);
-    const tally = votes.rows[0] as { up: number; down: number } | undefined;
-    helpful = tally?.up ?? 0;
-    unhelpful = tally?.down ?? 0;
-  }
+      (select coalesce(sum(ls.questions_by_others), 0)::int from ${schema.reeLegacyStats} ls where ls.ree_id in (${rees}))
+        + (select count(*)::int from ${schema.postAnswer} a join ${schema.post} p on p.id = a.post_id
+          where a.ree_id in (${rees}) and ${ASKED} and ${askedByOthers(owner)}) as external_questions,
+      (select coalesce(sum(ls.helpful), 0)::int from ${schema.reeLegacyStats} ls where ls.ree_id in (${rees}))
+        + (select count(*)::int from ${schema.postAnswerVote} v join ${schema.postAnswer} a on a.id = v.answer_id join ${schema.post} p on p.id = a.post_id
+          where a.ree_id in (${rees}) and v.user_id <> ${owner} and p.source <> 'test') as helpful,
+      (select coalesce(sum(ls.unhelpful), 0)::int from ${schema.reeLegacyStats} ls where ls.ree_id in (${rees}))
+        + (select count(*)::int from ${schema.postAnswerFeedback} v join ${schema.postAnswer} a on a.id = v.answer_id join ${schema.post} p on p.id = a.post_id
+          where a.ree_id in (${rees}) and v.user_id <> ${owner} and p.source <> 'test') as unhelpful`);
+  const row = result.rows[0] as { public_rees: number; ready_sources: number; external_questions: number; helpful: number; unhelpful: number };
+  const helpful = Number(row.helpful);
+  const unhelpful = Number(row.unhelpful);
   return {
     registeredDays: registeredDays(account.createdAt, now),
     publicRees: row.public_rees,
     readySources: row.ready_sources,
-    externalQuestions: row.external_questions,
+    externalQuestions: Number(row.external_questions),
     helpful,
     unhelpful,
     feedbackCount: helpful + unhelpful,

@@ -166,9 +166,11 @@ export type PrivatePublishOutcome =
  * `publishPost`: the same `clientToken`, or the same text within
  * `POST_DUPLICATE_WINDOW_MS`, returns the post already made; and counted with
  * public posts against `POST_DAILY_LIMIT` under the same lock. `source`:
- * `test` (a Ree owner's 试问) and `api` (MCP) are private too.
+ * `test` (a Ree owner's 试问) and `api` (MCP, with the key it came through)
+ * are private too; they are asked again on purpose, so only their token
+ * makes them a replay, never the same text.
  */
-export async function publishPrivatePost(userId: string, input: PrivatePostInput, options: { source?: 'post' | 'test' | 'api'; now?: Date } = {}): Promise<PrivatePublishOutcome> {
+export async function publishPrivatePost(userId: string, input: PrivatePostInput, options: { source?: 'post' | 'test' | 'api'; apiKeyId?: string | null; now?: Date } = {}): Promise<PrivatePublishOutcome> {
   const now = options.now ?? new Date();
   const source = options.source ?? 'post';
   const invalid = postInputError(input.question, input.detail ?? '');
@@ -207,6 +209,7 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
         userId,
         source,
         visibility: 'private',
+        apiKeyId: options.apiKeyId ?? null,
         question,
         detail,
         lang: input.lang,
@@ -231,6 +234,7 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
 
 /** A live private post of this author's that this submit repeats: the same token, or the same text within the duplicate window. */
 async function sameAsk(userId: string, source: string, ask: { question: string; detail: string; clientToken: string | null }, now: Date, executor: Tx | ReturnType<typeof db> = db()): Promise<string | null> {
+  if (source !== 'post' && !ask.clientToken) return null;
   const [same] = await executor
     .select({ id: post.id })
     .from(post)
@@ -242,7 +246,7 @@ async function sameAsk(userId: string, source: string, ask: { question: string; 
         isNull(post.deletedAt),
         or(
           ask.clientToken ? eq(post.clientToken, ask.clientToken) : undefined,
-          and(eq(post.question, ask.question), eq(post.detail, ask.detail), sql`${post.createdAt} > ${new Date(now.getTime() - POST_DUPLICATE_WINDOW_MS).toISOString()}::timestamptz`),
+          source === 'post' ? and(eq(post.question, ask.question), eq(post.detail, ask.detail), sql`${post.createdAt} > ${new Date(now.getTime() - POST_DUPLICATE_WINDOW_MS).toISOString()}::timestamptz`) : undefined,
         ),
       ),
     )
@@ -330,7 +334,7 @@ export type PrivateFollowupOutcome =
  * follow-up do, and when none is, the closest one does. Answered after the
  * response by `processPrivateFollowup`. Anyone else: `not_found`.
  */
-export async function askPrivateFollowup(userId: string, postId: string, input: PrivateFollowupInput, deps: Pick<PrivateDeps, 'matchFollowup'> & { now?: Date } = {}): Promise<PrivateFollowupOutcome> {
+export async function askPrivateFollowup(userId: string, postId: string, input: PrivateFollowupInput, deps: Pick<PrivateDeps, 'matchFollowup'> & { now?: Date; apiKeyId?: string | null } = {}): Promise<PrivateFollowupOutcome> {
   const now = deps.now ?? new Date();
   const invalid = followupInputError(input.question);
   if (invalid) return { ok: false, error: invalid };
@@ -385,6 +389,7 @@ export async function askPrivateFollowup(userId: string, postId: string, input: 
         lang: input.lang,
         mentionReeIds: named,
         clientToken,
+        apiKeyId: deps.apiKeyId ?? null,
         status: 'published',
         publishedAt: now,
         answerState: 'answering',
