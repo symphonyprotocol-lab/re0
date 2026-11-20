@@ -101,7 +101,7 @@ export function JoinButton({
               }}
             >
               <span className="flex min-w-0 items-center gap-2">
-                <Icon name="chat" className="flex-none" />
+                <Icon name="chat" className="size-4 flex-none" />
                 <span className="truncate">{conversation.title || t.conversations.sidebar.untitled}</span>
               </span>
               <small className="font-mono text-muted">

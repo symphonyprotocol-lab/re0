@@ -96,9 +96,18 @@ const GLYPHS = {
 
 export type IconName = keyof typeof GLYPHS;
 
+/**
+ * `className` replaces the default `size-4`: a caller that passes one sizes
+ * the icon itself, or its parent's CSS does (`.post-actions .icon-btn svg`).
+ * `data-icon` gives every icon a fallback of 1rem (globals.css, `@layer
+ * base`, zero specificity) so one that nothing sizes -- a class passed for
+ * something else, `flex-none` say -- never renders at the 300×150 default of
+ * an unsized svg. Width and height attributes, and any CSS rule, win over it.
+ */
 export function Icon({ name, className = 'size-4', ...rest }: { name: IconName } & SVGProps<SVGSVGElement>) {
   return (
     <svg
+      data-icon=""
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

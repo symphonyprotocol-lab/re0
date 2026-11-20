@@ -54,6 +54,11 @@ body {
   ::selection {
     background: #cbe4ff;
   }
+  /* An icon nothing sizes falls back to size-4 (components/ui/icons.tsx): zero specificity, so every page rule and utility still wins. */
+  :where(svg[data-icon]:not([width]):not([height])) {
+    width: 1rem;
+    height: 1rem;
+  }
   :focus-visible {
     outline: 3px solid #77b7fa;
     outline-offset: 4px;
