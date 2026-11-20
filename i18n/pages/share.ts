@@ -50,12 +50,12 @@ export const zh = {
     visitors: '访客',
     visitorsNote: '按浏览器计，不代表真实人数',
     conversations: '提问转化',
-    conversationsNote: '从分享页发出的公开帖子和私密提问（含以前的对话）',
+    conversationsNote: '从分享页发出的公开帖子和私密提问（含改版前的提问）',
     rate: '转化率',
     rateNote: '本期提问的访客 ÷ 本期访客',
     noRate: '暂无',
     anonymousAnswers: '免登录回答',
-    anonymousAnswersNote: '未登录访客在分享页得到的回答，不计入转化',
+    anonymousAnswersNote: '改版前未登录访客在分享页得到的回答，不计入转化',
   },
 };
 
@@ -105,11 +105,11 @@ export const en: Shape<typeof zh> = {
     visitors: 'Visitors',
     visitorsNote: 'Counted per browser, not per person',
     conversations: 'Questions asked',
-    conversationsNote: 'Public posts and private questions from the share page (and chats from before)',
+    conversationsNote: 'Public posts and private questions from the share page (including questions asked before the redesign)',
     rate: 'Conversion',
     rateNote: 'Visitors who asked ÷ visitors, this period',
     noRate: 'None yet',
     anonymousAnswers: 'Answers without sign-in',
-    anonymousAnswersNote: 'Answers signed-out visitors got on the share page; not conversions',
+    anonymousAnswersNote: 'Answers signed-out visitors got on the share page before the redesign; not conversions',
   },
 };

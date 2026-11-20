@@ -1,10 +1,10 @@
 /**
  * What is left of anonymous chat with free Rees (beyond 4), which ended
  * with the conversation code (2026-11): how a client address is bucketed
- * (reports still count a visitor by network), the console's daily caps and
- * the UTC day. The server side is lib/services/anonymous-chat.ts.
+ * (reports still count a visitor by network) and the UTC day. The server
+ * side is lib/services/anonymous-chat.ts. The console's daily caps went with
+ * it (2026-11-21); their table stays as it was.
  */
-import { ANONYMOUS_ATTEMPTS_FACTOR_MAX, ANONYMOUS_LIMIT_MAX, ANONYMOUS_VISITOR_ROUNDS_MAX } from '@/lib/constants';
 
 /**
  * The client address as the per-address key counts it: an IPv4 address as
@@ -40,38 +40,6 @@ export function reportBucket(ip: string): string {
   const bucket = ipBucket(ip);
   if (!bucket.endsWith('::/64')) return bucket;
   return `${bucket.slice(0, -'::/64'.length).split(':').slice(0, 3).join(':')}::/48`;
-}
-
-/**
- * The daily caps an administrator sets (anonymous-chat-settings.ts): per
- * browser, per Ree, over the platform, per client address, and the factor
- * every key's attempts cap is of its rounds. `revision` guards a save
- * against one made since the form was loaded; `default` before any save.
- */
-export interface AnonymousChatLimits {
-  visitorRoundsPerDay: number;
-  reeRoundsPerDay: number;
-  platformRoundsPerDay: number;
-  ipRoundsPerDay: number;
-  attemptsFactor: number;
-  revision: string;
-}
-
-export const ANONYMOUS_LIMIT_FIELDS = ['visitorRoundsPerDay', 'reeRoundsPerDay', 'platformRoundsPerDay', 'ipRoundsPerDay', 'attemptsFactor'] as const;
-export type AnonymousLimitField = (typeof ANONYMOUS_LIMIT_FIELDS)[number];
-
-/** The largest value each setting takes; every one is a whole number from 1. The factor is whole too, so attempt caps stay whole. */
-export const ANONYMOUS_LIMIT_BOUNDS: Record<AnonymousLimitField, number> = {
-  visitorRoundsPerDay: ANONYMOUS_VISITOR_ROUNDS_MAX,
-  reeRoundsPerDay: ANONYMOUS_LIMIT_MAX,
-  platformRoundsPerDay: ANONYMOUS_LIMIT_MAX,
-  ipRoundsPerDay: ANONYMOUS_LIMIT_MAX,
-  attemptsFactor: ANONYMOUS_ATTEMPTS_FACTOR_MAX,
-};
-
-/** A value an administrator may set for `field`: a whole number from 1 to its bound. */
-export function validAnonymousLimit(field: AnonymousLimitField, value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= ANONYMOUS_LIMIT_BOUNDS[field];
 }
 
 /** The day a round counts against: the UTC date, `YYYY-MM-DD`. The one place that decides it. */

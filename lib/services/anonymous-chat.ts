@@ -3,8 +3,8 @@
  * with the conversation code (2026-11): its HMAC of a visitor's values,
  * which report keys still use (lib/http/reporter.ts) so a visitor who
  * reported before still counts once, and the hourly clearing of its quota
- * table's past days. The console's limits (anonymous-chat-settings.ts)
- * are left as they were.
+ * table's past days. The console's limits form went too (2026-11-21); its
+ * table, anonymous_chat_settings, is left as it was.
  */
 import { sql } from 'drizzle-orm';
 import { anonymousDay } from '@/lib/domain/anonymous-chat';
