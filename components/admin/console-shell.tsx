@@ -10,12 +10,13 @@ import { BrandMark, BrandName } from '@/components/ui/brand-mark';
 import { RouteMotion } from '@/components/shell/workspace-main';
 import './console.css';
 
-type NavKey = 'model-calls' | 'knowledge-costs' | 'pricing' | 'redeem-codes' | 'invites' | 'overview' | 'users' | 'verifications' | 'purchases' | 'rees' | 'posts' | 'models' | 'firecrawl' | 'audit' | 'kyc' | 'payouts' | 'payout-history' | 'administrators';
+type NavKey = 'traffic' | 'model-calls' | 'knowledge-costs' | 'pricing' | 'redeem-codes' | 'invites' | 'overview' | 'users' | 'verifications' | 'purchases' | 'rees' | 'posts' | 'models' | 'firecrawl' | 'audit' | 'kyc' | 'payouts' | 'payout-history' | 'administrators';
 export type ConsoleEnvironment = 'production' | 'preview' | 'development';
 
 /* Console navigation order and icons; group labels mark the first item in each category. */
 const NAV: { key: NavKey; icon: ConsoleIconName }[] = [
   { key: 'overview', icon: 'layers' },
+  { key: 'traffic', icon: 'chart' },
   { key: 'models', icon: 'code' },
   { key: 'firecrawl', icon: 'lock' },
   { key: 'pricing', icon: 'wallet' },
