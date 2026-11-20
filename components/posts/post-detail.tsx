@@ -347,7 +347,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
   /* One follow-up: who asked, its round and time, the question (@ in blue), then where it stands and its answers. */
   const roundArticle = (round: FollowupView) => {
     const asker = round.author.mine;
-    const who = round.author.poster ? (round.author.name ?? t2.poster) : asker ? t2.you : (round.author.name ?? t2.someone);
+    const who = asker ? t2.you : round.author.poster ? (round.author.name ?? t2.poster) : (round.author.name ?? t2.someone);
     const author = round.author.name ? { kind: 'user' as const, name: round.author.name, avatar: round.author.avatar, mine: asker } : { kind: 'hidden' as const, mine: asker };
     const number = roundOf.get(round.id);
     const shownAnswers = round.answers.filter((entry) => entry.state === 'answered');
@@ -367,7 +367,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
               <div className="min-w-0">
                 <strong>
                   {who}
-                  {round.author.poster && round.author.name && <span className="tag ml-1.5">{t2.poster}</span>}
+                  {round.author.poster && (asker || round.author.name) && <span className="tag ml-1.5">{t2.poster}</span>}
                 </strong>
                 <span className="fu-round-meta">
                   {number ? `${fill(t2.round, { n: number })} · ` : ''}
@@ -408,7 +408,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
               ))}
               {round.question}
             </p>
-            {round.status === 'published' && round.answerState === 'done' && (
+            {round.status === 'published' && round.answerState === 'done' && (round.mentions.length > 0 || round.candidates > round.skipped) && (
               <p className="fu-round-note">
                 {round.mentions.length ? t2.byMention : round.skipped > 0 ? fill(t2.byRelevanceSkipped, { n: round.candidates - round.skipped, skipped: round.skipped }) : fill(t2.byRelevance, { n: round.candidates })}
               </p>
@@ -436,14 +436,20 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
                 </button>
               )}
               {running.map((entry) => waitingArticle(entry))}
-              {open && round.answerState === 'done' && shownAnswers.length === 0 && running.length === 0 && round.paidRequests.length === 0 && (
+              {/* A paid Ree waits for the asker: they see its card below; anyone else that it is being asked. */}
+              {open && round.answerState === 'done' && !asker && round.awaiting > 0 && shownAnswers.length === 0 && running.length === 0 && (
+                <div className="post-state is-gathering">
+                  <span>{t2.waitingMention}</span>
+                </div>
+              )}
+              {open && round.answerState === 'done' && shownAnswers.length === 0 && running.length === 0 && round.paidRequests.length === 0 && round.awaiting === 0 && (
                 asker && !round.mentions.length ? (
                   <div className="post-state is-unmatched">
                     <span>{t2.noAnswerMine}</span>
                     <Link href={`/p/${post.id}?compose=public`}>{t2.postAnew} →</Link>
                   </div>
                 ) : (
-                  <div className="post-state is-unmatched">{t2.noAnswer}</div>
+                  <div className="post-state is-unmatched">{asker ? t2.mentionNoAnswer : t2.noAnswer}</div>
                 )
               )}
               {asker && round.declined.length > 0 && <p className="post-skipped">{fill(t2.declined, { names: round.declined.join('、') })}</p>}

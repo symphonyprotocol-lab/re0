@@ -112,6 +112,8 @@ export interface FollowupView {
   skipped: number;
   createdAt: string;
   answers: PostAnswerView[];
+  /** Rees still waiting for the asker to agree, as a number anyone sees ("正在请被 @ 的 Ree 回答…"); who and at what price only the asker sees. */
+  awaiting: number;
   /** Paid Rees (and free ones the balance could not cover) waiting for the asker; only the asker gets them. */
   paidRequests: PaidRequestView[];
   /** Only for the asker: a paid Ree they were asked about and declined or ignored. */

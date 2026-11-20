@@ -951,9 +951,10 @@ a.post-quote:hover {
   width: 17px;
   height: 17px;
 }
+/* The box is the last thing on the page: the list opens upward, over the thread. */
 .fu-picker {
   position: absolute;
-  top: 40px;
+  bottom: calc(100% + 6px);
   left: 0;
   z-index: 10;
   width: min(320px, 100%);
@@ -1052,5 +1053,12 @@ a.post-quote:hover {
   }
   .fu-composer > span:first-child {
     display: none;
+  }
+  /* Two lines on a phone, so the hint is never cut; room below the thread for the floating post button. */
+  .fu-input {
+    min-height: 60px;
+  }
+  .fu-thread {
+    padding-bottom: 72px;
   }
 }

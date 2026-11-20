@@ -515,6 +515,11 @@ export async function threadFor(row: PostRow, viewerId: string | undefined): Pro
   const mentionIds = [...new Set(rows.flatMap((entry) => entry.followup.mentionReeIds))];
   const named = mentionIds.length ? await db().select({ id: ree.id, name: ree.name }).from(ree).where(inArray(ree.id, mentionIds)) : [];
   const mine = rows.filter((entry) => entry.followup.userId === viewerId);
+  const waitingRows = await db()
+    .select({ followupId: answer.followupId, n: sql<number>`count(*)::int` })
+    .from(answer)
+    .where(and(inArray(answer.followupId, readable.length ? readable : [randomUUID()]), eq(answer.state, 'awaiting')))
+    .groupBy(answer.followupId);
   const [requests, spent, declined] = await Promise.all([
     Promise.all(mine.map(async (entry) => [entry.followup.id, await paidRequestsFor(row.id, viewerId!, entry.followup.id)] as const)),
     Promise.all(mine.map(async (entry) => [entry.followup.id, await spentOn(row.id, entry.followup.id)] as const)),
@@ -545,6 +550,7 @@ export async function threadFor(row: PostRow, viewerId: string | undefined): Pro
         skipped: entry.skipped,
         createdAt: (entry.publishedAt ?? entry.createdAt).toISOString(),
         answers: hiddenToViewer ? [] : answers.filter((other) => other.followupId === entry.id && (other.shown || entry.answerState !== 'done')).map((other) => answerView(other, voted, true)),
+        awaiting: hiddenToViewer ? 0 : (waitingRows.find((other) => other.followupId === entry.id)?.n ?? 0),
         paidRequests: asker && entry.status === 'published' ? (requests.find(([key]) => key === entry.id)?.[1] ?? []) : [],
         declined: asker ? declined.filter((other) => other.followupId === entry.id).map((other) => other.name) : [],
         spent: asker ? (spent.find(([key]) => key === entry.id)?.[1] ?? 0) : null,
