@@ -889,6 +889,7 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
       followups: thread?.followups ?? [],
       followupCandidates: thread?.candidates ?? [],
       followupBlocked: thread?.blocked ?? null,
+      followupAiOnly: thread?.aiOnly ?? false,
       deleted: row.deletedAt !== null,
     };
   });

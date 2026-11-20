@@ -29,7 +29,7 @@ const base: PostView = {
   followupCount: 0,
   followups: [],
   followupCandidates: [],
-  followupBlocked: null,
+  followupBlocked: null, followupAiOnly: false,
   deleted: false,
 };
 const render = (post: PostView) =>

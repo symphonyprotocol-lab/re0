@@ -5,19 +5,21 @@
  */
 import { redact } from '@/lib/domain/public-qa';
 
-/** What the model knows of the thread a follow-up belongs to: never a Ree's answer, only questions and the asker's own earlier AI answer. */
+/** What the model knows of the thread a follow-up belongs to: never a Ree's answer, only questions and the asker's own earlier AI answers. */
 export interface AiAnswerThread {
   /** The post's question (and detail), for a follow-up. */
   postQuestion?: string | null;
   /** The asker's earlier AI answer under the post, when there is one. */
   earlierAnswer?: string | null;
-  /** Earlier follow-ups' questions, oldest first. */
-  earlierQuestions?: readonly string[];
+  /** Earlier follow-ups, oldest first: each question, with the asker's own AI answer to it when there is one (继续问 AI). */
+  earlierRounds?: readonly { question: string; answer: string | null }[];
 }
 
 /** At most this many earlier follow-ups go along: the recent part of a long thread is what matters. */
 const THREAD_QUESTIONS = 6;
 const THREAD_ANSWER_CHARS = 2_000;
+/** An earlier follow-up's AI answer, cut shorter: several of them go along. */
+const THREAD_ROUND_ANSWER_CHARS = 1_000;
 
 /** The system prompt: the rules of section 8, in English (the model answers in the question's language). */
 export function aiAnswerInstructions(lang: 'zh' | 'en'): string {
@@ -34,13 +36,16 @@ export function aiAnswerInstructions(lang: 'zh' | 'en'): string {
   ].join('\n');
 }
 
-/** The user message: the question and its detail, and for a follow-up the thread so far (questions, and the asker's earlier AI answer). */
+/** The user message: the question and its detail, and for a follow-up the thread so far (questions, and the asker's earlier AI answers). */
 export function aiAnswerPrompt(question: string, detail: string, thread: AiAnswerThread = {}): string {
   const parts: string[] = [];
   if (thread.postQuestion) parts.push(`The original question:\n${thread.postQuestion}`);
   if (thread.earlierAnswer) parts.push(`Your earlier general answer to it:\n${thread.earlierAnswer.slice(0, THREAD_ANSWER_CHARS)}`);
-  const earlier = (thread.earlierQuestions ?? []).slice(-THREAD_QUESTIONS);
-  if (earlier.length) parts.push(`Earlier follow-up questions:\n${earlier.map((entry) => `- ${entry}`).join('\n')}`);
+  const earlier = (thread.earlierRounds ?? []).slice(-THREAD_QUESTIONS);
+  if (earlier.length) {
+    const lines = earlier.map((entry) => (entry.answer ? `- ${entry.question}\n  Your general answer: ${entry.answer.slice(0, THREAD_ROUND_ANSWER_CHARS)}` : `- ${entry.question}`));
+    parts.push(`Earlier follow-up questions${earlier.some((entry) => entry.answer) ? ', with your general answers' : ''}:\n${lines.join('\n')}`);
+  }
   const asked = [question.trim(), detail.trim()].filter(Boolean).join('\n\n');
   parts.push(thread.postQuestion ? `The follow-up question to answer now:\n${asked}` : asked);
   return parts.join('\n\n');

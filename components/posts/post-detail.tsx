@@ -299,12 +299,24 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
 
   /* Rees one may ask on: the first round's, still taking posts. */
   const askable = new Set(post.followupCandidates.map((entry) => entry.reeId));
-  const published = post.followups.filter((entry) => entry.status === 'published' || entry.status === 'hidden');
+  /*
+   * 继续问 AI: the author's follow-ups under their AI answer to a post no Ree
+   * answered (only they get them). Once a Ree has answered, they fold with
+   * the first AI answer, kept; the thread goes on with the public ones.
+   */
+  const aiRounds = post.followups.filter((entry) => entry.aiOnly);
+  const aiRoundsFolded = aiRounds.length > 0 && shown.length > 0;
+  const [aiRoundsOpen, setAiRoundsOpen] = useState(false);
+  const rounds = aiRoundsFolded ? post.followups.filter((entry) => !entry.aiOnly) : post.followups;
+  /* The box asks the AI alone: a public post's author under their AI answer, or a private thread no Ree is in (只问 AI). */
+  const aiThread = live && mine && (post.followupAiOnly || (isPrivate && post.answerState === 'done' && post.followupCandidates.length === 0));
+  const askAi = aiThread ? () => composer.current?.focus() : undefined;
+  const published = rounds.filter((entry) => entry.status === 'published' || entry.status === 'hidden');
   const roundOf = new Map(published.map((entry, index) => [entry.id, index + 1]));
-  const foldable = post.followups.length > FOLLOWUP_FOLD_HEAD + FOLLOWUP_FOLD_TAIL && !threadOpen;
+  const foldable = rounds.length > FOLLOWUP_FOLD_HEAD + FOLLOWUP_FOLD_TAIL && !threadOpen;
   const listedRounds: (FollowupView | 'fold')[] = foldable
-    ? [...post.followups.slice(0, FOLLOWUP_FOLD_HEAD), 'fold', ...post.followups.slice(-FOLLOWUP_FOLD_TAIL)]
-    : post.followups;
+    ? [...rounds.slice(0, FOLLOWUP_FOLD_HEAD), 'fold', ...rounds.slice(-FOLLOWUP_FOLD_TAIL)]
+    : rounds;
 
   /* One answer, of the first round or of a follow-up: the text, its citations, and one row of small actions alike (继续问 and 引用 included). */
   const answerArticle = (entry: PostAnswerView, open: boolean, round?: FollowupView) => (
@@ -586,15 +598,17 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
                 asker && round.aiAnswer && (round.aiAnswer.state === 'answered' || round.aiAnswer.state === 'running') ? (
                   <>
                     <AiRound
-                      ai={round.aiAnswer}
+                      ai={round.aiOnly ? { ...round.aiAnswer, folded: false } : round.aiAnswer}
                       postId={post.id}
                       followupId={round.id}
                       compact
-                      note={<p className="fu-round-note ai-round-note">{isPrivate ? a.followupNotePrivate : round.mentions.length ? a.followupNoteMentioned : a.followupNote}</p>}
+                      note={<p className="fu-round-note ai-round-note">{isPrivate ? a.followupNotePrivate : round.aiOnly ? a.followupNoteAiOnly : round.mentions.length ? a.followupNoteMentioned : a.followupNote}</p>}
+                      onAskAi={askAi}
                       onChange={(next) => setAi(round.id, next)}
                       onRefresh={() => void refresh()}
                     />
-                    {round.aiAnswer.state === 'answered' && <AiGuide items={followupGuide(round)} />}
+                    {/* A 继续问 AI round leaves the ways to a Ree to the first AI answer's guide. */}
+                    {round.aiAnswer.state === 'answered' && !round.aiOnly && <AiGuide items={followupGuide(round)} />}
                   </>
                 ) : (
                   <>
@@ -802,7 +816,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
               )}
             </span>
           </div>
-          <AiRound ai={firstAi} postId={post.id} onChange={(next) => setAi(null, next)} onRefresh={() => void refresh()} />
+          <AiRound ai={firstAi} postId={post.id} onAskAi={askAi} onChange={(next) => setAi(null, next)} onRefresh={() => void refresh()} />
           {firstAi.state === 'answered' && live && (
             <AiGuide items={firstGuide}>
               {requesting && <PrivateReePicker title={a.requestTitle} exclude={[]} inline scope="post" onPick={(option) => void requestRee(option)} onClose={() => setRequesting(false)} />}
@@ -880,6 +894,21 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
 
       {/* A Ree has answered since: the author's AI answer folds to one line under the Rees' answers (kept, not refunded). */}
       {firstAi?.folded && shown.length > 0 && <AiRound ai={firstAi} postId={post.id} onChange={(next) => setAi(null, next)} onRefresh={() => void refresh()} />}
+      {aiRoundsFolded &&
+        (aiRoundsOpen ? (
+          <section className="fu-thread ai-rounds" aria-label={a.aiRoundsTitle}>
+            {aiRounds.map((entry) => roundArticle(entry))}
+            <button type="button" className="fu-fold ai-folded" aria-expanded onClick={() => setAiRoundsOpen(false)}>
+              <Icon name="chevronDown" className="rotate-180" />
+              {a.aiRoundsFold}
+            </button>
+          </section>
+        ) : (
+          <button type="button" className="fu-fold ai-folded" aria-expanded={false} onClick={() => setAiRoundsOpen(true)}>
+            <Icon name="sparkle" className="" />
+            {fill(a.aiRoundsFolded, { n: formatNumber(aiRounds.length, locale) })}
+          </button>
+        ))}
 
       {waiting.map((entry) => waitingArticle(entry))}
 
@@ -889,7 +918,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
 
       {!isPrivate && post.answerState === 'done' && post.skipped > 0 && post.answered > 0 && <p className="post-skipped">{fill(p.skipped, { n: formatNumber(post.skipped, locale) })}</p>}
 
-      {(post.followups.length > 0 || (live && (shown.length > 0 || (isPrivate && post.answerState === 'done')))) && (
+      {(rounds.length > 0 || (live && (shown.length > 0 || (isPrivate && post.answerState === 'done') || post.followupAiOnly))) && (
         <section className="fu-thread" aria-label={t2.title}>
           {published.length > 0 && (
             <div className="post-answers-head">
@@ -900,14 +929,14 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
             entry === 'fold' ? (
               <button key="fold" type="button" className="fu-fold" onClick={() => setThreadOpen(true)}>
                 <Icon name="chevronDown" className="" />
-                {fill(t2.more, { n: formatNumber(post.followups.length - FOLLOWUP_FOLD_HEAD - FOLLOWUP_FOLD_TAIL, locale) })}
+                {fill(t2.more, { n: formatNumber(rounds.length - FOLLOWUP_FOLD_HEAD - FOLLOWUP_FOLD_TAIL, locale) })}
               </button>
             ) : (
               roundArticle(entry)
             ),
           )}
-          {live && (shown.length > 0 || (isPrivate && post.answerState === 'done')) && (
-            <FollowupComposer ref={composer} postId={post.id} isPrivate={isPrivate} candidates={post.followupCandidates} signedIn={signedIn} loginHref={loginHref} blocked={post.followupBlocked} onAsked={() => void refresh()} />
+          {live && (shown.length > 0 || (isPrivate && post.answerState === 'done') || post.followupAiOnly) && (
+            <FollowupComposer ref={composer} postId={post.id} isPrivate={isPrivate} aiOnly={post.followupAiOnly} candidates={post.followupCandidates} signedIn={signedIn} loginHref={loginHref} blocked={post.followupBlocked} onAsked={() => void refresh()} />
           )}
         </section>
       )}

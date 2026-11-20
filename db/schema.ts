@@ -1326,6 +1326,12 @@ export const postFollowup = pgTable(
     answerState: text('answer_state').$type<PostAnswerState>().notNull().default('waiting'),
     candidates: integer('candidates').notNull().default(0),
     skipped: integer('skipped').notNull().default(0),
+    /**
+     * Asked by the author of a public post no Ree answered, under their AI
+     * answer (继续问 AI): answered by the AI only, seen by the author only,
+     * never reviewed nor counted in `post.followup_count` (ai-answers.ts).
+     */
+    aiOnly: boolean('ai_only').notNull().default(false),
     /** The composer's token: the same token, or the same text under the same post within a minute, asks once. */
     clientToken: uuid('client_token'),
     /** The API key an MCP continuation of a private post came through (`post.api_key_id` for its first question). */

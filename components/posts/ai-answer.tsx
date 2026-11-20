@@ -18,8 +18,12 @@ import './posts.css';
  * is; then the ways to an answer with sources.
  */
 
-/** The card itself: the answer, its note, and 有帮助 · 没帮助 · 复制 with what it cost. */
-export function AiAnswerCard({ ai, compact = false, onChange }: { ai: AiAnswerView; compact?: boolean; onChange: (next: AiAnswerView) => void }) {
+/**
+ * The card itself: the answer, its note, and 有帮助 · 没帮助 · 复制 with what
+ * it cost. `onAskAi`: 继续问 AI, where the box below asks the AI alone (a
+ * public post no Ree answered, or a private thread no Ree is in).
+ */
+export function AiAnswerCard({ ai, compact = false, onChange, onAskAi }: { ai: AiAnswerView; compact?: boolean; onChange: (next: AiAnswerView) => void; onAskAi?: () => void }) {
   const { t, locale } = useI18n();
   const a = t.posts.ai;
   const toast = useToast();
@@ -69,6 +73,12 @@ export function AiAnswerCard({ ai, compact = false, onChange }: { ai: AiAnswerVi
           <Icon name="copy" className="" />
           {a.copy}
         </button>
+        {onAskAi && (
+          <button type="button" className="icon-btn" onClick={onAskAi}>
+            <Icon name="reply" className="" />
+            {a.askMore}
+          </button>
+        )}
         {ai.cost > 0 && <span className="answer-cost">{fill(a.cost, { n: formatNumber(ai.cost, locale) })}</span>}
       </div>
     </article>
@@ -80,9 +90,10 @@ export function AiAnswerCard({ ai, compact = false, onChange }: { ai: AiAnswerVi
  * card; one line to unfold once a Ree has answered; or, skipped for a short
  * balance, the top-up and "生成 AI 回答 · 20 credits" (once). `note`: the
  * line above the card. `postId` and `followupId` name the round for the
- * by-hand generation; `onRefresh` asks the page again after it.
+ * by-hand generation; `onRefresh` asks the page again after it; `onAskAi`
+ * puts 继续问 AI on the card.
  */
-export function AiRound({ ai, postId, followupId = null, note, compact = false, onChange, onRefresh }: { ai: AiAnswerView; postId: string; followupId?: string | null; note?: ReactNode; compact?: boolean; onChange: (next: AiAnswerView) => void; onRefresh: () => void }) {
+export function AiRound({ ai, postId, followupId = null, note, compact = false, onChange, onRefresh, onAskAi }: { ai: AiAnswerView; postId: string; followupId?: string | null; note?: ReactNode; compact?: boolean; onChange: (next: AiAnswerView) => void; onRefresh: () => void; onAskAi?: () => void }) {
   const { t, locale } = useI18n();
   const a = t.posts.ai;
   const toast = useToast();
@@ -145,7 +156,7 @@ export function AiRound({ ai, postId, followupId = null, note, compact = false, 
   return (
     <>
       {note}
-      <AiAnswerCard ai={ai} compact={compact} onChange={onChange} />
+      <AiAnswerCard ai={ai} compact={compact} onChange={onChange} onAskAi={ai.folded ? undefined : onAskAi} />
       {ai.folded && (
         <button type="button" className="fu-fold ai-folded" aria-expanded onClick={() => setOpen(false)}>
           <Icon name="chevronDown" className="rotate-180" />
