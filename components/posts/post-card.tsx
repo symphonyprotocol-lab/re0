@@ -217,10 +217,11 @@ export function PostCard({ post: initial, now, signedIn }: { post: PostView; now
         )}
         <div className="post-actions">
           <PostHelpful post={post} signedIn={signedIn} onChange={(change) => setPost((current) => ({ ...current, ...change }))} />
-          <span className="icon-btn" title={c.answers}>
+          {/* The answer count opens the post at its answers. */}
+          <Link href={`${href}#answers`} className="icon-btn" title={c.answers} aria-label={`${c.answers} ${formatNumber(post.answered, locale)}`}>
             <Icon name="chat" className="" />
             {formatNumber(post.answered, locale)}
-          </span>
+          </Link>
           {signedIn && (
             <button type="button" className="icon-btn" aria-pressed={post.saved} disabled={busy} title={post.saved ? c.unsave : c.save} aria-label={post.saved ? c.unsave : c.save} onClick={() => void toggleSave()}>
               <Icon name="bookmark" className={post.saved ? 'text-blue' : ''} />

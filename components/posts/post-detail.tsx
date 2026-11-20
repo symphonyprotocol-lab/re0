@@ -497,10 +497,23 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
       )}
       <div className="post-actions">
         <PostHelpful post={post} signedIn={signedIn} loginHref={loginHref} onChange={(change) => setPost((current) => ({ ...current, ...change }))} />
-        <span className="icon-btn" title={c.answers}>
+        {/* On the post itself the answer count scrolls to the answers. */}
+        <a
+          href="#answers"
+          className="icon-btn"
+          title={c.answers}
+          aria-label={`${c.answers} ${formatNumber(post.answered, locale)}`}
+          onClick={(event) => {
+            const target = document.getElementById('answers');
+            if (!target) return;
+            event.preventDefault();
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            window.history.replaceState(null, '', '#answers');
+          }}
+        >
           <Icon name="chat" className="" />
           {formatNumber(post.answered, locale)}
-        </span>
+        </a>
         {signedIn && live && (
           <button type="button" className="icon-btn" aria-pressed={post.saved} disabled={busy === 'save'} title={post.saved ? c.unsave : c.save} aria-label={post.saved ? c.unsave : c.save} onClick={() => void save()}>
             <Icon name="bookmark" className={post.saved ? 'text-blue' : ''} />
@@ -551,7 +564,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
       )}
 
       {shown.length > 0 && (
-        <div className="post-answers-head">
+        <div className="post-answers-head scroll-mt-24" id="answers">
           <strong>{fill(p.answersHeading, { n: formatNumber(shown.length, locale) })}</strong>
           {post.candidates > 0 && <small>{fill(p.matchedNote, { candidates: formatNumber(post.candidates, locale) })}</small>}
         </div>
