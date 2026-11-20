@@ -65,14 +65,14 @@ export function Entries({
 
   /*
    * The note as the reader reads it: the fixed English labels the ledger
-   * stores ('post summary', 'post answer', 'charged X of Y') in their
+   * stores ('post summary', 'post answer', 'ai answer', 'charged X of Y') in their
    * language; a post answer keeps its Ree's name, marked as one.
    */
   const noteOf = (entry: EntryRow): string | null => {
     const raw = entry.note ?? '';
     const tail = /(?:^| · )charged (\d+) of (\d+)$/.exec(raw);
     const label = tail ? raw.slice(0, tail.index) : raw;
-    const known = ({ post: b.notes.post, 'post answer': b.notes.postAnswer, 'post summary': b.notes.postSummary } as Record<string, string>)[label];
+    const known = ({ post: b.notes.post, 'post answer': b.notes.postAnswer, 'post summary': b.notes.postSummary, 'ai answer': b.notes.aiAnswer } as Record<string, string>)[label];
     const head = entry.reeName ? (label === 'post answer' ? `${entry.reeName} · ${b.notes.postAnswer}` : entry.reeName) : (known ?? (label || null));
     /* The charge of a question's or a knowledge run's settlement is shown apart (`charged`); any other keeps it in the note. */
     const shownApart = entry.reason === 'knowledge_settle' || entry.reason === 'query_base' || entry.reason === 'query_fee_paid';

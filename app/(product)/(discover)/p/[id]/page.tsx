@@ -72,6 +72,17 @@ export default async function PostPage({ params }: Props) {
           </ol>
         )}
       </section>
+      {/* Only the author of a public post no Ree answered, beside their AI answer: the way to become the Ree such posts wait for. */}
+      {!isPrivate && answered.length === 0 && post.aiAnswer?.state === 'answered' && (
+        <section className="rail-card ai-rail">
+          <h3>{t.posts.ai.railTitle}</h3>
+          <p>{t.posts.ai.railBody}</p>
+          <Link href="/rees/new" className="btn-secondary btn-sm">
+            <Icon name="plus" className="size-3.5" />
+            {t.posts.ai.railGo}
+          </Link>
+        </section>
+      )}
     </div>
   );
   return (

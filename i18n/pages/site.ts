@@ -157,6 +157,7 @@ export const zh = {
     q5: { q: '创作者收入可以提现吗？', a: '查询费全额进入收入 credits。通过身份验证并填写税务声明、绑定 PayPal 后，收入达到提现门槛（目前为 {payoutMinCredits} credits，即 {payoutMinUsd}；个别账号可能另有设定）可申请提现。{inviteFaq}' },
     q7: { q: '公开帖子怎么收费？', a: '发帖不收费，每天最多 {postDailyLimit} 个，按回答收费：免费 Ree 和你自己的 Ree 每个回答 {postBaseFee} credits，自动回答最多 {postMaxAnswers} 个、一个帖子最多 {postMaxAutoCost} credits；付费 Ree 需要你同意后才回答，另加它的查询费。没有回答不收费。' },
     q8: { q: '公开帖子是什么？', a: '登录用户发一个问题，最相关的最多 {postMaxAnswers} 个 Ree 各自用自己的知识回答，每个回答都附出处。发帖不收费，按回答收费，每个回答 {postBaseFee} credits。' },
+    q9: { q: '没有 Ree 回答时会怎样？', a: '没有任何 Ree 能回答你的帖子或追问时，AI 会先给你一个通用回答，收 {postBaseFee} credits（问答基础费，不额外加价；生成失败不收费）。它按通用知识写成，没有出处，仅供参考，只有你能看到，也不算 Ree 回答：帖子仍留在"待回答"里，有 Ree 回答时会通知你。' },
     q6: { q: '视频介绍如何收费？', a: '视频长 15 秒。生成脚本需要 {scriptCredits} credits，产品演示的旁白按用量收费。每个 Ree 首次导出免费，之后每次 {exportCredits} credits。重用已导出的版本、在线播放和分享链接免费。' },
   },
   pricing: {
@@ -210,6 +211,7 @@ export const zh = {
       postPublish: { activity: '公开帖子：发帖', cost: '不收费', details: '每天最多 {postDailyLimit} 个。' },
       postAnswer: { activity: '公开帖子：每个回答', cost: '{postBaseFee} credits / 回答', details: '免费 Ree 和你自己的 Ree 自动回答，一个帖子最多 {postMaxAutoCost} credits；付费 Ree 需你同意后才回答，另加其查询费。没有回答不收费。' },
       postSummary: { activity: '帖子圆桌总结', cost: '{postSummaryFee} credits / 次', details: '由发帖人生成，生成后所有人可见；失败或未通过审核时退还。' },
+      aiAnswer: { activity: '没有 Ree 能回答时的 AI 通用回答', cost: '{postBaseFee} credits / 次', details: '生成失败不收费；只有你能看到，不算 Ree 回答。' },
       export: { activity: '15 秒视频导出', cost: '首次免费，之后 {exportCredits} credits', details: '每个 Ree 首次导出免费，重用已导出的版本免费。' },
     },
     estimator: {
@@ -439,6 +441,7 @@ export const en: Shape<typeof zh> = {
     q5: { q: 'Can creators withdraw earnings?', a: 'Owner fees become earned credits. With identity and tax verification and PayPal set up, earnings that reach the payout minimum (currently {payoutMinCredits} credits, {payoutMinUsd}; an individual account may have its own) may be withdrawn. {inviteFaq}' },
     q7: { q: 'What do public posts cost?', a: 'Posting is free, up to {postDailyLimit} a day; answers are charged: {postBaseFee} credits for each answer from a free Ree or one of your own, at most {postMaxAnswers} automatic answers and {postMaxAutoCost} credits per post; a paid Ree answers only once you agree, and adds its query fee. No answer, no charge.' },
     q8: { q: 'What is a public post?', a: 'A signed-in user posts a question, and up to {postMaxAnswers} of the most relevant Rees each answer from their own knowledge, every answer with its sources. Posting is free; each answer costs {postBaseFee} credits.' },
+    q9: { q: 'What happens when no Ree answers?', a: 'When no Ree can answer your post or follow-up, the AI first gives you a general answer for {postBaseFee} credits (the base fee of a question, nothing more; nothing is charged if it fails). It is written from general knowledge, has no sources and is for reference only; only you can see it, and it does not count as a Ree’s answer: the post stays under Unanswered, and you are told when a Ree answers.' },
     q6: { q: 'How much does a video introduction cost?', a: 'Videos last 15 seconds. Scripts cost {scriptCredits} credits, and demo narration is billed by usage. The first export per Ree is free, and later exports cost {exportCredits} credits. Reusing exports, playback, and sharing are free.' },
   },
   pricing: {
@@ -492,6 +495,7 @@ export const en: Shape<typeof zh> = {
       postPublish: { activity: 'Public post: publishing', cost: 'Free', details: 'Up to {postDailyLimit} a day.' },
       postAnswer: { activity: 'Public post: each answer', cost: '{postBaseFee} credits / answer', details: 'Free Rees and your own answer automatically, at most {postMaxAutoCost} credits per post; a paid Ree answers only once you agree, and adds its query fee. No answer, no charge.' },
       postSummary: { activity: 'Post round-table summary', cost: '{postSummaryFee} credits / time', details: 'Made by the poster, then visible to everyone; returned if it fails or does not pass review.' },
+      aiAnswer: { activity: 'AI general answer when no Ree can answer', cost: '{postBaseFee} credits / time', details: 'Nothing is charged if it fails; only you can see it, and it does not count as a Ree’s answer.' },
       export: { activity: '15-second export', cost: 'First free, then {exportCredits} credits', details: 'The first export per Ree and reuse of exported versions are free.' },
     },
     estimator: {

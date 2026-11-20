@@ -106,6 +106,14 @@ export default async function OverviewPage() {
           { label: o.cards.questions, value: n(data.questions30), note: o.cards.questionsNote, icon: 'chat' },
         ]}
       />
+      <Stats
+        items={[
+          { label: o.ai.answers, value: n(data.aiAnswers.answered), note: fill(o.ai.answersNote, { failed: n(data.aiAnswers.failed), skipped: n(data.aiAnswers.skipped) }), icon: 'chat' },
+          { label: o.ai.success, value: data.aiAnswers.total ? `${Math.round((data.aiAnswers.answered / data.aiAnswers.total) * 100)}%` : '—', note: o.ai.successNote, icon: 'dot' },
+          { label: o.ai.revenue, value: n(data.aiAnswers.revenue), note: o.ai.revenueNote, icon: 'wallet' },
+          { label: o.ai.votes, value: `${n(data.aiAnswers.helpful)} / ${n(data.aiAnswers.unhelpful)}`, note: o.ai.votesNote, icon: 'users' },
+        ]}
+      />
       <div className="console-overview-grid">
         <section className="card console-chart">
           <div className="between">

@@ -2,7 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
-import { FOLLOWUP_MAX_MENTIONS, POST_QUESTION_MAX, PRIVATE_POST_MAX_REES, type FollowupCandidate, type PrivateReeOption } from '@/lib/domain/post';
+import { AI_ANSWER_FEE, FOLLOWUP_MAX_MENTIONS, POST_QUESTION_MAX, PRIVATE_POST_MAX_REES, type FollowupCandidate, type PrivateReeOption } from '@/lib/domain/post';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
@@ -14,6 +14,9 @@ import { PrivateReePicker } from '@/components/posts/ree-picker';
 export interface FollowupComposerHandle {
   /** "继续问 X": @ that Ree, then bring the box into view with the cursor in it. */
   mention: (reeId: string) => void;
+  /** The AI answer's guidance: bring the box into view with the cursor in it ("换个说法再问"), or with 加 Ree open (private only). */
+  focus: () => void;
+  addRee: () => void;
 }
 
 /**
@@ -77,7 +80,16 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
       box.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       window.setTimeout(() => input.current?.focus({ preventScroll: true }), 250);
     },
-  }), [candidates]);
+    focus() {
+      box.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      window.setTimeout(() => input.current?.focus({ preventScroll: true }), 250);
+    },
+    addRee() {
+      if (!isPrivate) return;
+      setAdding(true);
+      box.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    },
+  }), [candidates, isPrivate]);
 
   if (!signedIn) {
     return (
@@ -268,6 +280,8 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
             onClose={() => setAdding(false)}
           />
         )}
+        {/* When no Ree answers, the AI does, at the base fee (AI 通用回答). */}
+        <p className="post-hint ai-fu-hint">{fill(t.posts.ai.followupCost, { fee: formatNumber(AI_ANSWER_FEE, locale) })}</p>
         <div className="fu-foot">
           {isPrivate && (
             <button type="button" className="icon-btn chip-btn" data-ree-picker="" aria-expanded={adding} disabled={threadFull} title={threadFull ? f.errors.too_many_rees : undefined} onClick={() => setAdding((current) => !current)}>

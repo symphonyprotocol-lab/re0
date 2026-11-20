@@ -129,6 +129,15 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
         action: o.post,
         reason: null,
       };
+    case 'post_ai_answer':
+      /* No Ree answered the reader's post (or their follow-up, `followup` set): the AI gave them a general answer only they see. */
+      return {
+        line: fill(p.followup ? l.followupAiAnswer : l.postAiAnswer, { question: String(p.question ?? '') }),
+        icon: 'sparkle',
+        href: notice.refId ? `/p/${notice.refId}${p.followup ? `#f-${String(p.followup)}` : '#ai-answer'}` : null,
+        action: o.post,
+        reason: null,
+      };
     case 'chats_removal':
       /* Once, by migration 0067: private conversations became private posts, and the old ones go a week later. */
       return { line: l.chatsRemoval, icon: 'info', href: '/me/posts?tab=private', action: o.privatePosts, reason: null };
