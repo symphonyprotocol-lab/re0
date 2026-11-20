@@ -103,16 +103,32 @@ export interface Mention {
 }
 
 /**
+ * What a box that names one Ree (向 … 提问 on its share page and Ree page,
+ * ree-ask.tsx) adds to either form: a line above the question (the 公开 /
+ * 私密 switch), its own placeholder, the question it starts with and is
+ * told of as it changes (the draft kept across signing in and switching),
+ * and the new post's id before its page opens (the share page's conversion).
+ */
+export interface FormFrame {
+  head?: ReactNode;
+  placeholder?: string;
+  question?: string;
+  onQuestionChange?: (question: string) => void;
+  onPublished?: (id: string) => void;
+}
+
+/**
  * The public post form (v5 "发帖"): the question, an optional detail, 匿名发布,
  * the mentioned Ree, and what today's post costs. Publishing opens the
- * post's page, which shows the Rees answering.
+ * post's page, which shows the Rees answering. `lockMention`: the box
+ * belongs to that Ree, which shows as a chip that cannot be removed.
  */
-export function PublicPostForm({ mention: initialMention = null, quote = null, autoFocus = false, leave }: { mention?: Mention | null; quote?: { postId: string; answerId: string | null } | null; autoFocus?: boolean; leave?: (navigate: () => void) => void }) {
+export function PublicPostForm({ mention: initialMention = null, quote = null, autoFocus = false, leave, lockMention = false, head, placeholder, question: initialQuestion = '', onQuestionChange, onPublished }: { mention?: Mention | null; quote?: { postId: string; answerId: string | null } | null; autoFocus?: boolean; leave?: (navigate: () => void) => void; lockMention?: boolean } & FormFrame) {
   const { t, locale } = useI18n();
   const c = t.posts.composer;
   const router = useRouter();
   const toast = useToast();
-  const [question, setQuestion] = useState('');
+  const [question, setQuestion] = useState(initialQuestion);
   const [detail, setDetail] = useState('');
   const [showDetail, setShowDetail] = useState(false);
   const [anonymous, setAnonymous] = useState(false);
@@ -179,6 +195,7 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
         setQuestion('');
         setDetail('');
         setToken(crypto.randomUUID());
+        onPublished?.(body.id);
         const go = () => router.push(`/p/${body.id}`);
         if (leave) leave(go);
         else go();
@@ -204,15 +221,28 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
     }
   }
 
+  const write = (value: string) => {
+    setQuestion(value);
+    onQuestionChange?.(value);
+  };
+
   return (
     <div className="post-form">
+      {head}
       {quoted && (
         <div className="post-form-quote">
           <span className="post-hint">{t.posts.quote.quoting}</span>
           {quoted === 'loading' ? <p className="post-hint">{t.posts.quote.loading}</p> : <QuoteCard quote={quoted === 'gone' ? { kind: quote?.answerId ? 'answer' : 'post', available: false } : quoted} now={Date.now()} />}
         </div>
       )}
-      {mention && (
+      {mention && lockMention ? (
+        <div className="ree-pick">
+          <span className="fu-chip ask-chip">
+            <Icon name="at" className="size-3.5" />
+            {mention.name}
+          </span>
+        </div>
+      ) : mention && (
         <div className="post-mention">
           <Icon name="at" className="size-3.5" />
           {fill(c.mention, { name: mention.name })}
@@ -223,11 +253,11 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
       )}
       <textarea
         aria-label={c.label}
-        placeholder={c.placeholder}
+        placeholder={placeholder ?? c.placeholder}
         value={question}
         maxLength={POST_QUESTION_MAX + 50}
         autoFocus={autoFocus}
-        onChange={(event) => setQuestion(event.target.value)}
+        onChange={(event) => write(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void publish();
         }}
@@ -293,7 +323,7 @@ export function privateMaxCost(rees: readonly PrivateReeOption[]): number {
  * `&rees=`) preselects Rees instead of the suggestions; `rees` gives them
  * already resolved.
  */
-export function PrivatePostForm({ reeIds = null, rees = null, question: initialQuestion = '', autoFocus = false, leave }: { reeIds?: string[] | null; rees?: PrivateReeOption[] | null; question?: string; autoFocus?: boolean; leave?: (navigate: () => void) => void }) {
+export function PrivatePostForm({ reeIds = null, rees = null, question: initialQuestion = '', autoFocus = false, leave, head, placeholder, onQuestionChange, onPublished }: { reeIds?: string[] | null; rees?: PrivateReeOption[] | null; autoFocus?: boolean; leave?: (navigate: () => void) => void } & FormFrame) {
   const { t, locale } = useI18n();
   const c = t.posts.composer;
   const router = useRouter();
@@ -375,6 +405,7 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
       if ((response.status === 201 || response.status === 200) && body.id) {
         /* Asked: the form stays busy until the post's page opens, so nothing is held twice. */
         setToken(crypto.randomUUID());
+        onPublished?.(body.id);
         const go = () => router.push(`/p/${body.id}`);
         if (leave) leave(go);
         else go();
@@ -413,13 +444,17 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
 
   return (
     <div className="post-form">
+      {head}
       <textarea
         aria-label={c.private}
-        placeholder={c.privatePlaceholder}
+        placeholder={placeholder ?? c.privatePlaceholder}
         value={question}
         maxLength={POST_QUESTION_MAX + 50}
         autoFocus={autoFocus}
-        onChange={(event) => setQuestion(event.target.value)}
+        onChange={(event) => {
+          setQuestion(event.target.value);
+          onQuestionChange?.(event.target.value);
+        }}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void send();
         }}

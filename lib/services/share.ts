@@ -1,7 +1,7 @@
 /**
- * The share page `/s/[slug]`: who opened it and how many conversations it
- * started. Only a public Ree has one (`publicReeRef`, the same gate as
- * `/r/[slug]`). A visitor is the random id of the `re0_visitor` cookie --
+ * The share page `/s/[slug]`: who opened it and how many posts (before,
+ * conversations) it started. Only a public Ree has one (`publicReeRef`,
+ * the same gate as `/r/[slug]`). A visitor is the random id of the `re0_visitor` cookie --
  * no IP or user agent is stored; the owner's own visits are not counted.
  *
  * - a visit counts once per visitor, Ree and half-hour slot; the unique
@@ -9,15 +9,17 @@
  * - a browser without the cookie is answered `cookie` and counted only when
  *   it comes back with it, so a client that keeps no cookies counts nothing;
  * - an IP is limited per minute over all Rees, and per hour for each Ree;
- * - a conversion is a conversation the visitor created with the Ree, or
- *   added the Ree to, within `SHARE_CONVERSION_MINUTES`, by a browser that
- *   visited the share page within `SHARE_ATTRIBUTION_HOURS` -- once per
- *   conversation;
+ * - a conversion is a post the visitor published from the share page
+ *   that asks the Ree -- a public post naming it, or a private one asking it
+ *   -- within `SHARE_CONVERSION_MINUTES`, by a browser that visited the
+ *   share page within `SHARE_ATTRIBUTION_HOURS`, once per post (2026-11-20;
+ *   before, a conversation that took the Ree in, once per conversation --
+ *   those rows are still counted);
  * - an anonymous answer (a free Ree asked signed out on the share page)
  *   counts for the share page under the same visit rule, as a figure of its
  *   own: it is not a conversation.
  */
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { and, eq, gte, isNull, or, sql } from 'drizzle-orm';
 import type { Range } from '@/lib/domain/statistics';
 import { isUuid } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
@@ -30,7 +32,7 @@ export const SHARE_VISIT_SLOT_SECONDS = 1_800;
 export const SHARE_IP_PER_MINUTE = 60;
 /** New visits per IP per Ree per hour (an office behind one address still counts). */
 export const SHARE_IP_PER_REE_HOUR = 30;
-/** The Ree must have joined the conversation this recently to count as a conversion. */
+/** The post (or, before, the conversation) must have asked the Ree this recently to count as a conversion. */
 export const SHARE_CONVERSION_MINUTES = 30;
 /** ...and the browser must have visited the share page this recently. */
 export const SHARE_ATTRIBUTION_HOURS = 24;
@@ -64,41 +66,77 @@ export async function recordShareVisit(input: { slug: string; visitorId: string;
 
 export type ConversionResult = 'recorded' | 'repeat' | 'unattributed' | 'owner' | 'not_found';
 
-/**
- * A conversation started (or joined) from `/s/[slug]`. It must be the
- * user's own and have taken the Ree in just now, and this browser must
- * have visited the share page -- so an old conversation cannot be claimed,
- * nor someone else's.
- */
-export async function recordShareConversion(input: { slug: string; visitorId: string; userId: string; conversationId: string }, now = new Date()): Promise<ConversionResult> {
-  if (!isUuid(input.conversationId)) return 'not_found';
-  const ree = await publicReeRef(input.slug);
-  if (!ree) return 'not_found';
-  if (input.userId === ree.ownerId) return 'owner';
-  const [member] = await db()
-    .select({ addedAt: schema.conversationRee.addedAt })
-    .from(schema.conversation)
-    .innerJoin(schema.conversationRee, and(eq(schema.conversationRee.conversationId, schema.conversation.id), eq(schema.conversationRee.reeId, ree.id)))
-    .where(and(eq(schema.conversation.id, input.conversationId), eq(schema.conversation.userId, input.userId)))
-    .limit(1);
-  if (!member) return 'not_found';
-  if (member.addedAt.getTime() < now.getTime() - SHARE_CONVERSION_MINUTES * 60_000) return 'unattributed';
+/** Whether this browser visited the Ree's share page recently enough to be credited with what it does next. */
+async function visitedRecently(reeId: string, visitorId: string, now: Date): Promise<boolean> {
   const [visited] = await db()
     .select({ id: schema.reeShareEvent.id })
     .from(schema.reeShareEvent)
     .where(
       and(
-        eq(schema.reeShareEvent.visitorId, input.visitorId),
-        eq(schema.reeShareEvent.reeId, ree.id),
+        eq(schema.reeShareEvent.visitorId, visitorId),
+        eq(schema.reeShareEvent.reeId, reeId),
         eq(schema.reeShareEvent.kind, 'visit'),
         gte(schema.reeShareEvent.createdAt, new Date(now.getTime() - SHARE_ATTRIBUTION_HOURS * 3_600_000)),
       ),
     )
     .limit(1);
-  if (!visited) return 'unattributed';
+  return Boolean(visited);
+}
+
+/**
+ * A post published from `/s/[slug]` (its 向 … 提问 box), or -- before the
+ * chat pages went -- a conversation started or joined there. A post must be
+ * the user's own, made just now, and ask the Ree: a public post naming it,
+ * or a private post it was asked in; a conversation must be theirs and have
+ * just taken the Ree in. And this browser must have visited the share page
+ * -- so an old post or conversation cannot be claimed, nor someone else's.
+ */
+export async function recordShareConversion(input: { slug: string; visitorId: string; userId: string; conversationId?: string | null; postId?: string | null }, now = new Date()): Promise<ConversionResult> {
+  const byPost = Boolean(input.postId);
+  const target = byPost ? input.postId : input.conversationId;
+  if (!isUuid(target)) return 'not_found';
+  const ree = await publicReeRef(input.slug);
+  if (!ree) return 'not_found';
+  if (input.userId === ree.ownerId) return 'owner';
+  let madeAt: Date | null = null;
+  if (byPost) {
+    const { post, postAnswer } = schema;
+    const [asked] = await db()
+      .select({ createdAt: post.createdAt })
+      .from(post)
+      .where(
+        and(
+          eq(post.id, target),
+          eq(post.userId, input.userId),
+          eq(post.source, 'post'),
+          isNull(post.deletedAt),
+          or(
+            and(eq(post.visibility, 'public'), eq(post.mentionReeId, ree.id)),
+            and(eq(post.visibility, 'private'), sql`exists (select 1 from ${postAnswer} sa where sa.post_id = ${post.id} and sa.ree_id = ${ree.id} and sa.followup_id is null)`),
+          ),
+        ),
+      )
+      .limit(1);
+    madeAt = asked?.createdAt ?? null;
+  } else {
+    const [member] = await db()
+      .select({ addedAt: schema.conversationRee.addedAt })
+      .from(schema.conversation)
+      .innerJoin(schema.conversationRee, and(eq(schema.conversationRee.conversationId, schema.conversation.id), eq(schema.conversationRee.reeId, ree.id)))
+      .where(and(eq(schema.conversation.id, target), eq(schema.conversation.userId, input.userId)))
+      .limit(1);
+    madeAt = member?.addedAt ?? null;
+  }
+  if (!madeAt) return 'not_found';
+  if (madeAt.getTime() < now.getTime() - SHARE_CONVERSION_MINUTES * 60_000) return 'unattributed';
+  if (!(await visitedRecently(ree.id, input.visitorId, now))) return 'unattributed';
   const inserted = await db()
     .insert(schema.reeShareEvent)
-    .values({ reeId: ree.id, kind: 'conversation', visitorId: input.visitorId, userId: input.userId, conversationId: input.conversationId, createdAt: now })
+    .values(
+      byPost
+        ? { reeId: ree.id, kind: 'post', visitorId: input.visitorId, userId: input.userId, postId: target, createdAt: now }
+        : { reeId: ree.id, kind: 'conversation', visitorId: input.visitorId, userId: input.userId, conversationId: target, createdAt: now },
+    )
     .onConflictDoNothing()
     .returning({ id: schema.reeShareEvent.id });
   return inserted.length ? 'recorded' : 'repeat';
@@ -113,19 +151,7 @@ export async function recordShareConversion(input: { slug: string; visitorId: st
  */
 export async function shareVisitorFor(reeId: string, visitorId: string | null | undefined, now = new Date()): Promise<string | null> {
   if (!isUuid(visitorId)) return null;
-  const [visited] = await db()
-    .select({ id: schema.reeShareEvent.id })
-    .from(schema.reeShareEvent)
-    .where(
-      and(
-        eq(schema.reeShareEvent.visitorId, visitorId),
-        eq(schema.reeShareEvent.reeId, reeId),
-        eq(schema.reeShareEvent.kind, 'visit'),
-        gte(schema.reeShareEvent.createdAt, new Date(now.getTime() - SHARE_ATTRIBUTION_HOURS * 3_600_000)),
-      ),
-    )
-    .limit(1);
-  return visited ? visitorId : null;
+  return (await visitedRecently(reeId, visitorId, now)) ? visitorId : null;
 }
 
 export interface ShareStatistics {
@@ -135,9 +161,9 @@ export interface ShareStatistics {
   visits: number;
   /** Distinct visitors (browsers). */
   visitors: number;
-  /** Conversations started or joined from it. */
+  /** Conversions: posts published from it, and the conversations started or joined there before the chat pages went. */
   conversations: number;
-  /** Visitors of the period who also started a conversation in it. */
+  /** Visitors of the period who also converted in it. */
   converted: number;
   /** `converted / visitors` as a whole percentage, or null without visitors. */
   rate: number | null;
@@ -154,10 +180,10 @@ export async function shareStatistics(reeId: string, range: Range | null): Promi
       exists (select 1 from ${schema.ree} r where r.id = ${reeId} and r.is_public and r.moderated_at is null and r.deleted_at is null) as shareable,
       count(*) filter (where e.kind = 'visit')::int as visits,
       count(distinct e.visitor_id) filter (where e.kind = 'visit')::int as visitors,
-      count(*) filter (where e.kind = 'conversation')::int as conversations,
+      count(*) filter (where e.kind in ('conversation', 'post'))::int as conversations,
       count(distinct e.visitor_id) filter (
         where e.kind = 'visit'
-          and exists (select 1 from ${schema.reeShareEvent} c where c.ree_id = e.ree_id and c.visitor_id = e.visitor_id and c.kind = 'conversation' ${within('c')})
+          and exists (select 1 from ${schema.reeShareEvent} c where c.ree_id = e.ree_id and c.visitor_id = e.visitor_id and c.kind in ('conversation', 'post') ${within('c')})
       )::int as converted
     from ${schema.reeShareEvent} e
     where e.ree_id = ${reeId} ${within('e')}

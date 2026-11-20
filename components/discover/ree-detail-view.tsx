@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { publicTags } from '@/lib/domain/explore';
-import { PUBLIC_QA_ASK_ANCHOR, type PublicQaPage } from '@/lib/domain/public-qa';
+import { askOption } from '@/lib/domain/post';
 import { REE_COMMENTS_ANCHOR, type ReeCommentPage } from '@/lib/domain/ree-comment';
 import type { PublicList, PublicRee } from '@/lib/services/public-rees';
 import { fill, formatNumber } from '@/i18n/format';
@@ -16,10 +16,9 @@ import { useToast } from '@/components/ui/toast';
 import { ReeIdentityCover } from '@/components/rees/ree-identity-cover';
 import { RoleBadge } from '@/components/discover/role-badge';
 import { AuthorProfile } from '@/components/discover/author-profile';
-import { SignedInAsk } from '@/components/discover/signed-in-ask';
 import { composeHref } from '@/components/posts/composer';
-import { PublicQaList } from '@/components/discover/public-qa';
-import { JoinButton } from '@/components/discover/join-button';
+import { REE_ASK_ANCHOR, ReeAsk } from '@/components/posts/ree-ask';
+import { ReePostList, type ReePostPage } from '@/components/posts/ree-posts';
 import { PublicListSection } from '@/components/discover/public-list';
 import { PublicVisit } from '@/components/discover/public-visit';
 import { ReeComments } from '@/components/discover/ree-comments';
@@ -43,11 +42,13 @@ const RELATED_SHOWN = 3;
 /**
  * `/r/[slug]` and the owner's preview: the Ree's profile on top (cover and
  * avatar, name, introduction, tags, author, figures), then three tabs --
- * 问答 (the question box and the public Q&A), 评论 and 介绍 (video, what to
- * ask, the author and their other Rees) -- and the "使用这个 Ree" column.
+ * 回答的帖子 (向 {name} 提问, the box that names it and posts publicly or
+ * asks privately, then the public posts it answered as post cards), 评论
+ * and 介绍 (video, what to ask, the author and their other Rees) -- and the
+ * "使用这个 Ree" column, whose 向它提问 goes to the box (稿 2, section 6).
  */
 export function ReeDetailView({
-  savedRee, query, viewerId, preview, draftId, from, related, author, conversations, video, comments, qa, favoriteIds, renderedAt,
+  savedRee, query, viewerId, preview, draftId, from, related, author, video, comments, posts, favoriteIds, renderedAt,
 }: {
   savedRee: PublicRee;
   query: Search;
@@ -57,10 +58,9 @@ export function ReeDetailView({
   from: string;
   related: PublicList | null;
   author: PublicList | null;
-  conversations: { id: string; title: string; members: number }[];
   video: IntroProps | null;
   comments: ReeCommentPage | null;
-  qa: PublicQaPage | null;
+  posts: ReePostPage | null;
   favoriteIds?: string[];
   renderedAt: number;
 }) {
@@ -87,7 +87,6 @@ export function ReeDetailView({
   const ready = ree.sources > 0;
   const category = t.common.categories[ree.category as keyof typeof t.common.categories] ?? ree.category;
   const owner = Boolean(viewerId) && viewerId === ree.ownerId;
-  const price = owner ? QUERY_BASE_FEE : ree.price;
   const loginHref = (back: string) => `/login?returnTo=${encodeURIComponent(back)}`;
 
   /* The tab in the address (`?tab=`, or `#comments` coming back from signing in to comment); the author list's pages open 介绍. */
@@ -106,34 +105,33 @@ export function ReeDetailView({
     window.history.replaceState(window.history.state, '', `${self({ tab: next === 'qa' ? null : next })}`);
   };
 
-  /* "我也问一句": the question goes into the box at the top of 问答. */
-  const [followUp, setFollowUp] = useState<{ text: string; at: number } | null>(null);
-  const askAbout = (question: string) => setFollowUp({ text: question, at: Date.now() });
+  /* 向它提问 (the column's button): the box at the top of 回答的帖子, its question in focus. */
+  const goAsk = () => {
+    choose('qa');
+    requestAnimationFrame(() => {
+      const box = document.getElementById(REE_ASK_ANCHOR);
+      box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      box?.querySelector('textarea')?.focus({ preventScroll: true });
+    });
+  };
 
   async function share() {
     const url = `${window.location.origin}/s/${ree.slug}`;
     await navigator.clipboard.writeText(url).then(() => toast(p.shareCopied), () => toast(t.common.errors.generic));
   }
 
-  const qaRee = { id: ree.id, slug: ree.slug, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color };
   const askBox = preview ? (
-    <p className="ree-ask rounded-xl border border-line bg-wash px-4 py-3 text-[12px] text-muted">{q.previewNote}</p>
+    <p className="post-ask rounded-xl border border-line bg-wash px-4 py-3 text-[12px] text-muted">{q.previewNote}</p>
   ) : !ready ? (
-    <p className="ree-ask rounded-xl border border-line bg-wash px-4 py-3 text-[12px] text-muted">{p.anonymous.noSources}</p>
-  ) : viewerId ? (
-    <SignedInAsk ree={qaRee} price={price} queryFee={owner ? 0 : ree.queryFee} canPublish={ree.publicQaEnabled} sampleQuestions={ree.sampleQuestions} followUp={followUp} />
+    <p className="post-ask rounded-xl border border-line bg-wash px-4 py-3 text-[12px] text-muted">{p.anonymous.noSources}</p>
   ) : (
-    /* Visitors ask only on a share page (2026-11-19); here they sign in to ask or post. */
-    <div id={PUBLIC_QA_ASK_ANCHOR} className="ree-ask flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-wash px-4 py-3">
-      <div>
-        <p className="text-[13px] font-semibold">{q.paidTitle}</p>
-        <p className="text-[12px] text-muted">{ree.queryFee === 0 ? q.signInBody : fill(q.paidBody, { n: n(ree.price) })}</p>
-      </div>
-      <Link href={loginHref(`${self({})}#${PUBLIC_QA_ASK_ANCHOR}`)} className="btn-secondary btn-sm text-blue">
-        {p.anonymous.limitSignIn}
-        <Icon name="arrow" className="size-3.5" />
-      </Link>
-    </div>
+    <ReeAsk
+      ree={{ id: ree.id, slug: ree.slug, name: ree.name }}
+      option={askOption(ree, owner)}
+      takesPosts={ree.takesPosts}
+      signedIn={Boolean(viewerId)}
+      loginHref={loginHref(`${self({})}#${REE_ASK_ANCHOR}`)}
+    />
   );
 
   const body = (
@@ -190,14 +188,14 @@ export function ReeDetailView({
               <div className="ree-profile-stats">
                 <span><strong>{n(ree.answers)}</strong>{p.answers}</span>
                 <span><strong>{ree.positiveRate === null ? '—' : `${ree.positiveRate}%`}</strong>{p.rating}</span>
-                <span><strong>{n(qa?.total ?? 0)}</strong>{q.count}</span>
+                <span><strong>{n(posts?.total ?? 0)}</strong>{q.count}</span>
                 <span><strong>{n(ree.sources)}</strong>{p.sources}</span>
               </div>
             </header>
 
             <div className="cl-tabs" role="tablist" aria-label={q.tabs}>
               {([
-                ['qa', 'chat', q.tab, qa?.total ?? 0],
+                ['qa', 'chat', q.tab, posts?.total ?? 0],
                 ['comments', 'chat', p.comments.heading, comments?.total ?? 0],
                 ['intro', 'info', q.introTab, null],
               ] as const).map(([key, icon, label, count]) => (
@@ -211,8 +209,10 @@ export function ReeDetailView({
 
             <div role="tabpanel" hidden={tab !== 'qa'}>
               {askBox}
-              {qa && qa.items.length > 0 ? (
-                <PublicQaList ree={qaRee} initial={qa} signedIn={Boolean(viewerId)} owner={owner} loginHref={loginHref(self({}))} followUpLoginHref={loginHref(`${self({})}#${PUBLIC_QA_ASK_ANCHOR}`)} renderedAt={renderedAt} onFollowUp={askAbout} />
+              {posts && posts.items.length > 0 ? (
+                <div className="mt-4">
+                  <ReePostList key={ree.id} reeId={ree.id} initial={posts} signedIn={Boolean(viewerId)} owner={owner} paged renderedAt={renderedAt} />
+                </div>
               ) : (
                 <div className="ree-qa-empty">
                   <span className="mb-2 grid size-9 place-items-center rounded-lg bg-soft text-blue">
@@ -312,19 +312,16 @@ export function ReeDetailView({
               </p>
               {preview ? (
                 <button type="button" className="btn w-full justify-center opacity-60" disabled>
-                  <Icon name="plus" />
-                  {p.join}
+                  <Icon name="chat" />
+                  {t.posts.ask.jump}
                 </button>
               ) : (
                 <div>
-                  <JoinButton
-                    ree={{ id: ree.id, name: ree.name, description: ree.description, avatarBlob: ree.avatarBlob, color: ree.color, price }}
-                    signedIn={Boolean(viewerId)}
-                    conversations={conversations}
-                    returnTo={`${self({})}${self({}).includes('?') ? '&' : '?'}join=1`}
-                    openOnLoad={one(query.join) === '1'}
-                  />
-                  <p className="mt-2 text-center text-[11px] text-muted">{viewerId ? p.joinHint : p.signIn}</p>
+                  <button type="button" className="btn w-full justify-center" disabled={!ready} onClick={goAsk}>
+                    <Icon name="chat" />
+                    {t.posts.ask.jump}
+                  </button>
+                  <p className="mt-2 text-center text-[11px] text-muted">{t.posts.ask.jumpHint}</p>
                 </div>
               )}
             </div>

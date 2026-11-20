@@ -91,4 +91,13 @@ describe('share conversion', () => {
     expect(recordShareConversion).toHaveBeenCalledWith({ slug: 'ree-abc', visitorId, userId: 'user-1', conversationId });
     expect((await CONVERSION(request('/api/share/ree-abc/conversion', { visitor: visitorId, body: { conversationId } }), context)).status).toBe(404);
   });
+
+  it('passes a post published from the share page', async () => {
+    state.signedIn = true;
+    vi.mocked(recordShareConversion).mockResolvedValueOnce('recorded');
+    const postId = '7a1d3c52-6e0b-4c1f-9a7d-2b8e5f4c3d21';
+    const response = await CONVERSION(request('/api/share/ree-abc/conversion', { visitor: visitorId, body: { postId } }), context);
+    expect(await response.json()).toEqual({ result: 'recorded' });
+    expect(recordShareConversion).toHaveBeenCalledWith({ slug: 'ree-abc', visitorId, userId: 'user-1', postId });
+  });
 });

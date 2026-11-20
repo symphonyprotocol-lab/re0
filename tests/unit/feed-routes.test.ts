@@ -1,8 +1,8 @@
 /**
  * The v5 frame's routes: `/` keeps the front page's metadata and canonical,
  * `/about` carries the old home with its own canonical and is in the
- * sitemap list, and old addresses (`/chats`, `/settings?tab=notices`) go
- * to their new places with their parameters; the new signed-in pages are
+ * sitemap list, and old addresses (`/chats`, `/talk`, `/settings?tab=notices`) go
+ * to their new places; the new signed-in pages are
  * private (sign-in, robots).
  */
 import { describe, expect, it, vi } from 'vitest';
@@ -22,6 +22,8 @@ const home = await import('@/app/(product)/page');
 const rees = await import('@/app/(product)/(discover)/explore/page');
 const about = await import('@/app/(product)/(site)/about/page');
 const chats = await import('@/app/(product)/(workspace)/chats/page');
+const chat = await import('@/app/(product)/(workspace)/chats/[id]/page');
+const talk = await import('@/app/(product)/(workspace)/talk/page');
 const settings = await import('@/app/(product)/(workspace)/settings/page');
 const { PUBLIC_PAGES } = await import('@/i18n/paths');
 const { CRAWL_DISALLOWED, WORKSPACE_PATHS } = await import('@/lib/http/private-paths');
@@ -64,10 +66,10 @@ describe('the front page and 了解 RE0', () => {
 });
 
 describe('old addresses', () => {
-  it('sends /chats to 我的帖子 with its search, tab and selection', async () => {
-    await expect(chats.default({ searchParams: Promise.resolve({}) })).rejects.toThrow('NEXT_REDIRECT /me/posts');
-    await expect(chats.default({ searchParams: Promise.resolve({ view: 'trash', q: 'tax' }) })).rejects.toThrow('NEXT_REDIRECT /me/posts?view=trash&q=tax');
-    await expect(chats.default({ searchParams: Promise.resolve({ select: 'abc', focus: '1' }) })).rejects.toThrow('NEXT_REDIRECT /me/posts?select=abc&focus=1');
+  it('sends the retired chat pages to 私密: /chats and /chats/[id] to 我的帖子, /talk to the composer', () => {
+    expect(() => chats.default()).toThrow('NEXT_REDIRECT /me/posts?tab=private');
+    expect(() => chat.default()).toThrow('NEXT_REDIRECT /me/posts?tab=private');
+    expect(() => talk.default()).toThrow('NEXT_REDIRECT /?compose=private');
   });
 
   it('sends Rees\' old 帖子 and 待回答 tabs to 首页 for good (v6)', async () => {

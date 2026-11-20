@@ -2232,7 +2232,9 @@ export const taskReward = pgTable(
  * `re0_visitor` cookie (no IP, no user agent); the owner's own visits are
  * not recorded. A visit holds its half-hour `visit_slot`, so one visitor
  * counts once per slot even when two tabs open at once; one conversion per
- * conversation and Ree.
+ * conversation and Ree. Since the chat pages went (2026-11-20) a conversion
+ * is a post published from the share page (`kind = 'post'`, one per post
+ * and Ree); the conversation ones stay as they were counted.
  */
 export const reeShareEvent = pgTable(
   'ree_share_event',
@@ -2241,10 +2243,12 @@ export const reeShareEvent = pgTable(
     reeId: uuid('ree_id')
       .notNull()
       .references(() => ree.id, { onDelete: 'cascade' }),
-    kind: text('kind').$type<'visit' | 'conversation'>().notNull(),
+    kind: text('kind').$type<'visit' | 'conversation' | 'post'>().notNull(),
     visitorId: text('visitor_id').notNull(),
     userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
     conversationId: uuid('conversation_id').references(() => conversation.id, { onDelete: 'set null' }),
+    /** `post` conversions (2026-11-20): the post published from the share page, which asked this Ree. */
+    postId: uuid('post_id').references((): AnyPgColumn => post.id, { onDelete: 'set null' }),
     /** Visits only: `floor(epoch seconds / 1800)`. */
     visitSlot: integer('visit_slot'),
     createdAt: createdAt(),
@@ -2253,8 +2257,9 @@ export const reeShareEvent = pgTable(
     index('ree_share_event_ree_idx').on(t.reeId, t.kind, t.createdAt),
     index('ree_share_event_visitor_idx').on(t.visitorId, t.reeId, t.createdAt),
     uniqueIndex('ree_share_event_conversation_key').on(t.conversationId, t.reeId).where(sql`kind = 'conversation'`),
+    uniqueIndex('ree_share_event_post_key').on(t.postId, t.reeId).where(sql`kind = 'post'`),
     uniqueIndex('ree_share_event_visit_key').on(t.visitorId, t.reeId, t.visitSlot).where(sql`kind = 'visit'`),
-    check('ree_share_event_kind_check', oneOf('kind', ['visit', 'conversation'])),
+    check('ree_share_event_kind_check', oneOf('kind', ['visit', 'conversation', 'post'])),
     check('ree_share_event_visit_slot_check', sql`(kind = 'visit') = (visit_slot is not null)`),
   ],
 );

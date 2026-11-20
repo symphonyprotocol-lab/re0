@@ -1,7 +1,8 @@
 /**
  * The signed-in workspace: the middleware sends a visitor without a session
  * cookie to sign in, and robots.txt keeps crawlers out (they would only
- * find that redirect).
+ * find that redirect). `/talk` and `/chats` only redirect to the composer
+ * and 我的帖子 now (2026-11-20), both signed-in places, so they stay listed.
  */
 export const WORKSPACE_PATHS = ['/dashboard', '/rees', '/activities', '/settings', '/talk', '/chats', '/workspace', '/videos', '/me', '/notifications', '/saved'] as const;
 

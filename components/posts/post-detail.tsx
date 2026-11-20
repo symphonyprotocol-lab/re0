@@ -707,18 +707,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
 
       <PostState post={post} />
 
-      {post.followUps.length > 0 && (
-        <div className="post-followups">
-          <strong>{p.followUps}</strong>
-          {post.followUps.map((entry) => (
-            <Link key={entry.id} href={`/chats/${entry.id}`}>
-              <Icon name="lock" className="size-3.5" />
-              <span className="min-w-0 flex-1 truncate">{entry.reeName ? `${entry.reeName} · ` : ''}{entry.title}</span>
-              {p.open} →
-            </Link>
-          ))}
-        </div>
-      )}
+      {/* The old "你以前的私下追问" (conversations opened from this post) went with the chat pages (2026-11-20); `post.followUps` stays in the view until PR B. */}
 
       {shown.length > 0 && (
         <div className="post-answers-head scroll-mt-24" id="answers">

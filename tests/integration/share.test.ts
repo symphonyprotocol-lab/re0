@@ -140,6 +140,43 @@ describeWithDb('share page', () => {
     expect(today.share).toMatchObject({ visits: 1, conversations: 2 });
   });
 
+  it('counts a post published from the share page that asks the Ree, once (2026-11-20)', async () => {
+    const owner = await person();
+    const visitor = await person();
+    const stranger = await person();
+    const ree = await reeOf(owner);
+    const other = await reeOf(owner);
+    const browser = randomUUID();
+    const convert = (userId: string, postId: string, visitorId = browser) => share.recordShareConversion({ slug: ree.slug, visitorId, userId, postId });
+    /* Posts as the composers leave them: a public one naming its Ree, a private one with its Rees' answer rows. */
+    const publicPost = async (userId: string, mentionReeId: string | null, createdAt = new Date()) => {
+      const [row] = await db().insert(schema.post).values({ userId, source: 'post', visibility: 'public', question: 'How do I file?', lang: 'en', mentionReeId, createdAt }).returning({ id: schema.post.id });
+      return row!.id;
+    };
+    const privatePost = async (userId: string, reeIds: string[]) => {
+      const [row] = await db().insert(schema.post).values({ userId, source: 'post', visibility: 'private', status: 'published', publishedAt: new Date(), question: 'Privately?', lang: 'en' }).returning({ id: schema.post.id });
+      for (const reeId of reeIds) await db().insert(schema.postAnswer).values({ postId: row!.id, reeId });
+      return row!.id;
+    };
+
+    const named = await publicPost(visitor, ree.id);
+    expect(await convert(visitor, named)).toBe('unattributed');
+    expect(await visit(ree.slug, browser, { userId: visitor })).toBe('recorded');
+
+    expect(await convert(visitor, await publicPost(visitor, other.id))).toBe('not_found');
+    expect(await convert(visitor, await publicPost(visitor, null))).toBe('not_found');
+    expect(await convert(visitor, await privatePost(visitor, [other.id]))).toBe('not_found');
+    expect(await convert(visitor, await publicPost(stranger, ree.id))).toBe('not_found');
+    expect(await convert(owner, await publicPost(owner, ree.id))).toBe('owner');
+    expect(await convert(visitor, await publicPost(visitor, ree.id, new Date(Date.now() - 2 * 60 * 60_000)))).toBe('unattributed');
+    expect(await convert(visitor, named, randomUUID())).toBe('unattributed');
+    expect(await convert(visitor, named)).toBe('recorded');
+    expect(await convert(visitor, named)).toBe('repeat');
+    expect(await convert(visitor, await privatePost(visitor, [other.id, ree.id]))).toBe('recorded');
+
+    expect(await share.shareStatistics(ree.id, null)).toEqual({ shareable: true, visits: 1, visitors: 1, conversations: 2, converted: 1, rate: 100, anonymousAnswers: 0 });
+  });
+
   it('does not count a conversion in the rate when the visit fell outside the period', async () => {
     const ree = await reeOf(await person());
     const visitor = await person();

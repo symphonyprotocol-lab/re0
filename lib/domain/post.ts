@@ -17,6 +17,7 @@
  */
 import type { CitationSnapshot } from '@/lib/domain/answer';
 import type { SynthesisSource } from '@/lib/domain/synthesis';
+import { QUERY_BASE_FEE } from '@/lib/constants';
 
 /** Posts a user may publish a day: a ceiling against scripts, not a price. */
 export const POST_DAILY_LIMIT = 30;
@@ -155,6 +156,19 @@ export interface FollowupCandidate {
 /** A Ree the private composer suggests or the author picks, with what one answer costs them and, when suggested, how close it is. */
 export interface PrivateReeOption extends FollowupCandidate {
   similarity: number | null;
+}
+
+/** How many answered posts a share page shows ("大家问过的"); the rest are on the Ree page. */
+export const SHARE_POST_PICKS = 3;
+
+/**
+ * One Ree as a box that names it (向 … 提问 on its share page and Ree page)
+ * lists it for 私密提问: what one answer costs the viewer -- the base fee on
+ * their own Ree, its price otherwise.
+ */
+export function askOption(ree: { id: string; slug: string; name: string; avatarBlob: string | null; color: string; price: number }, own: boolean): PrivateReeOption {
+  const price = own ? QUERY_BASE_FEE : ree.price;
+  return { reeId: ree.id, reeSlug: ree.slug, reeName: ree.name, reeAvatar: ree.avatarBlob, reeColor: ree.color, price, paid: price > QUERY_BASE_FEE, similarity: null };
 }
 
 export const FEED_TABS = ['for_you', 'latest', 'unanswered'] as const;

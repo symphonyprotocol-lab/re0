@@ -2,7 +2,7 @@ import type { Shape } from '@/i18n/format';
 
 /** The three-step wizard (`/rees/new`) and Ree settings (`/rees/[id]/settings`), which share their fields. */
 export const zh = {
-  tabs: { settings: '设置', knowledge: '知识管理', chat: '对话', label: 'Ree 功能' },
+  tabs: { settings: '设置', knowledge: '知识管理', chat: '试问', label: 'Ree 功能' },
   fields: {
     avatar: 'Ree 头像',
     avatarUpload: '上传头像',
@@ -46,7 +46,7 @@ export const zh = {
     promptHint: '无论如何设置，Ree 都只基于已启用的知识回答，不确定时会坦诚说明。',
     samples: '示例问题',
     samplesPlaceholder: '每行一个问题，最多 3 个',
-    samplesHint: '用于公开页引导提问，也方便在对话页测试。',
+    samplesHint: '用于公开页引导提问，也方便在试问页测试。',
     public: '公开',
     publicHint: '发布后可被发现，其他用户登录后提问。',
     private: '仅自己',
@@ -145,7 +145,7 @@ export const zh = {
       cropUse: '使用此封面',
     },
     moderatedHint: '此 Ree 已下架，需等待管理员恢复公开。',
-    test: '在对话中测试',
+    test: '试问',
     dangerTitle: '删除 Ree',
     dangerBody: '删除前会再次确认，已有对话仍会保留。',
     delete: '删除这个 Ree',
@@ -156,7 +156,7 @@ export const zh = {
 };
 
 export const en: Shape<typeof zh> = {
-  tabs: { settings: 'Settings', knowledge: 'Knowledge', chat: 'Chat', label: 'Ree sections' },
+  tabs: { settings: 'Settings', knowledge: 'Knowledge', chat: 'Try it', label: 'Ree sections' },
   fields: {
     avatar: 'Ree avatar',
     avatarUpload: 'Upload image',
@@ -200,7 +200,7 @@ export const en: Shape<typeof zh> = {
     promptHint: 'Ree answers only from enabled knowledge and acknowledges uncertainty.',
     samples: 'Sample questions',
     samplesPlaceholder: 'One per line, up to three',
-    samplesHint: 'Shown on the public page and available for testing in Chat.',
+    samplesHint: 'Shown on the public page and available to try on the Try it page.',
     public: 'Public',
     publicHint: 'Discoverable after publishing. Signed-in users can ask questions.',
     private: 'Private',
@@ -299,7 +299,7 @@ export const en: Shape<typeof zh> = {
       cropUse: 'Use this cover',
     },
     moderatedHint: 'This Ree is taken down. Only administrators can restore public access.',
-    test: 'Test in Chat',
+    test: 'Try it',
     dangerTitle: 'Delete Ree',
     dangerBody: 'Deletion requires confirmation. Existing conversations are retained.',
     delete: 'Delete this Ree',

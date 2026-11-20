@@ -1305,3 +1305,64 @@ a.post-quote:hover {
     padding: 0 6px;
   }
 }
+
+/*
+ * 向 … 提问 (ree-ask.tsx): the box a share page and a Ree page end with, its
+ * Ree already named, and 公开帖子 / 私密提问 above the question.
+ */
+.post-ask {
+  margin-top: 18px;
+}
+.ask-vis {
+  display: inline-flex;
+  align-self: flex-start;
+  width: max-content;
+  gap: 2px;
+  margin-bottom: 8px;
+  padding: 2px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: var(--color-wash);
+}
+.ask-vis button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.ask-vis button[aria-checked='true'] {
+  background: #ffffff;
+  color: var(--color-ink);
+  box-shadow: 0 1px 2px rgb(9 17 53 / 0.08);
+}
+.ask-vis button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ask-vis svg {
+  width: 13px;
+  height: 13px;
+}
+.post-ask .ree-pick {
+  margin-top: 0;
+}
+.ask-chip {
+  padding: 3px 10px 3px 8px;
+}
+/* A share page's and a Ree page's answered posts: the cards run to the edges of their column. */
+.ree-post-feed .post-card {
+  padding-left: 0;
+  padding-right: 0;
+}
+.ree-post-owner {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: -6px;
+  color: var(--color-muted);
+  font-size: 11px;
+}

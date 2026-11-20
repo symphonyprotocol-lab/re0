@@ -317,7 +317,7 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
       )}
 
       {SYNTHESIS_ENABLED && result.mode === 'search' && result.items.length >= SYNTHESIS_MIN_ANSWERS && (
-        <RoundtableEntry question={query.q} rees={result.items.slice(0, ROUNDTABLE_REES)} signedIn={signedIn} returnTo={current} />
+        <RoundtableEntry question={query.q} rees={result.items.slice(0, ROUNDTABLE_REES)} signedIn={signedIn} />
       )}
 
       {loaded.items.length > 0 ? (

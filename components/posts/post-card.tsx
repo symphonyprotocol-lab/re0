@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { PostAuthor, PostQuote, PostView } from '@/lib/domain/post';
 import { useI18n } from '@/i18n/client';
@@ -163,9 +163,10 @@ export function PrivateBadge() {
  * answered and the top answer, cut; or where it stands. The whole card
  * opens the post; save and copy link sit above that. A private post (only
  * ever in its author's 我的帖子) shows its mark and its rename, and none of
- * 有帮助, save or copy link: nobody else could use them.
+ * 有帮助, save or copy link: nobody else could use them. `footer`: a line
+ * under the actions (a Ree owner's 置顶 / 隐藏 on its page).
  */
-export function PostCard({ post: initial, now, signedIn }: { post: PostView; now: number; signedIn: boolean }) {
+export function PostCard({ post: initial, now, signedIn, footer }: { post: PostView; now: number; signedIn: boolean; footer?: ReactNode }) {
   const { t, locale } = useI18n();
   const c = t.posts.card;
   const toast = useToast();
@@ -266,6 +267,7 @@ export function PostCard({ post: initial, now, signedIn }: { post: PostView; now
             </Link>
           )}
         </div>
+        {footer}
       </div>
     </article>
   );

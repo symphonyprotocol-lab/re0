@@ -2,24 +2,20 @@ import type { Metadata } from 'next';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { notFound } from 'next/navigation';
 import { cache } from 'react';
-import { QUERY_BASE_FEE } from '@/lib/constants';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { localeUrl } from '@/lib/seo';
 import { currentUser } from '@/lib/http/session';
-import { joinableConversations } from '@/lib/services/conversations';
 import { publicReeBySlug as lookup } from '@/lib/services/public-rees';
 import { introsFor } from '@/lib/services/video';
-import { publicQaPicks } from '@/lib/services/public-qa';
-import { PUBLIC_QA_PICKS } from '@/lib/domain/public-qa';
-import { SharePicks } from '@/components/share/share-picks';
+import { reePostPicks } from '@/lib/services/posts';
+import { askOption, SHARE_POST_PICKS } from '@/lib/domain/post';
+import { ReePostList } from '@/components/posts/ree-posts';
+import { REE_ASK_ANCHOR, ReeAsk } from '@/components/posts/ree-ask';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RoleBadge } from '@/components/discover/role-badge';
-import { AnonymousChat } from '@/components/discover/anonymous-chat';
-import { shareAskToken } from '@/lib/services/anonymous-chat';
-import { JoinButton } from '@/components/discover/join-button';
 import { ReeCover } from '@/components/discover/ree-card';
 import { PublicIntro } from '@/components/video/public-intro';
 import { ShareFrame } from '@/components/share/share-frame';
@@ -51,14 +47,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 /**
  * `/s/[slug]`: the share page -- one Ree on its own, for the link its owner
- * (or anyone) sends out. Its introduction, who made it, what to ask, and
- * 「开始对话」; no related lists and no workspace around it. Open to
- * visitors; a visitor signs in and comes back with the dialog open. Only a
- * public Ree has one. With public answers, "大家问过的" shows the pinned and
- * most helpful ones in place of the sample questions; the whole stream is
- * on the Ree page. Each open is a visit and each conversation started
- * here a conversion (lib/services/share.ts). A signed-out visitor may ask a
- * free Ree right here (anonymous chat, as on `/r/[slug]`).
+ * (or anyone) sends out. Its introduction, who made it, what people asked
+ * it, and 向 {name} 提问; no related lists and no workspace around it. Only
+ * a public Ree has one. "大家问过的" is post cards (稿 2, section 5): the
+ * public posts it answered -- pinned, then most helpful -- each with its
+ * answer, in place of the sample questions; the whole list is on the Ree
+ * page. The box names this Ree and posts publicly or asks it privately; a
+ * visitor sees the same box with 登录后提问 and comes back to it with the
+ * draft kept (ree-ask.tsx). Each open is a visit and each post published
+ * here a conversion (lib/services/share.ts). Anonymous chat is gone.
  */
 export default async function SharePage({ params, searchParams }: Props) {
   const [{ slug }, query, user, { t, locale }] = await Promise.all([params, searchParams, currentUser(), serverMessages()]);
@@ -66,16 +63,9 @@ export default async function SharePage({ params, searchParams }: Props) {
   if (!ree) notFound();
   const s = t.share.page;
   const n = (value: number) => formatNumber(value, locale);
-  const [conversations, intros, picks, shareToken] = await Promise.all([
-    user ? joinableConversations(user.id, ree.id) : Promise.resolve([]),
-    introsFor([ree.id]),
-    publicQaPicks(ree.id, PUBLIC_QA_PICKS),
-    /* Visitors ask only here (2026-11-19): the anonymous endpoint wants this page's token for this Ree. */
-    !user && ree.queryFee === 0 ? shareAskToken(ree.id) : Promise.resolve(null),
-  ]);
+  const [intros, picks] = await Promise.all([introsFor([ree.id]), reePostPicks(ree.id, SHARE_POST_PICKS, user?.id)]);
   const video = intros.get(ree.id) ?? null;
   const own = user?.id === ree.ownerId;
-  const price = own ? QUERY_BASE_FEE : ree.price;
   const category = t.common.categories[ree.category as keyof typeof t.common.categories] ?? ree.category;
 
   return (
@@ -127,7 +117,7 @@ export default async function SharePage({ params, searchParams }: Props) {
                 </h2>
                 <span className="text-[11px] text-muted">{fill(s.picksCount, { n: n(picks.total) })}</span>
               </div>
-              <SharePicks ree={{ id: ree.id, slug: ree.slug, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color }} items={picks.items} renderedAt={Date.now()} />
+              <ReePostList reeId={ree.id} initial={{ items: picks.items, total: picks.total, next: null }} signedIn={Boolean(user)} renderedAt={Date.now()} />
             </section>
           ) : (
             ree.sampleQuestions.length > 0 && (
@@ -148,40 +138,18 @@ export default async function SharePage({ params, searchParams }: Props) {
             )
           )}
 
-          {/* A signed-out visitor may ask a free Ree here -- and only here; the server decides again on every question. */}
-          {!user && shareToken && ree.sources > 0 && (
-            <section className="mt-7 border-t border-line pt-6" aria-label={s.askHeading}>
-              <h2 className="flex items-center gap-2 text-[14px] font-bold">
-                <Icon name="chat" className="size-4 text-blue" />
-                {s.askHeading}
-              </h2>
-              <AnonymousChat
-                ree={{ id: ree.id, name: ree.name, avatarBlob: ree.avatarBlob, color: ree.color, sampleQuestions: picks.items.length > 0 ? [] : ree.sampleQuestions }}
-                loginHref={`/login?returnTo=${encodeURIComponent(`/s/${ree.slug}`)}`}
-                shareToken={shareToken}
-                shareSlug={ree.slug}
-              />
-            </section>
+          {ree.sources > 0 ? (
+            <ReeAsk
+              ree={{ id: ree.id, slug: ree.slug, name: ree.name }}
+              option={askOption(ree, own)}
+              takesPosts={ree.takesPosts}
+              signedIn={Boolean(user)}
+              loginHref={`/login?returnTo=${encodeURIComponent(`/s/${ree.slug}#${REE_ASK_ANCHOR}`)}`}
+              share={user && !own ? ree.slug : null}
+            />
+          ) : (
+            <p className="mt-7 rounded-xl border border-line bg-wash px-4 py-3 text-[12px] text-muted">{t.discover.public.anonymous.noSources}</p>
           )}
-
-          <section className="mt-7 rounded-[12px] border border-[#d6e6fb] bg-soft p-4 sm:p-5" aria-label={s.start}>
-            <p className="flex gap-2 text-[12px] leading-relaxed text-[#3b4361]">
-              <Icon name="shield" className="mt-0.5 size-3.5 flex-none text-green" />
-              {s.startHint}
-            </p>
-            <div className="mt-4">
-              <JoinButton
-                ree={{ id: ree.id, name: ree.name, description: ree.description, avatarBlob: ree.avatarBlob, color: ree.color, price }}
-                signedIn={Boolean(user)}
-                conversations={conversations}
-                returnTo={`/s/${ree.slug}?join=1`}
-                openOnLoad={one(query.join) === '1'}
-                label={s.start}
-                share={own ? undefined : ree.slug}
-              />
-            </div>
-            <p className="mt-2 text-center text-[11px] text-muted">{user ? fill(s.perAnswer, { n: n(price) }) : s.signIn}</p>
-          </section>
 
           <div className="mt-5 flex justify-center">
             <Link href={`/r/${ree.slug}`} className="text-link">

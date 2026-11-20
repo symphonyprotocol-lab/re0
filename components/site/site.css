@@ -570,19 +570,20 @@
   width: 15px;
 }
 .demo-user {
-  width: fit-content;
-  margin: 23px 0px 18px auto;
-  padding: 9px 11px;
-  background: #eef3fe;
-  border: 1px solid #e6edfb;
-  border-radius: 8px 8px 2px;
-  font-size: 9px;
-  color: #7285a9;
+  /* The question as a post shows it (2026-11-20): a bold line, not a chat bubble. */
+  margin: 20px 0px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: #1d2540;
 }
 .demo-answer {
+  /* ...and the Ree's answer as an answer card under it. */
   position: relative;
-  border-left: 2px solid #bad8fc;
-  padding-left: 11px;
+  border: 1px solid #e6edfb;
+  border-radius: 8px;
+  background: #f7f9fe;
+  padding: 10px 12px;
   color: #6e83a4;
 }
 .demo-answer-icon {

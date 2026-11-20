@@ -1863,6 +1863,30 @@ export async function reeAnsweredPosts(reeId: string, options: { before?: string
   return { items: await viewsOf(ordered, options.viewerId, { whole: false, onlyRee: reeId }), total: counted?.n ?? 0, next: rows.length > size ? rows[size - 1]!.answerId : null };
 }
 
+/**
+ * A share page's "大家问过的": the posts this Ree answered in their first
+ * round, public ones only -- the pinned answer first, then the most helpful,
+ * then the newest (as the Q&A picks were chosen) -- each card showing this
+ * Ree's answer; and how many there are in all.
+ */
+export async function reePostPicks(reeId: string, count: number, viewerId?: string): Promise<{ items: PostView[]; total: number }> {
+  if (!isUuid(reeId)) return { items: [], total: 0 };
+  const base = and(eq(answer.reeId, reeId), firstRound(), shownAnswer(), visiblePost())!;
+  const [counted] = await db().select({ n: sql<number>`count(*)::int` }).from(answer).innerJoin(ree, eq(ree.id, answer.reeId)).innerJoin(post, eq(post.id, answer.postId)).where(base);
+  const picked = await db()
+    .select({ postId: answer.postId })
+    .from(answer)
+    .innerJoin(ree, eq(ree.id, answer.reeId))
+    .innerJoin(post, eq(post.id, answer.postId))
+    .where(base)
+    .orderBy(sql`${answer.pinnedAt} is null`, desc(answer.helpfulCount), desc(answer.answeredAt), desc(answer.id))
+    .limit(count);
+  if (picked.length === 0) return { items: [], total: counted?.n ?? 0 };
+  const rows = await selectPosts(inArray(post.id, picked.map((row) => row.postId)), [desc(post.createdAt)], picked.length);
+  const ordered = picked.map((row) => rows.find((entry) => entry.id === row.postId)).filter((row): row is PostRow => Boolean(row));
+  return { items: await viewsOf(ordered, viewerId, { whole: false, onlyRee: reeId }), total: counted?.n ?? 0 };
+}
+
 /** Shown answers per Ree, for the explore cards' activity line. */
 export async function answeredPostCounts(reeIds: readonly string[]): Promise<Map<string, number>> {
   if (reeIds.length === 0) return new Map();
