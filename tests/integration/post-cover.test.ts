@@ -4,13 +4,12 @@
  * a gone one's the site image, a current version cached for good), and the
  * excerpt hiding what an answer quoted about a person.
  */
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
+import { offlineOgAssets } from '../fixtures/og-offline';
 import type { ProcessDeps } from '@/lib/services/posts';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -19,14 +18,13 @@ vi.mock('next/headers', () => ({
   cookies: async () => ({ get: () => undefined }),
   headers: async () => new Headers(),
 }));
-/* No network for fonts: the Latin face satori ships with, under the cards' family, in both weights. */
+/* No network: the fixture font for `ogFonts`, and nothing fetched for the glyphs it lacks. */
 vi.mock('@/lib/og/font', async (original) => {
   const actual = await original<typeof import('@/lib/og/font')>();
-  const file = createRequire(import.meta.url).resolve('next/dist/compiled/@vercel/og/noto-sans-v27-latin-regular.ttf');
-  const data = readFileSync(file);
-  const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
-  return { ...actual, ogFonts: async () => [400, 700].map((weight) => ({ name: actual.OG_FONT_FAMILY, data: buffer, weight, style: 'normal' })) };
+  const { fixtureOgFonts } = await import('../fixtures/og-offline');
+  return { ...actual, ogFonts: async () => fixtureOgFonts(actual.OG_FONT_FAMILY) };
 });
+offlineOgAssets();
 
 const { createSession } = await import('@/lib/services/auth');
 const rees = await import('@/lib/services/rees');
