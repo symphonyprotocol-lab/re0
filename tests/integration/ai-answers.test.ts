@@ -295,7 +295,7 @@ describeWithDb('AI 通用回答 when no Ree answers', () => {
     const seen: AiAnswerInput[] = [];
     /* Not close enough: no Ree is asked, and the AI answers the reader. */
     await followups.processFollowup(asked.id, { judge: approve, matchFollowup: async () => ({ similarity: new Map([[near.reeId, 0.1]]), vector: null }), answerOne: says(() => 'unused'), aiAnswer: aiStub('It depends on the city.', seen) });
-    expect(seen[0]).toMatchObject({ userId: reader, question: 'Does it affect a home purchase?', thread: { postQuestion: expect.stringContaining('Monstera'), earlierAnswer: null, earlierQuestions: [] } });
+    expect(seen[0]).toMatchObject({ userId: reader, question: 'Does it affect a home purchase?', thread: { postQuestion: expect.stringContaining('Monstera'), earlierAnswer: null, earlierRounds: [] } });
     const [row] = await db().select().from(schema.postAiAnswer).where(eq(schema.postAiAnswer.followupId, asked.id));
     expect(row).toMatchObject({ state: 'answered', userId: reader, postId: id });
     expect(await balanceOf(db(), reader)).toBe(100 - AI_ANSWER_FEE);

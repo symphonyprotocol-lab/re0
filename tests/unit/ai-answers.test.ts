@@ -31,7 +31,7 @@ const base: PostView = {
   author: { kind: 'user', name: '林夏', avatar: null, mine: true }, status: 'published', answerState: 'done', answered: 0, candidates: 4, skipped: 4,
   helpful: 0, voted: false, saved: false, createdAt: '2026-11-20T00:00:00.000Z', answers: [],
   summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, paidRequests: [], spent: null,
-  aiAnswer: answered, followupCount: 0, followups: [], followupCandidates: [], followupBlocked: null, deleted: false,
+  aiAnswer: answered, followupCount: 0, followups: [], followupCandidates: [], followupBlocked: null, followupAiOnly: false, deleted: false,
 };
 const now = Date.parse('2026-11-20T01:00:00Z');
 const page = (post: PostView) => renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t: zh, children: createElement(PostDetail, { initial: post, signedIn: true, now, loginHref: '/login' }) }));
@@ -53,11 +53,19 @@ describe('the model is a general assistant with no sources', () => {
 
   it('asks the question alone, or a follow-up with the thread so far', () => {
     expect(aiAnswerPrompt('Why yellow?', 'Indoors.')).toBe('Why yellow?\n\nIndoors.');
-    const prompt = aiAnswerPrompt('And in winter?', '', { postQuestion: 'Why yellow?', earlierAnswer: 'Overwatering.', earlierQuestions: ['q1', 'q2'] });
+    const prompt = aiAnswerPrompt('And in winter?', '', { postQuestion: 'Why yellow?', earlierAnswer: 'Overwatering.', earlierRounds: [{ question: 'q1', answer: null }, { question: 'q2', answer: null }] });
     expect(prompt).toContain('The original question:\nWhy yellow?');
     expect(prompt).toContain('Your earlier general answer to it:\nOverwatering.');
     expect(prompt).toContain('- q1\n- q2');
     expect(prompt.endsWith('The follow-up question to answer now:\nAnd in winter?')).toBe(true);
+  });
+
+  it('carries the earlier AI rounds of a 继续问 AI thread: their questions and answers', () => {
+    const prompt = aiAnswerPrompt('And repotting?', '', { postQuestion: 'Why yellow?', earlierAnswer: 'Overwatering.', earlierRounds: [{ question: 'How often?', answer: 'Once a week.' }, { question: 'Which soil?', answer: null }] });
+    expect(prompt).toContain('Earlier follow-up questions, with your general answers:');
+    expect(prompt).toContain('- How often?\n  Your general answer: Once a week.');
+    expect(prompt).toContain('- Which soil?');
+    expect(prompt.endsWith('The follow-up question to answer now:\nAnd repotting?')).toBe(true);
   });
 
   it('keeps none of the citation markers it wrote, and hides contact details like a post', () => {
@@ -123,7 +131,7 @@ describe('the asker reads the AI answer, marked as no Ree’s', () => {
   it('answers the asker of a follow-up no Ree answered; anyone else reads the line as before', () => {
     const round: FollowupView = {
       id: 'f1', author: { name: '林夏', avatar: null, poster: false, mine: true }, question: '断缴一个月影响买房吗？', mentions: [], status: 'published', hiddenBy: null, answerState: 'done',
-      candidates: 1, skipped: 1, createdAt: '2026-11-20T00:30:00.000Z', answers: [], awaiting: 0, paidRequests: [], declined: [], spent: 0, aiAnswer: { ...answered, text: '取决于城市的规则。' },
+      candidates: 1, skipped: 1, createdAt: '2026-11-20T00:30:00.000Z', answers: [], awaiting: 0, paidRequests: [], declined: [], spent: 0, aiAnswer: { ...answered, text: '取决于城市的规则。' }, aiOnly: false,
     };
     const ree = { id: 'r-a', reeId: 'r1', reeSlug: 'plants', reeName: '社保顾问', reeAvatar: null, reeColor: 'default', official: false, similarity: 0.8, state: 'answered' as const, text: '要连续缴纳。', truncated: false, citations: [], helpful: 0, voted: false, pinned: false, paid: false, unhelpful: 0, unvoted: false, cost: null };
     const post: PostView = { ...base, author: { kind: 'user', name: 'Mei', avatar: null, mine: false }, aiAnswer: null, answered: 1, answers: [ree], followupCount: 1, followups: [round], followupCandidates: [{ reeId: 'r1', reeSlug: 'plants', reeName: '社保顾问', reeAvatar: null, reeColor: 'default', price: QUERY_BASE_FEE, paid: false }] };
@@ -137,6 +145,58 @@ describe('the asker reads the AI answer, marked as no Ree’s', () => {
     expect(theirs).toContain(zh.posts.followups.noAnswer);
     /* The box says the AI steps in when no Ree can, at the base fee. */
     expect(mine).toContain(fill(a.followupCost, { fee: String(QUERY_BASE_FEE) }));
+  });
+
+  it('puts 继续问 AI on the card of a public post no Ree answered, and the box asks the AI alone at the base fee', () => {
+    const cost = fill(a.followupAiOnly, { fee: String(AI_ANSWER_FEE) });
+    expect(cost).toBe(`AI 通用回答 · ${AI_ANSWER_FEE} credits，你来付`);
+    const html = page({ ...base, followupAiOnly: true });
+    expect(html).toContain(`</svg>${a.askMore}</button>`);
+    expect(html).toContain(zh.posts.followupComposer.placeholderAi);
+    expect(html).toContain(`>${cost}</small>`);
+    /* No Ree to @, and no "the AI steps in when no Ree can" line: it is the AI's box. */
+    expect(html).not.toContain('fu-at-btn');
+    expect(html).not.toContain(fill(a.followupCost, { fee: String(AI_ANSWER_FEE) }));
+
+    /* Without it (anyone else, or a post a Ree is in): no action, no box. */
+    const plain = page(base);
+    expect(plain).not.toContain(a.askMore);
+    expect(plain).not.toContain(zh.posts.followupComposer.placeholderAi);
+  });
+
+  it('shows the author’s 继续问 AI rounds with their AI answers, then folds them once a Ree answered', () => {
+    const round: FollowupView = {
+      id: 'f-ai', author: { name: '林夏', avatar: null, poster: true, mine: true }, question: '冬天要少浇水吗？', mentions: [], status: 'published', hiddenBy: null, answerState: 'done',
+      candidates: 0, skipped: 0, createdAt: '2026-11-20T00:30:00.000Z', answers: [], awaiting: 0, paidRequests: [], declined: [], spent: 0, aiAnswer: { ...answered, id: 'ai2', text: '冬天少浇一些。' }, aiOnly: true,
+    };
+    const open = page({ ...base, followupAiOnly: true, followups: [round] });
+    expect(open).toContain('冬天要少浇水吗？');
+    expect(open).toContain('冬天少浇一些。');
+    expect(open).toContain(a.followupNoteAiOnly);
+    expect(open.split(`</svg>${a.askMore}</button>`)).toHaveLength(3);
+
+    const ree = { id: 'r-a', reeId: 'r1', reeSlug: 'plants', reeName: '绿植顾问', reeAvatar: null, reeColor: 'default', official: false, similarity: null, state: 'answered' as const, text: '浇水过多。', truncated: false, citations: [], helpful: 0, voted: false, pinned: false, paid: false, unhelpful: 0, unvoted: false, cost: null };
+    const folded = page({
+      ...base,
+      answered: 1,
+      answers: [ree],
+      aiAnswer: { ...answered, folded: true },
+      followups: [{ ...round, aiAnswer: { ...round.aiAnswer!, folded: true } }],
+      followupCandidates: [{ reeId: 'r1', reeSlug: 'plants', reeName: '绿植顾问', reeAvatar: null, reeColor: 'default', price: QUERY_BASE_FEE, paid: false }],
+    });
+    expect(folded).toContain(fill(a.aiRoundsFolded, { n: '1' }));
+    expect(folded).not.toContain('冬天要少浇水吗？');
+    expect(folded).not.toContain(a.askMore);
+    /* The box is the public one again: the first round's Ree to @. */
+    expect(folded).toContain(zh.posts.followupComposer.placeholder);
+    expect(folded).toContain('fu-at-btn');
+  });
+
+  it('reads the same in a private thread no Ree is in (只问 AI)', () => {
+    const html = page({ ...base, visibility: 'private', candidates: 0, skipped: 0 });
+    expect(html).toContain(`</svg>${a.askMore}</button>`);
+    expect(html).toContain(`>${fill(a.followupAiOnly, { fee: String(AI_ANSWER_FEE) })}</small>`);
+    expect(html).not.toContain('fu-at-btn');
   });
 
   it('previews it on the asker’s own feed card, in place of "nobody could answer"', () => {

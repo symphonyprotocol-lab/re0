@@ -30,9 +30,14 @@ export interface FollowupComposerHandle {
  * `PRIVATE_POST_MAX_REES` in the thread), sent as `addReeIds`; every price
  * shown goes along as `fees` and is held when sent, so a raised price comes
  * back to confirm again.
+ *
+ * `aiOnly` (继续问 AI): the author of a public post no Ree answered, under
+ * their AI answer -- no Ree to @, and the AI answers each follow-up at the
+ * base fee, seen by them only. A private thread no Ree is in (只问 AI) reads
+ * the same.
  */
-export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: string; isPrivate?: boolean; candidates: FollowupCandidate[]; signedIn: boolean; loginHref: string; blocked: 'full' | null; onAsked: () => void }>(function FollowupComposer(
-  { postId, isPrivate = false, candidates: threadRees, signedIn, loginHref, blocked, onAsked },
+export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: string; isPrivate?: boolean; aiOnly?: boolean; candidates: FollowupCandidate[]; signedIn: boolean; loginHref: string; blocked: 'full' | null; onAsked: () => void }>(function FollowupComposer(
+  { postId, isPrivate = false, aiOnly: publicAi = false, candidates: threadRees, signedIn, loginHref, blocked, onAsked },
   ref,
 ) {
   const { t, locale } = useI18n();
@@ -107,13 +112,13 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
     );
   }
   if (blocked === 'full') return <div className="post-state is-unmatched" id="followup">{f.full}</div>;
-  if (candidates.length === 0 && !isPrivate) return null;
+  if (candidates.length === 0 && !isPrivate && !publicAi) return null;
 
   const paidNames = picked.filter((entry) => entry.paid).map((entry) => entry.reeName);
   /* Private: named Rees (@ and 加 Ree) answer, else the relevant ones of the thread -- at most all of them. */
   const named = [...picked, ...addedNow];
-  /* A private thread with no Ree in it (只问 AI): the AI answers each follow-up, at the base fee. */
-  const aiOnly = isPrivate && named.length === 0 && candidates.length === 0;
+  /* No Ree to answer: a public post's 继续问 AI, or a private thread with no Ree in it (只问 AI) -- the AI answers each follow-up, at the base fee. */
+  const aiOnly = candidates.length === 0 && (publicAi || (isPrivate && named.length === 0));
   const cost = aiOnly
     ? fill(t.posts.ai.followupAiOnly, { fee: formatNumber(AI_ANSWER_FEE, locale) })
     : isPrivate
@@ -211,7 +216,7 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
           ref={input}
           className="fu-input"
           aria-label={f.label}
-          placeholder={isPrivate ? f.placeholderPrivate : f.placeholder}
+          placeholder={aiOnly ? f.placeholderAi : isPrivate ? f.placeholderPrivate : f.placeholder}
           value={question}
           rows={question ? 2 : 1}
           maxLength={POST_QUESTION_MAX + 50}
@@ -293,9 +298,12 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
               {f.addRee}
             </button>
           )}
-          <button type="button" className="icon-btn fu-at-btn" aria-label={f.at} title={f.at} aria-expanded={picker} disabled={open.length === 0 || mentions.length >= FOLLOWUP_MAX_MENTIONS} onClick={() => setPicker((current) => !current)}>
-            <Icon name="at" className="" />
-          </button>
+          {/* No Ree in the thread: nothing to @. */}
+          {candidates.length > 0 && (
+            <button type="button" className="icon-btn fu-at-btn" aria-label={f.at} title={f.at} aria-expanded={picker} disabled={open.length === 0 || mentions.length >= FOLLOWUP_MAX_MENTIONS} onClick={() => setPicker((current) => !current)}>
+              <Icon name="at" className="" />
+            </button>
+          )}
           <small className="post-cost">{cost}</small>
           <button type="submit" className="btn btn-sm" disabled={busy || !question.trim() || short}>
             {busy ? <i className="spinner" /> : null}

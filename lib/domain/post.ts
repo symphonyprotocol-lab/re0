@@ -142,6 +142,8 @@ export interface FollowupView {
   spent: number | null;
   /** The asker's AI answer when no Ree answered this follow-up; null for anyone else, and when there is none. */
   aiAnswer: AiAnswerView | null;
+  /** 继续问 AI: asked under the author's AI answer to a public post no Ree answered; only the author ever gets one. */
+  aiOnly: boolean;
 }
 
 /** A first-round Ree one may @ in a follow-up, with what one answer costs the viewer. */
@@ -349,6 +351,12 @@ export interface PostView {
   followupCandidates: FollowupCandidate[];
   /** Why the viewer cannot ask a follow-up now, on the post's page: null when they can. */
   followupBlocked: 'full' | null;
+  /**
+   * The viewer, its author, may ask on under their AI answer (继续问 AI): a
+   * public post no Ree answered, whose follow-ups the AI answers, seen by
+   * them only. On the post's page only; false for anyone else.
+   */
+  followupAiOnly: boolean;
   /** Rees waiting for the author to agree (paid ones, and free ones the balance could not cover), only for the author on the post's page. */
   paidRequests: PaidRequestView[];
   /** What the answers cost the author so far, only for the author on the post's page; null otherwise. */

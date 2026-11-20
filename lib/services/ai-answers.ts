@@ -22,8 +22,14 @@
  *   3. Writing: the free tier's generation model whatever the asker's Plan
  *      (the fee covers its cost, section 10), purpose `ai_answer`; the
  *      question and its detail, and for a follow-up the thread's questions
- *      and the asker's earlier AI answer -- never a Ree's answer. The text is
- *      cleaned of citation markers and redacted like a post.
+ *      and the asker's earlier AI answers -- never a Ree's answer. The text
+ *      is cleaned of citation markers and redacted like a post.
+ *   3a. 继续问 AI (`aiFollowupsOpen`): under the AI answer to their public
+ *      post no Ree answered, its author asks on; those follow-ups
+ *      (`ai_only`) go to the AI alone, at the same fee, and only the author
+ *      ever sees them -- for everyone else the post stays 待回答 with no
+ *      follow-ups. Once a Ree answers the post, they fold with the first
+ *      AI answer (kept, not refunded).
  *   4. Reading (`aiAnswersFor`): only for the asker. It is never a
  *      `post_answer`, so no Ree figure, feed, sitemap, share page or count
  *      reads it, and a public post with only an AI answer stays 待回答.
@@ -113,22 +119,63 @@ async function askedRound(postId: string, followupId: string | null): Promise<{ 
   return { userId: row.followup.userId, question: row.followup.question, detail: '', lang: row.followup.lang, visibility: row.post.visibility, postQuestion: [row.post.question, row.post.detail].filter(Boolean).join('\n') };
 }
 
-/** For a follow-up: the post's question, the asker's own AI answer to the first round, and the questions asked before this one. */
+/**
+ * For a follow-up: the post's question, the asker's own AI answer to the
+ * first round, and the follow-ups asked before this one that the asker can
+ * read -- a public one, or their own 继续问 AI -- each with the asker's own
+ * AI answer to it. Never a Ree's answer.
+ */
 async function threadOf(postId: string, followupId: string, userId: string, postQuestion: string): Promise<AiAnswerThread> {
   const [asked] = await db().select({ createdAt: followup.createdAt }).from(followup).where(eq(followup.id, followupId)).limit(1);
   const earlier = asked
     ? await db()
-        .select({ question: followup.question })
+        .select({ id: followup.id, question: followup.question })
         .from(followup)
-        .where(and(eq(followup.postId, postId), eq(followup.status, 'published'), isNull(followup.deletedAt), lt(followup.createdAt, asked.createdAt)))
+        .where(and(eq(followup.postId, postId), eq(followup.status, 'published'), isNull(followup.deletedAt), or(eq(followup.aiOnly, false), eq(followup.userId, userId)), lt(followup.createdAt, asked.createdAt)))
         .orderBy(asc(followup.createdAt))
     : [];
-  const [first] = await db()
-    .select({ text: aiAnswer.text })
+  const answers = await db()
+    .select({ followupId: aiAnswer.followupId, text: aiAnswer.text })
     .from(aiAnswer)
-    .where(and(eq(aiAnswer.postId, postId), isNull(aiAnswer.followupId), eq(aiAnswer.userId, userId), eq(aiAnswer.state, 'answered')))
+    .where(and(eq(aiAnswer.postId, postId), eq(aiAnswer.userId, userId), eq(aiAnswer.state, 'answered')));
+  const first = answers.find((entry) => entry.followupId === null);
+  return {
+    postQuestion,
+    earlierAnswer: first?.text ?? null,
+    earlierRounds: earlier.map((entry) => ({ question: entry.question, answer: answers.find((other) => other.followupId === entry.id)?.text ?? null })),
+  };
+}
+
+/**
+ * 继续问 AI: whether this user may ask on under their AI answer to this post
+ * -- its author, of a real public post that is live, whose first round has
+ * their AI answer written and no Ree in it (answered, answering or waiting).
+ * Their follow-ups then go to the AI alone and only they see them
+ * (post-followups.ts `askFollowup`). Once a Ree is brought in (请 Ree 回答)
+ * it closes, and follow-ups are public again.
+ */
+export async function aiFollowupsOpen(postId: string, userId: string): Promise<boolean> {
+  if (!isUuid(postId)) return false;
+  const [row] = await db()
+    .select({ id: aiAnswer.id })
+    .from(aiAnswer)
+    .innerJoin(post, eq(post.id, aiAnswer.postId))
+    .where(
+      and(
+        eq(aiAnswer.postId, postId),
+        isNull(aiAnswer.followupId),
+        eq(aiAnswer.userId, userId),
+        eq(aiAnswer.state, 'answered'),
+        eq(post.userId, userId),
+        eq(post.visibility, 'public'),
+        eq(post.source, 'post'),
+        eq(post.status, 'published'),
+        isNull(post.deletedAt),
+        noReeOn(postId, null),
+      ),
+    )
     .limit(1);
-  return { postQuestion, earlierAnswer: first?.text ?? null, earlierQuestions: earlier.map((entry) => entry.question) };
+  return Boolean(row);
 }
 
 /**
