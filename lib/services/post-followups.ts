@@ -55,6 +55,7 @@ import { QUERY_BASE_FEE } from '@/lib/constants';
 import { db, schema, type Executor } from '@/lib/infra/db';
 import { maxCostFor } from '@/lib/services/answer';
 import { embedQuestion, type QuestionVector } from '@/lib/services/chat';
+import { aiAnswersFor, aiRoundKey, answerWithAi, type AiAnswerer } from '@/lib/services/ai-answers';
 import { balanceOf, releaseHold } from '@/lib/services/credits';
 import { nearestPassages, publicRee } from '@/lib/services/explore';
 import { notify } from '@/lib/services/notices';
@@ -332,6 +333,8 @@ export interface FollowupDeps {
   judge?: Judge;
   matchFollowup?: FollowupMatcher;
   answerOne?: AnswerOne;
+  /** AI 通用回答 when no Ree answered the follow-up (ai-answers.ts); the model by default. */
+  aiAnswer?: AiAnswerer;
   now?: () => Date;
 }
 
@@ -410,6 +413,8 @@ export async function processFollowup(id: string, deps: FollowupDeps = {}): Prom
     console.warn(`followup ${id} answering failed: ${error instanceof Error ? error.message : 'unknown'}`);
   }
   await finishFollowup(id, now());
+  /* No Ree answered this follow-up (none close enough, or none could): its asker gets an AI answer, at the base fee. */
+  await answerWithAi(row.postId, id, deps);
 }
 
 /**
@@ -449,7 +454,7 @@ export async function finishFollowup(id: string, now = new Date()): Promise<void
  * last attempt are rejected, and runs that died while answering are settled
  * with what they have.
  */
-export async function settleStaleFollowups(now = new Date()): Promise<number> {
+export async function settleStaleFollowups(now = new Date(), deps: Pick<FollowupDeps, 'aiAnswer'> = {}): Promise<number> {
   const stuck = await db()
     .select({ id: followup.id })
     .from(followup)
@@ -457,12 +462,15 @@ export async function settleStaleFollowups(now = new Date()): Promise<number> {
     .limit(100);
   for (const row of stuck) await rejectFollowup(row.id, now);
   const dead = await db()
-    .select({ id: followup.id })
+    .select({ id: followup.id, postId: followup.postId })
     .from(followup)
     .where(and(eq(followup.answerState, 'answering'), lt(followup.publishedAt, new Date(now.getTime() - POST_ANSWERING_STALE_MS))))
     .orderBy(asc(followup.publishedAt))
     .limit(100);
-  for (const row of dead) await finishFollowup(row.id, now);
+  for (const row of dead) {
+    await finishFollowup(row.id, now);
+    await answerWithAi(row.postId, row.id, deps).catch((error: unknown) => console.warn(`followup ${row.id} ai answer failed: ${error instanceof Error ? error.message : 'unknown'}`));
+  }
   return stuck.length + dead.length;
 }
 
@@ -555,6 +563,9 @@ export async function threadFor(row: PostRow, viewerId: string | undefined): Pro
       : Promise.resolve([]),
   ]);
   const posterId = row.source === 'post' ? row.userId : null;
+  /* The viewer's own AI answers to their follow-ups no Ree answered (ai-answers.ts); folded once a Ree has. */
+  const answeredRounds = new Set(answers.filter((other) => other.shown && other.followupId).map((other) => aiRoundKey(row.id, other.followupId)));
+  const ai = await aiAnswersFor(viewerId, { followupIds: mine.map((entry) => entry.followup.id) }, { whole: true, answeredRounds });
   return {
     followups: rows.map(({ followup: entry, name, avatar }) => {
       const asker = entry.userId === viewerId;
@@ -578,6 +589,7 @@ export async function threadFor(row: PostRow, viewerId: string | undefined): Pro
         paidRequests: asker && entry.status === 'published' && row.visibility === 'public' ? (requests.find(([key]) => key === entry.id)?.[1] ?? []) : [],
         declined: asker ? declined.filter((other) => other.followupId === entry.id).map((other) => other.name) : [],
         spent: asker ? (spent.find(([key]) => key === entry.id)?.[1] ?? 0) : null,
+        aiAnswer: asker ? (ai.get(aiRoundKey(row.id, entry.id)) ?? null) : null,
       };
     }),
     candidates,

@@ -26,7 +26,7 @@ const base: PostView = {
   author: { kind: 'user', name: 'Lin', avatar: null, mine: false }, status: 'published', answerState: 'done', answered: 2, candidates: 6, skipped: 0,
   helpful: 4, voted: false, saved: false, createdAt: '2026-11-20T00:00:00.000Z',
   answers: [answer('1', '个税顾问'), answer('2', '社保公积金')],
-  summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, followUps: [], paidRequests: [], spent: null, followupCount: 0, followups: [],
+  summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, followUps: [], paidRequests: [], spent: null, aiAnswer: null, followupCount: 0, followups: [],
   followupCandidates: [candidate('1', '个税顾问', 20), candidate('2', '社保公积金', 50)], followupBlocked: null, deleted: false,
 };
 const privatePost: PostView = {
@@ -106,10 +106,14 @@ describe('the composer\'s private tab', () => {
     expect(html).toContain('</svg>私密提问</button>');
   });
 
-  it('cannot send without a Ree', () => {
+  it('without a Ree, offers to ask the AI alone at the base fee (只问 AI)', () => {
     const html = render(PrivatePostForm, { question: '换工作后要重新填吗？' });
-    expect(html).toContain('最多 0 credits');
-    expect(html).toMatch(/<button type="button" class="btn btn-sm" disabled="">/);
+    expect(html).not.toContain('最多 0 credits');
+    expect(html).toContain('20 credits · 生成失败不收费');
+    expect(html).toContain('</svg>只问 AI · 20 credits</button>');
+    expect(html).not.toContain('</svg>私密提问</button>');
+    /* Nothing to ask yet: no button to send. */
+    expect(render(PrivatePostForm, {})).toMatch(/<button type="button" class="btn btn-sm" title="[^"]*" disabled="">/);
   });
 });
 

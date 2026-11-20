@@ -239,8 +239,10 @@ describeWithDb('public posts, review round 2', () => {
     const [answer] = await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.postId, posted.id));
     expect(answer?.state).toBe('failed');
     expect(await postRow(posted.id)).toMatchObject({ answerCount: 0, answerState: 'done' });
-    /* Its base fee came back with it; the late answer charged nothing. */
-    expect(await balanceOf(db(), author)).toBe(QUERY_BASE_FEE);
+    /* Its base fee came back with it; the late answer charged nothing. Settled with no Ree answer, the AI general answer took the base fee instead. */
+    expect(await db().select({ reason: schema.creditEntry.reason }).from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, author), eq(schema.creditEntry.reason, 'query_base')))).toEqual([]);
+    expect((await db().select().from(schema.postAiAnswer).where(eq(schema.postAiAnswer.postId, posted.id)))[0]?.state).toBe('answered');
+    expect(await balanceOf(db(), author)).toBe(0);
   });
 
   it('sweeps posts left behind several at a time, within its budget (S5)', async () => {

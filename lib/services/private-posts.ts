@@ -34,6 +34,7 @@ import {
   POST_DAILY_LIMIT,
   POST_DUPLICATE_WINDOW_MS,
   POST_MIN_SIMILARITY,
+  AI_ANSWER_FEE,
   POST_TITLE_MAX,
   PRIVATE_POST_MAX_REES,
   PRIVATE_POST_SUGGESTIONS,
@@ -50,8 +51,9 @@ import { embedQuestion, type QuestionVector } from '@/lib/services/chat';
 import { balanceOf, placeHold } from '@/lib/services/credits';
 import { publicRee, searchRees } from '@/lib/services/explore';
 import { finishFollowup, followupAnswerInput, passageMatcher, privateThreadRees, type FollowupMatcher } from '@/lib/services/post-followups';
-import { closeAnswer, finishPost, firstRound, groundedAnswer, ownPrivatePost, privateAnswerShown, shownAnswer, shownFollowupOf, type AnswerOne, type AnswerResult } from '@/lib/services/posts';
+import { closeAnswer, finishPost, firstRound, groundedAnswer, ownPrivatePost, privateAnswerShown, shownAnswer, shownFollowupOf, takesPosts, type AnswerOne, type AnswerResult } from '@/lib/services/posts';
 import { grantTaskReward } from '@/lib/services/task-rewards';
+import { answerWithAi, type AiAnswerer } from '@/lib/services/ai-answers';
 
 const { post, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postFollowup: followup, ree } = schema;
 
@@ -150,6 +152,8 @@ export interface PrivatePostInput {
   reeIds: readonly string[];
   /** The price of one answer the composer showed per Ree (base fee included). */
   fees?: Record<string, unknown> | null;
+  /** 只问 AI: no Ree at all, the AI answers alone (`AI_ANSWER_FEE`, ai-answers.ts). */
+  aiOnly?: boolean;
   lang: 'zh' | 'en';
   clientToken?: string | null;
 }
@@ -176,7 +180,9 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
   const invalid = postInputError(input.question, input.detail ?? '');
   if (invalid) return { ok: false, error: invalid };
   const ids = [...new Set(input.reeIds.filter((id) => typeof id === 'string' && isUuid(id)))];
-  if (ids.length === 0) return { ok: false, error: 'no_rees' };
+  /* 只问 AI: the composer found no Ree and the author chose none -- a private post only the AI answers (from the composer only; 试问 and MCP always name Rees). */
+  const aiOnly = input.aiOnly === true && input.reeIds.length === 0 && source === 'post';
+  if (ids.length === 0 && !aiOnly) return { ok: false, error: 'no_rees' };
   if (ids.length > PRIVATE_POST_MAX_REES) return { ok: false, error: 'too_many_rees' };
   const rees = await askableRees(userId, ids);
   if (rees.length !== ids.length) return { ok: false, error: 'ree_unavailable' };
@@ -221,13 +227,18 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
         candidates: rees.length,
         createdAt: now,
       });
+      /* Asking the AI alone needs its fee in the balance now: without it nothing would answer. */
+      if (aiOnly) {
+        const balance = await balanceOf(tx, userId, now);
+        if (balance < AI_ANSWER_FEE) throw new InsufficientCredits(AI_ANSWER_FEE, balance);
+      }
       await holdAnswers(tx, userId, { postId: id, followupId: null }, entries, now);
       /* 新手任务: a first question to a Ree pays once, after its holds, as a private question did (answer.ts). */
       if (source !== 'test') await grantTaskReward(tx, userId, 'first_question', id);
       return { ok: true, id } as const;
     });
   } catch (error) {
-    if (error instanceof InsufficientCredits) return { ok: false, error: 'insufficient_credits', balance: await balanceOf(db(), userId), needed: neededFor(entries, userId) };
+    if (error instanceof InsufficientCredits) return { ok: false, error: 'insufficient_credits', balance: await balanceOf(db(), userId), needed: aiOnly ? AI_ANSWER_FEE : neededFor(entries, userId) };
     throw error;
   }
 }
@@ -258,6 +269,8 @@ async function sameAsk(userId: string, source: string, ask: { question: string; 
 export interface PrivateDeps {
   answerOne?: AnswerOne;
   matchFollowup?: FollowupMatcher;
+  /** AI 通用回答 when none of the chosen Rees answered (ai-answers.ts); the model by default. */
+  aiAnswer?: AiAnswerer;
   now?: () => Date;
 }
 
@@ -271,6 +284,8 @@ export async function processPrivatePost(id: string, deps: PrivateDeps = {}): Pr
   const subject = [row.question, row.detail].filter(Boolean).join('\n');
   await answerRunning(running, (reeId) => (deps.answerOne ?? groundedAnswer)({ reeId, subject, lang: row.lang, vector: null }), now);
   await finishPost(id, now());
+  /* None of the chosen Rees answered (or none was chosen, 只问 AI): the author gets an AI answer, at the base fee. */
+  await answerWithAi(id, null, deps);
 }
 
 /** How the composer finds Rees for a question: the search's nearest public Rees (explore.ts). */
@@ -316,9 +331,10 @@ const PICKER_RESULTS = 20;
  * knowledge (any other could only answer "nothing found"), matching `q` by
  * name, introduction or tag; their own first, then the most active. `ids`
  * resolves Rees named by a link (`?compose=private&rees=…`) instead, in the
- * order given; one they may not ask is left out, never revealed.
+ * order given; one they may not ask is left out, never revealed. `scope:
+ * 'post'`: the Rees "请 Ree 回答" may ask on a public post instead.
  */
-export async function privateReeOptions(userId: string, input: { q?: string | null; ids?: readonly string[] }): Promise<PrivateReeOption[]> {
+export async function privateReeOptions(userId: string, input: { q?: string | null; ids?: readonly string[]; scope?: 'private' | 'post' }): Promise<PrivateReeOption[]> {
   const ids = (input.ids ?? []).filter((id) => isUuid(id)).slice(0, PRIVATE_POST_MAX_REES);
   const q = input.q?.trim().slice(0, 200) ?? '';
   const pattern = q ? likePattern(q) : null;
@@ -329,7 +345,8 @@ export async function privateReeOptions(userId: string, input: { q?: string | nu
     .where(
       and(
         isNull(ree.deletedAt),
-        or(publicRee(), eq(ree.ownerId, userId)),
+        /* "请 Ree 回答" on a public post (`scope: 'post'`): public Rees that take posts only, as a matched one would be. */
+        input.scope === 'post' ? and(publicRee(), takesPosts()) : or(publicRee(), eq(ree.ownerId, userId)),
         ready,
         ids.length || input.ids ? inArray(ree.id, ids.length ? ids : [randomUUID()]) : undefined,
         pattern ? or(sql`${ree.name} ilike ${pattern}`, sql`${ree.description} ilike ${pattern}`, sql`exists (select 1 from unnest(${ree.tags}) tag where tag ilike ${pattern})`) : undefined,
@@ -406,8 +423,10 @@ export async function askPrivateFollowup(userId: string, postId: string, input: 
   let chosenIds: string[];
   const similarity = new Map<string, number>();
   if (named.length) chosenIds = named;
-  else {
-    if (thread.length === 0) return { ok: false, error: 'no_candidates' };
+  else if (thread.length === 0) {
+    /* A thread no Ree is in yet (只问 AI): the follow-up goes to the AI alone, unless the author adds a Ree. */
+    chosenIds = [];
+  } else {
     const scoring = await (deps.matchFollowup ?? passageMatcher)({ question, postQuestion: [target.question, target.detail].filter(Boolean).join('\n'), reeIds: thread.map((entry) => entry.reeId) });
     for (const [reeId, value] of scoring.similarity) similarity.set(reeId, value);
     const ranked = [...thread].sort((a, b) => (similarity.get(b.reeId) ?? 0) - (similarity.get(a.reeId) ?? 0));
@@ -479,7 +498,7 @@ export async function processPrivateFollowup(id: string, deps: PrivateDeps = {})
   if (!isUuid(id)) return;
   const now = deps.now ?? (() => new Date());
   const [row] = await db()
-    .select({ id: followup.id })
+    .select({ id: followup.id, postId: followup.postId })
     .from(followup)
     .innerJoin(post, eq(post.id, followup.postId))
     .where(and(eq(followup.id, id), eq(followup.answerState, 'answering'), eq(post.visibility, 'private')))
@@ -495,6 +514,7 @@ export async function processPrivateFollowup(id: string, deps: PrivateDeps = {})
     now,
   );
   await finishFollowup(id, now());
+  await answerWithAi(row.postId, id, deps);
 }
 
 /** Whether a post is private: its follow-ups then go through `askPrivateFollowup`. */

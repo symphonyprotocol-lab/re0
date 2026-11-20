@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { CitationSnapshot } from '@/lib/domain/answer';
-import { FOLLOWUP_FOLD_HEAD, FOLLOWUP_FOLD_TAIL, FOLLOWUP_ROUND_ANSWERS, POST_SUMMARY_FEE, POST_TITLE_MAX, type FollowupView, type PaidRequestView, type PostAnswerView, type PostPage, type PostView } from '@/lib/domain/post';
+import { FOLLOWUP_FOLD_HEAD, FOLLOWUP_FOLD_TAIL, FOLLOWUP_ROUND_ANSWERS, POST_SUMMARY_FEE, POST_TITLE_MAX, type AiAnswerView, type FollowupView, type PaidRequestView, type PostAnswerView, type PostPage, type PostView, type PrivateReeOption } from '@/lib/domain/post';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber, formatRelative } from '@/i18n/format';
 import { AnswerText, CitationChips, CitationDrawer, Typing } from '@/components/chat/message-parts';
@@ -15,9 +15,14 @@ import { useToast } from '@/components/ui/toast';
 import { AuthorAvatar, authorName, PostHelpful, PostState, PrivateBadge, QuoteCard } from '@/components/posts/post-card';
 import { PostFeed } from '@/components/posts/post-feed';
 import { FollowupComposer, type FollowupComposerHandle } from '@/components/posts/followup-composer';
+import { AiGuide, AiRound, type AiGuideItem } from '@/components/posts/ai-answer';
+import { composeHref } from '@/components/posts/composer';
+import { PrivateReePicker } from '@/components/posts/ree-picker';
 import './posts.css';
 
 const POLL_MS = 2_500;
+/** A round just settled with no Ree may still get its AI answer (written right after): the page keeps asking this long. */
+const AI_WAIT_MS = 3 * 60_000;
 
 /**
  * A post's page (v5 "帖子页"): the question, then each Ree's answer with
@@ -64,12 +69,25 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
   };
   /* Only a post anyone can see takes votes, saves, reports and 继续问; on a trashed, pending or taken-down one they could only fail (O2). */
   const live = post.status === 'published' && !post.deleted;
+  /*
+   * The asker's AI answer (AI 通用回答) is written right after a round
+   * settles with no Ree: while it runs, or for a short while before it
+   * appears, the page keeps asking.
+   */
+  const aiComing = (ai: AiAnswerView | null, quiet: boolean, at: string) => ai?.state === 'running' || (ai === null && quiet && Date.now() - Date.parse(at) < AI_WAIT_MS);
   const settled =
     post.status !== 'pending' &&
     post.answerState === 'done' &&
     post.summary?.state !== 'running' &&
     !post.paidRequests.some((entry) => entry.state === 'answering') &&
-    post.followups.every((entry) => entry.status !== 'pending' && entry.answerState === 'done' && !entry.paidRequests.some((request) => request.state === 'answering'));
+    !aiComing(post.aiAnswer, mine && live && post.answered === 0 && post.paidRequests.length === 0 && (post.author.kind === 'user' || post.author.kind === 'hidden'), post.createdAt) &&
+    post.followups.every(
+      (entry) =>
+        entry.status !== 'pending' &&
+        entry.answerState === 'done' &&
+        !entry.paidRequests.some((request) => request.state === 'answering') &&
+        !aiComing(entry.aiAnswer, entry.author.mine && entry.status === 'published' && entry.answers.length === 0 && entry.paidRequests.length === 0 && entry.awaiting === 0, entry.createdAt),
+    );
   /* A paid request whose price was refused: the price to confirm again; one the balance could not pay: the top-up link. */
   const [lacking, setLacking] = useState<string | null>(null);
 
@@ -90,7 +108,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
    * spent change -- polled, or after an action -- refresh them (the page's own
    * state stays).
    */
-  const shownState = `${post.answered}|${post.summary?.state ?? ''}|${post.spent ?? ''}|${post.paidRequests.map((entry) => entry.state).join(',')}|${post.followups.map((entry) => `${entry.answerState}:${entry.answers.length}:${entry.spent ?? ''}`).join(',')}`;
+  const shownState = `${post.answered}|${post.summary?.state ?? ''}|${post.spent ?? ''}|${post.aiAnswer?.state ?? ''}|${post.paidRequests.map((entry) => entry.state).join(',')}|${post.followups.map((entry) => `${entry.answerState}:${entry.answers.length}:${entry.spent ?? ''}:${entry.aiAnswer?.state ?? ''}`).join(',')}`;
   const seenState = useRef(shownState);
   useEffect(() => {
     if (seenState.current === shownState) return;
@@ -254,6 +272,25 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
   }
   const decline = (entry: PaidRequestView, scope: string | null) =>
     call(entry.id, `/api/posts/answers/${entry.id}/request`, { method: 'POST', body: JSON.stringify({ action: 'decline' }) }, () => setRequests(scope, (entries) => entries.filter((other) => other.id !== entry.id)));
+
+  /* The asker's AI answer of the first round (null) or of one follow-up, changed in place (a vote, a by-hand generation). */
+  const setAi = (scope: string | null, next: AiAnswerView) =>
+    setPost((current) =>
+      scope === null
+        ? { ...current, aiAnswer: next }
+        : { ...current, followups: current.followups.map((round) => (round.id === scope ? { ...round, aiAnswer: next } : round)) },
+    );
+  /* "请 Ree 回答": the author's own public post no Ree answered asks one public Ree, at its price. */
+  const [requesting, setRequesting] = useState(false);
+  const requestRee = (option: PrivateReeOption) => {
+    setRequesting(false);
+    return call(option.reeId, `/api/posts/${post.id}/ree-request`, { method: 'POST', body: JSON.stringify({ reeId: option.reeId }) }, (body) => {
+      toast(fill(body.state === 'awaiting' ? t.posts.ai.requestWaiting : t.posts.ai.requestSent, { name: option.reeName }));
+      void refresh();
+    }, (code) => (t.posts.ai.requestErrors as Record<string, string>)[code] ?? null);
+  };
+  /* 换个说法再问 on a public post: the composer over this page, the question prefilled. */
+  const askAgainHref = (question: string) => composeHref(`/p/${post.id}`, '', { compose: 'public', ask: question });
 
   const shown = post.answers.filter((entry) => entry.state === 'answered');
   const waiting = post.answers.filter((entry) => entry.state === 'queued' || entry.state === 'answering');
@@ -421,6 +458,31 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
     </section>
   );
 
+  const a = t.posts.ai;
+  /* The AI answer's guidance under a follow-up: another post (every Ree), or on a private thread 加 Ree / ask again in the box. */
+  const followupGuide = (round: FollowupView): AiGuideItem[] =>
+    isPrivate
+      ? [
+          { icon: 'plus', title: a.addRee, body: a.addReeBody, onClick: () => composer.current?.addRee() },
+          { icon: 'text', title: a.rephrase, body: a.rephrasePrivateBody, onClick: () => composer.current?.focus() },
+        ]
+      : [
+          { icon: 'text', title: a.postAnew, body: a.postAnewBody, href: askAgainHref(round.question) },
+          { icon: 'at', title: a.mention, body: a.mentionFollowupBody, href: '/rees' },
+        ];
+  /* Under the first round: ask it another way, ask one Ree (请 Ree 回答), or become the Ree; on a private post 加 Ree or ask again in the box. */
+  const firstGuide: AiGuideItem[] = isPrivate
+    ? [
+        { icon: 'plus', title: a.addRee, body: a.addReeBody, onClick: () => composer.current?.addRee() },
+        { icon: 'text', title: a.rephrase, body: a.rephrasePrivateBody, onClick: () => composer.current?.focus() },
+      ]
+    : [
+        { icon: 'text', title: a.rephrase, body: a.rephraseBody, href: askAgainHref([post.question, post.detail].filter(Boolean).join('\n')) },
+        { icon: 'at', title: a.mention, body: a.mentionBody, onClick: () => setRequesting((current) => !current) },
+        { icon: 'plus', title: a.create, body: a.createBody, href: '/rees/new' },
+      ];
+  const firstAi = post.aiAnswer;
+
   /* One follow-up: who asked, its round and time, the question (@ in blue), then where it stands and its answers. */
   const roundArticle = (round: FollowupView) => {
     const asker = round.author.mine;
@@ -520,15 +582,36 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
                 </div>
               )}
               {open && round.answerState === 'done' && shownAnswers.length === 0 && running.length === 0 && round.paidRequests.length === 0 && round.awaiting === 0 && (
-                asker && !round.mentions.length ? (
-                  <div className="post-state is-unmatched">
-                    <span>{t2.noAnswerMine}</span>
-                    <Link href={`/p/${post.id}?compose=public`}>{t2.postAnew} →</Link>
-                  </div>
+                /* No Ree answered: its asker gets the AI's general answer (only they see it); everyone else, the line as before. */
+                asker && round.aiAnswer && (round.aiAnswer.state === 'answered' || round.aiAnswer.state === 'running') ? (
+                  <>
+                    <AiRound
+                      ai={round.aiAnswer}
+                      postId={post.id}
+                      followupId={round.id}
+                      compact
+                      note={<p className="fu-round-note ai-round-note">{isPrivate ? a.followupNotePrivate : round.mentions.length ? a.followupNoteMentioned : a.followupNote}</p>}
+                      onChange={(next) => setAi(round.id, next)}
+                      onRefresh={() => void refresh()}
+                    />
+                    {round.aiAnswer.state === 'answered' && <AiGuide items={followupGuide(round)} />}
+                  </>
                 ) : (
-                  <div className="post-state is-unmatched">{asker ? t2.mentionNoAnswer : t2.noAnswer}</div>
+                  <>
+                    {asker && !round.mentions.length ? (
+                      <div className="post-state is-unmatched">
+                        <span>{t2.noAnswerMine}</span>
+                        <Link href={`/p/${post.id}?compose=public`}>{t2.postAnew} →</Link>
+                      </div>
+                    ) : (
+                      <div className="post-state is-unmatched">{asker ? t2.mentionNoAnswer : t2.noAnswer}</div>
+                    )}
+                    {asker && round.aiAnswer?.state === 'skipped_balance' && <AiRound ai={round.aiAnswer} postId={post.id} followupId={round.id} onChange={(next) => setAi(round.id, next)} onRefresh={() => void refresh()} />}
+                  </>
                 )
               )}
+              {/* A Ree answered after all: the asker's AI answer folds under the answers. */}
+              {asker && round.aiAnswer?.folded && shownAnswers.length > 0 && <AiRound ai={round.aiAnswer} postId={post.id} followupId={round.id} compact onChange={(next) => setAi(round.id, next)} onRefresh={() => void refresh()} />}
               {asker && round.declined.length > 0 && <p className="post-skipped">{fill(t2.declined, { names: round.declined.join('、') })}</p>}
               {asker && round.spent !== null && round.spent > 0 && <p className="post-skipped">{fill(t2.spent, { n: formatNumber(round.spent, locale) })}</p>}
               {asker && open && round.paidRequests.length > 0 && paidSection(round.paidRequests, round.id)}
@@ -705,7 +788,33 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
       </div>
       )}
 
-      <PostState post={post} />
+      {/* No Ree answered the first round: its author reads the AI's general answer (only they see it) and the ways to one with sources. */}
+      {firstAi && shown.length === 0 && (firstAi.state === 'answered' || firstAi.state === 'running') ? (
+        <>
+          <div className="post-state is-unmatched ai-state">
+            <span>
+              {isPrivate ? (post.candidates === 0 ? a.stateAiOnly : a.statePrivate) : (
+                <>
+                  {a.state}
+                  <strong>{a.stateStrong}</strong>
+                  {a.stateTail}
+                </>
+              )}
+            </span>
+          </div>
+          <AiRound ai={firstAi} postId={post.id} onChange={(next) => setAi(null, next)} onRefresh={() => void refresh()} />
+          {firstAi.state === 'answered' && live && (
+            <AiGuide items={firstGuide}>
+              {requesting && <PrivateReePicker title={a.requestTitle} exclude={[]} inline scope="post" onPick={(option) => void requestRee(option)} onClose={() => setRequesting(false)} />}
+            </AiGuide>
+          )}
+        </>
+      ) : (
+        <>
+          <PostState post={post} />
+          {firstAi?.state === 'skipped_balance' && shown.length === 0 && <AiRound ai={firstAi} postId={post.id} onChange={(next) => setAi(null, next)} onRefresh={() => void refresh()} />}
+        </>
+      )}
 
       {/* The old "你以前的私下追问" (conversations opened from this post) went with the chat pages (2026-11-20); `post.followUps` stays in the view until PR B. */}
 
@@ -770,6 +879,9 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
       )}
 
       {shown.map((entry) => answerArticle(entry, live))}
+
+      {/* A Ree has answered since: the author's AI answer folds to one line under the Rees' answers (kept, not refunded). */}
+      {firstAi?.folded && shown.length > 0 && <AiRound ai={firstAi} postId={post.id} onChange={(next) => setAi(null, next)} onRefresh={() => void refresh()} />}
 
       {waiting.map((entry) => waitingArticle(entry))}
 

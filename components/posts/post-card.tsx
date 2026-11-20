@@ -9,6 +9,7 @@ import type { Messages } from '@/i18n';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar, UserAvatar } from '@/components/ui/ree-avatar';
 import { useToast } from '@/components/ui/toast';
+import { AiPreview } from '@/components/posts/ai-answer';
 import './posts.css';
 
 export function authorName(t: Messages, author: PostAuthor): string {
@@ -234,6 +235,9 @@ export function PostCard({ post: initial, now, signedIn, footer }: { post: PostV
               </div>
             </div>
           </div>
+        ) : post.aiAnswer && post.answerState === 'done' && (post.aiAnswer.state === 'answered' || post.aiAnswer.state === 'skipped_balance') ? (
+          /* Only the author's own card has one: their AI answer's first lines, in place of "暂时没有 Ree 能回答". */
+          <AiPreview ai={post.aiAnswer} />
         ) : (
           <PostState post={post} />
         )}

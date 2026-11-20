@@ -107,9 +107,12 @@ export const zh = {
     post_hold: '公开帖子 · 预扣',
     post_settle: '公开帖子 · 结算',
     post_refund: '公开帖子 · 退回发帖费（旧计费方式）',
+    ai_answer_hold: 'AI 通用回答 · 预扣',
+    ai_answer_settle: 'AI 通用回答 · 结算',
+    ai_answer_refund: 'AI 通用回答 · 未生成退回',
   },
   /* The fixed labels the ledger stores in English, as the reader reads them (2026-11-19). */
-  notes: { post: '公开帖子', postAnswer: '帖子回答', postSummary: '帖子圆桌总结', charged: '实扣 {charged} / 预扣 {held}' },
+  notes: { post: '公开帖子', postAnswer: '帖子回答', postSummary: '帖子圆桌总结', aiAnswer: 'AI 通用回答', charged: '实扣 {charged} / 预扣 {held}' },
   sources: { plan: 'Plan', welcome: '赠送', pack: 'Pack', earned: '收入' },
   charged: '实收 {n}',
   reporting: {
@@ -272,8 +275,11 @@ export const en: Shape<typeof zh> = {
     post_hold: 'Public post · held',
     post_settle: 'Public post · settled',
     post_refund: 'Public post · post fee refunded (previous billing)',
+    ai_answer_hold: 'AI general answer · held',
+    ai_answer_settle: 'AI general answer · settled',
+    ai_answer_refund: 'AI general answer · not written, refunded',
   },
-  notes: { post: 'Public post', postAnswer: 'Post answer', postSummary: 'Post summary', charged: 'charged {charged} of {held}' },
+  notes: { post: 'Public post', postAnswer: 'Post answer', postSummary: 'Post summary', aiAnswer: 'AI general answer', charged: 'charged {charged} of {held}' },
   sources: { plan: 'Plan', welcome: 'Gift', pack: 'Pack', earned: 'Earned' },
   charged: 'charged {n}',
   reporting: {

@@ -1380,3 +1380,178 @@ a.post-quote:hover {
   color: var(--color-muted);
   font-size: 11px;
 }
+
+/* AI 通用回答 when no Ree answers (design draft 1, 2026-11-20; components/posts/ai-answer.tsx). */
+
+/* The card: a dashed outline on a grey wash, no Ree avatar, a sparkle mark -- never mistaken for a Ree's answer. */
+.post-answer.ai-answer {
+  border: 1px dashed #c9cfdf;
+  background: #f7f8fc;
+}
+.ai-answer .post-answer-head {
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.ai-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: #eceff7;
+  color: #6b7390;
+}
+.ai-mark svg {
+  width: 17px;
+  height: 17px;
+}
+.ai-answer .post-answer-head strong {
+  color: #3b4361;
+}
+.ai-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eceff7;
+  color: #6b7390;
+  font-size: 11px;
+  line-height: 18px;
+}
+.ai-tag.is-private {
+  background: #f3effc;
+  color: #6a4fb0;
+}
+.ai-tag svg {
+  width: 11px;
+  height: 11px;
+}
+.ai-answer .answer-markdown {
+  color: #3b4361;
+}
+.ai-note {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #7a8199;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.ai-answer.is-compact {
+  margin-top: 10px;
+}
+
+/* What to do next: three ways to an answer with sources. */
+.ai-guide {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #d6e6fb;
+  border-radius: 12px;
+  background: #f4f9ff;
+}
+.ai-guide h4 {
+  color: #24324f;
+  font-size: 13px;
+  font-weight: 650;
+}
+.ai-guide-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.ai-guide-item {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e1ebf8;
+  border-radius: 10px;
+  background: #ffffff;
+}
+.ai-guide-item:hover {
+  border-color: #b9d4f5;
+}
+.ai-guide-item svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--color-blue);
+}
+.ai-guide-item strong {
+  display: block;
+  color: var(--color-blue);
+  font-size: 12px;
+  font-weight: 600;
+}
+.ai-guide-item small {
+  display: block;
+  color: #6b7390;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.ai-state strong {
+  font-weight: 650;
+}
+.ai-rail p {
+  margin-top: 6px;
+  color: #4b5370;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.ai-rail .btn-secondary {
+  margin-top: 10px;
+}
+.ai-round-note {
+  color: #6b7390;
+}
+
+/* The author's feed card: the AI answer's first lines, greyed, marked as not a Ree's. */
+.ai-preview {
+  border: 1px dashed #d3d8e6;
+  background: #f7f8fc;
+}
+.ai-preview .post-answerers span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ai-preview svg {
+  width: 13px;
+  height: 13px;
+}
+.ai-preview p {
+  color: #6b7390;
+}
+.ai-mark.is-small {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+}
+.ai-mark.is-small svg {
+  width: 14px;
+  height: 14px;
+}
+.ai-guide-item {
+  text-align: left;
+  font: inherit;
+}
+.ai-state .btn-secondary {
+  margin-left: auto;
+}
+/* A Ree has answered: the AI answer folds to one line under the Rees' answers. */
+.ai-folded {
+  margin-top: 10px;
+}
+.ai-folded svg {
+  color: #6b7390;
+}
+/* "请 Ree 回答": the Ree search opens inside the guidance. */
+.ai-guide .private-picker {
+  margin-top: 10px;
+}
+.ai-ask-only {
+  margin-top: 6px;
+}

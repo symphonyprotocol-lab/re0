@@ -17,6 +17,17 @@ export const zh = {
       questions: '近 30 天提问',
       questionsNote: '用户发出的问题',
     },
+    /* AI 通用回答 when no Ree answered: its own figures, never an answer above. */
+    ai: {
+      answers: '近 30 天 AI 通用回答',
+      answersNote: '{failed} 次失败已退款 · {skipped} 次余额不足未生成',
+      success: 'AI 回答成功率',
+      successNote: '写出 / 尝试生成',
+      revenue: 'AI 回答平台收入',
+      revenueNote: 'credits，按基础费结算',
+      votes: '有帮助 / 没帮助',
+      votesNote: '提问人对 AI 回答的反馈',
+    },
     trend: {
       title: '知识正在被更多次连接。',
       lede: '近 30 天成功回答 · 按日统计（UTC+8）',
@@ -327,6 +338,16 @@ export const en: Shape<typeof zh> = {
       sourcesNote: '{ready} ready',
       questions: 'Questions in 30 days',
       questionsNote: 'Questions sent by users',
+    },
+    ai: {
+      answers: 'AI general answers in 30 days',
+      answersNote: '{failed} failed and refunded · {skipped} skipped for balance',
+      success: 'AI answer success rate',
+      successNote: 'Written / attempted',
+      revenue: 'AI answer platform revenue',
+      revenueNote: 'credits, settled at the base fee',
+      votes: 'Helpful / not helpful',
+      votesNote: "Askers' feedback on AI answers",
     },
     trend: {
       title: 'Knowledge, connected through conversation.',

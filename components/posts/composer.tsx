@@ -392,7 +392,8 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
     if (busy) return;
     if (!text) return setError(c.empty);
     if (text.length > POST_QUESTION_MAX || detail.trim().length > POST_DETAIL_MAX) return setError(fill(c.tooLong, { question: POST_QUESTION_MAX, detail: POST_DETAIL_MAX }));
-    if (chosen.length === 0) return setError(c.noRees);
+    /* No Ree chosen: 只问 AI -- a private post only the AI answers, at the base fee (AI 通用回答). */
+    const aiOnly = chosen.length === 0;
     setBusy(true);
     setError(null);
     setLacking(false);
@@ -400,7 +401,7 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
       const response = await fetch('/api/posts/private', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ question, detail, reeIds: chosen.map((entry) => entry.reeId), fees: Object.fromEntries(chosen.map((entry) => [entry.reeId, entry.price])), clientToken: token }),
+        body: JSON.stringify({ question, detail, reeIds: chosen.map((entry) => entry.reeId), fees: Object.fromEntries(chosen.map((entry) => [entry.reeId, entry.price])), aiOnly, clientToken: token }),
       });
       const body = (await response.json().catch(() => ({}))) as { id?: string; error?: string; balance?: number; needed?: number; prices?: { reeId: string; price: number }[] };
       if ((response.status === 201 || response.status === 200) && body.id) {
@@ -496,7 +497,7 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
       <p className="post-hint">{fill(c.privateHint, { max: PRIVATE_POST_MAX_REES })}</p>
       <div className="post-composer-foot">
         <small className="post-cost" title={fill(c.privateCostTitle, { fee: QUERY_BASE_FEE })}>
-          {fill(c.privateCost, { total: formatNumber(total, locale) })}
+          {chosen.length === 0 ? fill(t.posts.ai.askAiCost, { fee: formatNumber(QUERY_BASE_FEE, locale) }) : fill(c.privateCost, { total: formatNumber(total, locale) })}
         </small>
         {!showDetail && (
           <button type="button" className="icon-btn" onClick={() => setShowDetail(true)}>
@@ -504,11 +505,19 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
             {c.addDetail}
           </button>
         )}
-        <button type="button" className="btn btn-sm" disabled={busy || !text || chosen.length === 0} onClick={() => void send()}>
-          {busy ? <i className="spinner" /> : <Icon name="lock" className="size-3.5" />}
-          {busy ? c.privateSending : c.privateSend}
-        </button>
+        {chosen.length === 0 ? (
+          <button type="button" className="btn btn-sm" title={fill(t.posts.ai.askAiHint, { fee: QUERY_BASE_FEE })} disabled={busy || !text || suggesting} onClick={() => void send()}>
+            {busy ? <i className="spinner" /> : <Icon name="sparkle" className="size-3.5" />}
+            {busy ? c.privateSending : fill(t.posts.ai.askAi, { fee: formatNumber(QUERY_BASE_FEE, locale) })}
+          </button>
+        ) : (
+          <button type="button" className="btn btn-sm" disabled={busy || !text} onClick={() => void send()}>
+            {busy ? <i className="spinner" /> : <Icon name="lock" className="size-3.5" />}
+            {busy ? c.privateSending : c.privateSend}
+          </button>
+        )}
       </div>
+      {chosen.length === 0 && text && !suggesting && <p className="post-hint ai-ask-only">{fill(t.posts.ai.askAiHint, { fee: QUERY_BASE_FEE })}</p>}
     </div>
   );
 }
@@ -517,7 +526,8 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
  * The composer window: `?compose=public` (or `private`, and `&ree=<id>&name=`
  * for 发帖问它) on any workspace page opens it; closing drops the parameter.
  * The private tab takes `&rees=<id>,<id>` (the Rees to ask, preselected: a
- * share page, a Ree page, 一起问) and `&ask=<text>` (the question, prefilled).
+ * share page, a Ree page, 一起问) and `&ask=<text>` (the question, prefilled;
+ * the public tab too, for an AI answer's "换个说法再问").
  */
 function ComposerDialogInner() {
   const { t } = useI18n();
@@ -564,7 +574,7 @@ function ComposerDialogInner() {
               <Icon name="close" className="" />
             </button>
           </header>
-          {tab === 'public' ? <PublicPostForm key={`${mention?.id ?? 'none'}:${quotePostId ?? ''}:${quoteAnswerId ?? ''}`} mention={mention} quote={quote} autoFocus leave={exit.leave} /> : <PrivatePostForm key={`${reesParam}:${ask}`} reeIds={reeIds} question={ask} autoFocus leave={exit.leave} />}
+          {tab === 'public' ? <PublicPostForm key={`${mention?.id ?? 'none'}:${quotePostId ?? ''}:${quoteAnswerId ?? ''}:${ask}`} mention={mention} quote={quote} question={ask} autoFocus leave={exit.leave} /> : <PrivatePostForm key={`${reesParam}:${ask}`} reeIds={reeIds} question={ask} autoFocus leave={exit.leave} />}
         </div>
       )}
     </dialog>

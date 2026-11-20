@@ -172,7 +172,8 @@ describeWithDb('follow-ups in a post (追问)', () => {
     const nobody = await ask(reader, postId, 'Unrelated question');
     await followups.processFollowup(nobody, deps({ [one.reeId]: 0.1, [two.reeId]: 0.1 }));
     expect(await answersOf(nobody)).toHaveLength(0);
-    expect(await balanceOf(db(), reader)).toBe(1_000 - BASE);
+    /* No Ree charged for it; the reader's AI general answer took the base fee (ai-answers.ts). */
+    expect(await balanceOf(db(), reader)).toBe(1_000 - 2 * BASE);
     const [row] = await db().select().from(schema.postFollowup).where(eq(schema.postFollowup.id, nobody));
     expect(row).toMatchObject({ answerState: 'done', candidates: 2, skipped: 2 });
   });

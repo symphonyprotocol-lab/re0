@@ -140,6 +140,8 @@ export interface FollowupView {
   declined: string[];
   /** What this follow-up's answers cost the asker; null for anyone else. */
   spent: number | null;
+  /** The asker's AI answer when no Ree answered this follow-up; null for anyone else, and when there is none. */
+  aiAnswer: AiAnswerView | null;
 }
 
 /** A first-round Ree one may @ in a follow-up, with what one answer costs the viewer. */
@@ -156,6 +158,45 @@ export interface FollowupCandidate {
 /** A Ree the private composer suggests or the author picks, with what one answer costs them and, when suggested, how close it is. */
 export interface PrivateReeOption extends FollowupCandidate {
   similarity: number | null;
+}
+
+/*
+ * AI 通用回答 (design draft 1, approved 2026-11-20): when no Ree answers a
+ * round -- a public post nothing matched, a private post whose chosen Rees
+ * all found nothing, a follow-up no Ree answered -- the asker gets one
+ * general answer from the platform's free-tier model, at the base fee of a
+ * question. It names no sources, is marked as not a Ree's, and only the
+ * asker ever sees it: it is never an answer in any count, list or feed.
+ */
+export const AI_ANSWER_STATES = ['running', 'answered', 'failed', 'skipped_balance'] as const;
+export type AiAnswerState = (typeof AI_ANSWER_STATES)[number];
+/** What one AI answer costs its asker: the base fee of a question, never more. */
+export const AI_ANSWER_FEE = QUERY_BASE_FEE;
+/** The longest answer the model may write, and how long it may take before the answer fails (and the fee goes back). */
+export const AI_ANSWER_MAX_OUTPUT_TOKENS = 600;
+export const AI_ANSWER_TIMEOUT_MS = 60_000;
+/** An AI answer still `running` after this belongs to no live run: the posts sweep fails it and gives the fee back. */
+export const AI_ANSWER_STALE_MS = 5 * 60_000;
+/** The feed card's preview of the asker's AI answer. */
+export const AI_ANSWER_PREVIEW_CHARS = 90;
+
+/**
+ * The asker's AI answer to a round, as only they get it. `text` is the whole
+ * Markdown on the post page and a plain excerpt in a feed. `retry`: skipped
+ * for a short balance, it may be generated once by hand
+ * ("生成 AI 回答 · 20 credits"). `folded`: a Ree has answered the round
+ * since, and the AI answer folds to one line under the Rees' answers.
+ */
+export interface AiAnswerView {
+  id: string;
+  state: AiAnswerState;
+  text: string;
+  truncated: boolean;
+  vote: 'helpful' | 'unhelpful' | null;
+  /** What it cost: the fee once answered, otherwise 0. */
+  cost: number;
+  retry: boolean;
+  folded: boolean;
 }
 
 /** How many answered posts a share page shows ("大家问过的"); the rest are on the Ree page. */
@@ -314,6 +355,8 @@ export interface PostView {
   paidRequests: PaidRequestView[];
   /** What the answers cost the author so far, only for the author on the post's page; null otherwise. */
   spent: number | null;
+  /** The author's AI answer to the first round when no Ree answered it: only ever for the author (the post page and their own cards); null for anyone else. */
+  aiAnswer: AiAnswerView | null;
   deleted: boolean;
 }
 

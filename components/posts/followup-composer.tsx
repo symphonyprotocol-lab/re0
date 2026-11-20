@@ -2,7 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
-import { FOLLOWUP_MAX_MENTIONS, POST_QUESTION_MAX, PRIVATE_POST_MAX_REES, type FollowupCandidate, type PrivateReeOption } from '@/lib/domain/post';
+import { AI_ANSWER_FEE, FOLLOWUP_MAX_MENTIONS, POST_QUESTION_MAX, PRIVATE_POST_MAX_REES, type FollowupCandidate, type PrivateReeOption } from '@/lib/domain/post';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
@@ -14,6 +14,9 @@ import { PrivateReePicker } from '@/components/posts/ree-picker';
 export interface FollowupComposerHandle {
   /** "继续问 X": @ that Ree, then bring the box into view with the cursor in it. */
   mention: (reeId: string) => void;
+  /** The AI answer's guidance: bring the box into view with the cursor in it ("换个说法再问"), or with 加 Ree open (private only). */
+  focus: () => void;
+  addRee: () => void;
 }
 
 /**
@@ -77,7 +80,16 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
       box.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       window.setTimeout(() => input.current?.focus({ preventScroll: true }), 250);
     },
-  }), [candidates]);
+    focus() {
+      box.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      window.setTimeout(() => input.current?.focus({ preventScroll: true }), 250);
+    },
+    addRee() {
+      if (!isPrivate) return;
+      setAdding(true);
+      box.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    },
+  }), [candidates, isPrivate]);
 
   if (!signedIn) {
     return (
@@ -100,7 +112,11 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
   const paidNames = picked.filter((entry) => entry.paid).map((entry) => entry.reeName);
   /* Private: named Rees (@ and 加 Ree) answer, else the relevant ones of the thread -- at most all of them. */
   const named = [...picked, ...addedNow];
-  const cost = isPrivate
+  /* A private thread with no Ree in it (只问 AI): the AI answers each follow-up, at the base fee. */
+  const aiOnly = isPrivate && named.length === 0 && candidates.length === 0;
+  const cost = aiOnly
+    ? fill(t.posts.ai.followupAiOnly, { fee: formatNumber(AI_ANSWER_FEE, locale) })
+    : isPrivate
     ? named.length
       ? fill(f.privateCostNamed, { names: named.map((entry) => entry.reeName).join('、'), total: formatNumber(named.reduce((sum, entry) => sum + entry.price, 0), locale) })
       : fill(f.privateCost, { total: formatNumber(candidates.reduce((sum, entry) => sum + entry.price, 0), locale) })
@@ -268,6 +284,8 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
             onClose={() => setAdding(false)}
           />
         )}
+        {/* When no Ree answers, the AI does, at the base fee (AI 通用回答). */}
+        {!aiOnly && <p className="post-hint ai-fu-hint">{fill(t.posts.ai.followupCost, { fee: formatNumber(AI_ANSWER_FEE, locale) })}</p>}
         <div className="fu-foot">
           {isPrivate && (
             <button type="button" className="icon-btn chip-btn" data-ree-picker="" aria-expanded={adding} disabled={threadFull} title={threadFull ? f.errors.too_many_rees : undefined} onClick={() => setAdding((current) => !current)}>

@@ -17,7 +17,7 @@ import { JsonLd } from '@/components/site/json-ld';
 import { pricingJsonLd, publicPage } from '@/lib/seo';
 import { ContentPage } from '@/components/site/content-page';
 
-const FAQ = ['q3', 'q4', 'q7', 'q5', 'q6'] as const;
+const FAQ = ['q3', 'q4', 'q7', 'q9', 'q5', 'q6'] as const;
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t, locale } = await serverMessages();
@@ -38,8 +38,8 @@ export default async function PricingPage() {
   const p = t.site.pricing;
   const planActive = user ? await hasActivePlan(db(), user.id) : false;
   const packLocked = Boolean(user) && !planActive;
-  /* Public posts (v6): publishing, each answer and the round-table summary, after asking a Ree. */
-  const costs = (['ask', 'postPublish', 'postAnswer', 'postSummary', 'process', 'audio', 'script', 'export'] as const).map((key) => p.costs[key]);
+  /* Public posts (v6): publishing, each answer and the round-table summary, after asking a Ree; then the AI's general answer when no Ree can answer. */
+  const costs = (['ask', 'postPublish', 'postAnswer', 'postSummary', 'aiAnswer', 'process', 'audio', 'script', 'export'] as const).map((key) => p.costs[key]);
   const videoPrices = {
     scriptCredits: formatNumber(scriptPrice.credits, locale),
     exportCredits: formatNumber(exportPrice.credits, locale),

@@ -11,8 +11,9 @@ import { ReeAvatar } from '@/components/ui/ree-avatar';
  * its thread): Rees the viewer may ask privately, matching what they type
  * (`/api/posts/private/rees`), each with what one answer costs them. Rees
  * already chosen are left out. Escape or a click outside closes it.
+ * `scope: 'post'`: "请 Ree 回答" on a public post -- public Rees taking posts.
  */
-export function PrivateReePicker({ title, exclude, inline = false, onPick, onClose }: { title: string; exclude: readonly string[]; inline?: boolean; onPick: (option: PrivateReeOption) => void; onClose: () => void }) {
+export function PrivateReePicker({ title, exclude, inline = false, scope = 'private', onPick, onClose }: { title: string; exclude: readonly string[]; inline?: boolean; scope?: 'private' | 'post'; onPick: (option: PrivateReeOption) => void; onClose: () => void }) {
   const { t, locale } = useI18n();
   const c = t.posts.composer;
   const [q, setQ] = useState('');
@@ -22,7 +23,7 @@ export function PrivateReePicker({ title, exclude, inline = false, onPick, onClo
   useEffect(() => {
     const controller = new AbortController();
     const timer = setTimeout(async () => {
-      const response = await fetch(`/api/posts/private/rees?${new URLSearchParams({ q })}`, { signal: controller.signal }).catch(() => null);
+      const response = await fetch(`/api/posts/private/rees?${new URLSearchParams(scope === 'post' ? { q, scope } : { q })}`, { signal: controller.signal }).catch(() => null);
       if (response?.ok) setItems(((await response.json()) as { items: PrivateReeOption[] }).items);
       else if (response) setItems([]);
     }, q ? 250 : 0);
@@ -30,7 +31,7 @@ export function PrivateReePicker({ title, exclude, inline = false, onPick, onClo
       clearTimeout(timer);
       controller.abort();
     };
-  }, [q]);
+  }, [q, scope]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

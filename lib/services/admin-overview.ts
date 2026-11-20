@@ -17,6 +17,7 @@ import { pendingKyc } from '@/lib/services/kyc';
 import { openPayoutCount } from '@/lib/services/payouts';
 import { runningReembedJob } from '@/lib/services/reembed';
 import { assertConsole, type Administrator } from '@/lib/services/admin';
+import { aiAnswerStats } from '@/lib/services/ai-answers';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -36,7 +37,7 @@ export async function adminOverview(administrator: Administrator, now = new Date
   const database = db();
   const since = new Date(now.getTime() - 30 * DAY);
   const month = periodRange({ period: 'month', date: reportingDate(now) })!;
-  const [users, rees, sources, questions, earned, revenue, verifications, job, calls, trend, anonymousTrend, recent, kyc, payouts] = await Promise.all([
+  const [users, rees, sources, questions, earned, revenue, verifications, job, calls, trend, anonymousTrend, recent, kyc, payouts, aiAnswers] = await Promise.all([
     database.select({ total: count(), disabled: sql<number>`count(*) filter (where ${schema.user.disabledAt} is not null)::int` }).from(schema.user),
     database
       .select({
@@ -107,6 +108,8 @@ export async function adminOverview(administrator: Administrator, now = new Date
     listAudit(administrator, { q: '', action: 'all', period: 'all', sort: 'newest', size: 5, page: 1 }),
     pendingKyc(),
     openPayoutCount(),
+    /* AI 通用回答 in 30 days: never an answer above (not `query_base`), counted apart. */
+    aiAnswerStats(since),
   ]);
   const byDay = new Map(trend.map((row) => [row.day, row.n]));
   const anonymousByDay = new Map(anonymousTrend.map((row) => [row.day, row.n]));
@@ -148,6 +151,7 @@ export async function adminOverview(administrator: Administrator, now = new Date
     trend: days,
     month: { start: reportingDate(month.start), end: reportingDate(month.end - 1) },
     models,
+    aiAnswers,
     recent: recent.items,
   };
 }

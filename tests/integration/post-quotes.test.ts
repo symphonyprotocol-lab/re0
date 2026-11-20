@@ -156,9 +156,10 @@ describeWithDb('quoting a post or an answer', () => {
 
   it('bills a quoting post like any post: each answer its base fee, nothing when nobody answers', async () => {
     const original = await answeredPost('q-billed');
-    const quoter = await user('q-payer', QUERY_BASE_FEE);
+    const quoter = await user('q-payer', 2 * QUERY_BASE_FEE);
     const unanswered = await publish(quoter, 'Quoted, and nobody answers', { quotePostId: original.postId });
     await posts.processPost(unanswered.id, stub([]));
+    /* Nobody answered: only the AI general answer's base fee (ai-answers.ts). */
     expect(await balanceOf(db(), quoter)).toBe(QUERY_BASE_FEE);
     const answered = await publish(quoter, 'Quoted, and answered', { quotePostId: original.postId });
     await posts.processPost(answered.id, stub([original.reeId]));
