@@ -3,17 +3,16 @@
  * fetched font, the English card when the Chinese font cannot be fetched,
  * and nothing for another language.
  */
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { offlineOgAssets } from '../fixtures/og-offline';
 
 const fonts = vi.hoisted(() => ({ available: true }));
 vi.mock('@/lib/og/font', async (original) => {
   const actual = await original<typeof import('@/lib/og/font')>();
-  const data = readFileSync(createRequire(import.meta.url).resolve('next/dist/compiled/@vercel/og/noto-sans-v27-latin-regular.ttf'));
-  const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
-  return { ...actual, ogFonts: vi.fn(async () => (fonts.available ? [400, 700].map((weight) => ({ name: actual.OG_FONT_FAMILY, data: buffer, weight, style: 'normal' })) : null)) };
+  const { fixtureOgFonts } = await import('../fixtures/og-offline');
+  return { ...actual, ogFonts: vi.fn(async () => (fonts.available ? fixtureOgFonts(actual.OG_FONT_FAMILY) : null)) };
 });
+offlineOgAssets();
 
 const { GET } = await import('@/app/og/site/[lang]/route');
 const { ogFonts } = await import('@/lib/og/font');
