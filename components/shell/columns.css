@@ -48,16 +48,15 @@
 .xshell .app-main {
   --color-bg: #ffffff;
 }
+/* Inside the box (shell.css): the centre column and the right one, 640 + 28 + 340. No lines down the sides of the centre column (v6): the sidebar's is the only vertical line. */
 .xmain-grid {
   display: grid;
   grid-template-columns: minmax(0, 640px) 340px;
   gap: 28px;
-  padding: 0 28px;
 }
 .xcol {
   min-width: 0;
   min-height: 100vh;
-  border-inline: 1px solid var(--color-line);
   background: #ffffff;
 }
 .xcol-head {
@@ -99,12 +98,20 @@
   padding: 0 18px 40px;
   background: transparent;
 }
+/*
+ * The composer's border-bottom is the one line between it and the feed: the
+ * feed and its first post draw no top line. Inside a padded page it reaches
+ * the column's edges; straight in the column it needs no negative margin.
+ */
 .xcol .post-composer {
   margin: 0 -18px;
   padding: 14px 18px 12px;
   border: 0;
   border-bottom: 1px solid var(--color-line);
   border-radius: 0;
+}
+.xcol > .post-composer {
+  margin: 0;
 }
 .xcol .post-composer textarea {
   min-height: 48px;
@@ -123,6 +130,15 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  /*
+   * explore.css gives .discovery-page `margin: auto`: in this flex column
+   * that shrinks the card to its content and centres it (a post page's rail
+   * with only "还没有 Ree 回答" in it, once that stylesheet arrives, e.g.
+   * after a refresh). The rail is always its column's full width (#167).
+   */
+  margin: 0;
+  width: 100%;
+  align-self: stretch;
   padding: 0;
   max-width: none;
   background: transparent;
@@ -132,17 +148,6 @@
   align-items: flex-start;
   margin-top: 0;
   padding: 18px;
-}
-.xrail .discovery-page .search-box {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  border: 1px solid var(--color-line);
-  border-radius: 999px;
-  background: var(--color-wash);
-  color: #8a94ae;
-  font-size: 13px;
 }
 .xrail .rail-card {
   padding: 16px;
@@ -261,24 +266,27 @@
 .xfab {
   display: none;
 }
-@media (max-width: 1100px) {
+/* Under 1280 the box loses its spare room: the right column narrows to 300, then from 1199px it folds away and the centre column stays on the left, by the sidebar. */
+@media (max-width: 1279px) {
+  .xmain-grid {
+    grid-template-columns: minmax(0, 640px) 300px;
+  }
+}
+@media (max-width: 1199px) {
   .xmain-grid {
     grid-template-columns: minmax(0, 640px);
-    justify-content: center;
+    justify-content: start;
   }
   .xrail {
     display: none;
   }
 }
 @media (max-width: 760px) {
-  .xshell .sidebar {
+  /* A visitor's sidebar has no drawer on a phone; signed in, it is the drawer the menu button opens (shell.css). */
+  .xshell.is-visitor .sidebar {
     display: none;
   }
-  .xshell .app-main {
-    margin-left: 0;
-  }
   .xmain-grid {
-    padding: 0;
     gap: 0;
   }
   .xcol {

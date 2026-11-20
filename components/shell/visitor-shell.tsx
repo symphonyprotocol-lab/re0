@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
-import { ShellProvider } from '@/components/shell/app-shell';
+import { ShellProvider, useMediaQuery } from '@/components/shell/app-shell';
 import { RouteMotion } from '@/components/shell/workspace-main';
 import { SignInLink } from '@/components/site/site-nav';
 import { BrandMark, BrandName } from '@/components/ui/brand-mark';
@@ -25,6 +25,8 @@ export function VisitorShell({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   const nav = t.common.nav;
   const pathname = stripLocale(usePathname());
+  /* The same 68px icon rail as the workspace between phones and 1024px (v6). */
+  const rail = useMediaQuery('(min-width: 761px) and (max-width: 1023px)');
   const items: [string, IconName, string, boolean][] = [
     ['/', 'home', nav.homeFeed, pathname === '/'],
     ['/explore', 'compass', nav.discover, pathname === '/explore' || pathname.startsWith('/r/')],
@@ -32,9 +34,9 @@ export function VisitorShell({ children }: { children: ReactNode }) {
     ['/about', 'info', nav.about, pathname === '/about'],
   ];
   return (
-    <ShellProvider value={{ collapsed: false, toggleCollapsed: () => undefined, openDrawer: () => undefined, activitiesPending: false, signedIn: false }}>
+    <ShellProvider value={{ collapsed: rail, toggleCollapsed: () => undefined, openDrawer: () => undefined, activitiesPending: false, signedIn: false }}>
       <div className="xshell is-visitor">
-        <aside id="sidebar" className="sidebar sidebar-chat" aria-label={nav.main}>
+        <aside id="sidebar" className={`sidebar sidebar-chat${rail ? ' is-collapsed' : ''}`} aria-label={nav.main}>
           <Link href="/" className="wordmark" aria-label={nav.home}>
             <BrandMark />
             <BrandName />
