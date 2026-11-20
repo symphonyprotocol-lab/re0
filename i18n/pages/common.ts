@@ -3,6 +3,7 @@ import type { Shape } from '@/i18n/format';
 /** The shell every signed-in page shares: sidebar, top bar, account footer, shared words. */
 export const zh = {
   brand: 'RE0',
+  notFound: { title: '找不到这个页面', body: '链接可能有误，或者这个页面已经不在了。', back: '回到首页' },
   nav: {
     dashboard: '工作台',
     rees: '我的 Ree',
@@ -103,6 +104,7 @@ export const zh = {
 
 export const en: Shape<typeof zh> = {
   brand: 'RE0',
+  notFound: { title: 'Page not found', body: 'The link may be wrong, or the page is gone.', back: 'Back to Home' },
   nav: {
     dashboard: 'Dashboard',
     rees: 'My Rees',

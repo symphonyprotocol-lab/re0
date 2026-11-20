@@ -430,3 +430,30 @@
 .xcol .discovery-feed-banner .knowledge-banner {
   margin-top: 20px;
 }
+
+/* One wide column (v6): 价格, 了解 RE0, the legal pages and checkout use the centre and right columns' width together. */
+.xmain-grid.is-wide {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/*
+ * One single-line search box across the workspace (v6): 38px tall, the
+ * site's .input size, whatever page-specific box it is -- 我的 Ree and the
+ * video library (.search-small), statistics (.creator-detail-search, the
+ * ledger's filter), knowledge (.km-search) and 我的帖子 (.cl-search-input).
+ * The Rees and 首页 boxes are .search-box (explore.css).
+ */
+.xshell .app-main :is(.search-small, .creator-detail-search, .km-search, .cl-search-input) {
+  box-sizing: border-box;
+  height: 38px;
+  min-height: 38px;
+  padding-block: 0;
+}
+.xshell .app-main :is(.search-small, .creator-detail-search, .km-search, .cl-search-input) input {
+  padding-block: 0;
+  font-size: 13px;
+}
+.xshell .app-main input.input[type='search'] {
+  height: 38px;
+  padding-block: 0;
+}

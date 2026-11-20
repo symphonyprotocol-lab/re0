@@ -20,7 +20,7 @@ const { DEFAULT_RETURN_TO, safeReturnTo } = await import('@/lib/domain/auth');
 
 const home = await import('@/app/(product)/page');
 const rees = await import('@/app/(product)/(discover)/explore/page');
-const about = await import('@/app/(site)/about/page');
+const about = await import('@/app/(product)/(site)/about/page');
 const chats = await import('@/app/(product)/(workspace)/chats/page');
 const settings = await import('@/app/(product)/(workspace)/settings/page');
 const { PUBLIC_PAGES } = await import('@/i18n/paths');

@@ -577,18 +577,22 @@
 .my-posts .post-feed {
   padding: 0;
 }
+/* Rows without lines between them (v6): a tint while the pointer is on one. */
 .my-posts-list {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--color-line);
+  gap: 2px;
 }
 .my-posts-list a {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding: 12px 4px;
-  border-bottom: 1px solid var(--color-line);
+  padding: 10px 8px;
+  border-radius: 10px;
+}
+.my-posts-list a:hover {
+  background: #f8f9fa;
 }
 .my-posts-list a:hover strong {
   color: var(--color-blue);

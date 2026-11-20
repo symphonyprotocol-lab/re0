@@ -37,7 +37,7 @@ export function QaThread({ id, asker, initials = '?', meta, question, answer, fo
   mine?: boolean;
 }) {
   return (
-    <article id={id} className={`scroll-mt-24 rounded-xl border border-line bg-wash p-4${mine ? ' ree-qa-mine' : ''}`}>
+    <article id={id} className={`ree-qa-item scroll-mt-24${mine ? ' ree-qa-mine' : ''}`}>
       <header className="ree-qa-meta">
         <UserAvatar name={initials} className="size-7" />
         <strong>{asker}</strong>

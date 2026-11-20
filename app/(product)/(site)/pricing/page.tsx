@@ -15,9 +15,9 @@ import { Icon } from '@/components/ui/icons';
 import { Estimator } from '@/components/site/estimator';
 import { JsonLd } from '@/components/site/json-ld';
 import { pricingJsonLd, publicPage } from '@/lib/seo';
-import '@/components/site/pricing.css';
+import { ContentPage } from '@/components/site/content-page';
 
-const FAQ = ['q3', 'q4', 'q5', 'q6'] as const;
+const FAQ = ['q3', 'q4', 'q7', 'q5', 'q6'] as const;
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t, locale } = await serverMessages();
@@ -25,10 +25,10 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * `/pricing` (prototype `#/pricing`): the free trial, Plan and Pack; what
- * credits are spent on; the estimator. A signed-in user without an active
- * Plan sees the Pack button disabled with the reason (2.3). Markup and
- * class names follow the prototype; pricing.css carries its styles.
+ * `/pricing`: the free trial, Plan and Pack; what credits are spent on
+ * (with public posts, v6); the estimator; the questions. A signed-in user
+ * without an active Plan sees the Pack button disabled with the reason
+ * (2.3). In the shell's wide column since v6 (content-page.css).
  */
 export default async function PricingPage() {
   const [user, { t, locale }, prices, welcome, scriptPrice, exportPrice] = await Promise.all([
@@ -38,26 +38,30 @@ export default async function PricingPage() {
   const p = t.site.pricing;
   const planActive = user ? await hasActivePlan(db(), user.id) : false;
   const packLocked = Boolean(user) && !planActive;
-  const costs = (['ask', 'process', 'audio', 'script', 'export'] as const).map((key) => p.costs[key]);
+  /* Public posts (v6): publishing, each answer and the round-table summary, after asking a Ree. */
+  const costs = (['ask', 'postPublish', 'postAnswer', 'postSummary', 'process', 'audio', 'script', 'export'] as const).map((key) => p.costs[key]);
   const videoPrices = {
     scriptCredits: formatNumber(scriptPrice.credits, locale),
     exportCredits: formatNumber(exportPrice.credits, locale),
   };
   const faqValues = { ...pricingFaqValues(prices, locale, t.site.prices), ...videoPrices, ...publicValues };
+  const rowValues = { ...videoPrices, ...publicValues };
   return (
-    <div className="marketing-wrap pricing-page">
+    <ContentPage title={p.title}>
       <JsonLd data={pricingJsonLd(prices, locale, p.lede)} />
-      <div className="pricing-intro">
+      <section>
         <p className="eyebrow">SMALL PRICE. A WORLD OF KNOWLEDGE.</p>
-        <h1>
+        <h2 className="xpage-headline mt-2">
           {p.headline}
           <em>{p.headlineEm}</em>
-        </h1>
-        <p>{p.lede}</p>
-        <span className="price-rate mono">1 CREDIT = $0.0001</span>
-      </div>
+        </h2>
+        <p className="xpage-lede mt-2">
+          {p.lede}
+          <span className="tag">1 CREDIT = $0.0001</span>
+        </p>
+      </section>
 
-      <div className="purchase-plans">
+      <div className="xp-grid3">
         <PlanCard
           eyebrow={p.free.eyebrow}
           title={p.free.title}
@@ -66,7 +70,7 @@ export default async function PricingPage() {
           note={p.free.note}
           perks={[p.free.perk1, p.free.perk2, p.free.perk3]}
           action={
-            <Link href={user ? '/rees' : '/login'} className="btn secondary full">
+            <Link href={user ? '/rees' : '/login'} className="btn-secondary btn-sm">
               {p.free.cta}
             </Link>
           }
@@ -84,13 +88,13 @@ export default async function PricingPage() {
           perks={[p.plan.perk1, p.plan.perk2, p.plan.perk3]}
           action={
             planActive ? (
-              <Link href="/settings?tab=balance" className="btn full">
+              <Link href="/settings?tab=balance" className="btn btn-sm">
                 {p.plan.manage}
               </Link>
             ) : (
-              <Link href="/checkout?kind=plan" className="btn full">
+              <Link href="/checkout?kind=plan" className="btn btn-sm">
                 {p.plan.cta}
-                <Icon name="arrow" />
+                <Icon name="arrow" className="size-4" />
               </Link>
             )
           }
@@ -107,38 +111,36 @@ export default async function PricingPage() {
           action={
             packLocked ? (
               <>
-                <button type="button" className="btn secondary full" disabled aria-describedby="pack-locked">
-                  <Icon name="lock" />
+                <button type="button" className="btn-secondary btn-sm" disabled aria-describedby="pack-locked">
+                  <Icon name="lock" className="size-4" />
                   {p.pack.locked}
                 </button>
-                <span id="pack-locked" className="plan-locked">
+                <span id="pack-locked" className="xp-locked">
                   {p.pack.lockedReason}
                 </span>
               </>
             ) : (
-              <Link href="/checkout?kind=pack" className="btn secondary full">
+              <Link href="/checkout?kind=pack" className="btn-secondary btn-sm">
                 {p.pack.cta}
               </Link>
             )
           }
         />
       </div>
-      <p className="pricing-redeem">
+      <p className="text-center">
         <Link href="/settings?tab=balance#redeem" className="text-link">
           {t.billing.redeem.link}
         </Link>
       </p>
 
-      <section className="pricing-costs card">
-        <div className="between">
-          <div>
-            <p className="eyebrow">{p.costs.eyebrow}</p>
-            <h2>{p.costs.title}</h2>
-          </div>
+      <section className="xp-card">
+        <div className="xp-head">
+          <p className="eyebrow">{p.costs.eyebrow}</p>
+          <h2>{p.costs.title}</h2>
           <span className="tag blue">{p.costs.tag}</span>
         </div>
-        <div className="table-wrap">
-          <table>
+        <div className="xp-table-wrap">
+          <table className="xp-table">
             <thead>
               <tr>
                 <th>{p.costs.activity}</th>
@@ -150,8 +152,8 @@ export default async function PricingPage() {
               {costs.map((row) => (
                 <tr key={row.activity}>
                   <td>{row.activity}</td>
-                  <td>{fill(row.cost, videoPrices)}</td>
-                  <td>{row.details}</td>
+                  <td>{fill(row.cost, rowValues)}</td>
+                  <td>{fill(row.details, rowValues)}</td>
                 </tr>
               ))}
             </tbody>
@@ -161,16 +163,15 @@ export default async function PricingPage() {
 
       <Estimator planCredits={prices.plan.credits} />
 
-      <section className="home-faq pricing-faq">
-        <div>
+      <section className="xp-card">
+        <div className="xp-head">
           <p className="eyebrow">NO SMALL PRINT, JUST CLARITY</p>
           <h2>
             {p.faqTitle1}
-            <br />
             {p.faqTitle2}
           </h2>
         </div>
-        <div>
+        <div className="xp-faq">
           {FAQ.map((key) => (
             <details key={key}>
               <summary>
@@ -182,7 +183,7 @@ export default async function PricingPage() {
           ))}
         </div>
       </section>
-    </div>
+    </ContentPage>
   );
 }
 
@@ -212,24 +213,19 @@ function PlanCard({
   action: ReactNode;
 }) {
   return (
-    <article className={`purchase-plan${recommended ? ' recommended' : ''}`}>
-      {recommended && <span className="plan-ribbon">{recommended}</span>}
+    <article className={`xp-tier${recommended ? ' is-recommended' : ''}`}>
+      {recommended && <span className="tag blue xp-ribbon">{recommended}</span>}
       <span className="eyebrow">{eyebrow}</span>
       <h2>{title}</h2>
-      <p className="purchase-amount">
+      <p className="xp-price">
         {price}
-        {per && (
-          <>
-            {' '}
-            <small>/ {per}</small>
-          </>
-        )}
+        {per && <small>/ {per}</small>}
       </p>
       {promotion}
-      <p className="plan-grant">
-        {grant} <span>credits{grantPer ? ` / ${grantPer}` : ''}</span>
+      <p className="xp-credits">
+        {grant} credits{grantPer ? ` / ${grantPer}` : ''}
       </p>
-      <p>{note}</p>
+      <p className="xp-note">{note}</p>
       {action}
       <ul>
         {perks.map((perk) => (

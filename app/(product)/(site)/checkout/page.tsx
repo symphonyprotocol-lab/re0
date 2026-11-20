@@ -1,3 +1,4 @@
+import { ContentPage } from '@/components/site/content-page';
 import { redirect } from 'next/navigation';
 import { currentPricing, ownsPaddleTransaction, pendingCheckoutPricing } from '@/lib/services/pricing';
 import { paymentLinkAccess } from '@/lib/domain/payment-link';
@@ -48,16 +49,17 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
   const planActive = user ? await hasActivePlan(db(), user.id) : false;
   const config = paddleConfig();
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-10 sm:px-6 lg:py-14">
+    <ContentPage title={c.title} heading={false}>
+      <div>
       <p className="flex flex-wrap items-center gap-2 font-mono text-[11px] text-muted">
         <span className="text-ink">{c.step1}</span>
         <span aria-hidden="true">—</span>
         <span>{c.step2}</span>
       </p>
-      <div className="mt-8 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <section className="min-w-0">
           <p className="eyebrow">{c.eyebrow}</p>
-          <h1 className="mt-3 text-[32px] leading-tight font-extrabold sm:text-[42px]">
+          <h1 className="mt-2 text-[22px] leading-tight font-extrabold">
             {c.headline1}
             <br />
             {c.headline2}
@@ -101,6 +103,7 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
           pendingTransaction={pending}
         />
       </div>
-    </div>
+      </div>
+    </ContentPage>
   );
 }
