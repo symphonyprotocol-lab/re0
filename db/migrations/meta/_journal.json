@@ -449,6 +449,27 @@
       "when": 1795159500831,
       "tag": "0065_post_votes",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1795165414564,
+      "tag": "0066_private_posts",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1795166894171,
+      "tag": "0067_chats_removal",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1795169039906,
+      "tag": "0068_share_post_conversion",
+      "breakpoints": true
     }
   ]
 }

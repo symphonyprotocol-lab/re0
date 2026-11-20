@@ -116,12 +116,13 @@ function ConversationScene({ demo, visual, accent, input, action, result }: Scen
         <p style={{ ...body, marginTop: 21 }}>{demo.summary}</p>
       </div>
       <div style={{ position: 'absolute', top: 148, left: 573, right: 64 }}>
-        <div style={{ marginLeft: 75, padding: '20px 25px', background: bubble, borderRadius: '26px 26px 7px 26px', opacity: input, translate: `0 ${15 * (1 - input)}px` }}>
+        {/* A post and its answer card, as RE0 shows questions now (2026-11-20) -- no chat bubbles. */}
+        <div style={{ padding: '20px 25px', background: '#ffffff', border: `2px solid ${bubble}`, borderRadius: 18, opacity: input, translate: `0 ${15 * (1 - input)}px` }}>
           <div style={{ ...label, color: tone }}>{demo.steps[0]}</div>
           <div style={{ ...body, marginTop: 9, fontSize: 28, fontWeight: 650 }}>{demo.exampleText}</div>
         </div>
         <div style={{ margin: '17px 0', color: tone, ...label, opacity: action }}>{demo.steps[1]} · {demo.exampleTitle}</div>
-        <div style={{ marginRight: 70, padding: '20px 25px', background: '#ffffff', borderLeft: `4px solid ${accent}`, borderRadius: '7px 26px 26px 26px', opacity: result, translate: `0 ${15 * (1 - result)}px` }}>
+        <div style={{ marginLeft: 40, padding: '20px 25px', background: bubble, borderLeft: `4px solid ${accent}`, borderRadius: 14, opacity: result, translate: `0 ${15 * (1 - result)}px` }}>
           <div style={{ ...label, color: tone }}>{demo.steps[2]}</div>
           <div style={{ ...body, marginTop: 9, fontSize: 28, fontWeight: 650 }}>{demo.result}</div>
         </div>

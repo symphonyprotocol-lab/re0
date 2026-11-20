@@ -18,10 +18,10 @@ const { PostDetail } = await import('@/components/posts/post-detail');
 const t = messages('zh');
 const p = t.posts.page;
 const base: PostView = {
-  id: '00000000-0000-4000-8000-000000000001', question: 'How long do refunds take?', detail: '', lang: 'en', category: null,
+  id: '00000000-0000-4000-8000-000000000001', visibility: 'public', title: null, pinned: false, archived: false, publishedCopyId: null, question: 'How long do refunds take?', detail: '', lang: 'en', category: null,
   author: { kind: 'user', name: 'Lin', avatar: null, mine: true }, status: 'published', answerState: 'done', answered: 1, candidates: 3, skipped: 0,
   helpful: 0, voted: false, saved: false, createdAt: '2026-11-19T00:00:00.000Z',
-  answers: [{ id: 'a1', reeId: 'r1', reeSlug: 'paid', reeName: 'Paid desk', reeAvatar: null, reeColor: 'default', official: false, similarity: 0.8, state: 'answered', text: 'Within 14 days.', truncated: false, citations: [], helpful: 0, voted: false, pinned: false, paid: true }],
+  answers: [{ id: 'a1', reeId: 'r1', reeSlug: 'paid', reeName: 'Paid desk', reeAvatar: null, reeColor: 'default', official: false, similarity: 0.8, state: 'answered', text: 'Within 14 days.', truncated: false, citations: [], helpful: 0, voted: false, pinned: false, paid: true, unhelpful: 0, unvoted: false, cost: null }],
   summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, followUps: [],
   paidRequests: [{ id: 'q1', reeId: 'r2', reeSlug: 'tax', reeName: 'Tax desk', reeAvatar: null, reeColor: 'default', ownerName: 'Mei', similarity: 0.71, mentioned: false, price: 70, state: 'awaiting' }],
   spent: 20,

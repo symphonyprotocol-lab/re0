@@ -3,19 +3,17 @@
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
-import { POST_DETAIL_MAX, POST_MAX_ANSWERS, POST_QUESTION_MAX, type PostQuote, type PostView } from '@/lib/domain/post';
+import { POST_DETAIL_MAX, POST_MAX_ANSWERS, POST_QUESTION_MAX, PRIVATE_POST_MAX_REES, PRIVATE_POST_SUGGESTIONS, type PostQuote, type PostView, type PrivateReeOption } from '@/lib/domain/post';
+import { QUERY_BASE_FEE } from '@/lib/constants';
 import { QuoteCard } from '@/components/posts/post-card';
+import { PrivateReePicker } from '@/components/posts/ree-picker';
+import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
-import { stripLocale } from '@/i18n/paths';
 import { Icon } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
 import './posts.css';
-
-/** The private question's text, handed to `/talk` (talk-draft.tsx reads it once, under the same key). */
-export const TALK_HANDOFF_KEY = 're0:talk-handoff';
-/** The same, for a `/talk` page already open: it fills its box at once (talk-draft.tsx listens). */
-export const TALK_HANDOFF_EVENT = 're0:talk-handoff';
+import '@/components/ui/tabs.css';
 
 /**
  * Leaving the composer window for another page. Closing a `<dialog>` fires
@@ -106,16 +104,32 @@ export interface Mention {
 }
 
 /**
+ * What a box that names one Ree (向 … 提问 on its share page and Ree page,
+ * ree-ask.tsx) adds to either form: a line above the question (the 公开 /
+ * 私密 switch), its own placeholder, the question it starts with and is
+ * told of as it changes (the draft kept across signing in and switching),
+ * and the new post's id before its page opens (the share page's conversion).
+ */
+export interface FormFrame {
+  head?: ReactNode;
+  placeholder?: string;
+  question?: string;
+  onQuestionChange?: (question: string) => void;
+  onPublished?: (id: string) => void;
+}
+
+/**
  * The public post form (v5 "发帖"): the question, an optional detail, 匿名发布,
  * the mentioned Ree, and what today's post costs. Publishing opens the
- * post's page, which shows the Rees answering.
+ * post's page, which shows the Rees answering. `lockMention`: the box
+ * belongs to that Ree, which shows as a chip that cannot be removed.
  */
-export function PublicPostForm({ mention: initialMention = null, quote = null, autoFocus = false, leave }: { mention?: Mention | null; quote?: { postId: string; answerId: string | null } | null; autoFocus?: boolean; leave?: (navigate: () => void) => void }) {
+export function PublicPostForm({ mention: initialMention = null, quote = null, autoFocus = false, leave, lockMention = false, head, placeholder, question: initialQuestion = '', onQuestionChange, onPublished }: { mention?: Mention | null; quote?: { postId: string; answerId: string | null } | null; autoFocus?: boolean; leave?: (navigate: () => void) => void; lockMention?: boolean } & FormFrame) {
   const { t, locale } = useI18n();
   const c = t.posts.composer;
   const router = useRouter();
   const toast = useToast();
-  const [question, setQuestion] = useState('');
+  const [question, setQuestion] = useState(initialQuestion);
   const [detail, setDetail] = useState('');
   const [showDetail, setShowDetail] = useState(false);
   const [anonymous, setAnonymous] = useState(false);
@@ -182,6 +196,7 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
         setQuestion('');
         setDetail('');
         setToken(crypto.randomUUID());
+        onPublished?.(body.id);
         const go = () => router.push(`/p/${body.id}`);
         if (leave) leave(go);
         else go();
@@ -207,15 +222,28 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
     }
   }
 
+  const write = (value: string) => {
+    setQuestion(value);
+    onQuestionChange?.(value);
+  };
+
   return (
     <div className="post-form">
+      {head}
       {quoted && (
         <div className="post-form-quote">
           <span className="post-hint">{t.posts.quote.quoting}</span>
           {quoted === 'loading' ? <p className="post-hint">{t.posts.quote.loading}</p> : <QuoteCard quote={quoted === 'gone' ? { kind: quote?.answerId ? 'answer' : 'post', available: false } : quoted} now={Date.now()} />}
         </div>
       )}
-      {mention && (
+      {mention && lockMention ? (
+        <div className="ree-pick">
+          <span className="fu-chip ask-chip">
+            <Icon name="at" className="size-3.5" />
+            {mention.name}
+          </span>
+        </div>
+      ) : mention && (
         <div className="post-mention">
           <Icon name="at" className="size-3.5" />
           {fill(c.mention, { name: mention.name })}
@@ -226,11 +254,11 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
       )}
       <textarea
         aria-label={c.label}
-        placeholder={c.placeholder}
+        placeholder={placeholder ?? c.placeholder}
         value={question}
         maxLength={POST_QUESTION_MAX + 50}
         autoFocus={autoFocus}
-        onChange={(event) => setQuestion(event.target.value)}
+        onChange={(event) => write(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void publish();
         }}
@@ -279,36 +307,206 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
   );
 }
 
-/** 私密提问: the text goes to `/talk`, where the Rees are picked as in any conversation. */
-function PrivateForm({ leave, stay }: { leave: (navigate: () => void) => void; stay: () => void }) {
-  const { t } = useI18n();
+/** The question that, unchanged this long, asks for suggested Rees. */
+const SUGGEST_DELAY_MS = 600;
+
+/** One private question's price at most: every chosen Ree answering. */
+export function privateMaxCost(rees: readonly PrivateReeOption[]): number {
+  return rees.reduce((sum, entry) => sum + entry.price, 0);
+}
+
+/**
+ * 私密提问 (design 稿 2): the question, the Rees that answer it -- suggested
+ * from the question (up to three, preselected), removable, more with
+ * "选 Ree", at most five, each with its price -- and the most it can cost.
+ * Sending holds every price shown at once and opens the private post; a
+ * price raised meanwhile comes back to confirm again. `reeIds` (a link's
+ * `&rees=`) preselects Rees instead of the suggestions; `rees` gives them
+ * already resolved.
+ */
+export function PrivatePostForm({ reeIds = null, rees = null, question: initialQuestion = '', autoFocus = false, leave, head, placeholder, onQuestionChange, onPublished }: { reeIds?: string[] | null; rees?: PrivateReeOption[] | null; autoFocus?: boolean; leave?: (navigate: () => void) => void } & FormFrame) {
+  const { t, locale } = useI18n();
   const c = t.posts.composer;
   const router = useRouter();
-  const pathname = stripLocale(usePathname());
-  const [question, setQuestion] = useState('');
-  function go() {
-    const text = question.trim();
-    /* Already on /talk: its box takes the text now; nothing waits in storage for a later visit (O1). */
-    if (pathname === '/talk') {
-      if (text) window.dispatchEvent(new CustomEvent(TALK_HANDOFF_EVENT, { detail: text }));
-      stay();
-      return;
-    }
+  const [question, setQuestion] = useState(initialQuestion);
+  const [detail, setDetail] = useState('');
+  const [showDetail, setShowDetail] = useState(false);
+  const [chosen, setChosen] = useState<PrivateReeOption[]>(rees ?? []);
+  /* Once the author removes, adds or brings their own Rees, suggestions no longer replace their list. */
+  const [touched, setTouched] = useState(Boolean(rees?.length || reeIds?.length));
+  const [suggesting, setSuggesting] = useState(false);
+  const [picker, setPicker] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lacking, setLacking] = useState(false);
+  /* One token per question being written: a second submit of the same one opens the same post. */
+  const [token, setToken] = useState(() => crypto.randomUUID());
+
+  const preset = reeIds?.join(',') ?? '';
+  useEffect(() => {
+    if (!preset || rees?.length) return;
+    let live = true;
+    fetch(`/api/posts/private/rees?${new URLSearchParams({ ids: preset })}`, { headers: { accept: 'application/json' } })
+      .then((response) => (response.ok ? (response.json() as Promise<{ items: PrivateReeOption[] }>) : null))
+      .then((body) => live && body && setChosen(body.items.slice(0, PRIVATE_POST_MAX_REES)))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [preset, rees]);
+
+  const text = question.trim();
+  useEffect(() => {
+    if (touched || !text) return;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setSuggesting(true);
+      try {
+        const response = await fetch(`/api/posts/private/suggest?${new URLSearchParams({ q: text })}`, { signal: controller.signal, headers: { accept: 'application/json' } });
+        if (response.ok) setChosen(((await response.json()) as { items: PrivateReeOption[] }).items.slice(0, PRIVATE_POST_SUGGESTIONS));
+      } catch {
+        /* aborted by newer text, or offline: the list stays as it was */
+      } finally {
+        if (!controller.signal.aborted) setSuggesting(false);
+      }
+    }, SUGGEST_DELAY_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [text, touched]);
+
+  const total = privateMaxCost(chosen);
+  const full = chosen.length >= PRIVATE_POST_MAX_REES;
+  const remove = (reeId: string) => {
+    setTouched(true);
+    setChosen((current) => current.filter((entry) => entry.reeId !== reeId));
+  };
+  const add = (option: PrivateReeOption) => {
+    setTouched(true);
+    setChosen((current) => (current.some((entry) => entry.reeId === option.reeId) || current.length >= PRIVATE_POST_MAX_REES ? current : [...current, option]));
+    setPicker(false);
+  };
+
+  async function send() {
+    if (busy) return;
+    if (!text) return setError(c.empty);
+    if (text.length > POST_QUESTION_MAX || detail.trim().length > POST_DETAIL_MAX) return setError(fill(c.tooLong, { question: POST_QUESTION_MAX, detail: POST_DETAIL_MAX }));
+    if (chosen.length === 0) return setError(c.noRees);
+    setBusy(true);
+    setError(null);
+    setLacking(false);
     try {
-      if (text) sessionStorage.setItem(TALK_HANDOFF_KEY, text);
+      const response = await fetch('/api/posts/private', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ question, detail, reeIds: chosen.map((entry) => entry.reeId), fees: Object.fromEntries(chosen.map((entry) => [entry.reeId, entry.price])), clientToken: token }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { id?: string; error?: string; balance?: number; needed?: number; prices?: { reeId: string; price: number }[] };
+      if ((response.status === 201 || response.status === 200) && body.id) {
+        /* Asked: the form stays busy until the post's page opens, so nothing is held twice. */
+        setToken(crypto.randomUUID());
+        onPublished?.(body.id);
+        const go = () => router.push(`/p/${body.id}`);
+        if (leave) leave(go);
+        else go();
+        return;
+      }
+      setBusy(false);
+      if (body.error === 'price_changed' && body.prices) {
+        /* Nothing was held: the new prices are shown and the author sends again to agree to them. */
+        const prices = new Map(body.prices.map((entry) => [entry.reeId, entry.price]));
+        setChosen((current) => current.map((entry) => (prices.has(entry.reeId) ? { ...entry, price: prices.get(entry.reeId)!, paid: prices.get(entry.reeId)! > QUERY_BASE_FEE } : entry)));
+        return setError(c.priceChanged);
+      }
+      if (body.error === 'insufficient_credits') setLacking(true);
+      setError(
+        body.error === 'insufficient_credits'
+          ? fill(c.insufficient, { needed: formatNumber(body.needed ?? 0, locale), balance: formatNumber(body.balance ?? 0, locale) })
+          : body.error === 'daily_limit'
+            ? c.dailyLimit
+            : body.error === 'too_long'
+              ? fill(c.tooLong, { question: POST_QUESTION_MAX, detail: POST_DETAIL_MAX })
+              : body.error === 'empty'
+                ? c.empty
+                : body.error === 'no_rees'
+                  ? c.noRees
+                  : body.error === 'too_many_rees'
+                    ? fill(c.tooManyRees, { max: PRIVATE_POST_MAX_REES })
+                    : body.error === 'ree_unavailable'
+                      ? c.reeUnavailable
+                      : c.failed,
+      );
     } catch {
-      /* storage off: /talk opens empty */
+      setError(c.failed);
+      setBusy(false);
     }
-    leave(() => router.push('/talk'));
   }
+
   return (
     <div className="post-form">
-      <textarea aria-label={c.private} placeholder={c.placeholder} value={question} onChange={(event) => setQuestion(event.target.value)} />
-      <p className="post-hint">{c.privateHint}</p>
+      {head}
+      <textarea
+        aria-label={c.private}
+        placeholder={placeholder ?? c.privatePlaceholder}
+        value={question}
+        maxLength={POST_QUESTION_MAX + 50}
+        autoFocus={autoFocus}
+        onChange={(event) => {
+          setQuestion(event.target.value);
+          onQuestionChange?.(event.target.value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void send();
+        }}
+      />
+      {showDetail && (
+        <textarea className="post-detail" aria-label={c.detail} placeholder={c.detail} value={detail} maxLength={POST_DETAIL_MAX + 50} onChange={(event) => setDetail(event.target.value)} />
+      )}
+      <div className="ree-pick">
+        <span className="post-hint">{chosen.length === 0 ? (suggesting ? c.suggesting : c.noSuggestion) : touched ? c.chosen : c.suggested}</span>
+        {chosen.map((entry) => (
+          <span key={entry.reeId} className="fu-chip">
+            <ReeAvatar avatar={entry.reeAvatar} color={entry.reeColor} size="sm" className="size-[18px]!" />
+            {entry.reeName}
+            <small>{formatNumber(entry.price, locale)}</small>
+            <button type="button" aria-label={fill(c.removeRee, { name: entry.reeName })} title={fill(c.removeRee, { name: entry.reeName })} onClick={() => remove(entry.reeId)}>
+              <Icon name="close" className="" />
+            </button>
+          </span>
+        ))}
+        <button type="button" className="icon-btn chip-btn" data-ree-picker="" aria-expanded={picker} disabled={full} title={full ? fill(c.pickerFull, { max: PRIVATE_POST_MAX_REES }) : undefined} onClick={() => setPicker((current) => !current)}>
+          <Icon name="plus" className="" />
+          {c.pickRee}
+        </button>
+      </div>
+      {picker && <PrivateReePicker title={c.pickRee} exclude={chosen.map((entry) => entry.reeId)} inline onPick={add} onClose={() => setPicker(false)} />}
+      {error && (
+        <p className="post-error" role="alert">
+          {error}
+        </p>
+      )}
+      {lacking && (
+        <p className="post-hint">
+          <Link href="/settings?tab=balance" className="text-blue hover:underline">
+            {c.topUpGo} →
+          </Link>
+        </p>
+      )}
+      <p className="post-hint">{fill(c.privateHint, { max: PRIVATE_POST_MAX_REES })}</p>
       <div className="post-composer-foot">
-        <button type="button" className="btn btn-sm ml-auto" onClick={go}>
-          {c.privateGo}
-          <Icon name="arrow" className="size-3.5" />
+        <small className="post-cost" title={fill(c.privateCostTitle, { fee: QUERY_BASE_FEE })}>
+          {fill(c.privateCost, { total: formatNumber(total, locale) })}
+        </small>
+        {!showDetail && (
+          <button type="button" className="icon-btn" onClick={() => setShowDetail(true)}>
+            <Icon name="plus" className="size-3.5" />
+            {c.addDetail}
+          </button>
+        )}
+        <button type="button" className="btn btn-sm" disabled={busy || !text || chosen.length === 0} onClick={() => void send()}>
+          {busy ? <i className="spinner" /> : <Icon name="lock" className="size-3.5" />}
+          {busy ? c.privateSending : c.privateSend}
         </button>
       </div>
     </div>
@@ -318,6 +516,8 @@ function PrivateForm({ leave, stay }: { leave: (navigate: () => void) => void; s
 /**
  * The composer window: `?compose=public` (or `private`, and `&ree=<id>&name=`
  * for 发帖问它) on any workspace page opens it; closing drops the parameter.
+ * The private tab takes `&rees=<id>,<id>` (the Rees to ask, preselected: a
+ * share page, a Ree page, 一起问) and `&ask=<text>` (the question, prefilled).
  */
 function ComposerDialogInner() {
   const { t } = useI18n();
@@ -335,6 +535,9 @@ function ComposerDialogInner() {
   const quoteAnswerId = params.get('qa');
   const quote = useMemo(() => (quotePostId ? { postId: quotePostId, answerId: quoteAnswerId } : null), [quotePostId, quoteAnswerId]);
   const exit = useRef(composerExit()).current;
+  const reesParam = params.get('rees') ?? '';
+  const reeIds = useMemo(() => (reesParam ? reesParam.split(',').filter(Boolean).slice(0, PRIVATE_POST_MAX_REES) : null), [reesParam]);
+  const ask = params.get('ask') ?? '';
 
   useEffect(() => {
     if (open) setTab(compose === 'private' ? 'private' : 'public');
@@ -346,7 +549,7 @@ function ComposerDialogInner() {
 
   function close() {
     const next = new URLSearchParams(params.toString());
-    for (const key of ['compose', 'ree', 'name', 'quote', 'qa']) next.delete(key);
+    for (const key of ['compose', 'ree', 'name', 'quote', 'qa', 'rees', 'ask']) next.delete(key);
     const query = next.toString();
     router.replace(`${pathname}${query ? `?${query}` : ''}`, { scroll: false });
   }
@@ -368,7 +571,7 @@ function ComposerDialogInner() {
               <Icon name="close" className="" />
             </button>
           </header>
-          {tab === 'public' ? <PublicPostForm key={`${mention?.id ?? 'none'}:${quotePostId ?? ''}:${quoteAnswerId ?? ''}`} mention={mention} quote={quote} autoFocus leave={exit.leave} /> : <PrivateForm leave={exit.leave} stay={close} />}
+          {tab === 'public' ? <PublicPostForm key={`${mention?.id ?? 'none'}:${quotePostId ?? ''}:${quoteAnswerId ?? ''}`} mention={mention} quote={quote} autoFocus leave={exit.leave} /> : <PrivatePostForm key={`${reesParam}:${ask}`} reeIds={reeIds} question={ask} autoFocus leave={exit.leave} />}
         </div>
       )}
     </dialog>

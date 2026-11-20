@@ -12,12 +12,11 @@ export const zh = {
   explore: {
     roundtable: {
       title: '一起问前 {n} 个 Ree',
-      body: '新建一场对话，把这个问题同时发给它们。至少两个作答后，可以一键综合它们的回答。',
+      body: '私密提问，把这个问题同时发给它们，只有你能看到。',
       ask: '一起问',
       cost: '最多 {n} credits',
       login: '登录后一起问',
-      failed: '没能新建对话，请重试',
-    },
+          },
     eyebrow: 'FIND YOUR KNOWLEDGE COMPANION',
     title: 'Rees',
     body: '从一个问题出发，找到真正懂它的知识。',
@@ -266,12 +265,11 @@ export const en: Shape<typeof zh> = {
   explore: {
     roundtable: {
       title: 'Ask the top {n} Rees together',
-      body: 'Start a conversation that sends this question to all of them. Once two or more answer, synthesize their answers in one click.',
+      body: 'Ask them all privately at once. Only you can see it.',
       ask: 'Ask together',
       cost: 'Up to {n} credits',
       login: 'Sign in to ask together',
-      failed: 'Could not start the conversation. Try again.',
-    },
+          },
     eyebrow: 'FIND YOUR KNOWLEDGE COMPANION',
     title: 'Rees',
     body: 'Start with a question. Find knowledge that understands.',

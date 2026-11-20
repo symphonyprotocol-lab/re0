@@ -3,23 +3,26 @@
  * and Q&A for the account behind an API key. Each answers plain data or a
  * `McpToolError`; `lib/http/mcp.ts` turns either into a tool result.
  *
- * Asking is billed exactly as on the web (`holdQuestion` / `runQuestion`):
- * the base fee and the owner's query fee held, settled when the Ree answers,
- * the fee credited to the owner. A question that would cost more than the
+ * Asking is a private post on the web (private-posts.ts, `source = 'api'`),
+ * billed like any private question: the base fee and the owner's query fee
+ * held, settled when the Ree answers, the fee credited to the owner. A question that would cost more than the
  * caller's `max_cost`, or more than their balance, is refused before
  * anything is saved or held.
  */
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { MCP_RATE_LIMIT, MCP_SEARCH_MAX, MCP_SOURCE_TITLES, QUERY_BASE_FEE, QUESTION_MAX_CHARS } from '@/lib/constants';
 import type { CitationSnapshot } from '@/lib/domain/answer';
+import { POST_DETAIL_MAX, POST_QUESTION_MAX } from '@/lib/domain/post';
 import { isUuid } from '@/lib/domain/list';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { db, schema } from '@/lib/infra/db';
-import { collectAnswer, holdQuestion, maxCostFor, type Emit } from '@/lib/services/answer';
+import { maxCostFor, readyRees, type Emit } from '@/lib/services/answer';
 import type { ApiKeyCaller } from '@/lib/services/api-keys';
 import { balanceOf } from '@/lib/services/credits';
 import { usableBy } from '@/lib/services/conversations';
 import { allowSearch, answersByOthers, explore, hitRateBucket, readySources } from '@/lib/services/explore';
+import { groundedAnswer, ownPrivatePost, type AnswerOne } from '@/lib/services/posts';
+import { askPrivateFollowup, processPrivateFollowup, processPrivatePost, publishPrivatePost } from '@/lib/services/private-posts';
 import type { Ree } from '@/lib/services/rees';
 
 export type McpErrorCode =
@@ -216,28 +219,51 @@ function citationOut(citation: CitationSnapshot) {
   return { index: citation.index, source: citation.title, kind: citation.kind, locator: citation.locator, excerpt: citation.excerpt };
 }
 
-/** An MCP conversation of this caller with this Ree, or a new one when none is named. */
-async function mcpConversation(userId: string, reeId: string, id: string | undefined) {
-  if (id === undefined) return null;
-  if (!isUuid(id)) throw new McpToolError('invalid_conversation', 'conversation_id is not one of your MCP conversations.');
-  const [row] = await db()
-    .select({ conversation: schema.conversation, reeId: schema.conversationRee.reeId })
-    .from(schema.conversation)
-    .leftJoin(schema.conversationRee, and(eq(schema.conversationRee.conversationId, schema.conversation.id), eq(schema.conversationRee.reeId, reeId)))
-    .where(and(eq(schema.conversation.id, id), eq(schema.conversation.userId, userId), eq(schema.conversation.kind, 'mcp'), isNull(schema.conversation.deletedAt)))
-    .limit(1);
-  if (!row) throw new McpToolError('invalid_conversation', 'conversation_id is not one of your MCP conversations.');
-  if (!row.reeId) throw new McpToolError('invalid_conversation', 'This conversation is with a different Ree. Leave conversation_id out to start a new one with this Ree.');
-  return row.conversation;
+/** The longest question `ask_ree` takes: a post's question and its detail; a continuation (a follow-up) only a question's. */
+export const MCP_QUESTION_MAX = POST_QUESTION_MAX + POST_DETAIL_MAX;
+
+/** A long question becomes a post's question (cut at a space when there is one) and its detail, read together as one. */
+export function splitQuestion(text: string): { question: string; detail: string } {
+  if (text.length <= POST_QUESTION_MAX) return { question: text, detail: '' };
+  const space = text.lastIndexOf(' ', POST_QUESTION_MAX);
+  const cut = space > POST_QUESTION_MAX / 2 ? space : POST_QUESTION_MAX;
+  return { question: text.slice(0, cut).trim(), detail: text.slice(cut).trim() };
 }
 
+/**
+ * The caller's MCP thread (a private post they asked through MCP) this Ree is
+ * in, or null when none is named: `conversation_id` is the post's id.
+ */
+async function mcpThread(userId: string, reeId: string, id: string | undefined): Promise<{ id: string } | null> {
+  if (id === undefined) return null;
+  const invalid = () => new McpToolError('invalid_conversation', 'conversation_id is not one of your MCP conversations.');
+  if (!isUuid(id)) throw invalid();
+  const [row] = await db()
+    .select({ id: schema.post.id, inThread: sql<boolean>`exists (select 1 from ${schema.postAnswer} a where a.post_id = "post"."id" and a.ree_id = ${reeId})` })
+    .from(schema.post)
+    .where(and(eq(schema.post.id, id), eq(schema.post.source, 'api'), ownPrivatePost(userId)))
+    .limit(1);
+  if (!row) throw invalid();
+  if (!row.inThread) throw new McpToolError('invalid_conversation', 'This conversation is with a different Ree. Leave conversation_id out to start a new one with this Ree.');
+  return { id: row.id };
+}
+
+/**
+ * Asks one Ree through MCP: a private post (`source = 'api'`, tagged with the
+ * key) for a new question, or a private follow-up on the caller's MCP post
+ * named by `conversation_id` -- billed as any private question
+ * (private-posts.ts), answered before the call returns, with the text's
+ * progress sent to the client. It appears under the caller's 我的帖子 → 私密.
+ */
 export async function askReeTool(caller: ApiKeyCaller, input: AskInput, progress: AskProgress = {}) {
   const userId = caller.user.id;
   const question = input.question.trim();
-  if (!question || question.length > QUESTION_MAX_CHARS) throw new McpToolError('invalid_question', `The question must be 1–${QUESTION_MAX_CHARS} characters.`);
+  const tooLong = (max: number) => new McpToolError('invalid_question', `The question must be 1–${max} characters${max === POST_QUESTION_MAX ? ' when it continues a conversation' : ''}.`);
+  if (!question || question.length > MCP_QUESTION_MAX) throw tooLong(MCP_QUESTION_MAX);
   const ree = await usableRee(userId, input.ree);
   if (!ree) throw notFound(input.ree);
-  const existing = await mcpConversation(userId, ree.id, input.conversation_id);
+  const existing = await mcpThread(userId, ree.id, input.conversation_id);
+  if (existing && question.length > POST_QUESTION_MAX) throw tooLong(POST_QUESTION_MAX);
 
   const possible = maxCostFor(ree, userId);
   if (input.max_cost !== undefined && input.max_cost < possible) {
@@ -252,53 +278,68 @@ export async function askReeTool(caller: ApiKeyCaller, input: AskInput, progress
       needed,
       top_up_url: topUpUrl(),
     });
-  /* Checked before a conversation is made, so a refused question leaves nothing behind. */
+  /* Checked before anything is saved, so a refused question leaves nothing behind. */
   const balance = await balanceOf(db(), userId);
-  if (balance < possible) throw insufficient(balance, possible);
+  const ready = (await readyRees([ree.id])).has(ree.id);
+  if (ready && balance < possible) throw insufficient(balance, possible);
 
-  const conversation =
-    existing ??
-    (await db().transaction(async (tx) => {
-      const [row] = await tx.insert(schema.conversation).values({ userId, kind: 'mcp' }).returning();
-      await tx.insert(schema.conversationRee).values({ conversationId: row!.id, reeId: ree.id });
-      return row!;
-    }));
-  const holding = await holdQuestion({ userId, lang: caller.user.lang, conversation, targets: [ree], question, verify: false, apiKeyId: caller.keyId });
-  if (!holding.ok) {
-    /* Spent elsewhere in the meantime: the question was not saved; drop the conversation made for it. */
-    if (!existing) await db().delete(schema.conversation).where(eq(schema.conversation.id, conversation.id));
-    /* MCP sends no seen fees, so the price check never refuses here. */
-    if (holding.reason !== 'insufficient') throw new Error('unexpected price check on an MCP question');
-    throw insufficient(holding.balance, holding.needed);
+  /* The price just checked is the one "shown": it can only have moved in the last instant. */
+  const fees = { [ree.id]: possible };
+  const asked = existing
+    ? await askPrivateFollowup(userId, existing.id, { question, mentionReeIds: [ree.id], fees, lang: caller.user.lang }, { apiKeyId: caller.keyId })
+    : await publishPrivatePost(userId, { ...splitQuestion(question), reeIds: [ree.id], fees, lang: caller.user.lang }, { source: 'api', apiKeyId: caller.keyId });
+  if (!asked.ok) {
+    switch (asked.error) {
+      case 'insufficient_credits':
+        throw insufficient(asked.balance, asked.needed);
+      case 'empty':
+      case 'too_long':
+        throw tooLong(existing ? POST_QUESTION_MAX : MCP_QUESTION_MAX);
+      case 'price_changed':
+        throw new McpToolError('max_cost_exceeded', `${ree.name}'s price changed while you asked. Nothing was charged; ask again.`, { possible_cost: asked.prices[0]?.price ?? possible, max_cost: input.max_cost ?? null });
+      case 'full':
+        throw new McpToolError('invalid_conversation', 'This conversation is full. Leave conversation_id out to start a new one with this Ree.');
+      case 'ree_unavailable':
+        throw notFound(input.ree);
+      default:
+        throw new McpToolError('invalid_conversation', 'conversation_id is not one of your MCP conversations.');
+    }
   }
-  const replies = await collectAnswer(holding.question, progress.onEvent);
-  const reply = replies.get(ree.id)!;
-  const outcome = reply.outcome;
-  const base = { ree: { id: ree.id, slug: ree.slug, name: ree.name }, conversation_id: conversation.id };
-  if (!outcome || outcome.failed) {
+  const postId = existing ? existing.id : asked.id;
+  const followupId = existing ? asked.id : null;
+  const emit = progress.onEvent;
+  const answerOne: AnswerOne = (one) => groundedAnswer({ ...one, emit: emit ? (event) => emit(event) : undefined });
+  if (followupId) await processPrivateFollowup(followupId, { answerOne });
+  else await processPrivatePost(postId, { answerOne });
+
+  const [reply] = await db()
+    .select({ id: schema.postAnswer.id, state: schema.postAnswer.state, text: schema.postAnswer.text, citations: schema.postAnswer.citations, price: schema.postAnswer.price, baseHoldId: schema.postAnswer.baseHoldId })
+    .from(schema.postAnswer)
+    .where(and(eq(schema.postAnswer.postId, postId), followupId ? eq(schema.postAnswer.followupId, followupId) : isNull(schema.postAnswer.followupId), eq(schema.postAnswer.reeId, ree.id)))
+    .limit(1);
+  const base = { ree: { id: ree.id, slug: ree.slug, name: ree.name }, conversation_id: postId };
+  if (!reply || (reply.state !== 'answered' && reply.state !== 'no_answer')) {
     throw new McpToolError('answer_failed', `${ree.name} could not answer just now. Nothing was charged; try again.`, { ...base, cost: 0 });
   }
-  if (outcome.noAnswer) {
+  if (reply.state === 'no_answer') {
+    const reason = ready ? ('out_of_scope' as const) : ('no_sources' as const);
     return {
       ...base,
       status: 'no_answer' as const,
-      reason: outcome.reason,
-      explanation:
-        outcome.reason === 'no_sources'
-          ? `${ree.name} has no ready knowledge yet, so it cannot answer. Nothing was charged.`
-          : `${ree.name}'s knowledge does not cover this question. Nothing was charged.`,
+      reason,
+      explanation: reason === 'no_sources' ? `${ree.name} has no ready knowledge yet, so it cannot answer. Nothing was charged.` : `${ree.name}'s knowledge does not cover this question. Nothing was charged.`,
       answer: null,
       citations: [],
       cost: 0,
-      message_id: outcome.messageId,
+      message_id: reply.id,
     };
   }
   return {
     ...base,
     status: 'answered' as const,
     answer: reply.text,
-    citations: outcome.citations.map(citationOut),
-    cost: outcome.cost,
-    message_id: outcome.messageId,
+    citations: reply.citations.map(citationOut),
+    cost: reply.baseHoldId ? (reply.price ?? 0) : 0,
+    message_id: reply.id,
   };
 }

@@ -48,12 +48,15 @@ import {
   POST_DETAIL_MAX,
   POST_SOURCES,
   POST_STATUSES,
+  POST_TITLE_MAX,
+  POST_VISIBILITIES,
   type AnswerHider,
   type AnswerState,
   type FollowupStatus,
   type PostAnswerState,
   type PostSource,
   type PostStatus,
+  type PostVisibility,
 } from '@/lib/domain/post';
 import { PUBLIC_QA_ANSWER_MAX_CHARS, PUBLIC_QA_HIDERS, PUBLIC_QA_SOURCES, PUBLIC_QA_STATUSES, type PublicQaHider, type PublicQaSource, type PublicQaStatus } from '@/lib/domain/public-qa';
 import { MODEL_KINDS, VIDEO_EXPORT_TEMPLATES, VIDEO_TEMPLATES, type ModelKind } from '@/lib/constants';
@@ -1355,6 +1358,19 @@ export const post = pgTable(
     /** The author; null for a visitor's published answer and RE0's examples. Deleting the account deletes their posts. */
     userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
     source: text('source').$type<PostSource>().notNull(),
+    /**
+     * `private` (私密提问): only the author ever sees it (`visiblePost` is public
+     * only); it skips review and goes straight to `published`.
+     */
+    visibility: text('visibility').$type<PostVisibility>().notNull().default('public'),
+    /** A private post's owner actions: 置顶, 归档, and 重命名 (null shows the question). */
+    pinnedAt: timestampTz('pinned_at'),
+    archivedAt: timestampTz('archived_at'),
+    title: text('title'),
+    /** The public post 转为公开 copied this private one into: one copy per private post. */
+    publishedCopyId: uuid('published_copy_id').references((): AnyPgColumn => post.id, { onDelete: 'set null' }),
+    /** The API key an MCP ask (`source = 'api'`) came through, for the key's usage; null once the key is deleted. */
+    apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
     /** The public Q&A row this post was copied from. */
     legacyQaId: uuid('legacy_qa_id').references(() => reePublicQa.id, { onDelete: 'set null' }),
     /** For a Q&A a signed-in asker published from a conversation: it shows only while that conversation is out of the trash, and purging it deletes the post. */
@@ -1405,10 +1421,12 @@ export const post = pgTable(
     answeredAt: timestampTz('answered_at'),
   },
   (t) => [
-    index('post_feed_idx').on(t.publishedAt.desc(), t.id.desc()).where(sql`status = 'published' and deleted_at is null`),
+    index('post_feed_idx').on(t.publishedAt.desc(), t.id.desc()).where(sql`status = 'published' and deleted_at is null and visibility = 'public'`),
     index('post_user_idx').on(t.userId, t.createdAt.desc()).where(sql`user_id is not null`),
     index('post_pending_idx').on(t.createdAt).where(sql`status = 'pending' or answer_state <> 'done'`),
     uniqueIndex('post_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
+    /* The counts leave out a 转为公开 copy (its answers were counted on the private post): looked up per answer. */
+    index('post_published_copy_idx').on(t.publishedCopyId).where(sql`published_copy_id is not null`),
     index('post_quote_idx').on(t.quotePostId).where(sql`quote_post_id is not null`),
     index('post_quote_review_idx').on(t.quoteReviewAt).where(sql`quote_review_at is not null`),
     check('post_quote_kind_check', sql`quote_kind is null or quote_kind in ('post', 'answer')`),
@@ -1424,6 +1442,10 @@ export const post = pgTable(
     check('post_question_check', sql`char_length(question) between 1 and 4000`),
     check('post_detail_check', sql`char_length(detail) <= ${sql.raw(String(POST_DETAIL_MAX))}`),
     check('post_published_check', sql`(status = 'published') <= (published_at is not null)`),
+    check('post_visibility_check', oneOf('visibility', [...POST_VISIBILITIES])),
+    check('post_title_check', sql`title is null or char_length(title) between 1 and ${sql.raw(String(POST_TITLE_MAX))}`),
+    /* 试问 and MCP asks are private by nature. */
+    check('post_private_source_check', sql`source not in ('test', 'api') or visibility = 'private'`),
   ],
 );
 
@@ -1453,6 +1475,8 @@ export const postFollowup = pgTable(
     skipped: integer('skipped').notNull().default(0),
     /** The composer's token: the same token, or the same text under the same post within a minute, asks once. */
     clientToken: uuid('client_token'),
+    /** The API key an MCP continuation of a private post came through (`post.api_key_id` for its first question). */
+    apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     publishedAt: timestampTz('published_at'),
@@ -1542,6 +1566,47 @@ export const postAnswerVote = pgTable(
   (t) => [primaryKey({ columns: [t.answerId, t.userId] }), index('post_answer_vote_user_idx').on(t.userId)],
 );
 
+/** "没帮助" on a private post's answer: its author only (public answers have no 👎). */
+export const postAnswerFeedback = pgTable(
+  'post_answer_feedback',
+  {
+    answerId: uuid('answer_id').notNull().references(() => postAnswer.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.answerId, t.userId] })],
+);
+
+/**
+ * What the conversations counted before private posts replaced them,
+ * frozen by migration 0066 so the figures stay when the conversation tables
+ * go (PR B): each Ree's answers to other people (explore `answersByOthers`,
+ * rank `answers_all`), other people's 有用 / 没用 (`votesByOthers`), and
+ * other people's questions, answered or not (roles `external_questions`).
+ * Readers add the same figures counted from posts.
+ */
+export const reeLegacyStats = pgTable('ree_legacy_stats', {
+  reeId: uuid('ree_id')
+    .primaryKey()
+    .references(() => ree.id, { onDelete: 'cascade' }),
+  answersByOthers: integer('answers_by_others').notNull().default(0),
+  helpful: integer('helpful').notNull().default(0),
+  unhelpful: integer('unhelpful').notNull().default(0),
+  answersAll: integer('answers_all').notNull().default(0),
+  questionsByOthers: integer('questions_by_others').notNull().default(0),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+});
+
+/** The role threshold's conversation figures per user (roles.ts `roleMetrics`), frozen like `ree_legacy_stats`. */
+export const userLegacyStats = pgTable('user_legacy_stats', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  externalQuestions: integer('external_questions').notNull().default(0),
+  helpful: integer('helpful').notNull().default(0),
+  unhelpful: integer('unhelpful').notNull().default(0),
+});
+
 /** "有帮助" on a post itself: one per signed-in user. */
 export const postVote = pgTable(
   'post_vote',
@@ -1621,7 +1686,7 @@ export const verificationRequest = pgTable(
   ],
 );
 
-export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered'] as const;
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**
@@ -2167,7 +2232,9 @@ export const taskReward = pgTable(
  * `re0_visitor` cookie (no IP, no user agent); the owner's own visits are
  * not recorded. A visit holds its half-hour `visit_slot`, so one visitor
  * counts once per slot even when two tabs open at once; one conversion per
- * conversation and Ree.
+ * conversation and Ree. Since the chat pages went (2026-11-20) a conversion
+ * is a post published from the share page (`kind = 'post'`, one per post
+ * and Ree); the conversation ones stay as they were counted.
  */
 export const reeShareEvent = pgTable(
   'ree_share_event',
@@ -2176,10 +2243,12 @@ export const reeShareEvent = pgTable(
     reeId: uuid('ree_id')
       .notNull()
       .references(() => ree.id, { onDelete: 'cascade' }),
-    kind: text('kind').$type<'visit' | 'conversation'>().notNull(),
+    kind: text('kind').$type<'visit' | 'conversation' | 'post'>().notNull(),
     visitorId: text('visitor_id').notNull(),
     userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
     conversationId: uuid('conversation_id').references(() => conversation.id, { onDelete: 'set null' }),
+    /** `post` conversions (2026-11-20): the post published from the share page, which asked this Ree. */
+    postId: uuid('post_id').references((): AnyPgColumn => post.id, { onDelete: 'set null' }),
     /** Visits only: `floor(epoch seconds / 1800)`. */
     visitSlot: integer('visit_slot'),
     createdAt: createdAt(),
@@ -2188,8 +2257,9 @@ export const reeShareEvent = pgTable(
     index('ree_share_event_ree_idx').on(t.reeId, t.kind, t.createdAt),
     index('ree_share_event_visitor_idx').on(t.visitorId, t.reeId, t.createdAt),
     uniqueIndex('ree_share_event_conversation_key').on(t.conversationId, t.reeId).where(sql`kind = 'conversation'`),
+    uniqueIndex('ree_share_event_post_key').on(t.postId, t.reeId).where(sql`kind = 'post'`),
     uniqueIndex('ree_share_event_visit_key').on(t.visitorId, t.reeId, t.visitSlot).where(sql`kind = 'visit'`),
-    check('ree_share_event_kind_check', oneOf('kind', ['visit', 'conversation'])),
+    check('ree_share_event_kind_check', oneOf('kind', ['visit', 'conversation', 'post'])),
     check('ree_share_event_visit_slot_check', sql`(kind = 'visit') = (visit_slot is not null)`),
   ],
 );
@@ -2289,6 +2359,13 @@ export const apiKey = pgTable(
     lastUsedAt: timestampTz('last_used_at'),
     expiresAt: timestampTz('expires_at'),
     revokedAt: timestampTz('revoked_at'),
+    /**
+     * What the key asked and spent through MCP conversations, frozen by
+     * migration 0067 before PR B deletes them; its usage adds the private
+     * posts asked through it (api-keys.ts `usageOf`).
+     */
+    legacyQuestions: integer('legacy_questions').notNull().default(0),
+    legacySpent: integer('legacy_spent').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [

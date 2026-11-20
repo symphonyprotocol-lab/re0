@@ -1,0 +1,16 @@
+/*
+ * The underlined tab row (`.cl-tabs` / `.cl-tab`): the feed's 为你推荐 / 最新
+ * / 待回答, the composer's 公开 / 私密, 我的帖子, 收藏 and the Ree page. It
+ * used to live in conversations.css, which only the conversation pages load
+ * now; pages restyle it from here (posts.css, feed.css).
+ */
+.cl-tabs { display: flex; align-items: stretch; gap: 27px; border-bottom: 1px solid rgb(225, 230, 241); overflow-x: auto; scrollbar-width: none; margin-bottom: 12px; }
+.cl-tab { display: flex; align-items: center; gap: 6px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: rgb(139, 154, 179); padding: 9px 0 10px; white-space: nowrap; font-size: 11px; transition: color 0.16s, border-color 0.16s; }
+.cl-tab > svg { height: 14px; width: 14px; }
+.cl-tab > span { font: 9px var(--font-mono); padding: 1px 5px; border-radius: 4px; background: rgb(237, 240, 248); color: rgb(152, 169, 193); }
+.cl-tab.active { color: var(--color-blue); border-color: var(--color-blue); }
+.cl-tab.active > span { background: rgb(228, 238, 252); color: rgb(98, 151, 211); }
+.cl-tab:hover { color: var(--color-blue); }
+@media (prefers-reduced-motion: reduce) {
+  .cl-tab { transition: none; }
+}

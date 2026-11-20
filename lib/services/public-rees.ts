@@ -12,6 +12,7 @@ import type { SocialContact } from '@/lib/domain/account';
 import { isUuid } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
 import { answersByOthers, publicRee, readySources, reeCards, type ReeCard } from '@/lib/services/explore';
+import { votesByOthers } from '@/lib/services/ree-feedback';
 
 export interface PublicRee {
   id: string;
@@ -43,9 +44,6 @@ export interface PublicRee {
   positiveRate: number | null;
   updatedAt: Date;
 }
-
-const reeId = sql.raw('"ree"."id"');
-const reeOwner = sql.raw('"ree"."owner_id"');
 
 export async function publicReeBySlug(slug: string): Promise<PublicRee | null> {
   if (!validSlug(slug)) return null;
@@ -95,8 +93,8 @@ async function reeDetails(where: SQL): Promise<PublicRee | null> {
       publicQaEnabled: schema.ree.publicQaEnabled,
       sources: readySources,
       answers: answersByOthers,
-      up: sql<number>`(select count(*)::int from ${schema.reeFeedback} f join ${schema.message} m on m.id = f.message_id where m.ree_id = ${reeId} and f.vote = 'up' and f.user_id <> ${reeOwner})`,
-      down: sql<number>`(select count(*)::int from ${schema.reeFeedback} f join ${schema.message} m on m.id = f.message_id where m.ree_id = ${reeId} and f.vote = 'down' and f.user_id <> ${reeOwner})`,
+      up: votesByOthers('up'),
+      down: votesByOthers('down'),
       updatedAt: schema.ree.updatedAt,
     })
     .from(schema.ree)

@@ -56,6 +56,7 @@ import { endpointFor } from '@/lib/infra/ai/models';
 import type { IntroProps } from '@/lib/domain/video';
 import { introsFor } from '@/lib/services/video';
 import { votesByOthers } from '@/lib/services/ree-feedback';
+import { answersByOthersOf } from '@/lib/services/ree-counts';
 import { hitRateBucket } from '@/lib/services/rate-limit';
 import { untimed, type Timing } from '@/lib/infra/timing';
 import { SEARCH_INDEXES } from '@/lib/infra/search-indexes';
@@ -72,12 +73,13 @@ export function publicRee(): SQL {
 export const readySources = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = ${reeId} and k.status = 'ready' and k.enabled and k.deleted_at is null)`;
 /**
  * Successful answers to other people, all time: the public count, the
- * "most answered" order and MCP's figure. Answers to signed-out visitors
+ * "most answered" order and MCP's figure -- the conversations' frozen count
+ * plus the posts' (ree-counts.ts). Answers to signed-out visitors
  * (anonymous-chat.ts) are left out -- anyone, the owner signed out
  * included, could ask for them -- so what is shown and what orders agree;
  * the owner's own statistics count them.
  */
-export const answersByOthers = sql<number>`(select count(*)::int from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id where m.ree_id = ${reeId} and m.role = 'ree' and not m.no_answer and c.user_id <> ${reeOwner} and not m.copied_from_post)`;
+export const answersByOthers = answersByOthersOf(reeId, reeOwner);
 
 export interface ReeCard {
   id: string;
@@ -138,7 +140,7 @@ const cardColumns = {
   /* v5: answers this Ree gave on visible posts, the copied public Q&A among them (posts.ts `shownAnswer`, `visiblePost`). */
   publicQa: sql<number>`(select count(*)::int from ${schema.postAnswer} a join ${schema.post} p on p.id = a.post_id
     where a.ree_id = ${schema.ree.id} and a.followup_id is null and a.state = 'answered' and a.hidden_by is null and (a.legacy_qa_id is null or ${schema.ree.publicQaEnabled})
-      and p.status = 'published' and p.deleted_at is null
+      and p.visibility = 'public' and p.status = 'published' and p.deleted_at is null
       and (p.source <> 'conversation' or exists (select 1 from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id where m.id = p.message_id and c.deleted_at is null)))`,
 };
 

@@ -549,13 +549,6 @@
   margin: 0 auto;
   padding: 24px 32px 40px;
 }
-.my-posts.is-head {
-  max-width: 1540px;
-  padding-bottom: 0;
-}
-.my-posts.is-head .my-posts-tabs {
-  margin-bottom: 0;
-}
 @media (max-width: 760px) {
   .my-posts {
     padding: 16px 16px 32px;
@@ -1061,4 +1054,315 @@ a.post-quote:hover {
   .fu-thread {
     padding-bottom: 72px;
   }
+}
+
+/*
+ * 私密提问 as a private post (design 稿 2, 2026-11-20). Purple marks what
+ * only its author sees; everything else is the public post's own styles.
+ */
+
+/* "私密 · 仅你可见": where a public post shows its category. */
+.private-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 6px;
+  border: 1px solid #e3dcf5;
+  border-radius: 999px;
+  background: #f6f3fd;
+  color: #6a4fb0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.private-badge svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* An answer's own cost, at the end of its action row: only its author sees it. */
+.answer-cost {
+  margin-left: auto;
+  padding-right: 8px;
+  color: #9aa1b6;
+  font: 11px var(--font-mono);
+}
+
+/* 转为公开 in the post's row. */
+.post-actions .is-make-public {
+  color: var(--color-blue);
+}
+
+/* 重命名 in place, and the 转为公开 confirmation, under the post's row. */
+.private-rename,
+.private-publish {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-wash);
+  font-size: 12px;
+}
+.private-rename input[type='text'] {
+  flex: 1 1 240px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 13px;
+}
+.private-publish p {
+  flex-basis: 100%;
+  color: var(--color-muted);
+  line-height: 1.6;
+}
+.private-publish strong {
+  flex-basis: 100%;
+  font-size: 13px;
+}
+.private-publish label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+}
+
+/* Small pill buttons in a composer: 选 Ree, 加 Ree. */
+.chip-btn {
+  width: auto;
+  height: 28px;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.chip-btn svg {
+  width: 13px;
+  height: 13px;
+}
+.fu-foot .chip-btn + .fu-at-btn {
+  margin-left: 2px;
+}
+
+/* The private composer's Rees: suggested from the question, removable, with their price. */
+.ree-pick {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.ree-pick .post-hint {
+  margin: 0 4px 0 0;
+}
+.fu-chip small {
+  color: #7c8bb0;
+  font: 10px var(--font-mono);
+}
+
+/* The Ree search of 选 Ree / 加 Ree: under the chips in the composer window, above the box in a thread. */
+.private-picker input {
+  width: 100%;
+  height: 32px;
+  margin-bottom: 4px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.private-picker .private-picker-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+.private-picker.is-inline {
+  position: static;
+  width: 100%;
+  margin-top: 4px;
+  box-shadow: none;
+}
+
+/* What private means, first in the right column. */
+.private-rail h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #6a4fb0;
+}
+.private-rail ul {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding-left: 16px;
+  color: #4b5370;
+  font-size: 12px;
+  line-height: 1.55;
+  list-style: disc;
+}
+
+/* 我的帖子 › 私密: the line above the cards, and 筛选 at the right of the tab row. */
+.private-list-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.private-list-note svg {
+  width: 14px;
+  height: 14px;
+  color: #6a4fb0;
+}
+.my-posts-bar {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.my-posts-bar .my-posts-tabs {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.my-posts-filter > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  margin-bottom: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.my-posts-filter > summary::-webkit-details-marker {
+  display: none;
+}
+.my-posts-filter[open] > summary,
+.my-posts-filter.is-active > summary {
+  border-color: #d6e6fb;
+  background: var(--color-soft);
+  color: var(--color-blue);
+}
+.my-posts-filter form {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 10px;
+  width: min(340px, 100%);
+  padding: 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 12px 32px #0911351a;
+  font-size: 12px;
+}
+.my-posts-filter input[type='search'],
+.my-posts-filter select {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 13px;
+}
+.my-posts-filter label {
+  display: grid;
+  gap: 4px;
+  color: var(--color-muted);
+}
+.my-posts-filter label.is-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-ink);
+}
+.my-posts-filter .my-posts-filter-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+}
+@media (max-width: 760px) {
+  .fu-foot .chip-btn {
+    padding: 0 6px;
+  }
+}
+
+/*
+ * 向 … 提问 (ree-ask.tsx): the box a share page and a Ree page end with, its
+ * Ree already named, and 公开帖子 / 私密提问 above the question.
+ */
+.post-ask {
+  margin-top: 18px;
+}
+.ask-vis {
+  display: inline-flex;
+  align-self: flex-start;
+  width: max-content;
+  gap: 2px;
+  margin-bottom: 8px;
+  padding: 2px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: var(--color-wash);
+}
+.ask-vis button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.ask-vis button[aria-checked='true'] {
+  background: #ffffff;
+  color: var(--color-ink);
+  box-shadow: 0 1px 2px rgb(9 17 53 / 0.08);
+}
+.ask-vis button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ask-vis svg {
+  width: 13px;
+  height: 13px;
+}
+.post-ask .ree-pick {
+  margin-top: 0;
+}
+.ask-chip {
+  padding: 3px 10px 3px 8px;
+}
+/* A share page's and a Ree page's answered posts: the cards run to the edges of their column. */
+.ree-post-feed .post-card {
+  padding-left: 0;
+  padding-right: 0;
+}
+.ree-post-owner {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: -6px;
+  color: var(--color-muted);
+  font-size: 11px;
 }

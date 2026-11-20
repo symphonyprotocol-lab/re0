@@ -17,6 +17,7 @@
  */
 import type { CitationSnapshot } from '@/lib/domain/answer';
 import type { SynthesisSource } from '@/lib/domain/synthesis';
+import { QUERY_BASE_FEE } from '@/lib/constants';
 
 /** Posts a user may publish a day: a ceiling against scripts, not a price. */
 export const POST_DAILY_LIMIT = 30;
@@ -61,8 +62,27 @@ export const POST_PAID_ANSWER_STALE_MS = 10 * 60_000;
 /** A published post not yet started after this (the request's background work died): the cron starts it. */
 export const POST_WAITING_STALE_MS = 2 * 60_000;
 
-export const POST_SOURCES = ['post', 'anonymous', 'share', 'conversation', 'seed'] as const;
+/**
+ * `test`: a Ree owner's 试问 to their own Ree; `api`: a question asked through
+ * the MCP server. Both are always private posts.
+ */
+export const POST_SOURCES = ['post', 'anonymous', 'share', 'conversation', 'seed', 'test', 'api'] as const;
 export type PostSource = (typeof POST_SOURCES)[number];
+/**
+ * Private posts (私密提问, design 稿 2) replace private conversations: only
+ * their author ever sees them -- no feed, search, sitemap, Ree page, quote,
+ * save, report or anyone else's vote -- and they skip review.
+ */
+export const POST_VISIBILITIES = ['public', 'private'] as const;
+export type PostVisibility = (typeof POST_VISIBILITIES)[number];
+/** Sources a signed-in author owns and reads through 我的帖子 (the others belong to visitors, RE0 or copied Q&A). */
+export const AUTHORED_SOURCES = ['post', 'test', 'api'] as const satisfies readonly PostSource[];
+/** Rees one private post asks, chosen by its author, and the most one private thread may hold with 加 Ree. */
+export const PRIVATE_POST_MAX_REES = 5;
+/** Rees the composer suggests for a private question before the author edits the list. */
+export const PRIVATE_POST_SUGGESTIONS = 3;
+/** A private post's rename (重命名). */
+export const POST_TITLE_MAX = 120;
 export const POST_STATUSES = ['pending', 'published', 'rejected', 'hidden'] as const;
 export type PostStatus = (typeof POST_STATUSES)[number];
 export const POST_ANSWER_STATES = ['waiting', 'answering', 'done'] as const;
@@ -133,6 +153,24 @@ export interface FollowupCandidate {
   paid: boolean;
 }
 
+/** A Ree the private composer suggests or the author picks, with what one answer costs them and, when suggested, how close it is. */
+export interface PrivateReeOption extends FollowupCandidate {
+  similarity: number | null;
+}
+
+/** How many answered posts a share page shows ("大家问过的"); the rest are on the Ree page. */
+export const SHARE_POST_PICKS = 3;
+
+/**
+ * One Ree as a box that names it (向 … 提问 on its share page and Ree page)
+ * lists it for 私密提问: what one answer costs the viewer -- the base fee on
+ * their own Ree, its price otherwise.
+ */
+export function askOption(ree: { id: string; slug: string; name: string; avatarBlob: string | null; color: string; price: number }, own: boolean): PrivateReeOption {
+  const price = own ? QUERY_BASE_FEE : ree.price;
+  return { reeId: ree.id, reeSlug: ree.slug, reeName: ree.name, reeAvatar: ree.avatarBlob, reeColor: ree.color, price, paid: price > QUERY_BASE_FEE, similarity: null };
+}
+
 export const FEED_TABS = ['for_you', 'latest', 'unanswered'] as const;
 export type FeedTab = (typeof FEED_TABS)[number];
 
@@ -165,6 +203,11 @@ export interface PostAnswerView {
   pinned: boolean;
   /** A paid Ree's answer the post's author agreed to pay for. */
   paid: boolean;
+  /** "没帮助" on a private post's answer (its author only): how many, and whether the viewer marked it. Always 0 / false on public posts. */
+  unhelpful: number;
+  unvoted: boolean;
+  /** What this answer cost the author of a private post (base fee plus query fee, 0 when nothing was charged); null for anyone else and on public posts. */
+  cost: number | null;
 }
 
 /** A paid Ree waiting for the post's author to agree (only the author sees it). */
@@ -218,6 +261,15 @@ export const POST_QUOTE_PREVIEW_CHARS = 160;
 
 export interface PostView {
   id: string;
+  /** `private`: only its author ever gets this view (私密提问). */
+  visibility: PostVisibility;
+  /** A private post's rename; null shows the question. */
+  title: string | null;
+  /** Owner actions on a private post: 置顶 and 归档. */
+  pinned: boolean;
+  archived: boolean;
+  /** The public post 转为公开 made from this private one, once made. */
+  publishedCopyId: string | null;
   question: string;
   detail: string;
   lang: 'zh' | 'en';

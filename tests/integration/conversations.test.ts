@@ -11,7 +11,7 @@
  * after 30 days; and the cards carry the owner's role.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { pointModelsAt, runBackfill, TEST_DATABASE_URL, uniqueName } from './setup';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import { Client } from '@neondatabase/serverless';
@@ -27,6 +27,7 @@ const conversations = await import('@/lib/services/conversations');
 const { answer } = await import('@/lib/services/answer');
 const explore = await import('@/lib/services/explore');
 const { computeRanks } = await import('@/lib/services/rank');
+const privatePosts = await import('@/lib/services/private-posts');
 const { publicReeBySlug, relatedFor } = await import('@/lib/services/public-rees');
 const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
@@ -405,9 +406,12 @@ describeWithDb('multi-Ree conversations', () => {
     expect(await conversations.setFeedback(asker, reply!.id, 'down')).toBe('down');
     expect(await db().select().from(schema.reeFeedback).where(eq(schema.reeFeedback.messageId, reply!.id))).toHaveLength(1);
     await expect(conversations.setFeedback(owner, reply!.id, 'up')).rejects.toMatchObject({ code: 'not_found' });
+    /* The public page reads conversations as the release froze them (legacy-stats.test.ts). */
+    await runBackfill('legacy-stats');
     const page = await publicReeBySlug(ree.slug);
     expect(page).toMatchObject({ answers: 1, positiveRate: 0 });
     expect(await conversations.setFeedback(asker, reply!.id, null)).toBeNull();
+    await runBackfill('legacy-stats');
     expect((await publicReeBySlug(ree.slug))!.positiveRate).toBeNull();
   });
 });
@@ -445,8 +449,10 @@ describeWithDb('explore and public pages', () => {
     const busy = await reeOf(owner, { category: 'life' });
     const quiet = await reeOf(owner, { category: 'life' });
     const asker = await person();
-    const conversation = await conversations.createConversation(asker, { reeIds: [busy.id] });
-    await read(await ask(asker, conversation.id, QUESTION));
+    /* Someone else's private question pulls the Ree in, and its answer counts. */
+    const asked = await privatePosts.publishPrivatePost(asker, { question: QUESTION, reeIds: [busy.id], fees: { [busy.id]: 20 }, lang: 'en' });
+    if (!asked.ok) throw new Error(asked.error);
+    await privatePosts.processPrivatePost(asked.id);
     await computeRanks();
     const [ranked] = await db().select({ rank: schema.ree.rank }).from(schema.ree).where(eq(schema.ree.id, busy.id));
     expect(ranked!.rank).toMatchObject({ asked30: 1, answered30: 1, pulls30: 1, activity30: 2, answersAll: 1 });

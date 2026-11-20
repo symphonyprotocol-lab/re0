@@ -8,8 +8,10 @@
  * `(user_id, created_at)` index), whose `ref_id` is the reply; the reply's
  * `request_id` is the question, whose conversation names the asker; the
  * asker's `query_fee_paid` entries for that question and Ree name the grants
- * the fee was paid from, and so what it was paid from. Nothing scans the
- * whole ledger.
+ * the fee was paid from, and so what it was paid from. A post answer's fee
+ * (posts.ts `closeAnswer`) names the answer instead: its holds were placed
+ * against the answer, by the follow-up's author or else the post's. Nothing
+ * scans the whole ledger.
  *
  * Earned credits with no such entry (granted in the console, or an
  * invitation reward) and questions whose conversation was since deleted
@@ -85,6 +87,14 @@ async function fundingOf(ids: readonly string[]): Promise<Map<string, PayoutFund
       join message q on q.id = m.request_id
       join conversation c on c.id = q.conversation_id
       group by l.payout_id, l.owner_id, l.reply_id, m.request_id, m.ree_id, c.user_id, q.created_at
+      union all
+      /* A post answer's fee: the answer is its own question (the asker's holds name it), asked by the follow-up's author or else the post's. */
+      select l.payout_id, l.owner_id, l.reply_id, sum(l.drawn) as drawn, a.id, a.ree_id, coalesce(f.user_id, p.user_id), a.created_at
+      from linked l
+      join post_answer a on a.id = l.reply_id
+      join post p on p.id = a.post_id
+      left join post_followup f on f.id = a.followup_id
+      group by l.payout_id, l.owner_id, l.reply_id, a.id, a.ree_id, f.user_id, p.user_id, a.created_at
     ), spend as (
       select r.payout_id, r.reply_id, g.source, g.purchase_id, g.redemption_id, g.withdrawable_at, g.funding_purchase_id, g.invite_funded,
         sum(case when f.delta < 0 then (a->>'amount')::bigint else -(a->>'amount')::bigint end) as amount

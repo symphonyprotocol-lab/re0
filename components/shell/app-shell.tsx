@@ -9,7 +9,6 @@ import { fill, formatNumber } from '@/i18n/format';
 import { BrandMark, BrandName } from '@/components/ui/brand-mark';
 import { Icon, type IconName } from '@/components/ui/icons';
 import { UserAvatar } from '@/components/ui/ree-avatar';
-import { HistoryProvider, SearchShortcut } from '@/components/conversations/sidebar-history';
 import { ComposeLink, PostComposerDialog } from '@/components/posts/composer';
 import { WorkspaceMain } from '@/components/shell/workspace-main';
 import { SidebarLinks } from '@/components/shell/sidebar-links';
@@ -115,15 +114,13 @@ export function AppShell({ user, initialCollapsed, children }: { user: ShellUser
   };
   return (
     <ShellContext.Provider value={{ collapsed: folded, toggleCollapsed, openDrawer: () => setDrawer(true), activitiesPending: user.activities.visible && user.activities.dot, signedIn: true }}>
-      <HistoryProvider>
-        <SearchShortcut />
-        <PostComposerDialog />
-        <div className="xshell">
-          <Sidebar user={user} collapsed={folded} phone={phone} open={drawer} hidden={phone && !drawer} onClose={() => setDrawer(false)} />
-          <WorkspaceMain collapsed={folded}>{children}</WorkspaceMain>
-          <BottomBar unread={user.unreadNotices} />
-        </div>
-      </HistoryProvider>
+      {/* The conversation history and its ⌘K search went with the chat pages (2026-11-20); private questions are posts under 我的帖子. */}
+      <PostComposerDialog />
+      <div className="xshell">
+        <Sidebar user={user} collapsed={folded} phone={phone} open={drawer} hidden={phone && !drawer} onClose={() => setDrawer(false)} />
+        <WorkspaceMain collapsed={folded}>{children}</WorkspaceMain>
+        <BottomBar unread={user.unreadNotices} />
+      </div>
     </ShellContext.Provider>
   );
 }
@@ -164,14 +161,14 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
         <NavItem href="/" icon="home" label={nav.homeFeed} active={pathname === '/'} />
         <NavItem href="/explore" icon="compass" label={nav.discover} active={pathname === '/explore' || pathname.startsWith('/r/')} />
         <NavItem href="/notifications" icon="bell" label={nav.notifications} active={pathname === '/notifications'} count={user.unreadNotices || undefined} />
-        <NavItem href="/me/posts?tab=all" icon="chat" label={nav.myPosts} active={pathname.startsWith('/me/posts') || pathname.startsWith('/chats') || pathname === '/talk'} />
+        <NavItem href="/me/posts?tab=all" icon="chat" label={nav.myPosts} active={pathname.startsWith('/me/posts')} />
         <NavItem href="/rees" icon="ree" label={nav.rees} active={pathname.startsWith('/rees') || pathname.startsWith('/workspace') || pathname === '/videos'} count={user.reeCount} />
         <NavItem href="/saved" icon="bookmark" label={nav.saved} active={pathname === '/saved'} />
         {user.activities.visible && (
           <NavItem href="/activities" icon="gift" label={nav.activities} active={pathname.startsWith('/activities')} dot={user.activities.dot ? nav.activitiesPending : undefined} />
         )}
       </nav>
-      {/* "发帖": the composer window on this page (`?compose=public`); its 私密提问 tab leads to `/talk`. */}
+      {/* "发帖": the composer window on this page (`?compose=public`), with its 私密提问 tab. */}
       <ComposeLink className="btn xpost" label={nav.ask}>
         <Icon name="plus" className="size-5" />
         <span>{nav.ask}</span>
@@ -219,7 +216,7 @@ function BottomBar({ unread }: { unread: number }) {
     ['/', 'home', nav.homeFeed, pathname === '/'],
     ['/explore', 'compass', nav.discover, pathname === '/explore' || pathname.startsWith('/r/')],
     ['/notifications', 'bell', nav.notifications, pathname === '/notifications'],
-    ['/me/posts?tab=all', 'chat', nav.myPosts, pathname.startsWith('/me/posts') || pathname.startsWith('/chats')],
+    ['/me/posts?tab=all', 'chat', nav.myPosts, pathname.startsWith('/me/posts')],
     ['/rees', 'ree', nav.rees, pathname.startsWith('/rees')],
   ];
   return (

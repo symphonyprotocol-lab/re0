@@ -43,7 +43,7 @@ export async function ReeTopbar({
       tabs={[
         { label: tab.settings, href: `/rees/${ree.id}/settings`, active: active === 'settings', icon: 'settings' },
         { label: `${tab.knowledge} ${formatNumber(sources, locale)}`, href: `/rees/${ree.id}/knowledge`, active: active === 'knowledge', icon: 'file' },
-        /* Step 7: the prototype's order is settings, knowledge, video, statistics, chat. */
+        /* Step 7: the prototype's order is settings, knowledge, video, statistics, chat (试问 since 2026-11-20, a private post per question). */
         { label: t.video.tab, href: `/rees/${ree.id}/video`, active: active === 'video', icon: 'film' },
         { label: t.statistics.tab, href: `/rees/${ree.id}/statistics`, active: active === 'statistics', icon: 'dashboard' },
         { label: tab.chat, href: `/rees/${ree.id}/chat`, active: active === 'chat', icon: 'chat' },

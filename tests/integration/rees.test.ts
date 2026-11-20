@@ -3,7 +3,7 @@
  * until confirmed; creation ignores legacy sources and costs no credits. `/rees` follows the list contract.
  */
 import { describe, expect, it } from 'vitest';
-import { TEST_DATABASE_URL, uniqueName } from './setup';
+import { runBackfill, TEST_DATABASE_URL, uniqueName } from './setup';
 import { WELCOME_CREDITS } from '@/lib/constants';
 import { and, eq, inArray } from 'drizzle-orm';
 
@@ -139,9 +139,12 @@ describeWithDb('/rees counts', () => {
     const conversationId = await conversationWith(owner, ree.id, 'ree_test');
     const [answer] = await db().insert(schema.message).values({ conversationId, role: 'ree', reeId: ree.id, content: 'answer' }).returning({ id: schema.message.id });
     await db().insert(schema.reeFeedback).values({ messageId: answer!.id, userId: owner, vote: 'down' });
+    /* Conversation votes count as the release froze them (legacy-stats.test.ts). */
+    await runBackfill('legacy-stats');
     expect((await listed())!.positiveRate).toBeNull();
 
     await db().insert(schema.reeFeedback).values(voters.map((userId, index) => ({ messageId: answer!.id, userId, vote: index < 2 ? 'up' as const : 'down' as const })));
+    await runBackfill('legacy-stats');
     expect((await listed())!.positiveRate).toBe(67);
   });
 

@@ -32,12 +32,14 @@ export const zh = {
     postFollowupMany: '{n} 条新追问在你的帖子「{question}」下，点开看最新一条。',
     followupAnswered: '你的追问「{question}」有 {n} 个 Ree 回答了。',
     followupPaidRequests: '{n} 个 Ree 可以回答你的追问「{question}」，等你确认。',
+    chatsRemoval: '私密提问已改成私密帖子。以前的对话将在 7 天后删除，需要的内容请先复制。',
   },
   open: {
     ree: '查看 Ree',
     billing: '查看余额',
     role: '查看角色',
     post: '查看帖子',
+    privatePosts: '查看私密帖子',
   },
 };
 
@@ -72,11 +74,13 @@ export const en: Shape<typeof zh> = {
     postFollowupMany: '{n} new follow-ups under your post “{question}”; open the latest.',
     followupAnswered: '{n} Rees answered your follow-up “{question}”.',
     followupPaidRequests: '{n} Rees can answer your follow-up “{question}” once you agree.',
+    chatsRemoval: 'Private questions are now private posts. Your old conversations will be deleted in 7 days; copy anything you want to keep first.',
   },
   open: {
     ree: 'View Ree',
     billing: 'View balance',
     role: 'View role',
     post: 'View post',
+    privatePosts: 'View private posts',
   },
 };

@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation';
-import { joinableConversations } from '@/lib/services/conversations';
 import { listReeComments } from '@/lib/services/ree-comments';
-import { listPublicQa } from '@/lib/services/public-qa';
+import { reeAnsweredPosts } from '@/lib/services/posts';
 import { favoriteReeIds } from '@/lib/services/ree-favorites';
 import { introsFor } from '@/lib/services/video';
 import { exploreReturnPath } from '@/lib/domain/explore';
@@ -24,13 +23,12 @@ export async function ReeDetail({ ree, query = {}, viewerId, preview = false, dr
 }) {
   const from = exploreReturnPath(one(query.from));
   const authorPage = Number(one(query.ap)) || 1;
-  const [related, author, conversations, intros, comments, qa] = await Promise.all([
+  const [related, author, intros, comments, posts] = await Promise.all([
     preview ? null : relatedFor(ree, 1),
     preview ? null : authorOthers(ree, authorPage),
-    !preview && viewerId ? joinableConversations(viewerId, ree.id) : [],
     introsFor([ree.id]),
     preview ? null : listReeComments(ree.id, undefined, viewerId),
-    preview ? null : listPublicQa(ree.id, { viewerId }),
+    preview ? null : reeAnsweredPosts(ree.id, { viewerId }),
   ]);
   if (!preview && !comments) notFound();
   const favoriteIds = viewerId && related && author
@@ -48,10 +46,9 @@ export async function ReeDetail({ ree, query = {}, viewerId, preview = false, dr
       from={from}
       related={related}
       author={author}
-      conversations={conversations}
       video={video}
       comments={comments}
-      qa={qa}
+      posts={posts}
       favoriteIds={favoriteIds}
       renderedAt={Date.now()}
     />

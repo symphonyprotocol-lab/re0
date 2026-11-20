@@ -40,8 +40,8 @@ const { savedCounts } = await import('@/lib/services/statistics');
 const { computeRanks } = await import('@/lib/services/rank');
 const { adminOverview } = await import('@/lib/services/admin-overview');
 const { setFeedback } = await import('@/lib/services/conversations');
-const { answer: ask } = await import('@/lib/services/answer');
-const { ownedConversation } = await import('@/lib/services/chat');
+const privatePosts = await import('@/lib/services/private-posts');
+const { QUERY_BASE_FEE } = await import('@/lib/constants');
 const { POST_SUMMARY_FREE_REWRITES } = await import('@/lib/domain/post');
 
 let fake: FakeOpenAi;
@@ -138,10 +138,12 @@ describeWithDb('public posts, review round 3', () => {
     const [copied] = await db().select({ id: schema.message.id }).from(schema.message).where(and(eq(schema.message.conversationId, conversationIds[0]!), eq(schema.message.role, 'ree')));
     await expect(setFeedback(author, copied!.id, 'up')).rejects.toThrow();
 
-    /* A real question in that conversation is charged and counts. */
-    const conversation = (await ownedConversation(author, conversationIds[0]!))!;
-    const [ree] = await db().select().from(schema.ree).where(eq(schema.ree.id, reeId));
-    await (await ask({ userId: author, lang: 'en', conversation, targets: [ree!], question: 'And when are refunds issued to the card?' })).text();
+    /* A real question after it -- a private question to the same Ree now -- is charged and counts. */
+    const balance = await balanceOf(db(), author);
+    const asked = await privatePosts.publishPrivatePost(author, { question: 'And when are refunds issued to the card?', reeIds: [reeId], fees: { [reeId]: QUERY_BASE_FEE }, lang: 'en' });
+    if (!asked.ok) throw new Error(asked.error);
+    await privatePosts.processPrivatePost(asked.id, { answerOne: stub([reeId]).answerOne });
+    expect(await balanceOf(db(), author)).toBe(balance - QUERY_BASE_FEE);
     const after = await figures(ownerId, reeId);
     expect(after.external).toBe(before.external + 1);
     expect(after.saved).toBe(before.saved + 1);
