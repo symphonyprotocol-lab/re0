@@ -559,14 +559,7 @@ function ComposerDialogInner() {
       {open && (
         <div className="post-dialog-body">
           <header>
-            <div className="cl-tabs" role="tablist" aria-label={c.label}>
-              {(['public', 'private'] as const).map((key) => (
-                <button key={key} type="button" role="tab" aria-selected={tab === key} className={`cl-tab${tab === key ? ' active' : ''}`} onClick={() => setTab(key)}>
-                  <Icon name={key === 'public' ? 'globe' : 'lock'} className="" />
-                  {key === 'public' ? c.public : c.private}
-                </button>
-              ))}
-            </div>
+            <ComposerTabs tab={tab} onChange={setTab} />
             <button type="button" className="icon-btn" aria-label={c.close} title={c.close} onClick={close}>
               <Icon name="close" className="" />
             </button>
@@ -578,6 +571,22 @@ function ComposerDialogInner() {
   );
 }
 
+/** 公开帖子 / 私密提问: the same two tabs in the 发帖 dialog and in 首页's box. */
+function ComposerTabs({ tab, onChange, className = '' }: { tab: 'public' | 'private'; onChange: (tab: 'public' | 'private') => void; className?: string }) {
+  const { t } = useI18n();
+  const c = t.posts.composer;
+  return (
+    <div className={`cl-tabs ${className}`.trim()} role="tablist" aria-label={c.label}>
+      {(['public', 'private'] as const).map((key) => (
+        <button key={key} type="button" role="tab" aria-selected={tab === key} className={`cl-tab${tab === key ? ' active' : ''}`} onClick={() => onChange(key)}>
+          <Icon name={key === 'public' ? 'globe' : 'lock'} className="" />
+          {key === 'public' ? c.public : c.private}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function PostComposerDialog() {
   return (
     <Suspense fallback={null}>
@@ -586,10 +595,16 @@ export function PostComposerDialog() {
   );
 }
 
-/** 首页's box: the form for a signed-in user, a sign-in card for a visitor. */
+/**
+ * 首页's box: for a signed-in user the dialog's two forms behind the same
+ * 公开帖子 / 私密提问 tabs, the question kept across switching; a sign-in
+ * card for a visitor.
+ */
 export function HomeComposer({ signedIn }: { signedIn: boolean }) {
   const { t } = useI18n();
   const c = t.posts.composer;
+  const [tab, setTab] = useState<'public' | 'private'>('public');
+  const [question, setQuestion] = useState('');
   if (!signedIn) {
     return (
       <div className="post-composer is-visitor">
@@ -613,7 +628,11 @@ export function HomeComposer({ signedIn }: { signedIn: boolean }) {
       <span className="grid size-10 place-items-center rounded-full bg-soft text-blue">
         <Icon name="chat" className="size-4" />
       </span>
-      <PublicPostForm />
+      {tab === 'public' ? (
+        <PublicPostForm key="public" head={<ComposerTabs tab={tab} onChange={setTab} className="composer-tabs" />} question={question} onQuestionChange={setQuestion} />
+      ) : (
+        <PrivatePostForm key="private" head={<ComposerTabs tab={tab} onChange={setTab} className="composer-tabs" />} question={question} onQuestionChange={setQuestion} />
+      )}
     </div>
   );
 }
