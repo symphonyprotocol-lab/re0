@@ -38,9 +38,14 @@ let kept: (Loaded & { path: string; scrollY: number }) | null = null;
  * loads more as it scrolls. Styled by explore.css with the prototype's
  * class names.
  */
-/** explore's side column: this week's most asked Rees (and, for a visitor, the way to sign in and post). */
-export interface ExploreRail {
-  top: Pick<ReeCard, 'id' | 'slug' | 'name' | 'avatarBlob' | 'color' | 'asked7'>[];
+/** A Ree in the right column's 我收藏的 Ree card (ree-favorites.ts listFavoriteRees). */
+export interface RailRee {
+  id: string;
+  slug: string;
+  name: string;
+  avatarBlob: string | null;
+  color: string;
+  ownerName: string;
 }
 
 export function ExploreView({ query, result, limited, signedIn, favoriteIds, viewerId, renderedAt, variant = 'explore' }: {
@@ -376,43 +381,35 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
 }
 
 /**
- * 首页's and 发现's right column (v5): today's free questions for a
- * visitor, this week's most asked Rees, and the create-a-Ree banner.
+ * 首页's and Rees' right column (v6): one search box where the page has none
+ * of its own (首页 searches posts), the signed-in user's saved Rees on Rees,
+ * the create-a-Ree card -- the one place a visitor is asked to create one --
+ * and the small links. Below 1200px the column folds away; 首页 then shows
+ * its search at the top of the centre column (RailSearch `inline`).
  */
-export function ExploreRail({ rail, signedIn, from, extra = null }: { rail: ExploreRail; signedIn: boolean; from: string; extra?: ReactNode }) {
-  const { t, locale } = useI18n();
+export function SiteRail({ search, saved, signedIn }: { search?: { action: string; label: string; defaultValue?: string }; saved?: RailRee[]; signedIn: boolean }) {
+  const { t } = useI18n();
   const e = t.discover.explore;
-  const n = (value: number) => formatNumber(value, locale);
   return (
     <div className="discovery-page">
-      <form action="/explore" role="search" className="search-box" aria-label={e.label}>
-        <Icon name="search" className="size-4" />
-        <input name="q" placeholder={e.placeholder} aria-label={e.label} className="min-w-0 flex-1 bg-transparent outline-none" />
-      </form>
-      {extra}
-      {/* Asking and posting are for signed-in users (2026-11-19; visitors ask only on share pages). */}
-      {!signedIn && (
+      {search && <RailSearch action={search.action} label={search.label} defaultValue={search.defaultValue} />}
+      {saved && saved.length > 0 && (
         <div className="rail-card">
-          <h3>{t.posts.composer.visitorTitle}</h3>
-          <Link href={`/login?returnTo=${encodeURIComponent(from)}`} className="btn-secondary btn-sm mt-1">
-            {t.posts.composer.signIn}
-          </Link>
-        </div>
-      )}
-      {rail.top.length > 0 && (
-        <div className="rail-card">
-          <h3>{e.railTop}</h3>
+          <h3>{e.railSaved}</h3>
           <ol>
-            {rail.top.map((ree) => (
+            {saved.map((ree) => (
               <li key={ree.id}>
                 <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="sm" />
                 <Link href={`/r/${ree.slug}`} className="min-w-0 hover:text-blue">
                   <strong>{ree.name}</strong>
-                  <small>{fill(e.railTopItem, { n: n(ree.asked7) })}</small>
+                  <small>{ree.ownerName}</small>
                 </Link>
               </li>
             ))}
           </ol>
+          <Link href="/saved" className="text-link mt-3 inline-flex text-[12px]">
+            {e.railSavedAll} →
+          </Link>
         </div>
       )}
       <div className="knowledge-banner">
@@ -429,5 +426,15 @@ export function ExploreRail({ rail, signedIn, from, extra = null }: { rail: Expl
         <Link href="/pricing" className="hover:text-blue">{t.common.nav.pricing}</Link> · <Link href="/about" className="hover:text-blue">{t.common.nav.about}</Link> · <Link href="/legal/privacy" className="hover:text-blue">{t.site.visitor.privacy}</Link> · <Link href="/legal/terms" className="hover:text-blue">{t.site.visitor.terms}</Link>
       </p>
     </div>
+  );
+}
+
+/** One single-line search box (38px, explore.css); `defaultValue` keeps the words of the search being shown. */
+export function RailSearch({ action, label, defaultValue = '', className = 'search-box' }: { action: string; label: string; defaultValue?: string; className?: string }) {
+  return (
+    <form action={action} role="search" className={className} aria-label={label}>
+      <Icon name="search" className="size-4" />
+      <input name="q" defaultValue={defaultValue} placeholder={label} aria-label={label} className="min-w-0 flex-1 bg-transparent outline-none" />
+    </form>
   );
 }

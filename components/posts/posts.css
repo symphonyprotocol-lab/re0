@@ -387,7 +387,7 @@
   font-size: 12px;
 }
 .post-hint {
-  margin-top: 4px;
+  margin-top: 6px;
   color: #8a94ae;
   font-size: 11px;
   line-height: 1.5;
@@ -396,6 +396,11 @@
   margin-top: 4px;
   color: #b4372c;
   font-size: 12px;
+}
+.post-composer-foot .post-cost {
+  margin-right: auto;
+  color: #8a94ae;
+  font-size: 11px;
 }
 .post-composer-foot .icon-btn {
   width: auto;

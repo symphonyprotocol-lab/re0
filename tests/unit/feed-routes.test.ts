@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 const redirect = vi.fn((url: string) => {
   throw new Error(`NEXT_REDIRECT ${url}`);
 });
-vi.mock('next/navigation', () => ({ redirect: (url: string) => redirect(url) }));
+vi.mock('next/navigation', () => ({ redirect: (url: string) => redirect(url), permanentRedirect: (url: string) => redirect(url) }));
 vi.mock('@/lib/http/session', () => ({ currentUser: async () => ({ id: 'user-1' }) }));
 vi.mock('@/i18n/server', async () => {
   const { messages } = await import('@/i18n');
@@ -19,6 +19,7 @@ const { DEFAULT_RETURN_TO, safeReturnTo } = await import('@/lib/domain/auth');
 });
 
 const home = await import('@/app/(product)/page');
+const rees = await import('@/app/(product)/(discover)/explore/page');
 const about = await import('@/app/(site)/about/page');
 const chats = await import('@/app/(product)/(workspace)/chats/page');
 const settings = await import('@/app/(product)/(workspace)/settings/page');
@@ -29,11 +30,29 @@ const { DEFAULT_RETURN_TO, safeReturnTo } = await import('@/lib/domain/auth');
 
 describe('the front page and 了解 RE0', () => {
   it('keeps / as the front page: its title, description and canonical', async () => {
-    const meta = await home.generateMetadata();
+    const meta = await home.generateMetadata({ searchParams: Promise.resolve({}) });
     const t = messages('zh');
     expect(meta.title).toEqual({ absolute: `${t.site.home.title} · RE0` });
     expect(meta.description).toBe(t.site.seo.description);
     expect(String(meta.alternates?.canonical)).toMatch(/\/zh$/);
+    expect(meta.robots).toBeUndefined();
+  });
+
+  it('keeps a post search on / out of search results, under the front page\'s canonical (v6)', async () => {
+    const meta = await home.generateMetadata({ searchParams: Promise.resolve({ q: 'refund' }) });
+    expect(String(meta.alternates?.canonical)).toMatch(/\/zh$/);
+    expect(meta.robots).toMatchObject({ index: false });
+  });
+
+  it('names /explore Rees, with its own canonical; a search there is not indexed (v6)', async () => {
+    const t = messages('zh');
+    expect(t.common.nav.discover).toBe('Rees');
+    expect(messages('en').common.nav.discover).toBe('Rees');
+    const meta = await rees.generateMetadata({ searchParams: Promise.resolve({}) });
+    expect(JSON.stringify(meta.title)).toContain('Rees');
+    expect(String(meta.alternates?.canonical)).toMatch(/\/zh\/explore$/);
+    expect(meta.robots).toBeUndefined();
+    expect((await rees.generateMetadata({ searchParams: Promise.resolve({ q: 'tax' }) })).robots).toMatchObject({ index: false });
   });
 
   it('gives /about its own canonical and title, and lists it for the sitemap', async () => {
@@ -49,6 +68,12 @@ describe('old addresses', () => {
     await expect(chats.default({ searchParams: Promise.resolve({}) })).rejects.toThrow('NEXT_REDIRECT /me/posts');
     await expect(chats.default({ searchParams: Promise.resolve({ view: 'trash', q: 'tax' }) })).rejects.toThrow('NEXT_REDIRECT /me/posts?view=trash&q=tax');
     await expect(chats.default({ searchParams: Promise.resolve({ select: 'abc', focus: '1' }) })).rejects.toThrow('NEXT_REDIRECT /me/posts?select=abc&focus=1');
+  });
+
+  it('sends Rees\' old 帖子 and 待回答 tabs to 首页 for good (v6)', async () => {
+    await expect(rees.default({ searchParams: Promise.resolve({ tab: 'posts' }) })).rejects.toThrow('NEXT_REDIRECT /');
+    await expect(rees.default({ searchParams: Promise.resolve({ tab: 'posts', q: 'tax refund' }) })).rejects.toThrow('NEXT_REDIRECT /?q=tax%20refund');
+    await expect(rees.default({ searchParams: Promise.resolve({ tab: 'unanswered' }) })).rejects.toThrow('NEXT_REDIRECT /?tab=unanswered');
   });
 
   it('sends the old notices tab to /notifications, keeping its page', async () => {

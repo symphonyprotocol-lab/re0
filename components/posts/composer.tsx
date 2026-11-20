@@ -243,22 +243,23 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
           {error}
         </p>
       )}
-      <p className="post-hint">{fill(c.publicHint, { max: POST_MAX_ANSWERS })}</p>
-      {/* What posting costs (2026-11-19): nothing; each answer, the most the automatic ones can cost, and a top-up when not even one is covered. */}
-      {allowance && (
+      {/* One line under the box (v6); the full sentence is the title of each short one. */}
+      <p className="post-hint" title={fill(c.publicHint, { max: POST_MAX_ANSWERS })}>{fill(c.publicHintShort, { max: POST_MAX_ANSWERS })}</p>
+      {/* A top-up when not even one answer is covered (2026-11-19). */}
+      {allowance && allowance.balance < allowance.baseFee && (
         <p className="post-hint">
-          {fill(c.cost, { max: allowance.maxAnswers, fee: allowance.baseFee, total: allowance.maxCost })}
-          {allowance.balance < allowance.baseFee && (
-            <>
-              {' '}
-              <Link href="/settings?tab=balance" className="text-blue hover:underline">
-                {fill(c.topUp, { fee: allowance.baseFee })} → {c.topUpGo}
-              </Link>
-            </>
-          )}
+          <Link href="/settings?tab=balance" className="text-blue hover:underline">
+            {fill(c.topUp, { fee: allowance.baseFee })} → {c.topUpGo}
+          </Link>
         </p>
       )}
       <div className="post-composer-foot">
+        {/* What posting costs, beside the buttons: nothing; each answer, and the most the automatic ones can cost. */}
+        {allowance && (
+          <small className="post-cost" title={fill(c.cost, { max: allowance.maxAnswers, fee: allowance.baseFee, total: allowance.maxCost })}>
+            {fill(c.costShort, { fee: allowance.baseFee, total: allowance.maxCost })}
+          </small>
+        )}
         {!showDetail && (
           <button type="button" className="icon-btn" onClick={() => setShowDetail(true)}>
             <Icon name="plus" className="size-3.5" />

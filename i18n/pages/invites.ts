@@ -23,7 +23,7 @@ export const zh = {
       none: '目前没有新手任务奖励。',
       items: {
         signup: { title: '注册账号', body: '注册赠送已到账。' },
-        first_ree: { title: '发布第一个 Ree', body: '创建一个公开 Ree 并发布到发现页。' },
+        first_ree: { title: '发布第一个 Ree', body: '创建一个公开 Ree 并发布到 Rees 页。' },
         first_question: { title: '第一次提问', body: '向任意一个 Ree 提一个问题。' },
         first_comment: { title: '第一次评论', body: '在一个已发布的 Ree 下留下评论。' },
       },
@@ -164,7 +164,7 @@ export const en: Shape<typeof zh> = {
       none: 'There are no starter task rewards right now.',
       items: {
         signup: { title: 'Create your account', body: 'Your sign-up gift has arrived.' },
-        first_ree: { title: 'Publish your first Ree', body: 'Create a public Ree and publish it to Explore.' },
+        first_ree: { title: 'Publish your first Ree', body: 'Create a public Ree and publish it to Rees.' },
         first_question: { title: 'Ask your first question', body: 'Ask any Ree a question.' },
         first_comment: { title: 'Post your first comment', body: 'Leave a comment on a published Ree.' },
       },

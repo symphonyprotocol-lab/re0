@@ -6,7 +6,7 @@ import type { Shape } from '@/i18n/format';
  * public-ree-recommendations.js, user-roles.js).
  */
 export const zh = {
-  nav: '发现 Ree',
+  nav: 'Rees',
   roles: { verified: '认证', official: '官方', title: '账号角色：{role}' },
   allCategories: '全部',
   explore: {
@@ -19,7 +19,7 @@ export const zh = {
       failed: '没能新建对话，请重试',
     },
     eyebrow: 'FIND YOUR KNOWLEDGE COMPANION',
-    title: '发现 Ree',
+    title: 'Rees',
     body: '从一个问题出发，找到真正懂它的知识。',
     placeholder: '搜索名称、领域，或输入一个问题…',
     label: '输入问题或关键词',
@@ -29,6 +29,8 @@ export const zh = {
     sorts: { active: '推荐优先', answers: '回答最多', free: '查询费最低' },
     rail: '推荐',
     railTop: '本周问得最多',
+    railSaved: '我收藏的 Ree',
+    railSavedAll: '全部收藏',
     railTopItem: '本周 {n} 个新提问',
     railFree: '免登录提问',
     railFreeBody: '不登录也能向免费 Ree 提问，每天 {n} 次。登录后可以保存对话记录。',
@@ -75,7 +77,7 @@ export const zh = {
     shareCopied: '分享链接已复制',
   },
   public: {
-    back: '返回发现 Ree',
+    back: '返回 Rees',
     breadcrumb: '页面路径',
     eyebrow: 'MEET YOUR KNOWLEDGE COMPANION',
     by: '由 {name} 创建',
@@ -242,12 +244,12 @@ export const zh = {
     notFound: {
       title: '这个页面，暂时不在知识范围内。',
       body: '链接可能已失效，或 Ree 已设为私有。',
-      back: '回到发现',
+      back: '回到 Rees',
     },
   },
   home: {
     note: '以下是 RE0 团队制作的官方 Ree，点进去就能加入对话。',
-    all: '发现更多 Ree',
+    all: '查看更多 Ree',
   },
   settings: {
     suggestedTitle: '系统建议的示例问题',
@@ -258,7 +260,7 @@ export const zh = {
 };
 
 export const en: Shape<typeof zh> = {
-  nav: 'Discover Rees',
+  nav: 'Rees',
   roles: { verified: 'Verified', official: 'Official', title: 'Account role: {role}' },
   allCategories: 'All',
   explore: {
@@ -271,7 +273,7 @@ export const en: Shape<typeof zh> = {
       failed: 'Could not start the conversation. Try again.',
     },
     eyebrow: 'FIND YOUR KNOWLEDGE COMPANION',
-    title: 'Discover Rees',
+    title: 'Rees',
     body: 'Start with a question. Find knowledge that understands.',
     placeholder: 'Search names, subjects, or ask a question…',
     label: 'Enter a question or keywords',
@@ -281,6 +283,8 @@ export const en: Shape<typeof zh> = {
     sorts: { active: 'Recommended', answers: 'Most answers', free: 'Lowest fee' },
     rail: 'Suggestions',
     railTop: 'Most asked this week',
+    railSaved: 'Your saved Rees',
+    railSavedAll: 'All saved',
     railTopItem: '{n} new questions this week',
     railFree: 'Ask without an account',
     railFreeBody: 'Free Rees answer {n} questions a day without signing in. Sign in to keep your chats.',
@@ -327,7 +331,7 @@ export const en: Shape<typeof zh> = {
     shareCopied: 'Share link copied',
   },
   public: {
-    back: 'Back to discover',
+    back: 'Back to Rees',
     breadcrumb: 'Breadcrumb',
     eyebrow: 'MEET YOUR KNOWLEDGE COMPANION',
     by: 'By {name}',
@@ -494,12 +498,12 @@ export const en: Shape<typeof zh> = {
     notFound: {
       title: 'This page is outside our knowledge.',
       body: 'The link may be unavailable, or this Ree may now be private.',
-      back: 'Back to discover',
+      back: 'Back to Rees',
     },
   },
   home: {
     note: 'Official Rees made by the RE0 team. Open one to add it to a chat.',
-    all: 'Discover more Rees',
+    all: 'See more Rees',
   },
   settings: {
     suggestedTitle: 'Suggested example questions',

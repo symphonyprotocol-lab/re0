@@ -24,7 +24,7 @@ export const zh = {
   termsAnd: '与',
   privacyLink: '隐私政策',
   termsAfter: '。',
-  explore: '先发现一些 Ree',
+  explore: '先看看 Rees',
   admin: '管理员登录',
   errors: {
     oauth_failed: '登录没有完成，请重试。',
@@ -59,7 +59,7 @@ export const en: Shape<typeof zh> = {
   termsAnd: 'and',
   privacyLink: 'Privacy',
   termsAfter: '.',
-  explore: 'Explore Rees first',
+  explore: 'Browse Rees first',
   admin: 'Admin sign-in',
   errors: {
     oauth_failed: 'Sign-in did not complete. Please try again.',
