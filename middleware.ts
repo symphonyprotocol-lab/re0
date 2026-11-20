@@ -70,10 +70,10 @@ export function middleware(request: NextRequest): NextResponse {
 }
 
 /*
- * Every page. Not API routes, Next's static and image files, `/media` blobs
- * or files under public/ (none of them is a document; next.config.mjs gives
- * them a policy that allows nothing).
+ * Every page. Not API routes, Next's static and image files, `/media` blobs,
+ * link-preview images (`/og/…`) or files under public/ (none of them is a
+ * document; next.config.mjs gives them a policy that allows nothing).
  */
 export const config = {
-  matcher: ['/((?!api/|_next/static/|_next/image|media/|video/|favicon.ico).*)'],
+  matcher: ['/((?!api/|_next/static/|_next/image|media/|video/|og/|favicon.ico).*)'],
 };

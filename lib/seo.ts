@@ -31,8 +31,15 @@ export function localeUrl(locale: Locale, path: string): string {
   return absoluteUrl(localePath(locale, path));
 }
 
-/** app/opengraph-image.tsx, named outright: a page that sets its own `openGraph` no longer inherits the file's image. */
-const SITE_IMAGE = { url: '/opengraph-image', width: 1200, height: 630, alt: 'RE0 — Your knowledge, a voice of its own' };
+/**
+ * The site's image in a language (app/og/site/[lang], lib/og/site-image.tsx),
+ * named outright: a page that sets its own `openGraph` no longer inherits
+ * app/opengraph-image.tsx. Its alt text is the card's headline.
+ */
+const SITE_IMAGE_ALT: Record<Locale, string> = { en: 'RE0 — Ask once. Many Rees answer.', zh: 'RE0 — 问一次，多个 Ree 来回答。' };
+export function siteImage(locale: Locale): { url: string; width: number; height: number; alt: string } {
+  return { url: `/og/site/${locale}`, width: 1200, height: 630, alt: SITE_IMAGE_ALT[locale] };
+}
 
 /**
  * An indexable page's own metadata. `path` is the plain path (`/pricing`):
@@ -45,7 +52,7 @@ const SITE_IMAGE = { url: '/opengraph-image', width: 1200, height: 630, alt: 'RE
 export function publicPage({ path, title, description, locale, absoluteTitle = false, ownImage = false }: { path: string; title: string; description: string; locale: Locale; absoluteTitle?: boolean; ownImage?: boolean }): Metadata {
   const url = localeUrl(locale, path);
   /* Left out, not `undefined`: Next reads a present `images` key as "no image" and drops the file's. */
-  const image = ownImage ? {} : { images: [SITE_IMAGE] };
+  const image = ownImage ? {} : { images: [siteImage(locale)] };
   return {
     title: absoluteTitle ? { absolute: title } : title,
     description,
