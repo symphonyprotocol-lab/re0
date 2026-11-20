@@ -484,9 +484,18 @@
   gap: 18px;
   margin-top: 27px;
 }
+/* The two cards are one height (the grid stretches them); the button (its dialog may follow it) goes to the card's foot, so both buttons sit on one line whatever is above them (renewal dates, an offer price). */
 .settings-page .plan-card {
   padding: 26px;
   position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.settings-page .plan-card.plan-card > .btn {
+  margin-top: auto;
+}
+.settings-page .plan-card > :has(+ .btn) {
+  margin-bottom: 23px;
 }
 .settings-page .plan-card h3 {
   font-size: 16px;
