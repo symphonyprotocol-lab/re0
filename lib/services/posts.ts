@@ -84,7 +84,7 @@ import { notify } from '@/lib/services/notices';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
 import { questionRewriter } from '@/lib/services/question-rewrite';
 
-const { post, postAnswer: answer, postAnswerVote: vote, postAnswerReport: report, postSave: save, ree, user, message, conversation } = schema;
+const { post, postAnswer: answer, postAnswerVote: vote, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user, message, conversation } = schema;
 
 /* --------------------------------------------------------------- visibility */
 
@@ -112,8 +112,18 @@ export function shownAnswer(): SQL {
  */
 export function hasShownAnswer(): SQL {
   return sql`exists (select 1 from ${answer} sa join ${ree} on ${ree.id} = sa.ree_id
-    where sa.post_id = ${post.id} and sa.state = 'answered' and sa.hidden_by is null
+    where sa.post_id = ${post.id} and sa.followup_id is null and sa.state = 'answered' and sa.hidden_by is null
       and ${publicRee()} and (sa.legacy_qa_id is null or ${ree.publicQaEnabled}))`;
+}
+
+/** An answer of the post's first round, not of a follow-up (追问): what the counts, the cards, the summary and the Ree pages are about. */
+export function firstRound(): SQL {
+  return isNull(answer.followupId);
+}
+
+/** A follow-up's answer is read only while its follow-up is: published and not deleted (a hidden one hides its answers). Needs `post_answer`. */
+export function shownFollowupOf(): SQL {
+  return sql`(${answer.followupId} is null or exists (select 1 from ${schema.postFollowup} sf where sf.id = ${answer.followupId} and sf.status = 'published' and sf.deleted_at is null))`;
 }
 
 /** A Ree takes public posts: the owner's choice, or by default when it is free. */
@@ -252,7 +262,7 @@ async function quotable(postId: string, answerId: string | null): Promise<{ kind
     .select({ id: answer.id, reeId: answer.reeId })
     .from(answer)
     .innerJoin(ree, eq(ree.id, answer.reeId))
-    .where(and(eq(answer.id, answerId), eq(answer.postId, postId), shownAnswer()))
+    .where(and(eq(answer.id, answerId), eq(answer.postId, postId), firstRound(), shownAnswer()))
     .limit(1);
   return quoted ? { kind: 'answer', postId, answerId, reeId: quoted.reeId } : null;
 }
@@ -405,7 +415,8 @@ export const searchMatcher: Matcher = async ({ question, mentionReeId, excludePa
 
 export type AnswerResult = { state: 'answered'; text: string; citations: CitationSnapshot[]; model: string | null } | { state: 'no_answer' | 'failed'; model: string | null };
 
-export type AnswerOne = (input: { reeId: string; subject: string; lang: 'zh' | 'en'; vector: QuestionVector | null; context?: QuoteContext | null }) => Promise<AnswerResult>;
+/** `turns`: the exchange so far, for a follow-up (追问): the post's question and this Ree's own answers, nobody else's. */
+export type AnswerOne = (input: { reeId: string; subject: string; lang: 'zh' | 'en'; vector: QuestionVector | null; context?: QuoteContext | null; turns?: { role: 'user' | 'assistant'; content: string }[] }) => Promise<AnswerResult>;
 
 /** What a quoting post brings to its answers: the quoted question, and the quoted answer when an answer was quoted. Context only, never evidence. */
 export interface QuoteContext {
@@ -414,7 +425,7 @@ export interface QuoteContext {
 }
 
 /** One Ree's answer from its own knowledge, on the platform's model; never streamed to anyone. */
-export const groundedAnswer: AnswerOne = async ({ reeId, subject, lang, vector, context }) => {
+export const groundedAnswer: AnswerOne = async ({ reeId, subject, lang, vector, context, turns: earlier }) => {
   const [target] = await db().select().from(ree).where(eq(ree.id, reeId)).limit(1);
   if (!target || !(await readyRees([reeId])).has(reeId)) return { state: 'no_answer', model: null };
   let model: string | null = null;
@@ -424,9 +435,9 @@ export const groundedAnswer: AnswerOne = async ({ reeId, subject, lang, vector, 
     const generation = await generationForUser(null, 'post_answer');
     model = generation.endpoint.model;
     /* A quoted answer is the conversation so far; a quoted post, the question before this one. */
-    const turns: { role: 'user' | 'assistant'; content: string }[] = context?.answer
+    const turns: { role: 'user' | 'assistant'; content: string }[] = earlier ?? (context?.answer
       ? [{ role: 'user', content: context.question }, { role: 'assistant', content: context.answer }]
-      : [];
+      : []);
     const asked = context && !context.answer ? `${subject}\n\n(${context.question})` : subject;
     const { declined, text } = await streamGroundedAnswer({ generation, ree: target, lang, subject: asked, passages: found.passages, turns }, () => undefined);
     if (declined || !text.trim()) return { state: 'no_answer', model };
@@ -531,15 +542,15 @@ export async function finishPost(id: string, now = new Date()): Promise<void> {
     const running = await tx
       .update(answer)
       .set({ state: 'failed' })
-      .where(and(eq(answer.postId, id), inArray(answer.state, ['queued', 'answering'])))
+      .where(and(eq(answer.postId, id), firstRound(), inArray(answer.state, ['queued', 'answering'])))
       .returning({ reeId: answer.reeId, baseHoldId: answer.baseHoldId, feeHoldId: answer.feeHoldId });
     for (const entry of running) {
       if (entry.baseHoldId) await releaseHold(tx, entry.baseHoldId, { reeId: entry.reeId, ledger: 'post_answer' }, now);
       if (entry.feeHoldId) await releaseHold(tx, entry.feeHoldId, { reeId: entry.reeId, ledger: 'chat_fee' }, now);
     }
-    const [counted] = await tx.select({ n: sql<number>`count(*)::int` }).from(answer).where(and(eq(answer.postId, id), eq(answer.state, 'answered')));
+    const [counted] = await tx.select({ n: sql<number>`count(*)::int` }).from(answer).where(and(eq(answer.postId, id), firstRound(), eq(answer.state, 'answered')));
     const answered = counted?.n ?? 0;
-    const [waiting] = await tx.select({ n: sql<number>`count(*)::int` }).from(answer).where(and(eq(answer.postId, id), eq(answer.state, 'awaiting')));
+    const [waiting] = await tx.select({ n: sql<number>`count(*)::int` }).from(answer).where(and(eq(answer.postId, id), firstRound(), eq(answer.state, 'awaiting')));
     const requests = waiting?.n ?? 0;
     await tx.update(post).set({ answerState: 'done', answerCount: answered, answeredAt: now }).where(eq(post.id, id));
     if (answered > 0 && target.userId && target.source === 'post') {
@@ -588,6 +599,9 @@ export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOp
     if (stuck.length < 100 || Date.now() - started > budget) break;
   }
   handled += await sweepPaidRequests(now);
+  /* Follow-ups (追问) the request left behind: the same three steps, cheap first. */
+  const followups = await import('@/lib/services/post-followups');
+  handled += await followups.settleStaleFollowups(now);
   for (;;) {
     const dead = await db()
       .select({ id: post.id })
@@ -619,14 +633,15 @@ export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOp
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, options.concurrency ?? POST_SWEEP_CONCURRENCY) }, worker));
+  if (Date.now() - started < budget) handled += await followups.processWaitingFollowups(deps, { budgetMs: budget - (Date.now() - started), concurrency: options.concurrency, now });
   return handled;
 }
 
 /* ------------------------------------------------------------------ reading */
 
-type PostRow = typeof post.$inferSelect & { authorName: string | null; authorAvatar: string | null };
+export type PostRow = typeof post.$inferSelect & { authorName: string | null; authorAvatar: string | null };
 
-function authorOf(row: PostRow, viewerId: string | undefined): PostAuthor {
+export function authorOf(row: PostRow, viewerId: string | undefined): PostAuthor {
   const mine = Boolean(viewerId && row.userId === viewerId);
   if (row.source === 'seed') return { kind: 'example' };
   if (row.source === 'anonymous' || row.source === 'share') return { kind: 'visitor' };
@@ -645,9 +660,10 @@ async function selectPosts(where: SQL | undefined, order: SQL[], limit: number, 
     .offset(offset)).map((row) => ({ ...row.post, authorName: row.authorName, authorAvatar: row.authorAvatar }));
 }
 
-interface AnswerRow {
+export interface AnswerRow {
   id: string;
   postId: string;
+  followupId: string | null;
   reeId: string;
   state: AnswerState;
   text: string;
@@ -664,12 +680,14 @@ interface AnswerRow {
   feeHoldId: string | null;
 }
 
-async function answersFor(postIds: string[]): Promise<AnswerRow[]> {
-  if (postIds.length === 0) return [];
+/** The first round's answers of these posts (shown, and running); `followupIds`: those follow-ups' answers instead. */
+export async function answersFor(postIds: string[], followupIds?: string[]): Promise<AnswerRow[]> {
+  if ((followupIds ?? postIds).length === 0) return [];
   return db()
     .select({
       id: answer.id,
       postId: answer.postId,
+      followupId: answer.followupId,
       reeId: answer.reeId,
       state: answer.state,
       text: answer.text,
@@ -688,11 +706,11 @@ async function answersFor(postIds: string[]): Promise<AnswerRow[]> {
     .from(answer)
     .innerJoin(ree, eq(ree.id, answer.reeId))
     .innerJoin(user, eq(user.id, ree.ownerId))
-    .where(and(inArray(answer.postId, postIds), or(shownAnswer(), inArray(answer.state, ['queued', 'answering']))))
+    .where(and(followupIds ? inArray(answer.followupId, followupIds) : and(inArray(answer.postId, postIds), firstRound()), or(shownAnswer(), inArray(answer.state, ['queued', 'answering']))))
     .orderBy(desc(answer.mentioned), desc(answer.helpfulCount), sql`${answer.similarity} desc nulls last`, asc(answer.createdAt));
 }
 
-async function votedBy(viewerId: string | undefined, ids: string[]): Promise<Set<string>> {
+export async function votedBy(viewerId: string | undefined, ids: string[]): Promise<Set<string>> {
   if (!viewerId || ids.length === 0) return new Set();
   const rows = await db().select({ id: vote.answerId }).from(vote).where(and(eq(vote.userId, viewerId), inArray(vote.answerId, ids)));
   return new Set(rows.map((row) => row.id));
@@ -704,7 +722,7 @@ async function savedBy(viewerId: string | undefined, ids: string[]): Promise<Set
   return new Set(rows.map((row) => row.id));
 }
 
-function answerView(row: AnswerRow, voted: Set<string>, whole: boolean): PostAnswerView {
+export function answerView(row: AnswerRow, voted: Set<string>, whole: boolean): PostAnswerView {
   /* A feed shows a plain-text excerpt (no Markdown marks); the post page renders the whole Markdown. */
   const cut = whole || row.state !== 'answered' ? { answer: row.text, truncated: false } : previewOf(plainOf(row.text), POST_PREVIEW_CHARS);
   return {
@@ -748,6 +766,8 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
   const authorView = options.whole && viewerId && rows.length === 1 && rows[0]!.userId === viewerId && rows[0]!.source === 'post';
   const requests = authorView ? await paidRequestsFor(rows[0]!.id, viewerId) : [];
   const spent = authorView ? await spentOn(rows[0]!.id) : null;
+  /* The thread of follow-ups (追问), on the post's page only. */
+  const thread = options.whole && rows.length === 1 ? await (await import('@/lib/services/post-followups')).threadFor(rows[0]!, viewerId) : null;
   /* For its author, on the post's page: whether rewriting a stale summary is free (`freeRewrite`). */
   const rewriteFree = new Map<string, boolean>();
   for (const row of rows) {
@@ -788,6 +808,10 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
       followUps: followUps.filter((entry, at, all) => all.findIndex((other) => other.id === entry.id) === at).map((entry) => ({ id: entry.id, title: entry.title, reeName: entry.reeName })),
       paidRequests: requests,
       spent,
+      followupCount: row.followupCount,
+      followups: thread?.followups ?? [],
+      followupCandidates: thread?.candidates ?? [],
+      followupBlocked: thread?.blocked ?? null,
       deleted: row.deletedAt !== null,
     };
   });
@@ -858,7 +882,7 @@ export async function listFeed(tab: FeedTab, options: { cursor?: string | null; 
   const search = options.q?.trim() ? sql`${searchable} ilike ${`%${options.q.trim().replace(/[%_\\]/g, '\\$&')}%`}` : undefined;
   if (tab === 'for_you') {
     const offset = Math.max(0, Number.parseInt(options.cursor ?? '0', 10) || 0);
-    const helpful = sql`(select coalesce(sum(a.helpful_count), 0) from ${answer} a where a.post_id = ${post.id} and a.state = 'answered' and a.hidden_by is null)`;
+    const helpful = sql`(select coalesce(sum(a.helpful_count), 0) from ${answer} a where a.post_id = ${post.id} and a.followup_id is null and a.state = 'answered' and a.hidden_by is null)`;
     const score = sql`((${helpful} * 2 + ${post.answerCount} + 1)::float / power(extract(epoch from (now() - ${post.publishedAt})) / 3600 + 2, 1.3))`;
     /* Scored over the last 30 days only (post_feed_idx narrows it by published_at), so the sort never covers the whole table. */
     const recent = sql`${post.publishedAt} > ${new Date(Date.now() - FOR_YOU_WINDOW_MS).toISOString()}::timestamptz`;
@@ -992,7 +1016,7 @@ async function lockShown(tx: Parameters<Parameters<ReturnType<typeof db>['transa
     .from(answer)
     .innerJoin(ree, eq(ree.id, answer.reeId))
     .innerJoin(post, eq(post.id, answer.postId))
-    .where(and(eq(answer.id, id), reeId ? eq(answer.reeId, reeId) : undefined, shownAnswer(), visiblePost()))
+    .where(and(eq(answer.id, id), reeId ? eq(answer.reeId, reeId) : undefined, shownAnswer(), visiblePost(), shownFollowupOf()))
     .for('update', { of: answer });
   return row ?? null;
 }
@@ -1032,7 +1056,7 @@ export async function reportAnswer(id: string, reporter: string, reeId?: string)
 async function recount(tx: Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0], postId: string): Promise<void> {
   await tx
     .update(post)
-    .set({ answerCount: sql`(select count(*)::int from ${answer} a where a.post_id = ${postId} and a.state = 'answered' and a.hidden_by is null)` })
+    .set({ answerCount: sql`(select count(*)::int from ${answer} a where a.post_id = ${postId} and a.followup_id is null and a.state = 'answered' and a.hidden_by is null)` })
     .where(and(eq(post.id, postId), eq(post.answerState, 'done')));
 }
 
@@ -1056,6 +1080,9 @@ export async function ownerActOnAnswer(userId: string, reeId: string, id: string
       await recount(tx, target.postId);
       await flagQuotingAnswer(tx, id);
     } else if (action === 'pin') {
+      /* Pinned answers lead the Ree page, which lists first rounds only. */
+      const [round] = await tx.select({ followupId: answer.followupId }).from(answer).where(eq(answer.id, id));
+      if (round?.followupId) return false;
       await tx.update(answer).set({ pinnedAt: null }).where(and(eq(answer.reeId, reeId), isNotNull(answer.pinnedAt)));
       await tx.update(answer).set({ pinnedAt: new Date() }).where(eq(answer.id, id));
     } else {
@@ -1068,11 +1095,11 @@ export async function ownerActOnAnswer(userId: string, reeId: string, id: string
 /* ---------------------------------------------------------------- paid Rees */
 
 /** What the post's answers cost its author: the base fee and query fee of each answer given. */
-async function spentOn(postId: string): Promise<number> {
+export async function spentOn(postId: string, followupId: string | null = null): Promise<number> {
   const [row] = await db()
     .select({ n: sql<number>`coalesce(sum(${answer.price}), 0)::int` })
     .from(answer)
-    .where(and(eq(answer.postId, postId), eq(answer.state, 'answered'), isNotNull(answer.baseHoldId)));
+    .where(and(followupId ? eq(answer.followupId, followupId) : and(eq(answer.postId, postId), firstRound()), eq(answer.state, 'answered'), isNotNull(answer.baseHoldId)));
   return row?.n ?? 0;
 }
 
@@ -1093,7 +1120,7 @@ const retryable = (): SQL => and(eq(answer.state, 'failed'), isNotNull(answer.de
  * the balance the answer waits for the author instead (`awaiting`), like a
  * paid Ree's, and false is returned.
  */
-async function holdBaseFee(userId: string, answerId: string, reeId: string, now: Date): Promise<boolean> {
+export async function holdBaseFee(userId: string, answerId: string, reeId: string, now: Date): Promise<boolean> {
   try {
     await db().transaction(async (tx) => {
       const baseHoldId = await placeHold(tx, { userId, kind: 'post', ledger: 'post_answer', amount: QUERY_BASE_FEE, refId: answerId, reeId, note: 'post answer' }, now);
@@ -1115,14 +1142,14 @@ async function holdBaseFee(userId: string, answerId: string, reeId: string, now:
  * off posts or deleted is closed by `closeUnavailableRequests`; one that
  * turned free stays, at the base fee.
  */
-async function paidRequestsFor(postId: string, userId: string): Promise<PaidRequestView[]> {
+export async function paidRequestsFor(postId: string, userId: string, followupId: string | null = null): Promise<PaidRequestView[]> {
   const owner = alias(user, 'paid_request_owner');
   const rows = await db()
     .select({ id: answer.id, state: answer.state, agreements: answer.agreements, similarity: answer.similarity, mentioned: answer.mentioned, reeId: ree.id, slug: ree.slug, name: ree.name, avatar: ree.avatarBlob, color: ree.color, ownerId: ree.ownerId, queryFee: ree.queryFee, ownerName: owner.name, price: answer.price })
     .from(answer)
     .innerJoin(ree, eq(ree.id, answer.reeId))
     .innerJoin(owner, eq(owner.id, ree.ownerId))
-    .where(and(eq(answer.postId, postId), or(and(eq(answer.state, 'answering'), isNotNull(answer.baseHoldId)), and(or(eq(answer.state, 'awaiting'), refunded()), requestOpen()))))
+    .where(and(followupId ? eq(answer.followupId, followupId) : and(eq(answer.postId, postId), firstRound()), or(and(eq(answer.state, 'answering'), isNotNull(answer.baseHoldId)), and(or(eq(answer.state, 'awaiting'), refunded()), requestOpen()))))
     .orderBy(desc(answer.mentioned), sql`${answer.similarity} desc nulls last`, asc(answer.createdAt));
   return rows.map((row) => ({
       id: row.id,
@@ -1170,7 +1197,8 @@ export async function agreePaidAnswer(userId: string, id: string, shownPrice: un
         .from(answer)
         .innerJoin(post, eq(post.id, answer.postId))
         .innerJoin(ree, eq(ree.id, answer.reeId))
-        .where(and(eq(answer.id, id), eq(post.userId, userId), eq(post.source, 'post'), eq(post.answerState, 'done'), visiblePost(), or(eq(answer.state, 'awaiting'), retryable(), and(inArray(answer.state, ['answering', 'answered']), isNotNull(answer.baseHoldId)))))
+        .leftJoin(followup, eq(followup.id, answer.followupId))
+        .where(and(eq(answer.id, id), askedBy(userId), visiblePost(), or(eq(answer.state, 'awaiting'), retryable(), and(inArray(answer.state, ['answering', 'answered']), isNotNull(answer.baseHoldId)))))
         .for('update', { of: answer });
       if (!target) return { ok: false, error: 'not_found' } as const;
       if (target.state === 'answering' || target.state === 'answered') return { ok: false, error: 'already' } as const;
@@ -1196,13 +1224,33 @@ export async function agreePaidAnswer(userId: string, id: string, shownPrice: un
   }
 }
 
+/**
+ * Who a request waits for: the post's author for its first round, the asker
+ * for a follow-up's (谁问谁出钱) -- and only once that round is settled. Needs
+ * `post` and `post_followup` joined.
+ */
+function askedBy(userId: string): SQL {
+  return or(
+    and(firstRound(), eq(post.userId, userId), eq(post.source, 'post'), eq(post.answerState, 'done')),
+    and(isNotNull(answer.followupId), eq(followup.userId, userId), eq(followup.status, 'published'), isNull(followup.deletedAt), eq(followup.answerState, 'done')),
+  )!;
+}
+
 /** The author does not want this Ree's answer: it is gone for good. Nothing was charged for it. */
 export async function declinePaidAnswer(userId: string, id: string, now = new Date()): Promise<boolean> {
   if (!isUuid(id)) return false;
   const rows = await db()
     .update(answer)
     .set({ state: 'declined', decidedAt: now })
-    .where(and(eq(answer.id, id), or(eq(answer.state, 'awaiting'), refunded()), sql`exists (select 1 from ${post} p where p.id = ${answer.postId} and p.user_id = ${userId} and p.source = 'post')`))
+    .where(
+      and(
+        eq(answer.id, id),
+        or(eq(answer.state, 'awaiting'), refunded()),
+        sql`(case when ${answer.followupId} is null
+          then exists (select 1 from ${post} p where p.id = ${answer.postId} and p.user_id = ${userId} and p.source = 'post')
+          else exists (select 1 from ${followup} f where f.id = ${answer.followupId} and f.user_id = ${userId}) end)`,
+      ),
+    )
     .returning({ id: answer.id });
   return rows.length > 0;
 }
@@ -1216,10 +1264,14 @@ export async function answerPaid(id: string, deps: { answerOne?: AnswerOne; now?
   const now = deps.now ?? (() => new Date());
   const [row] = await db().select({ answer, post }).from(answer).innerJoin(post, eq(post.id, answer.postId)).where(and(eq(answer.id, id), eq(answer.state, 'answering'), isNotNull(answer.baseHoldId))).limit(1);
   if (!row) return;
-  const subject = [row.post.question, row.post.detail].filter(Boolean).join('\n');
+  /* A follow-up's request is asked as that follow-up, with this Ree's own exchange so far (追问). */
+  const input = row.answer.followupId
+    ? await (await import('@/lib/services/post-followups')).followupAnswerInput(row.answer.followupId, row.answer.reeId)
+    : { subject: [row.post.question, row.post.detail].filter(Boolean).join('\n'), lang: row.post.lang, vector: null, context: await quoteContext(row.post) };
+  if (!input) return closeAnswer(id, { state: 'failed', model: null }, now());
   let result: AnswerResult;
   try {
-    result = await (deps.answerOne ?? groundedAnswer)({ reeId: row.answer.reeId, subject, lang: row.post.lang, vector: null, context: await quoteContext(row.post) });
+    result = await (deps.answerOne ?? groundedAnswer)({ reeId: row.answer.reeId, ...input });
   } catch (error) {
     console.warn(`paid post answer ${id} failed: ${error instanceof Error ? error.message : 'unknown'}`);
     result = { state: 'failed', model: null };
@@ -1235,7 +1287,7 @@ export async function answerPaid(id: string, deps: { answerOne?: AnswerOne; now?
  * answer or a failure: both holds are given back. An answer charged to
  * nobody (the author's own Ree, an example post) just writes.
  */
-async function closeAnswer(id: string, result: AnswerResult, now: Date): Promise<void> {
+export async function closeAnswer(id: string, result: AnswerResult, now: Date): Promise<void> {
   await db().transaction(async (tx) => {
     const [target] = await tx
       .select({ id: answer.id, postId: answer.postId, reeId: answer.reeId, baseHoldId: answer.baseHoldId, feeHoldId: answer.feeHoldId, price: answer.price, reeName: ree.name, ownerId: ree.ownerId })
@@ -1454,7 +1506,9 @@ export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en
 /* ---------------------------------------------------------------- 继续问 */
 
 /**
- * "继续问" (P8): the post's author starts a private conversation with one
+ * The earlier "继续问" (P8), before follow-ups moved into the post (追问,
+ * post-followups.ts): the page no longer links to it, but the API stays
+ * for now with the conversations it made. The post's author starts a private conversation with one
  * Ree that answered, from the post's question and that answer, linked to
  * the post. The two are written as the conversation's first exchange so the
  * next question is a follow-up; nothing is charged until it is asked, then
@@ -1617,7 +1671,7 @@ export async function reeAnsweredPosts(reeId: string, options: { before?: string
   const size = options.size ?? 10;
   const [target] = await db().select({ id: ree.id }).from(ree).where(and(eq(ree.id, reeId), publicRee())).limit(1);
   if (!target) return null;
-  const base = and(eq(answer.reeId, reeId), shownAnswer(), visiblePost())!;
+  const base = and(eq(answer.reeId, reeId), firstRound(), shownAnswer(), visiblePost())!;
   const [counted] = await db().select({ n: sql<number>`count(*)::int` }).from(answer).innerJoin(ree, eq(ree.id, answer.reeId)).innerJoin(post, eq(post.id, answer.postId)).where(base);
   let boundary: SQL | undefined;
   if (options.before) {
@@ -1651,7 +1705,7 @@ export async function answeredPostCounts(reeIds: readonly string[]): Promise<Map
     .from(answer)
     .innerJoin(ree, eq(ree.id, answer.reeId))
     .innerJoin(post, eq(post.id, answer.postId))
-    .where(and(inArray(answer.reeId, [...reeIds]), shownAnswer(), visiblePost()))
+    .where(and(inArray(answer.reeId, [...reeIds]), firstRound(), shownAnswer(), visiblePost()))
     .groupBy(answer.reeId);
   return new Map(rows.map((row) => [row.reeId, row.n]));
 }
