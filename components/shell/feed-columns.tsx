@@ -43,14 +43,10 @@ export function FeedColumns({ title, back, tabs, rail, heading = true, children 
               {activitiesPending && <i className="nav-dot" aria-hidden="true" />}
             </button>
           ) : (
-            <span className="flex items-center gap-1">
-              <Link href="/explore" className="icon-btn" aria-label={t.common.nav.discover} title={t.common.nav.discover}>
-                <Icon name="compass" className="" />
-              </Link>
-              <Link href="/login" className="btn btn-sm">
-                {t.site.nav.signIn}
-              </Link>
-            </span>
+            /* A visitor's phone: the bottom bar is the sign-in (v6), so the head only leads to Rees. */
+            <Link href="/explore" className="icon-btn" aria-label={t.common.nav.discover} title={t.common.nav.discover}>
+              <Icon name="compass" className="" />
+            </Link>
           )}
         </div>
         <header className="xcol-head">

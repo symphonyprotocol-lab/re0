@@ -184,42 +184,78 @@
   font-size: 10px;
 }
 
-/* The visitor's short introduction at the top of 首页 -- what the marketing home said, in a few lines. */
-.xintro {
-  margin: 16px 0 4px;
-  padding: 18px 18px 16px;
-  border: 1px solid #d6e6fb;
-  border-radius: 16px;
-  background: radial-gradient(600px 200px at 0% 0%, #e3efff 0%, transparent 70%), #ffffff;
-}
-.xintro h1 {
-  font-size: 20px;
-  font-weight: 800;
-  line-height: 1.3;
-  letter-spacing: -0.02em;
-}
-.xintro h1 em {
-  color: var(--color-blue);
-  font-style: normal;
-}
-.xintro p {
-  margin-top: 6px;
-  color: #3b4361;
-  font-size: 13px;
-  line-height: 1.7;
-}
-.xintro-actions {
+/* A visitor's welcome on 首页 (v6): one card in the feed's own gutter, one primary action. */
+.xwelcome {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  margin-top: 12px;
+  gap: 12px 18px;
+  margin: 14px 0 6px;
+  padding: 16px 18px;
+  border: 1px solid #d6e6fb;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f5f9ff 0%, #faf8ff 100%);
 }
-.xintro small {
-  display: block;
-  margin-top: 8px;
-  color: #606670;
-  font-size: 11px;
+.xwelcome-text {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+.xwelcome h1 {
+  font-size: 17px;
+  font-weight: 750;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.xwelcome p {
+  margin-top: 3px;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.xwelcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* 首页's post search: in the right column; where that column folds away (under 1200px), at the top of the centre one. */
+.xcol-search {
+  display: none;
+}
+@media (max-width: 1199px) {
+  .xcol .xcol-search {
+    display: block;
+    padding: 12px 18px 0;
+  }
+}
+.xcol-search .search-box {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #dfe4ef;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #8a94ae;
+  font-size: 13px;
+}
+.xcol-search .search-box input {
+  color: var(--color-ink);
+}
+/* What a post search is showing, and the way back. */
+.xsearch-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 14px 18px 4px;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 /* The visitor's bar at the bottom of the window. */
@@ -375,9 +411,16 @@
     display: none;
   }
 }
-/* Room for the visitor's bar at the bottom. */
-.xshell.is-visitor .app-main {
-  padding-bottom: 72px;
+/* The visitor's bar is the sign-in only where there is no left navigation (phones, v6); room for it there. */
+@media (min-width: 761px) {
+  .xshell.is-visitor .xsignup {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .xshell.is-visitor .app-main {
+    padding-bottom: 72px;
+  }
 }
 
 /* Pages inside the centre column: its head is the sticky part. */

@@ -44,7 +44,7 @@ export const zh = {
     notFound: {
       title: '这个分享链接暂时打不开。',
       body: '链接可能已失效，或 Ree 已设为私有。',
-      back: '去发现更多 Ree',
+      back: '查看更多 Ree',
     },
   },
   stats: {
@@ -104,7 +104,7 @@ export const en: Shape<typeof zh> = {
     notFound: {
       title: 'This share link cannot be opened right now.',
       body: 'The link may be unavailable, or this Ree may now be private.',
-      back: 'Discover more Rees',
+      back: 'See more Rees',
     },
   },
   stats: {

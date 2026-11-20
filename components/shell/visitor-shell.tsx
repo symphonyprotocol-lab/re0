@@ -15,11 +15,12 @@ import './shell.css';
 import './columns.css';
 
 /**
- * A visitor's frame for 首页, 发现 and public Rees (v5, assumption A4): the
+ * A visitor's frame for 首页, Rees and public Rees (v5, assumption A4): the
  * same three columns as the workspace, with a shorter navigation (首页,
- * 发现, 价格, 了解 RE0), sign-in and the language in the sidebar, and a bar
- * along the bottom that asks them to sign in. On a phone the sidebar is
- * hidden; the column head carries the brand and sign-in, and the bar stays.
+ * Rees, 价格, 了解 RE0), sign-in and the language in the sidebar. On a
+ * phone the sidebar is hidden; the column head carries the brand and the
+ * way to Rees, and the bar along the bottom is the sign-in (v6: only there,
+ * so each entry shows once).
  */
 export function VisitorShell({ children }: { children: ReactNode }) {
   const { t } = useI18n();
@@ -50,16 +51,14 @@ export function VisitorShell({ children }: { children: ReactNode }) {
             ))}
           </nav>
           <div className="xnav-foot">
+            {/* Sign-in only: creating a Ree is the right column's card (v6, one place for each). */}
             <div className="xnav-visitor">
               <SignInLink label={t.site.nav.signIn} className="btn w-full justify-center" />
-              <Link href={`/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn-secondary w-full justify-center">
-                {t.site.nav.create}
-              </Link>
             </div>
             <div className="xnav-links">
               <Link href="/legal/privacy">{t.site.visitor.privacy}</Link>
               <Link href="/legal/terms">{t.site.visitor.terms}</Link>
-              <LanguageMenu className="btn ghost sm" />
+              <LanguageMenu className="btn-ghost shell-language" />
             </div>
           </div>
         </aside>

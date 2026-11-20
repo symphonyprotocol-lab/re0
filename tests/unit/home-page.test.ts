@@ -24,7 +24,6 @@ vi.mock('@/lib/services/explore', () => ({
   explore: async () => ({ mode: 'browse', items: Array.from({ length: 12 }, (_, n) => card(n + 1)), total: 12, nextCursor: 'more' }),
   weeklyMostAsked: async () => [],
 }));
-vi.mock('@/lib/services/signup-reward', () => ({ welcomeCredits: async () => ({ credits: 0 }) }));
 vi.mock('@/lib/services/ree-favorites', () => ({ favoriteReeIds: async () => [] }));
 vi.mock('@/lib/services/video', () => ({ introsFor: async () => new Map() }));
 /* No posts yet: the case where 首页 stands in a few Rees. */
@@ -41,6 +40,27 @@ describe('the visitor\'s 首页', () => {
     expect(html.match(/Ree number \d+/g)?.length ?? 0).toBeGreaterThan(0);
     expect(new Set(html.match(/Ree number \d+/g)).size).toBe(6);
     expect(html).toContain(t.site.visitor.allRees);
+  });
+
+  it('opens on one welcome card with one way to sign in, and searches posts (v6)', async () => {
+    const t = messages('zh');
+    const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await HomePage({ searchParams: Promise.resolve({}) }) }));
+    expect(html).toContain('class="xwelcome"');
+    expect(html).toContain(t.site.visitor.welcomeTitle);
+    expect(html.match(new RegExp(t.site.visitor.introAsk, 'g'))).toHaveLength(1);
+    /* No composer strip for visitors, no create-a-Ree button beside the welcome. */
+    expect(html).not.toContain('post-composer is-visitor');
+    expect(html).not.toContain('returnTo=%2Frees%2Fnew" class="btn-secondary btn-sm"><svg');
+    /* The search posts box, in the right column and again for narrow screens. */
+    expect(html.match(/<form role="search" class="search-box" aria-label="搜索帖子" action="\/">/g)).toHaveLength(2);
+  });
+
+  it('shows a post search under the front page, without the welcome card', async () => {
+    const t = messages('zh');
+    const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await HomePage({ searchParams: Promise.resolve({ q: 'refund' }) }) }));
+    expect(html).not.toContain('class="xwelcome"');
+    expect(html).toContain('搜索“refund”的帖子');
+    expect(html).toContain(t.posts.explore.noPosts);
   });
 
   it('says nothing of asking without an account: visitors ask only on share pages (2026-11-19)', async () => {

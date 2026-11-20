@@ -19,7 +19,7 @@ export const zh = {
   },
   verified: {
     title: '你的账号已认证',
-    body: '名下 Ree 会在公开页、发现卡片、对话参与者和回答署名显示认证标识。',
+    body: '名下 Ree 会在公开页、Rees 页卡片、对话参与者和回答署名显示认证标识。',
   },
   requirements: {
     title: '认证门槛',
@@ -107,7 +107,7 @@ export const en: Shape<typeof zh> = {
   },
   verified: {
     title: 'Your account is verified',
-    body: 'Your Rees display the verified badge on public pages, discovery cards, participants and answers.',
+    body: 'Your Rees display the verified badge on public pages, cards on Rees, participants and answers.',
   },
   requirements: {
     title: 'Verification requirements',
