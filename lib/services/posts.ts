@@ -25,9 +25,10 @@
  *      copied public Q&A also lives), the author's own posts and trash, and
  *      saved posts.
  *
- * A post is shown while it is published and not in its author's trash; one
- * copied from a signed-in asker's conversation also only while that
- * conversation is out of the trash (as its Q&A was). An answer is shown
+ * A post is shown while it is public, published and not in its author's
+ * trash. One copied from a signed-in asker's conversation is a public post
+ * like any other since the conversations went (migration 0070 deleted those
+ * whose conversation was in the trash, as the purge would have). An answer is shown
  * while it answered, nobody hid it, and its Ree is public (and, for a copied
  * Q&A, keeps public Q&A on).
  */
@@ -74,9 +75,9 @@ import {
 import { PUBLIC_QA_MODERATION_ATTEMPTS, PUBLIC_QA_REPORT_THRESHOLD, plainOf, previewOf, redact } from '@/lib/domain/public-qa';
 import { cleanSynthesis, letterAnswers, synthesisInstructions, synthesisPrompt } from '@/lib/domain/synthesis';
 import { QUERY_BASE_FEE } from '@/lib/constants';
-import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
-import { maxCostFor, readyRees, streamGroundedAnswer, type Emit } from '@/lib/services/answer';
-import { embedQuestion, retrieve, type QuestionVector } from '@/lib/services/chat';
+import { db, schema, type Executor } from '@/lib/infra/db';
+import { maxCostFor, readyRees, streamGroundedAnswer, type Emit } from '@/lib/services/grounded-answer';
+import { embedQuestion, retrieve, type QuestionVector } from '@/lib/services/retrieval';
 import { balanceOf, creditQueryFee, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
 import { publicRee, searchRees } from '@/lib/services/explore';
 import { generationForUser } from '@/lib/services/generation';
@@ -86,24 +87,16 @@ import { notify } from '@/lib/services/notices';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
 import { questionRewriter } from '@/lib/services/question-rewrite';
 
-const { post, postVote, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user, message, conversation } = schema;
+const { post, postVote, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user } = schema;
 
 /* --------------------------------------------------------------- visibility */
 
 /**
- * Public, published, out of the author's trash, and -- copied from a
- * conversation -- while that conversation is too. A private post is never
+ * Public, published and out of the author's trash. A private post is never
  * visible to anyone but its author, who reads it through `ownPrivatePost`.
  */
 export function visiblePost(): SQL {
-  return and(
-    eq(post.visibility, 'public'),
-    eq(post.status, 'published'),
-    isNull(post.deletedAt),
-    sql`(${post.source} <> 'conversation' or exists (
-      select 1 from ${message} m join ${conversation} c on c.id = m.conversation_id
-      where m.id = ${post.messageId} and c.deleted_at is null))`,
-  )!;
+  return and(eq(post.visibility, 'public'), eq(post.status, 'published'), isNull(post.deletedAt))!;
 }
 
 /** The author's own private post, live (out of the trash): what they may read and act on that nobody else may. */
@@ -831,15 +824,6 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
   /* A private post is only ever read by its author (the queries above made sure). */
   const ownPrivate = new Set(rows.filter((row) => row.visibility === 'private' && viewerId && row.userId === viewerId).map((row) => row.id));
   const unvoted = ownPrivate.size ? await unvotedBy(viewerId, answers.filter((row) => ownPrivate.has(row.postId)).map((row) => row.id)) : new Set<string>();
-  const followUps = options.whole && viewerId && rows.length === 1 && rows[0]!.userId === viewerId
-    ? await db()
-        .select({ id: conversation.id, title: conversation.title, reeName: ree.name })
-        .from(conversation)
-        .leftJoin(schema.conversationRee, eq(schema.conversationRee.conversationId, conversation.id))
-        .leftJoin(ree, eq(ree.id, schema.conversationRee.reeId))
-        .where(and(eq(conversation.postId, rows[0]!.id), eq(conversation.userId, viewerId), isNull(conversation.deletedAt)))
-        .orderBy(desc(conversation.updatedAt))
-    : [];
   const [quotes, quoteCounts] = await Promise.all([quotesFor(rows, viewerId), quoteCountsFor(ids)]);
   const authorView = options.whole && viewerId && rows.length === 1 && rows[0]!.userId === viewerId && (AUTHORED_SOURCES as readonly string[]).includes(rows[0]!.source);
   /* A private post has no requests: its author chose and paid for every Ree when asking. */
@@ -898,7 +882,6 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
       summaryStale: row.summaryState === 'done' && summaryStale(row.summaryAnswers, new Set(shown.map((entry) => entry.id))),
       summaryRewriteFree: rewriteFree.get(row.id) ?? false,
       hiddenBy: row.status === 'hidden' ? row.hiddenBy : null,
-      followUps: followUps.filter((entry, at, all) => all.findIndex((other) => other.id === entry.id) === at).map((entry) => ({ id: entry.id, title: entry.title, reeName: entry.reeName })),
       paidRequests: requests,
       spent,
       aiAnswer: ai.get(aiRoundKey(row.id, null)) ?? null,
@@ -1774,43 +1757,6 @@ export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en
 }
 
 /* ---------------------------------------------------------------- 继续问 */
-
-/**
- * The earlier "继续问" (P8), before follow-ups moved into the post (追问,
- * post-followups.ts): the page no longer links to it, but the API stays
- * for now with the conversations it made. The post's author starts a private conversation with one
- * Ree that answered, from the post's question and that answer, linked to
- * the post. The two are written as the conversation's first exchange so the
- * next question is a follow-up; nothing is charged until it is asked, then
- * as any question. The seeded exchange is not a new question or answer:
- * the post's answers are untouched, and the two copied messages
- * (`copied_from_post`) count in no figure -- ranking, explore, verification,
- * owner statistics, the console -- and take no vote. What is asked after
- * them is an ordinary, charged question and counts like one.
- * Only the author: anyone else gets null.
- */
-export async function followUpPost(userId: string, id: string, answerId: string): Promise<string | null> {
-  if (!isUuid(id) || !isUuid(answerId)) return null;
-  const [target] = await db()
-    .select({ question: post.question, detail: post.detail, reeId: answer.reeId, text: answer.text, citations: answer.citations })
-    .from(answer)
-    .innerJoin(post, eq(post.id, answer.postId))
-    .innerJoin(ree, eq(ree.id, answer.reeId))
-    .where(and(eq(answer.id, answerId), eq(answer.postId, id), eq(post.userId, userId), eq(post.source, 'post'), shownAnswer(), visiblePost()))
-    .limit(1);
-  if (!target) return null;
-  return db().transaction(async (tx) => {
-    const title = target.question.slice(0, 120);
-    const [created] = await tx.insert(conversation).values({ userId, title, postId: id }).returning({ id: conversation.id });
-    await tx.insert(schema.conversationRee).values({ conversationId: created!.id, reeId: target.reeId });
-    const asked = new Date();
-    const requestId = randomUUID();
-    /* Copied, both: no one asked or answered them here, so they count in no figure (`copied_from_post`). */
-    await tx.insert(message).values({ id: requestId, conversationId: created!.id, role: 'user', content: [target.question, target.detail].filter(Boolean).join('\n\n'), requestId, copiedFromPost: true, createdAt: asked });
-    await tx.insert(message).values({ conversationId: created!.id, role: 'ree', reeId: target.reeId, content: target.text, citations: target.citations, requestId, copiedFromPost: true, createdAt: new Date(asked.getTime() + 1) });
-    return created!.id;
-  });
-}
 
 /* ------------------------------------------------------- taking a post down */
 

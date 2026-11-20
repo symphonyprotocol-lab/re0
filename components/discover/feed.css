@@ -2,7 +2,7 @@
  * The feed redesign (docs/design/discover-feed.html, v3): explore's single
  * column of Rees with its side column, and the Ree page's public Q&A and
  * question box. Written against the existing tokens and the values
- * explore.css, ree-video-card.css and conversations.css already use.
+ * explore.css, ree-video-card.css and the answers' stylesheet (posts/answer-parts.css) already use.
  */
 
 /* ---------------------------------------------------------------- /explore */
@@ -279,7 +279,7 @@
 .ree-ask-share input {
   accent-color: var(--color-blue);
 }
-/* A Ree's answered posts and conversations: no box around each (v6), 30px between them, as in the feed. */
+/* A Ree's answered posts: no box around each (v6), 30px between them, as in the feed. */
 .ree-qa-list {
   display: flex;
   flex-direction: column;

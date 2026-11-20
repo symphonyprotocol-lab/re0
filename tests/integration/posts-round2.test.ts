@@ -33,7 +33,6 @@ const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
 const { POST: reportPostRoute } = await import('@/app/api/posts/[id]/report/route');
-const { publishOwnAnswer } = await import('@/lib/services/public-qa');
 const { reeCards } = await import('@/lib/services/explore');
 const { consoleAdministrator } = await import('../fixtures/console-administrator');
 
@@ -190,24 +189,6 @@ describeWithDb('public posts, review round 2', () => {
 
     await db().update(schema.ree).set({ isPublic: true, isPublished: true }).where(eq(schema.ree.id, reeId));
     expect((await posts.indexablePosts()).map((row) => row.id)).toContain(posted.id);
-  });
-
-  it('starts 继续问 only for the author, and counts it in no Ree figure nor as a publishable answer (S3)', async () => {
-    const { reeId } = await publicRee();
-    const author = await user('r2-follow', 1_000);
-    const posted = await publish(author);
-    await posts.processPost(posted.id, stub([reeId]));
-    const [answer] = (await posts.getPost(posted.id))!.answers;
-    const before = (await reeCards([reeId], new Map(), { includeIntros: false }))[0]!.answers;
-
-    expect(await posts.followUpPost(await user('r2-stranger', 1_000), posted.id, answer!.id)).toBeNull();
-    const conversationId = (await posts.followUpPost(author, posted.id, answer!.id))!;
-    expect(conversationId).toBeTruthy();
-    expect((await reeCards([reeId], new Map(), { includeIntros: false }))[0]!.answers).toBe(before);
-    expect((await postRow(posted.id)).answerCount).toBe(1);
-
-    const [seeded] = await db().select({ id: schema.message.id }).from(schema.message).where(and(eq(schema.message.conversationId, conversationId), eq(schema.message.role, 'ree')));
-    expect(await publishOwnAnswer(author, reeId, seeded!.id, 'en')).toBe('not_found');
   });
 
   it('publishes once per submit: the same token, or the same text within a minute (S4)', async () => {

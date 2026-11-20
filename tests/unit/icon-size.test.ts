@@ -23,8 +23,4 @@ describe('Icon sizing', () => {
     const base = css.slice(css.indexOf('@layer base {'), css.indexOf('@layer components {'));
     expect(base).toMatch(/:where\(svg\[data-icon\]:not\(\[width\]\):not\(\[height\]\)\)\s*\{\s*width: 1rem;\s*height: 1rem;\s*\}/);
   });
-
-  it('sizes the share dialog\'s chat icon itself', () => {
-    expect(readFileSync('components/discover/join-button.tsx', 'utf8')).toContain('<Icon name="chat" className="size-4 flex-none" />');
-  });
 });

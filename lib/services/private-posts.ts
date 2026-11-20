@@ -46,8 +46,8 @@ import {
 import { redact } from '@/lib/domain/public-qa';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { db, schema, type Tx } from '@/lib/infra/db';
-import { maxCostFor, readyRees } from '@/lib/services/answer';
-import { embedQuestion, type QuestionVector } from '@/lib/services/chat';
+import { maxCostFor, readyRees } from '@/lib/services/grounded-answer';
+import { embedQuestion, type QuestionVector } from '@/lib/services/retrieval';
 import { balanceOf, placeHold } from '@/lib/services/credits';
 import { publicRee, searchRees } from '@/lib/services/explore';
 import { finishFollowup, followupAnswerInput, passageMatcher, privateThreadRees, type FollowupMatcher } from '@/lib/services/post-followups';

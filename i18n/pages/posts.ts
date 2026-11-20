@@ -242,7 +242,7 @@ export const zh = {
     emptyTrash: '回收站是空的。',
   },
   saved: { rees: 'Ree', posts: '帖子', emptyPosts: '还没有收藏帖子。' },
-  rees: { askIt: '发帖问它', answeredPosts: '回答的帖子', viewPost: '查看帖子' },
+  rees: { askIt: '发帖问它', answeredPosts: '回答的帖子' },
   followups: {
     heading: '{n} 条追问',
     title: '追问',
@@ -653,7 +653,7 @@ export const en: Shape<typeof zh> = {
     emptyTrash: 'The trash is empty.',
   },
   saved: { rees: 'Rees', posts: 'Posts', emptyPosts: 'No saved posts yet.' },
-  rees: { askIt: 'Post to it', answeredPosts: 'Answered posts', viewPost: 'View post' },
+  rees: { askIt: 'Post to it', answeredPosts: 'Answered posts' },
   followups: {
     heading: 'Follow-ups ({n})',
     title: 'Follow-ups',

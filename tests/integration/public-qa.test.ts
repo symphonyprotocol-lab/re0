@@ -1,11 +1,10 @@
 /**
  * The Ree page's public Q&A (lib/services/public-qa.ts; shown from posts
- * since v5, public-qa-sync.ts): a visitor's
- * first-turn answer is kept only when they asked to publish it, redacted,
- * and shown once moderation passes; a signed-in asker publishes their own
- * single-turn answer and takes it down by trashing the conversation; the
- * owner's switch, pin and hide; helpful votes; reports hiding an answer and
- * an administrator restoring it; and explore's counts.
+ * since v5, public-qa-sync.ts): what visitors published before is kept,
+ * redacted, and shown once moderation passes (nothing adds to it since the
+ * anonymous chat and the conversations went); the owner's switch, pin and
+ * hide; helpful votes; reports hiding an answer and an administrator
+ * restoring it; and explore's counts.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
@@ -24,14 +23,9 @@ const { createSession } = await import('@/lib/services/auth');
 const rees = await import('@/lib/services/rees');
 const knowledge = await import('@/lib/services/knowledge');
 const qa = await import('@/lib/services/public-qa');
-const { answer } = await import('@/lib/services/answer');
-const { createConversation, runBatch, updateConversation } = await import('@/lib/services/conversations');
-const { ownedConversation } = await import('@/lib/services/chat');
 const { reeCards } = await import('@/lib/services/explore');
 const { computeRanks } = await import('@/lib/services/rank');
-const { POST: anonymousPost } = await import('@/app/api/rees/[id]/anonymous-chat/route');
-const { shareAskToken, validShareAskToken } = await import('@/lib/services/anonymous-chat');
-const { FINGERPRINT_HEADER } = await import('@/lib/domain/anonymous-chat');
+const privatePosts = await import('@/lib/services/private-posts');
 const { PUBLIC_QA_REPORT_THRESHOLD } = await import('@/lib/domain/public-qa');
 const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
@@ -72,15 +66,6 @@ async function publicRee() {
   return { ownerId, reeId: ree.id };
 }
 
-let ipCounter = 0;
-/** A visitor's question, from the Ree's share page (its token) unless `extra` says otherwise. */
-async function ask(reeId: string, question: string, extra: Record<string, unknown> = {}) {
-  ipCounter += 1;
-  const headers = { origin: base, host: 'localhost:3000', 'content-type': 'application/json', 'x-real-ip': `203.0.113.${ipCounter % 250}`, [FINGERPRINT_HEADER]: crypto.randomUUID().replaceAll('-', '') };
-  const payload = { question, lang: 'en', shareToken: await shareAskToken(reeId), ...extra };
-  return anonymousPost(new NextRequest(`${base}/api/rees/${reeId}/anonymous-chat`, { method: 'POST', headers, body: JSON.stringify(payload) }), { params: Promise.resolve({ id: reeId }) });
-}
-
 /**
  * A visitor's published Q&A as #158 left them (visitors no longer publish
  * since 2026-11-19, but what they published stays): a snapshot, redacted on
@@ -92,18 +77,6 @@ async function visitorPublished(reeId: string, question: string): Promise<string
   if (!id) return 'skipped';
   const status = await qa.moderateSnapshot(id);
   return status === 'gone' ? 'pending' : status;
-}
-
-async function read(response: Response) {
-  const raw = await response.text();
-  const events = raw
-    .split('\n')
-    .filter((line) => line.startsWith('data: ') && line !== 'data: [DONE]')
-    .map((line) => JSON.parse(line.slice(6)) as { type: string; data?: Record<string, unknown> });
-  return {
-    shared: (events.find((event) => event.type === 'data-public')?.data as { status: string } | undefined)?.status ?? null,
-    outcome: events.find((event) => event.type === 'data-outcome')?.data as { messageId: string | null } | undefined,
-  };
 }
 
 async function rowsOf(reeId: string) {
@@ -127,23 +100,6 @@ function report(reeId: string, qaId: string, ip: string, cookie?: string) {
 }
 
 describeWithDb('public Q&A', () => {
-  it('asks only from a share page, and never publishes a visitor\'s answer (2026-11-19)', async () => {
-    const { reeId } = await publicRee();
-    const other = await publicRee();
-    /* No token -- the Ree page, a script -- another Ree's token, or a forged one: refused before any round is taken. */
-    expect((await ask(reeId, QUESTION, { shareToken: undefined })).status).toBe(403);
-    expect((await ask(reeId, QUESTION, { shareToken: await shareAskToken(other.reeId) })).status).toBe(403);
-    expect((await ask(reeId, QUESTION, { shareToken: `${Date.now() + 3_600_000}.forged` })).status).toBe(403);
-    expect((await ask(reeId, QUESTION, { shareToken: await shareAskToken(reeId, new Date(Date.now() - 13 * 3_600_000)) })).status).toBe(403);
-    expect(await validShareAskToken(await shareAskToken(reeId), reeId)).toBe(true);
-
-    /* From the share page: answered, and whatever the browser sends, nothing is kept for publishing. */
-    const answered = await read(await ask(reeId, QUESTION, { publish: true, source: 'share' }));
-    expect(answered.shared).toBeNull();
-    expect(answered.outcome).toBeDefined();
-    expect(await rowsOf(reeId)).toHaveLength(0);
-  });
-
   it('keeps what visitors published before, redacted, once it passes review', async () => {
     const { reeId } = await publicRee();
     expect(await visitorPublished(reeId, `${QUESTION} Reach me at lin@example.com or 138 1234 5678`)).toBe('published');
@@ -178,38 +134,6 @@ describeWithDb('public Q&A', () => {
     expect(await qa.moderateSnapshot(id!, failing)).toBe('pending');
     expect(await qa.moderateSnapshot(id!, failing)).toBe('pending');
     expect(await qa.moderateSnapshot(id!, failing)).toBe('rejected');
-  });
-
-  it('lets a signed-in asker publish their own single-turn answer, and takes it down with the conversation', async () => {
-    const { reeId } = await publicRee();
-    const askerId = await user('qa-asker');
-    const strangerId = await user('qa-stranger');
-    const created = await createConversation(askerId, { reeIds: [reeId], title: 'Refunds' });
-    const conversation = (await ownedConversation(askerId, created.id))!;
-    const [ree] = await db().select().from(schema.ree).where(eq(schema.ree.id, reeId));
-    const first = await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree!], question: QUESTION }));
-    const second = await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree!], question: QUESTION }));
-    const firstId = first.outcome!.messageId!;
-
-    expect(await qa.publishOwnAnswer(strangerId, reeId, firstId, 'en')).toBe('not_found');
-    expect(await qa.publishOwnAnswer(askerId, reeId, second.outcome!.messageId!, 'en')).toBe('not_single_turn');
-    const result = await qa.publishOwnAnswer(askerId, reeId, firstId, 'en');
-    expect(typeof result === 'object' && result.id).toBeTruthy();
-    expect(await qa.publishOwnAnswer(askerId, reeId, firstId, 'en')).toBe('already');
-    expect(await qa.moderateSnapshot((result as { id: string }).id)).toBe('published');
-    expect((await qa.listPublicQa(reeId))?.items[0]?.asker).toBe('user');
-
-    await updateConversation(askerId, created.id, { trashed: true });
-    expect((await qa.listPublicQa(reeId))?.total).toBe(0);
-    await updateConversation(askerId, created.id, { trashed: false });
-    expect((await qa.listPublicQa(reeId))?.total).toBe(1);
-
-    /* Purging the conversation deletes the snapshot itself, question and answer text included. */
-    await updateConversation(askerId, created.id, { trashed: true });
-    expect(await runBatch(askerId, 'delete', [created.id])).toBe(1);
-    expect(await rowsOf(reeId)).toHaveLength(0);
-    /* ...and the post it was copied into (v5). */
-    expect(await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.reeId, reeId))).toHaveLength(0);
   });
 
   it('deletes a signed-in asker\'s snapshots with their account', async () => {
@@ -309,30 +233,23 @@ describeWithDb('public Q&A', () => {
     expect(audits.map((row) => row.action)).toContain('ree.qa.restore');
   });
 
-  it('rejects a snapshot whose last review never finished, and refuses a raised fee instead of charging it', async () => {
-    const { ownerId, reeId } = await publicRee();
+  it('rejects a snapshot whose last review never finished', async () => {
+    const { reeId } = await publicRee();
     const id = await qa.keepSnapshot({ reeId, source: 'anonymous', question: 'Q?', answer: 'A.', citations: [], lang: 'en' });
     await db().update(schema.reePublicQa).set({ moderationAttempts: 3, createdAt: new Date(Date.now() - 20 * 60_000) }).where(eq(schema.reePublicQa.id, id!));
     await qa.moderatePending(async () => ({ publish: true }));
     expect((await rowsOf(reeId)).find((row) => row.id === id)?.status).toBe('rejected');
 
-    /* The Ree page sends the fee it showed: one raised since is refused, nothing charged. */
-    await db().update(schema.ree).set({ queryFee: 10 }).where(eq(schema.ree.id, reeId));
-    const askerId = await user('qa-fee');
-    const created = await createConversation(askerId, { reeIds: [reeId], title: 'Fees' });
-    const conversation = (await ownedConversation(askerId, created.id))!;
-    const [ree] = await db().select().from(schema.ree).where(eq(schema.ree.id, reeId));
-    const refused = await answer({ userId: askerId, lang: 'en', conversation, targets: [ree!], question: QUESTION, seenFees: { [reeId]: 0 } });
-    expect(refused.status).toBe(409);
-    expect(await refused.json()).toMatchObject({ error: 'price_changed' });
-    expect(await db().select().from(schema.creditHold).where(eq(schema.creditHold.userId, askerId))).toHaveLength(0);
-    expect(ownerId).not.toBe(askerId);
   });
 
   it('gives explore this week\'s questions and the latest answer from the hourly rank', async () => {
     const { reeId } = await publicRee();
-    await read(await ask(reeId, QUESTION));
-    await read(await ask(reeId, QUESTION));
+    const askerId = await user('qa-week');
+    for (const question of [QUESTION, `${QUESTION} And to which card?`]) {
+      const made = await privatePosts.publishPrivatePost(askerId, { question, reeIds: [reeId], fees: { [reeId]: 20 }, lang: 'en' });
+      if (!made.ok) throw new Error(made.error);
+      await privatePosts.processPrivatePost(made.id);
+    }
     await computeRanks();
     const [card] = await reeCards([reeId], new Map(), { includeIntros: false });
     expect(card?.asked7).toBe(2);

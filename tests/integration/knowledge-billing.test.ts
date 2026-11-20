@@ -44,7 +44,7 @@ const { chunkOverheadBytes, defaultInfraCostRates } = await import('@/lib/domain
 const metered = await import('@/lib/services/metered-work');
 const { withProviderMeter, prepareProviderCall } = await import('@/lib/infra/ai/provider-meter');
 const { providerPrices } = await import('@/lib/services/provider-pricing');
-const chat = await import('@/lib/services/chat');
+const chat = await import('@/lib/services/retrieval');
 const { activeSpace, BASE_SPACE, chunkHasSpace, chunkVector } = await import('@/lib/services/embedding-space');
 
 let fake: FakeOpenAi;

@@ -27,9 +27,8 @@ function reeDescription(ree: PublicRee, fallback: string): string {
 
 /**
  * `/r/[slug]` (rebuild-proposal.md 2.4, prototype public-dot.js): a public
- * Ree on show with public comments. Asking happens in a conversation via
- * 「加入对话」. Knowledge appears only as
- * a count. Private, taken-down and deleted Rees are not found. Indexable.
+ * Ree on show with public comments. Asking happens in the 向它提问 box (a
+ * public post or a private question). Knowledge appears only as a count. Private, taken-down and deleted Rees are not found. Indexable.
  */
 export default async function PublicReePage({ params, searchParams }: Props) {
   const [{ slug }, query, user, { t, locale }] = await Promise.all([params, searchParams, currentUser(), serverMessages()]);

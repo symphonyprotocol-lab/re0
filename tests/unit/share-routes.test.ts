@@ -17,7 +17,7 @@ vi.mock('@/lib/services/share', async (original) => ({ ...(await original<typeof
 
 const ORIGIN = 'http://localhost:3000';
 const visitorId = '6f1c3a52-6c55-4a8e-9d0e-2f6ad0c1a111';
-const conversationId = '0c8f4f43-1f0a-4cf5-9f44-8a4c7bd5e222';
+const postId = '7a1d3c52-6e0b-4c1f-9a7d-2b8e5f4c3d21';
 const context = { params: Promise.resolve({ slug: 'ree-abc' }) };
 
 function request(path: string, options: { origin?: string | null; visitor?: string | null; body?: unknown } = {}) {
@@ -69,35 +69,26 @@ describe('share visit beacon', () => {
 
 describe('share conversion', () => {
   it('needs a signed-in user from this origin', async () => {
-    expect((await CONVERSION(request('/api/share/ree-abc/conversion', { visitor: visitorId, body: { conversationId } }), context)).status).toBe(401);
+    expect((await CONVERSION(request('/api/share/ree-abc/conversion', { visitor: visitorId, body: { postId } }), context)).status).toBe(401);
     state.signedIn = true;
-    expect((await CONVERSION(request('/api/share/ree-abc/conversion', { origin: 'https://attacker.test', visitor: visitorId, body: { conversationId } }), context)).status).toBe(403);
+    expect((await CONVERSION(request('/api/share/ree-abc/conversion', { origin: 'https://attacker.test', visitor: visitorId, body: { postId } }), context)).status).toBe(403);
     expect(recordShareConversion).not.toHaveBeenCalled();
   });
 
   it('attributes nothing to a browser without a visitor cookie', async () => {
     state.signedIn = true;
-    const response = await CONVERSION(request('/api/share/ree-abc/conversion', { body: { conversationId } }), context);
+    const response = await CONVERSION(request('/api/share/ree-abc/conversion', { body: { postId } }), context);
     expect(await response.json()).toEqual({ result: 'unattributed' });
     expect(response.cookies.get(VISITOR_COOKIE)).toBeUndefined();
     expect(recordShareConversion).not.toHaveBeenCalled();
   });
 
-  it('passes the visitor, the user and the conversation', async () => {
+  it('passes the visitor, the user and the post published from the share page', async () => {
     state.signedIn = true;
     vi.mocked(recordShareConversion).mockResolvedValueOnce('recorded').mockResolvedValueOnce('not_found');
-    const response = await CONVERSION(request('/api/share/ree-abc/conversion', { visitor: visitorId, body: { conversationId } }), context);
-    expect(await response.json()).toEqual({ result: 'recorded' });
-    expect(recordShareConversion).toHaveBeenCalledWith({ slug: 'ree-abc', visitorId, userId: 'user-1', conversationId });
-    expect((await CONVERSION(request('/api/share/ree-abc/conversion', { visitor: visitorId, body: { conversationId } }), context)).status).toBe(404);
-  });
-
-  it('passes a post published from the share page', async () => {
-    state.signedIn = true;
-    vi.mocked(recordShareConversion).mockResolvedValueOnce('recorded');
-    const postId = '7a1d3c52-6e0b-4c1f-9a7d-2b8e5f4c3d21';
     const response = await CONVERSION(request('/api/share/ree-abc/conversion', { visitor: visitorId, body: { postId } }), context);
     expect(await response.json()).toEqual({ result: 'recorded' });
     expect(recordShareConversion).toHaveBeenCalledWith({ slug: 'ree-abc', visitorId, userId: 'user-1', postId });
+    expect((await CONVERSION(request('/api/share/ree-abc/conversion', { visitor: visitorId, body: { postId } }), context)).status).toBe(404);
   });
 });

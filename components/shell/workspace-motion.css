@@ -93,8 +93,8 @@ body:has(.app-main, .console-app) :is([role='tab'], [role='menuitem'], [role='op
 .workspace-link-icon > .workspace-link-progress { inset: 0; width: 100%; height: 100%; margin: 0; }
 .workspace-link-icon:has(> .workspace-link-progress[data-pending='true']) > svg { visibility: hidden; }
 /* In menus, the spinner takes the icon's place while preserving the label. */
-:is(.sidebar .nav, .chat-sidebar-tools, .console-sidebar nav, .header-tabs) .workspace-link:has(> .workspace-link-progress[data-pending='true']) > svg:first-child { display: none; }
-:is(.sidebar .nav, .chat-sidebar-tools, .console-sidebar nav, .header-tabs) .workspace-link > .workspace-link-progress[data-pending='true'] { display: block; position: static; order: -1; flex: none; width: 16px; height: 16px; margin: 0; }
+:is(.sidebar .nav, .console-sidebar nav, .header-tabs) .workspace-link:has(> .workspace-link-progress[data-pending='true']) > svg:first-child { display: none; }
+:is(.sidebar .nav, .console-sidebar nav, .header-tabs) .workspace-link > .workspace-link-progress[data-pending='true'] { display: block; position: static; order: -1; flex: none; width: 16px; height: 16px; margin: 0; }
 /* Text-only tabs reserve the indicator's space so their neighbours do not jump. */
 :is(.header-tabs, .marketing-nav nav) .workspace-link:not(:has(> svg:first-child)) > .workspace-link-progress { display: inline-block; position: static; order: -1; flex: none; width: 14px; height: 14px; margin: 0 0 0 6px; vertical-align: middle; }
 .header-tabs > .workspace-link:has(> .workspace-link-progress[data-pending='true']) > .workspace-link-progress { width: 14px; height: 14px; }
@@ -105,7 +105,6 @@ body:has(.app-main, .console-app) :is([role='tab'], [role='menuitem'], [role='op
 body:has(.app-main, .console-app) :is([role='menu'], [role='listbox'], .mention-menu, .studio-example-popover) { animation: workspace-menu-in 180ms ease-out; }
 body:has(.app-main, .console-app) details[open] > :not(summary) { animation: workspace-menu-in 180ms ease-out; }
 body:has(.app-main, .console-app) dialog[open]:not(.drawer, .console-dialog),
-body:has(.app-main, .console-app) .cl-menu-dialog,
 .console-dialog[open] .modal,
 .console-app .statistics-calendar:not([hidden]) { animation: workspace-menu-in 180ms ease-out; }
 .console-sidebar nav:has([data-pending='true']) > .active:not(:has([data-pending='true'])) { color: #7e8fa9; background-color: transparent; }
@@ -126,7 +125,7 @@ body:has(.app-main, .console-app) .cl-menu-dialog,
   .workspace-link-progress { transition: none; }
   body:has(.app-main, .console-app) :is(button, a[href], summary, [role='button']):active { scale: none; }
   .workspace-link-progress[data-pending='true']::before,
-  body:has(.app-main, .console-app) :is([role='menu'], [role='listbox'], .mention-menu, .studio-example-popover, dialog[open]:not(.drawer, .console-dialog), .cl-menu-dialog),
+  body:has(.app-main, .console-app) :is([role='menu'], [role='listbox'], .mention-menu, .studio-example-popover, dialog[open]:not(.drawer, .console-dialog)),
   body:has(.app-main, .console-app) details[open] > :not(summary),
   .console-dialog[open] .modal,
   .console-app .statistics-calendar:not([hidden]) { animation: none; }

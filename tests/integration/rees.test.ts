@@ -3,7 +3,7 @@
  * until confirmed; creation ignores legacy sources and costs no credits. `/rees` follows the list contract.
  */
 import { describe, expect, it } from 'vitest';
-import { runBackfill, TEST_DATABASE_URL, uniqueName } from './setup';
+import { TEST_DATABASE_URL, uniqueName } from './setup';
 import { WELCOME_CREDITS } from '@/lib/constants';
 import { and, eq, inArray } from 'drizzle-orm';
 
@@ -12,7 +12,6 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 const { createSession } = await import('@/lib/services/auth');
 const { balanceOf } = await import('@/lib/services/credits');
 const rees = await import('@/lib/services/rees');
-const chat = await import('@/lib/services/chat');
 const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
 
@@ -119,36 +118,21 @@ async function reeRow(ownerId: string, values: { isPublic?: boolean; moderatedAt
   return ree!;
 }
 
-async function conversationWith(userId: string, reeId: string, kind: 'normal' | 'ree_test' = 'normal') {
-  const [conversation] = await db()
-    .insert(schema.conversation)
-    .values({ userId, kind, title: 'q', reeId: kind === 'ree_test' ? reeId : null })
-    .returning({ id: schema.conversation.id });
-  await db().insert(schema.conversationRee).values({ conversationId: conversation!.id, reeId });
-  return conversation!.id;
-}
-
 describeWithDb('/rees counts', () => {
-  it('shows the same feedback percentage as discovery and excludes the owner’s votes', async () => {
+  it('shows the same feedback percentage as discovery, from the frozen conversation votes', async () => {
     const owner = await newUser();
-    const voters = await Promise.all([newUser(), newUser(), newUser()]);
     const ree = await reeRow(owner);
     const listed = async () => (await rees.listRees(owner, { q: '', visibility: 'all', sort: 'default', size: 12, page: 1 })).items[0];
     expect((await listed())!.positiveRate).toBeNull();
 
-    const conversationId = await conversationWith(owner, ree.id, 'ree_test');
-    const [answer] = await db().insert(schema.message).values({ conversationId, role: 'ree', reeId: ree.id, content: 'answer' }).returning({ id: schema.message.id });
-    await db().insert(schema.reeFeedback).values({ messageId: answer!.id, userId: owner, vote: 'down' });
-    /* Conversation votes count as the release froze them (legacy-stats.test.ts). */
-    await runBackfill('legacy-stats');
+    /* The conversations' votes count as migration 0066 froze them, other people's only (legacy-stats.test.ts). */
+    await db().insert(schema.reeLegacyStats).values({ reeId: ree.id, helpful: 0, unhelpful: 0 });
     expect((await listed())!.positiveRate).toBeNull();
-
-    await db().insert(schema.reeFeedback).values(voters.map((userId, index) => ({ messageId: answer!.id, userId, vote: index < 2 ? 'up' as const : 'down' as const })));
-    await runBackfill('legacy-stats');
+    await db().update(schema.reeLegacyStats).set({ helpful: 2, unhelpful: 1 }).where(eq(schema.reeLegacyStats.reeId, ree.id));
     expect((await listed())!.positiveRate).toBe(67);
   });
 
-  it('keeps successful answers once the test chat is cleared, and counts paused sources as not ready', async () => {
+  it('counts successful answers from the ledger, and paused sources as not ready', async () => {
     const owner = await newUser();
     const ree = await reeRow(owner);
     await db()
@@ -157,44 +141,34 @@ describeWithDb('/rees counts', () => {
         { reeId: ree.id, kind: 'text', title: 'On', originalTitle: 'On', status: 'ready', content: 'a' },
         { reeId: ree.id, kind: 'text', title: 'Paused', originalTitle: 'Paused', status: 'ready', content: 'b', enabled: false },
       ]);
-    const conversationId = await conversationWith(owner, ree.id, 'ree_test');
-    /* One answered question (settled as `query_base`, as answer.ts writes it) and one the Ree could not answer. */
+    /* One answered question (settled as `query_base`) and one the Ree could not answer. */
     for (const answered of [true, false]) {
-      const [asked] = await db().insert(schema.message).values({ conversationId, role: 'user', content: 'question' }).returning({ id: schema.message.id });
-      await db().insert(schema.message).values({ conversationId, role: 'ree', reeId: ree.id, content: answered ? 'answer' : '', noAnswer: !answered, requestId: asked!.id });
       await db()
         .insert(schema.creditEntry)
-        .values({ userId: owner, reason: answered ? 'query_base' : 'query_refund', delta: answered ? 0 : 20, reeId: ree.id, refId: asked!.id });
+        .values({ userId: owner, reason: answered ? 'query_base' : 'query_refund', delta: answered ? 0 : 20, reeId: ree.id, refId: crypto.randomUUID() });
     }
     const listed = async () => (await rees.listRees(owner, { q: '', visibility: 'all', sort: 'answers_desc', size: 12, page: 1 })).items[0];
     expect(await listed()).toMatchObject({ sources: 2, readySources: 1, answers: 1 });
 
-    await chat.clearConversation(conversationId);
-    expect(await db().select().from(schema.message).where(eq(schema.message.conversationId, conversationId))).toHaveLength(0);
-    expect(await listed()).toMatchObject({ sources: 2, readySources: 1, answers: 1 });
     expect(await rees.reeTotals(owner)).toMatchObject({ sources: 2, readySources: 1, answers: 1 });
     expect(await rees.reeSourceCount(ree.id)).toBe(2);
   });
 });
 
 describeWithDb('/rees batch visibility', () => {
-  it('makes Rees private like a single update: out of other people’s conversations, the owner’s stay', async () => {
+  it('makes Rees private like a single update', async () => {
     const owner = await newUser();
     const other = await newUser();
     const a = await reeRow(owner, { isPublic: true });
     const b = await reeRow(owner, { isPublic: true });
     const already = await reeRow(owner, { isPublic: false });
     const theirs = await reeRow(other, { isPublic: true });
-    const othersChat = await conversationWith(other, a.id);
-    const ownChat = await conversationWith(owner, a.id);
 
     const plan = await rees.setReesVisibility(owner, [a.id, b.id, already.id, theirs.id], false);
     expect(plan.changes.sort()).toEqual([a.id, b.id].sort());
     expect(plan).toMatchObject({ unchanged: [already.id], blocked: [], missing: [theirs.id] });
     const rows = await db().select({ id: schema.ree.id, isPublic: schema.ree.isPublic }).from(schema.ree).where(inArray(schema.ree.id, [a.id, b.id, theirs.id]));
     expect(Object.fromEntries(rows.map((row) => [row.id, row.isPublic]))).toEqual({ [a.id]: false, [b.id]: false, [theirs.id]: true });
-    expect(await db().select().from(schema.conversationRee).where(eq(schema.conversationRee.conversationId, othersChat))).toHaveLength(0);
-    expect(await db().select().from(schema.conversationRee).where(eq(schema.conversationRee.conversationId, ownChat))).toHaveLength(1);
   });
 
   it('skips a taken-down Ree when going public and lists the selection for "选中全部结果"', async () => {

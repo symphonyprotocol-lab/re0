@@ -34,7 +34,7 @@ import { DemoScriptError, writeNarratedVideo } from '@/lib/services/product-demo
 import { videoExportPrice, videoScriptPrice } from '@/lib/services/video-pricing';
 import { blobSize, deleteBlob, uploadTicket, type UploadTicket } from '@/lib/infra/blob';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
-import { answerable } from '@/lib/services/chat';
+import { answerable } from '@/lib/services/retrieval';
 import { placeHold, releaseHold, settleHold } from '@/lib/services/credits';
 
 export type VideoRow = typeof schema.reeVideo.$inferSelect;

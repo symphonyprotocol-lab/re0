@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { AI_ANSWER_FEE, type AiAnswerView } from '@/lib/domain/post';
-import { Markdown } from '@/components/chat/markdown';
+import { Markdown } from '@/components/posts/markdown';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon, type IconName } from '@/components/ui/icons';

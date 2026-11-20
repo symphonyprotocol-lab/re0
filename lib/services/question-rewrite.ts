@@ -12,7 +12,7 @@
 import { generateText, Output } from 'ai';
 import { REWRITE_OUTPUT_TOKENS, REWRITE_TIMEOUT_MS } from '@/lib/constants';
 import { REWRITE_SCHEMA, rewriteInstructions, rewriteOf, rewritePrompt, rewriteTerms, type Script } from '@/lib/domain/cross-lingual';
-import { embedQuestion, type QuestionVector } from '@/lib/services/chat';
+import { embedQuestion, type QuestionVector } from '@/lib/services/retrieval';
 import { generationForUser } from '@/lib/services/generation';
 
 export interface QuestionRewrite {

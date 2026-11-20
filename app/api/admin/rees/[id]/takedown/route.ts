@@ -6,7 +6,7 @@ import { body, json } from '@/lib/http/respond';
 import { takeDownRee } from '@/lib/services/admin-rees';
 import { closeUnavailableRequests } from '@/lib/services/posts';
 
-/** Takes a public Ree down: private, not republishable by its owner, out of other people's conversations; the owner is told why. `{ reason }` 3–300. */
+/** Takes a public Ree down: private, not republishable by its owner, out of discovery; the owner is told why. `{ reason }` 3–300. */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;

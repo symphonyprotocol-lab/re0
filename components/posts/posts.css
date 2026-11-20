@@ -1,7 +1,7 @@
 /*
  * Public posts (v5, docs/design/discover-posts.html): the feed, the
  * composer and its window, and a post's page with up to five answers.
- * Same tokens and values as explore.css, feed.css and conversations.css.
+ * Same tokens and values as explore.css, feed.css and answer-parts.css.
  */
 
 /* ---------------------------------------------------------------- the home */
@@ -707,7 +707,7 @@ a.post-quote:hover {
   gap: 8px;
 }
 
-/* A round-table summary's source markers ([A2]): chips with room around them, as in a conversation's round table (2026-11-19). */
+/* A round-table summary's source markers ([A2]): chips with room around them, as the conversations' round table had them (2026-11-19). */
 .post-summary .synthesis-source {
   display: inline-flex;
   align-items: center;

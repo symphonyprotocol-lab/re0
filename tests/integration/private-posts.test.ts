@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-import { pointModelsAt, runBackfill, TEST_DATABASE_URL, uniqueName } from './setup';
+import { dropConversationTables, pointModelsAt, restoreConversationTables, runBackfill, TEST_DATABASE_URL, uniqueName } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import type { AnswerOne } from '@/lib/services/posts';
 
@@ -47,6 +47,7 @@ beforeAll(async () => {
   forgetModelCache();
 });
 afterAll(async () => {
+  await dropConversationTables();
   await fake?.close();
 });
 
@@ -360,29 +361,29 @@ const runLegacyBackfill = () => runBackfill('legacy-stats');
 
 describeWithDb('legacy counters from conversations', () => {
   it('backfills what explore, rank and roles count from conversations today', async () => {
+    /* The conversation tables, gone since migration 0070, back for this test only. */
+    await restoreConversationTables();
     const { ownerId, reeId } = await makeRee();
     const askers = [await user('lg-a'), await user('lg-b'), await user('lg-c')];
-    /** One exchange in a new conversation of `userId`; answers the ree message's id. */
+    /** One exchange in a new conversation of `userId` (raw SQL: the schema no longer has the tables); answers the ree message's id. */
     const exchange = async (userId: string, options: { noAnswer?: boolean; copied?: boolean } = {}) => {
-      const [conversation] = await db().insert(schema.conversation).values({ userId }).returning({ id: schema.conversation.id });
+      const conversationId = crypto.randomUUID();
       const requestId = crypto.randomUUID();
-      await db().insert(schema.message).values({ id: requestId, conversationId: conversation!.id, role: 'user', content: 'Q?', requestId, copiedFromPost: options.copied ?? false });
-      const [reply] = await db()
-        .insert(schema.message)
-        .values({ conversationId: conversation!.id, role: 'ree', reeId, content: options.noAnswer ? '' : 'A.', noAnswer: options.noAnswer ?? false, requestId, copiedFromPost: options.copied ?? false })
-        .returning({ id: schema.message.id });
-      return reply!.id;
+      const replyId = crypto.randomUUID();
+      const copied = options.copied ?? false;
+      await db().execute(sql`insert into conversation (id, user_id) values (${conversationId}, ${userId})`);
+      await db().execute(sql`insert into message (id, conversation_id, role, content, request_id, copied_from_post) values (${requestId}, ${conversationId}, 'user', 'Q?', ${requestId}, ${copied})`);
+      await db().execute(sql`insert into message (id, conversation_id, role, ree_id, content, no_answer, request_id, copied_from_post)
+        values (${replyId}, ${conversationId}, 'ree', ${reeId}, ${options.noAnswer ? '' : 'A.'}, ${options.noAnswer ?? false}, ${requestId}, ${copied})`);
+      return replyId;
     };
     const answered = [await exchange(askers[0]!), await exchange(askers[1]!), await exchange(askers[2]!)];
     await exchange(askers[0]!, { noAnswer: true });
     await exchange(askers[1]!, { copied: true });
     const own = await exchange(ownerId);
-    await db().insert(schema.reeFeedback).values([
-      { messageId: answered[0]!, userId: askers[0]!, vote: 'up' },
-      { messageId: answered[1]!, userId: askers[1]!, vote: 'up' },
-      { messageId: answered[2]!, userId: askers[2]!, vote: 'down' },
-      { messageId: own, userId: ownerId, vote: 'up' },
-    ]);
+    for (const [messageId, userId, vote] of [[answered[0]!, askers[0]!, 'up'], [answered[1]!, askers[1]!, 'up'], [answered[2]!, askers[2]!, 'down'], [own, ownerId, 'up']] as const) {
+      await db().execute(sql`insert into ree_feedback (message_id, user_id, vote) values (${messageId}, ${userId}, ${vote})`);
+    }
 
     await runLegacyBackfill();
     await computeRanks();

@@ -7,8 +7,8 @@ import type { CitationSnapshot } from '@/lib/domain/answer';
 import { FOLLOWUP_FOLD_HEAD, FOLLOWUP_FOLD_TAIL, FOLLOWUP_ROUND_ANSWERS, POST_SUMMARY_FEE, POST_TITLE_MAX, type AiAnswerView, type FollowupView, type PaidRequestView, type PostAnswerView, type PostPage, type PostView, type PrivateReeOption } from '@/lib/domain/post';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber, formatRelative } from '@/i18n/format';
-import { AnswerText, CitationChips, CitationDrawer, Typing } from '@/components/chat/message-parts';
-import { Markdown } from '@/components/chat/markdown';
+import { AnswerText, CitationChips, CitationDrawer, Typing } from '@/components/posts/answer-parts';
+import { Markdown } from '@/components/posts/markdown';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { useToast } from '@/components/ui/toast';
@@ -815,8 +815,6 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
           {firstAi?.state === 'skipped_balance' && shown.length === 0 && <AiRound ai={firstAi} postId={post.id} onChange={(next) => setAi(null, next)} onRefresh={() => void refresh()} />}
         </>
       )}
-
-      {/* The old "你以前的私下追问" (conversations opened from this post) went with the chat pages (2026-11-20); `post.followUps` stays in the view until PR B. */}
 
       {shown.length > 0 && (
         <div className="post-answers-head scroll-mt-24" id="answers">

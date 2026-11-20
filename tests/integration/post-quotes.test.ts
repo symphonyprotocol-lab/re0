@@ -33,16 +33,12 @@ const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
 const { POST: reportPostRoute } = await import('@/app/api/posts/[id]/report/route');
-const { publishOwnAnswer } = await import('@/lib/services/public-qa');
 const { reeCards } = await import('@/lib/services/explore');
 const { consoleAdministrator } = await import('../fixtures/console-administrator');
-const { POST: askTokenRoute } = await import('@/app/api/share/[slug]/ask-token/route');
-const { validShareAskToken } = await import('@/lib/services/anonymous-chat');
 const { adminSetPublicQa } = await import('@/lib/services/public-qa');
 const writes = {
   publish: (await import('@/app/api/posts/route')).POST,
   summary: (await import('@/app/api/posts/[id]/summary/route')).POST,
-  followUp: (await import('@/app/api/posts/[id]/follow-up/route')).POST,
   save: (await import('@/app/api/posts/[id]/save/route')).POST,
   trash: (await import('@/app/api/posts/[id]/route')).PATCH,
   helpful: (await import('@/app/api/posts/answers/[answerId]/helpful/route')).POST,
@@ -239,7 +235,6 @@ describeWithDb('quoting a post or an answer', () => {
     const id = { params: Promise.resolve({ id: original.postId }) };
     expect((await writes.publish(request('/api/posts', { question: 'A visitor post?', quotePostId: original.postId }))).status).toBe(401);
     expect((await writes.summary(request(`/api/posts/${original.postId}/summary`, {}), id)).status).toBe(401);
-    expect((await writes.followUp(request(`/api/posts/${original.postId}/follow-up`, { answerId: original.answerId }), id)).status).toBe(401);
     expect((await writes.save(request(`/api/posts/${original.postId}/save`, { on: true }), id)).status).toBe(401);
     expect((await writes.trash(request(`/api/posts/${original.postId}`, { trashed: true }, 'PATCH'), id)).status).toBe(401);
     expect((await writes.helpful(request(`/api/posts/answers/${original.answerId}/helpful`, { on: true }), { params: Promise.resolve({ answerId: original.answerId }) })).status).toBe(401);
@@ -377,24 +372,4 @@ describeWithDb('quotes after review (#161, 2026-11-19)', () => {
     }
   });
 
-  it('renews a share page\'s question token only for a Ree a visitor may ask there', async () => {
-    const call = (slug: string, origin = 'http://localhost:3000') =>
-      askTokenRoute(new NextRequest(`http://localhost:3000/api/share/${slug}/ask-token`, { method: 'POST', headers: { origin, host: 'localhost:3000' } }), { params: Promise.resolve({ slug }) });
-    const free = await publicRee();
-    const [row] = await db().select({ slug: schema.ree.slug }).from(schema.ree).where(eq(schema.ree.id, free.reeId));
-    const response = await call(row!.slug);
-    expect(response.status).toBe(200);
-    const { token } = (await response.json()) as { token: string };
-    expect(await validShareAskToken(token, free.reeId)).toBe(true);
-    expect((await call(row!.slug, 'https://evil.example')).status).toBe(403);
-
-    const paid = await publicRee(20);
-    const [paidRow] = await db().select({ slug: schema.ree.slug }).from(schema.ree).where(eq(schema.ree.id, paid.reeId));
-    expect((await call(paidRow!.slug)).status).toBe(404);
-    const hidden = await publicRee();
-    await db().update(schema.ree).set({ isPublic: false, isPublished: false }).where(eq(schema.ree.id, hidden.reeId));
-    const [hiddenRow] = await db().select({ slug: schema.ree.slug }).from(schema.ree).where(eq(schema.ree.id, hidden.reeId));
-    expect((await call(hiddenRow!.slug)).status).toBe(404);
-    expect((await call('no-such-ree')).status).toBe(404);
-  });
 });

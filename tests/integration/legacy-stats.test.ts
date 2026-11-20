@@ -1,15 +1,17 @@
 /**
- * Private posts replace private conversations (PR A); PR B deletes the
- * conversation tables. Every figure that counted them now reads the frozen
- * conversation counters (migrations 0066 / 0067) plus the same figure from
- * posts, so deleting the conversations changes nothing. And the owner's 试问
- * (private posts of source `test`) is billed like the test conversation and
- * counted nowhere.
+ * Private posts replace private conversations (PR A); migration 0070 (PR B)
+ * drops the conversation tables. Every figure that counted them now reads
+ * the frozen conversation counters (migrations 0066 / 0067) plus the same
+ * figure from posts, so dropping the conversations changes nothing. And the
+ * owner's 试问 (private posts of source `test`) is billed like the test
+ * conversation was and counted nowhere. The conversation tables are put
+ * back for these tests only (`restoreConversationTables`), and 0070 itself
+ * drops them again.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-import { pointModelsAt, runBackfill, TEST_DATABASE_URL, uniqueName } from './setup';
+import { dropConversationTables, pointModelsAt, restoreConversationTables, runBackfill, TEST_DATABASE_URL, uniqueName } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import type { AnswerOne } from '@/lib/services/posts';
 
@@ -52,6 +54,7 @@ beforeAll(async () => {
   forgetModelCache();
 });
 afterAll(async () => {
+  await dropConversationTables();
   await fake?.close();
 });
 
@@ -86,16 +89,21 @@ async function privateAsk(userId: string, reeId: string, options: { source?: 'po
   return made.id;
 }
 
-/** One exchange in a new conversation, as the chat wrote them; answers the reply's id. */
+/** One exchange in a new conversation, as the chat wrote them (raw SQL: the schema no longer has the tables); answers the reply's id. */
 async function exchange(userId: string, reeId: string, options: { noAnswer?: boolean; copied?: boolean; kind?: 'normal' | 'mcp'; apiKeyId?: string; cost?: number } = {}) {
-  const [conversation] = await db().insert(schema.conversation).values({ userId, kind: options.kind ?? 'normal' }).returning({ id: schema.conversation.id });
+  const conversationId = crypto.randomUUID();
   const requestId = crypto.randomUUID();
-  await db().insert(schema.message).values({ id: requestId, conversationId: conversation!.id, role: 'user', content: 'Q?', requestId, copiedFromPost: options.copied ?? false, apiKeyId: options.apiKeyId ?? null });
-  const [reply] = await db()
-    .insert(schema.message)
-    .values({ conversationId: conversation!.id, role: 'ree', reeId, content: options.noAnswer ? '' : 'A.', noAnswer: options.noAnswer ?? false, requestId, copiedFromPost: options.copied ?? false, costCredits: options.cost ?? 0 })
-    .returning({ id: schema.message.id });
-  return { conversationId: conversation!.id, replyId: reply!.id };
+  const replyId = crypto.randomUUID();
+  const copied = options.copied ?? false;
+  await db().execute(sql`insert into conversation (id, user_id, kind) values (${conversationId}, ${userId}, ${options.kind ?? 'normal'})`);
+  await db().execute(sql`insert into message (id, conversation_id, role, content, request_id, copied_from_post, api_key_id) values (${requestId}, ${conversationId}, 'user', 'Q?', ${requestId}, ${copied}, ${options.apiKeyId ?? null})`);
+  await db().execute(sql`insert into message (id, conversation_id, role, ree_id, content, no_answer, request_id, copied_from_post, cost_credits)
+    values (${replyId}, ${conversationId}, 'ree', ${reeId}, ${options.noAnswer ? '' : 'A.'}, ${options.noAnswer ?? false}, ${requestId}, ${copied}, ${options.cost ?? 0})`);
+  return { conversationId, replyId };
+}
+
+async function vote(messageId: string, userId: string, value: 'up' | 'down') {
+  await db().execute(sql`insert into ree_feedback (message_id, user_id, vote) values (${messageId}, ${userId}, ${value})`);
 }
 
 /** What the readers counted from conversations before private posts (the queries as they were). */
@@ -133,6 +141,7 @@ async function figures(ree: { ownerId: string; reeId: string; slug: string }, ke
 
 describeWithDb('legacy counters: the same figures before and after the conversations go', () => {
   it('reads every figure as the frozen conversations plus the posts, and keeps it when the conversations are deleted', async () => {
+    await restoreConversationTables();
     const ree = await makeRee();
     const a = await user('ls-a', 1_000);
     const b = await user('ls-b', 1_000);
@@ -145,11 +154,9 @@ describeWithDb('legacy counters: the same figures before and after the conversat
     await exchange(b, ree.reeId, { copied: true });
     await exchange(a, ree.reeId, { kind: 'mcp', apiKeyId: key.id, cost: BASE });
     const own = await exchange(ree.ownerId, ree.reeId);
-    await db().insert(schema.reeFeedback).values([
-      { messageId: first.replyId, userId: a, vote: 'up' },
-      { messageId: second.replyId, userId: b, vote: 'down' },
-      { messageId: own.replyId, userId: ree.ownerId, vote: 'up' },
-    ]);
+    await vote(first.replyId, a, 'up');
+    await vote(second.replyId, b, 'down');
+    await vote(own.replyId, ree.ownerId, 'up');
     const old = await conversationFigures(ree.reeId, ree.ownerId);
     expect(old).toEqual({ answers: 3, asked: 4, up: 1, down: 1 });
 
@@ -185,22 +192,24 @@ describeWithDb('legacy counters: the same figures before and after the conversat
       saved: 4,
     });
 
-    /* PR B: the conversations go. */
-    await db().delete(schema.conversation).where(inArray(schema.conversation.userId, [a, b, ree.ownerId]));
-    expect(await db().select().from(schema.message).where(eq(schema.message.reeId, ree.reeId))).toEqual([]);
+    /* PR B: migration 0070 drops the conversation tables. */
+    await dropConversationTables();
+    const gone = await db().execute<{ present: boolean }>(sql`select to_regclass('public.message') is not null as present`);
+    expect(gone.rows[0]!.present).toBe(false);
     expect(await figures(ree, a, key.id)).toEqual(before);
   });
 
   it('tells everyone with a conversation that has something in it, once, that the conversations go', async () => {
+    await restoreConversationTables();
     const talker = await user('ls-talker');
     const empty = await user('ls-empty');
     const trashed = await user('ls-trashed');
     const ree = await makeRee();
     await exchange(talker, ree.reeId);
     await exchange(talker, ree.reeId);
-    await db().insert(schema.conversation).values({ userId: empty });
+    await db().execute(sql`insert into conversation (user_id) values (${empty})`);
     const gone = await exchange(trashed, ree.reeId);
-    await db().update(schema.conversation).set({ deletedAt: new Date() }).where(eq(schema.conversation.id, gone.conversationId));
+    await db().execute(sql`update conversation set deleted_at = now() where id = ${gone.conversationId}`);
     await runBackfill('chats-removal-notice');
     await runBackfill('chats-removal-notice');
     const told = await db().select().from(schema.notice).where(and(inArray(schema.notice.userId, [talker, empty, trashed]), eq(schema.notice.kind, 'chats_removal')));

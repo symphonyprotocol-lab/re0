@@ -3,7 +3,7 @@ import { headers } from 'next/headers';
 import { permanentRedirect } from 'next/navigation';
 import { EXPLORE_BATCH_SIZES } from '@/lib/constants';
 import { parseExploreQuery } from '@/lib/domain/explore';
-import { clientIp } from '@/lib/http/conversations';
+import { clientIp } from '@/lib/http/client-ip';
 import { currentUser } from '@/lib/http/session';
 import { allowSearch, explore } from '@/lib/services/explore';
 import { favoriteReeIds, listFavoriteRees } from '@/lib/services/ree-favorites';

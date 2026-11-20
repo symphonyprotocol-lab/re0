@@ -10,16 +10,15 @@
  * and reports' keys), so this runs again at any time without copying
  * twice: in migration 0056, after each review that publishes, and hourly.
  * A copied post is published with its answer; who asked is never shown
- * (as before), and one asked from a conversation still follows that
- * conversation in and out of the trash (posts.ts `visiblePost`).
+ * (as before).
  */
 import { sql } from 'drizzle-orm';
 import { db } from '@/lib/infra/db';
 
-/** The statements, in order; migration 0056 ran the same text, then with the `charge` column 0062 dropped (per-answer billing). */
+/** The statements, in order; migration 0056 ran the same text, then with the `charge` column 0062 dropped (per-answer billing) and the `message_id` one 0070 dropped (the conversations). */
 export const SYNC_PUBLIC_QA_STATEMENTS = [
-  `insert into post (user_id, source, legacy_qa_id, message_id, anonymous, question, lang, category, status, answer_state, answer_count, created_at, published_at, answered_at)
-select q.user_id, case q.source when 'user' then 'conversation' else q.source end, q.id, q.message_id, true, left(q.question, 4000), q.lang, r.category,
+  `insert into post (user_id, source, legacy_qa_id, anonymous, question, lang, category, status, answer_state, answer_count, created_at, published_at, answered_at)
+select q.user_id, case q.source when 'user' then 'conversation' else q.source end, q.id, true, left(q.question, 4000), q.lang, r.category,
   'published', 'done', case when q.status = 'published' then 1 else 0 end, q.created_at, coalesce(q.published_at, q.created_at), coalesce(q.published_at, q.created_at)
 from ree_public_qa q join ree r on r.id = q.ree_id
 where q.status in ('published', 'hidden') and not exists (select 1 from post p where p.legacy_qa_id = q.id)

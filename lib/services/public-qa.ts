@@ -1,20 +1,18 @@
 /**
  * The Ree page's public Q&A (lib/domain/public-qa.ts).
  *
- * - Only what an asker chose to publish is ever kept: a visitor ticks
- *   "回答后公开" before asking and the anonymous route snapshots the answer
- *   it gave; a signed-in asker publishes an answer from their own
- *   conversation. Single-turn only: a visitor's question with earlier turns,
- *   or a signed-in follow-up, is never kept.
- * - A snapshot is redacted on the way in (e-mail, identity numbers, long
+ * - Only what an asker chose to publish was ever kept: a visitor ticked
+ *   "回答后公开" before asking, or a signed-in asker published an answer
+ *   from their own conversation. Neither exists any more (the visitors'
+ *   in 2026-11-19, the conversations with migration 0070, which kept what
+ *   they had published); what is kept stays, read as posts.
+ * - A snapshot was redacted on the way in (e-mail, identity numbers, long
  *   digit runs, links in the question) and starts `pending`. A moderation
  *   check publishes or rejects it; a failed check is retried by the hourly
  *   cron, and given up after `PUBLIC_QA_MODERATION_ATTEMPTS`.
- * - A published answer shows while its Ree is public with public Q&A on,
- *   and -- for a signed-in asker -- while its message is in a conversation
- *   outside the trash: deleting the conversation takes it down, restoring
- *   brings it back, and purging it (or deleting the account) deletes the
- *   snapshot itself, text and all (the foreign keys cascade).
+ * - A published answer shows while its Ree is public with public Q&A on;
+ *   deleting the asker's account deletes the snapshot (the foreign key
+ *   cascades).
  * - The owner pins (one per Ree) and hides for good; an administrator hides,
  *   and restores what an administrator or reports hid -- never what the
  *   owner hid; enough distinct reporters hide it until an administrator
@@ -22,7 +20,7 @@
  * - A snapshot whose last check never finished (the function died) is
  *   rejected by the hourly cron after `PUBLIC_QA_STUCK_MS`: never public.
  */
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm';
 import { generateText } from 'ai';
 import type { CitationSnapshot } from '@/lib/domain/answer';
 import {
@@ -49,7 +47,7 @@ import { generationForUser } from '@/lib/services/generation';
 import { answeredPostCounts, flagQuotingAnswer, ownerActOnAnswer, reportAnswer, setAnswerHelpful, shownAnswer, visiblePost, type OwnerAction } from '@/lib/services/posts';
 import { syncPublicQa } from '@/lib/services/public-qa-sync';
 
-const { ree, reePublicQa: qa, message, conversation, post, postAnswer: answer, postAnswerVote: vote, postAnswerReport: report, user } = schema;
+const { ree, reePublicQa: qa, post, postAnswer: answer, postAnswerVote: vote, postAnswerReport: report, user } = schema;
 
 /* --------------------------------------------------------------- visibility */
 
@@ -68,7 +66,6 @@ export interface Snapshot {
   citations: CitationSnapshot[];
   lang: 'zh' | 'en';
   userId?: string | null;
-  messageId?: string | null;
 }
 
 /** Keeps a redacted, pending snapshot; null when the Ree does not take public answers now or the text is unusable. */
@@ -80,43 +77,10 @@ export async function keepSnapshot(input: Snapshot): Promise<string | null> {
   if (!open) return null;
   const [row] = await db()
     .insert(qa)
-    .values({ reeId: input.reeId, source: input.source, question, answer, citations: input.citations, lang: input.lang, userId: input.userId ?? null, messageId: input.messageId ?? null })
+    .values({ reeId: input.reeId, source: input.source, question, answer, citations: input.citations, lang: input.lang, userId: input.userId ?? null })
     .onConflictDoNothing()
     .returning({ id: qa.id });
   return row?.id ?? null;
-}
-
-export type PublishResult = { id: string } | 'not_found' | 'not_single_turn' | 'no_answer' | 'closed' | 'already';
-
-/**
- * A signed-in asker publishes one of their answers: the Ree's reply to the
- * first question of a conversation they own (not one started from a post:
- * its answer is the post's own), not in the trash, that answered
- * (not a "no answer"), on a Ree that takes public answers.
- */
-export async function publishOwnAnswer(userId: string, reeId: string, messageId: string, lang: 'zh' | 'en'): Promise<PublishResult> {
-  if (!isUuid(messageId) || !isUuid(reeId)) return 'not_found';
-  const [reply] = await db()
-    .select({ id: message.id, conversationId: message.conversationId, content: message.content, citations: message.citations, noAnswer: message.noAnswer, reeId: message.reeId, createdAt: message.createdAt })
-    .from(message)
-    .innerJoin(conversation, eq(conversation.id, message.conversationId))
-    .where(and(eq(message.id, messageId), eq(message.role, 'ree'), eq(message.reeId, reeId), eq(conversation.userId, userId), isNull(conversation.deletedAt), eq(conversation.kind, 'normal'), isNull(conversation.postId)))
-    .limit(1);
-  if (!reply) return 'not_found';
-  if (reply.noAnswer || !reply.content.trim()) return 'no_answer';
-  const questions = await db()
-    .select({ id: message.id, content: message.content, createdAt: message.createdAt })
-    .from(message)
-    .where(and(eq(message.conversationId, reply.conversationId), eq(message.role, 'user')))
-    .orderBy(asc(message.createdAt))
-    .limit(2);
-  /* Single turn: the conversation's first question, and the reply came before any second one. */
-  const first = questions[0];
-  if (!first || first.createdAt > reply.createdAt || (questions[1] && questions[1].createdAt <= reply.createdAt)) return 'not_single_turn';
-  const [existing] = await db().select({ id: qa.id }).from(qa).where(eq(qa.messageId, messageId)).limit(1);
-  if (existing) return 'already';
-  const id = await keepSnapshot({ reeId, source: 'user', question: first.content, answer: reply.content, citations: reply.citations, lang, userId, messageId });
-  return id ? { id } : 'closed';
 }
 
 /* --------------------------------------------------------------- moderation */

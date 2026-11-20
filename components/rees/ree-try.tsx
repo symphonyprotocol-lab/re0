@@ -8,7 +8,7 @@ import type { CitationSnapshot } from '@/lib/domain/answer';
 import { POST_QUESTION_MAX, type PostView } from '@/lib/domain/post';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber, formatRelative } from '@/i18n/format';
-import { AnswerText, CitationChips, CitationDrawer } from '@/components/chat/message-parts';
+import { AnswerText, CitationChips, CitationDrawer } from '@/components/posts/answer-parts';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { useToast } from '@/components/ui/toast';

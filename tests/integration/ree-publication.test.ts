@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db, schema } from '@/lib/infra/db';
 import { blobSize } from '@/lib/infra/blob';
 import { newReeDraft } from '@/lib/domain/ree';
 import { createSession } from '@/lib/services/auth';
-import { createReeFromDraft, getDraft, ownedRee, saveDraft, setReePublished, setReesVisibility, updateRee, listRees } from '@/lib/services/rees';
+import { createReeFromDraft, getDraft, ownedRee, saveDraft, setReePublished, setReesVisibility, updateRee, listRees, usableBy } from '@/lib/services/rees';
 import { coverVisibleTo, publicReeBySlug, reeForPreview } from '@/lib/services/public-rees';
-import { reeBriefs, createConversation } from '@/lib/services/conversations';
+import { publishPrivatePost } from '@/lib/services/private-posts';
 import { reeCards } from '@/lib/services/explore';
 
 vi.mock('@/lib/infra/blob', async (importOriginal) => ({
@@ -16,6 +16,11 @@ vi.mock('@/lib/infra/blob', async (importOriginal) => ({
 }));
 
 const suite = TEST_DATABASE_URL ? describe : describe.skip;
+
+/** Whether this user may ask the Ree (rees.ts `usableBy`). */
+async function usable(userId: string, reeId: string): Promise<boolean> {
+  return (await db().select({ id: schema.ree.id }).from(schema.ree).where(and(eq(schema.ree.id, reeId), usableBy(userId)))).length > 0;
+}
 async function person() {
   const name = uniqueName('publisher');
   return (await createSession({ provider: 'github', subject: name, handle: name, email: `${name}@example.test`, displayName: name, avatarUrl: null }, 'en', '/')).userId;
@@ -76,27 +81,24 @@ suite('explicit Ree publication', () => {
     expect(await getDraft(owner)).toBeNull();
     expect(await publicReeBySlug(ree.slug)).toBeNull();
     expect(await reeCards([ree.id])).toEqual([]);
-    expect((await reeBriefs(db(), owner, [ree.id])).get(ree.id)?.usable).toBe(true);
-    expect((await reeBriefs(db(), other, [ree.id])).get(ree.id)?.usable).toBe(false);
-    await expect(createConversation(other, { reeIds: [ree.id] })).rejects.toMatchObject({ code: 'ree_unavailable' });
+    expect(await usable(owner, ree.id)).toBe(true);
+    expect(await usable(other, ree.id)).toBe(false);
+    expect(await publishPrivatePost(other, { question: 'Anything?', reeIds: [ree.id], fees: { [ree.id]: 20 }, lang: 'en' })).toEqual({ ok: false, error: 'ree_unavailable' });
     expect(await ownedRee(db(), owner, ree.id)).not.toBeNull();
   });
 
-  it('publishes explicitly, unpublishes without losing public settings, and preserves owner conversations', async () => {
+  it('publishes explicitly, and unpublishes without losing public settings', async () => {
     const owner = await person();
     const other = await person();
     const ree = await create(owner);
     expect(await setReePublished(owner, ree.id, true)).toMatchObject({ isPublic: true, isPublished: true });
     expect(await publicReeBySlug(ree.slug)).toMatchObject({ id: ree.id });
     expect(await reeCards([ree.id])).toHaveLength(1);
-    const othersChat = await createConversation(other, { reeIds: [ree.id] });
-    const ownChat = await createConversation(owner, { reeIds: [ree.id] });
     expect(await setReePublished(owner, ree.id, false)).toMatchObject({ isPublic: true, isPublished: false });
     expect(await publicReeBySlug(ree.slug)).toBeNull();
     expect(await reeCards([ree.id])).toEqual([]);
-    expect(await db().select().from(schema.conversationRee).where(eq(schema.conversationRee.conversationId, othersChat.id))).toHaveLength(0);
-    expect(await db().select().from(schema.conversationRee).where(eq(schema.conversationRee.conversationId, ownChat.id))).toHaveLength(1);
-    expect((await reeBriefs(db(), other, [ree.id])).get(ree.id)?.usable).toBe(false);
+    expect(await usable(other, ree.id)).toBe(false);
+    expect(await usable(owner, ree.id)).toBe(true);
     expect(await setReePublished(owner, ree.id, false)).toMatchObject({ isPublished: false });
     expect(await setReePublished(owner, ree.id, true)).toMatchObject({ isPublished: true });
   });

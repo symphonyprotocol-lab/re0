@@ -5,7 +5,6 @@
  */
 import { TEST_DATABASE_URL } from './setup';
 import { describe, expect, it } from 'vitest';
-import { parseConversationQuery } from '@/lib/domain/conversation';
 
 const suite = TEST_DATABASE_URL ? describe : describe.skip;
 const MALFORMED = ['------------------------------------', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa-', '0123456789abcdef0123456789abcdef----'];
@@ -13,13 +12,12 @@ const someone = '6f1c3a52-6c55-4a8e-9d0e-2f6ad0c1a111';
 
 suite('malformed ids', () => {
   it('are not found instead of a database error', async () => {
-    const { liveConversation } = await import('@/lib/services/conversations');
+    const { getPost } = await import('@/lib/services/posts');
     const { db } = await import('@/lib/infra/db');
     const { ownedRee } = await import('@/lib/services/rees');
     for (const id of MALFORMED) {
       expect(id).toHaveLength(36);
-      expect(parseConversationQuery(new URLSearchParams({ ree: id })).ree).toBeNull();
-      await expect(liveConversation(someone, id)).resolves.toBeNull();
+      await expect(getPost(id, someone)).resolves.toBeNull();
       await expect(ownedRee(db(), someone, id)).resolves.toBeNull();
     }
   });

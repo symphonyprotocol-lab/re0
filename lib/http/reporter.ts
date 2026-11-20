@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { reportBucket } from '@/lib/domain/anonymous-chat';
-import { clientIp } from '@/lib/http/conversations';
+import { clientIp } from '@/lib/http/client-ip';
 import { quotaKeyHash } from '@/lib/services/anonymous-chat';
 
 /**

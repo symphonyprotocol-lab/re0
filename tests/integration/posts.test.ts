@@ -270,7 +270,7 @@ describeWithDb('public posts', () => {
     expect(await posts.getPost(shown.id)).not.toBeNull();
   });
 
-  it('lets the author follow up privately and summarize the answers for everyone', async () => {
+  it('lets the author summarize the answers for everyone', async () => {
     const first = await publicRee();
     const second = await publicRee();
     const author = await user('post-summary', 100);
@@ -278,13 +278,6 @@ describeWithDb('public posts', () => {
     await posts.processPost(posted.id, stub([first.reeId, second.reeId]));
     const view = (await posts.getPost(posted.id, author))!;
     expect(view.answers).toHaveLength(2);
-
-    const conversationId = await posts.followUpPost(author, posted.id, view.answers[0]!.id);
-    const messages = await db().select().from(schema.message).where(eq(schema.message.conversationId, conversationId!));
-    expect(messages.map((message) => message.role).sort()).toEqual(['ree', 'user']);
-    expect((await posts.getPost(posted.id, author))?.followUps.map((entry) => entry.id)).toEqual([conversationId]);
-    /* Only the author sees their follow-ups. */
-    expect((await posts.getPost(posted.id))?.followUps).toEqual([]);
 
     expect(await posts.summarizePost(await user('post-other', 100), posted.id, 'en')).toBe('not_found');
     expect(await posts.summarizePost(author, posted.id, 'en')).toBe('done');

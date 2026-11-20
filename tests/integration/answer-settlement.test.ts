@@ -1,9 +1,9 @@
 /**
- * The money path of one answer (review H2, H3, H5, M6): the owner's query
- * fee is withdrawable only for what the asker paid from money paid in, and
- * only after the maturity period; a full answer that ends on the no-answer
- * sentinel is still charged; a stream cut off by a provider error is not; a
- * question whose stream died leaves holds the chat-hold cron gives back.
+ * The money path of one answer (review H2, H3, M6), asked as a private post
+ * since the conversations went: the owner's query fee is withdrawable only
+ * for what the asker paid from money paid in, and only after the maturity
+ * period; a full answer that ends on the no-answer sentinel is still
+ * charged; a stream cut off by a provider error is not.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { pointModelsAt, resetRewardSettings, TEST_DATABASE_URL, uniqueName } from './setup';
@@ -13,7 +13,7 @@ import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import { handbookPages, makePdf } from '../fixtures/pdf';
 import { startFakeFirecrawl } from '../fixtures/fake-firecrawl';
 import type { FakeWeb } from '../fixtures/fake-web';
-import { CHAT_HOLD_STALE_MS, EARNED_MATURITY_DAYS, QUERY_BASE_FEE } from '@/lib/constants';
+import { EARNED_MATURITY_DAYS, QUERY_BASE_FEE } from '@/lib/constants';
 
 const blobs = vi.hoisted(() => new Map<string, Uint8Array>());
 vi.mock('@/lib/infra/blob', () => ({
@@ -28,14 +28,18 @@ const { addGrant, balanceOf, placeHold, restoreVoidedEarned } = await import('@/
 const billing = await import('@/lib/services/billing');
 const knowledge = await import('@/lib/services/knowledge');
 const rees = await import('@/lib/services/rees');
-const chat = await import('@/lib/services/chat');
-const { answer, holdQuestion } = await import('@/lib/services/answer');
-const { releaseStaleChatHolds } = await import('@/lib/services/chat-holds');
+const privatePosts = await import('@/lib/services/private-posts');
+/*
+ * These tests are about how a Ree's own answer settles. When no Ree answers,
+ * a private post now gets the asker an AI general answer at the base fee
+ * (ai-answers.ts, covered by tests/integration/ai-answers.test.ts); here it
+ * fails, so its hold is given back and every figure is the Ree's alone.
+ */
+const noAi = { aiAnswer: async () => { throw new Error('no AI in these tests'); } };
 const payouts = await import('@/lib/services/payouts');
 const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
-const cron = await import('@/app/api/cron/release-chat-holds/route');
 
 const DAY = 24 * 60 * 60 * 1000;
 const FEE = 5_000;
@@ -61,7 +65,7 @@ async function newUser(prefix: string): Promise<string> {
   return userId;
 }
 
-/** An owner's Ree with ready knowledge and a query fee, and an asker with a test conversation to it. */
+/** An owner's public Ree with ready knowledge and a query fee, and an asker. */
 async function setUp(fee = FEE) {
   const ownerId = await newUser('owner');
   await rees.saveDraft(ownerId, { ...newReeDraft(), name: 'Northwind', category: 'business', step: 4, reached: 4 });
@@ -69,11 +73,10 @@ async function setUp(fee = FEE) {
   const path = `knowledge/${ownerId}/h/handbook.pdf`;
   blobs.set(path, makePdf(handbookPages()));
   await knowledge.processKnowledge(await knowledge.addKnowledge(ownerId, created, { kind: 'document', blobPath: path, fileName: 'handbook.pdf' }));
-  await db().update(schema.ree).set({ queryFee: fee }).where(eq(schema.ree.id, created.id));
+  await db().update(schema.ree).set({ queryFee: fee, isPublic: true, isPublished: true }).where(eq(schema.ree.id, created.id));
   const ree = { ...created, queryFee: fee };
   const askerId = await newUser('asker');
-  const conversation = await chat.testConversation(askerId, ree.id);
-  return { ownerId, ree, askerId, conversation };
+  return { ownerId, ree, askerId };
 }
 
 /** A Pack bought through Paddle: a purchase row and the grant it paid for. Answers its transaction and purchase ids. */
@@ -107,22 +110,34 @@ async function earnedGrants(userId: string) {
   return db().select().from(schema.creditGrant).where(and(eq(schema.creditGrant.userId, userId), eq(schema.creditGrant.source, 'earned')));
 }
 
-async function read(response: Response) {
-  const raw = await response.text();
-  const events = raw
-    .split('\n')
-    .filter((line) => line.startsWith('data: ') && line !== 'data: [DONE]')
-    .map((line) => JSON.parse(line.slice(6)) as { type: string; delta?: string; data?: Record<string, unknown> });
+/**
+ * Asks the Ree privately at the price shown (`seen`, the query fee; the
+ * current one when left out) and waits for its answer: the answer's text and
+ * what it cost, or why it was refused. Each ask is its own question (a
+ * random tag), so the duplicate window never folds two into one.
+ */
+async function ask(userId: string, ree: { id: string; queryFee: number }, question: string, seen = ree.queryFee) {
+  const made = await privatePosts.publishPrivatePost(userId, { question: `${question} (${randomUUID().slice(0, 8)})`, reeIds: [ree.id], fees: { [ree.id]: QUERY_BASE_FEE + seen }, lang: 'en' });
+  if (!made.ok) return { refused: made, text: '', outcome: undefined };
+  await privatePosts.processPrivatePost(made.id, noAi);
+  const [row] = await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.postId, made.id));
+  const charged = await db()
+    .select({ delta: schema.creditEntry.delta })
+    .from(schema.creditEntry)
+    .where(and(eq(schema.creditEntry.userId, userId), eq(schema.creditEntry.refId, row!.id)));
+  /* Every entry the answer wrote for the asker -- the holds, their settlement or refund -- nets to what it cost. */
   return {
-    text: events.filter((event) => event.type === 'text-delta').map((event) => event.delta).join(''),
-    outcome: events.find((event) => event.type === 'data-outcome')?.data as { noAnswer: boolean; failed: boolean; cost: number } | undefined,
+    postId: made.id,
+    refused: null,
+    text: row!.text,
+    outcome: { noAnswer: row!.state === 'no_answer', failed: row!.state === 'failed', cost: -charged.reduce((sum, entry) => sum + entry.delta, 0) || 0 },
   };
 }
 
 describeWithDb('who may withdraw a query fee (H2)', () => {
   it('a fee paid from welcome credits is earned but never withdrawable', async () => {
-    const { ownerId, ree, askerId, conversation } = await setUp();
-    const result = await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    const { ownerId, ree, askerId } = await setUp();
+    const result = await ask(askerId, ree, QUESTION);
     expect(result.outcome).toMatchObject({ noAnswer: false, cost: QUERY_BASE_FEE + FEE });
     const earned = await earnedGrants(ownerId);
     expect(earned.map((grant) => [grant.amount, grant.withdrawableAt])).toEqual([[FEE, null]]);
@@ -132,10 +147,10 @@ describeWithDb('who may withdraw a query fee (H2)', () => {
   });
 
   it('a fee paid from a bought Pack is withdrawable once it has matured', async () => {
-    const { ownerId, ree, askerId, conversation } = await setUp();
+    const { ownerId, ree, askerId } = await setUp();
     await emptyWelcome(askerId);
     await boughtPack(askerId, 100_000);
-    const result = await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    const result = await ask(askerId, ree, QUESTION);
     expect(result.outcome).toMatchObject({ noAnswer: false, cost: QUERY_BASE_FEE + FEE });
     const [grant] = await earnedGrants(ownerId);
     expect(grant).toMatchObject({ amount: FEE });
@@ -145,11 +160,11 @@ describeWithDb('who may withdraw a query fee (H2)', () => {
   });
 
   it('a fee paid partly from free and partly from paid credits is split', async () => {
-    const { ownerId, ree, askerId, conversation } = await setUp();
+    const { ownerId, ree, askerId } = await setUp();
     /* Spend order is welcome before Pack: 20 base + 1,000 of the fee from welcome, the other 4,000 from the Pack. */
     await db().update(schema.creditGrant).set({ remaining: QUERY_BASE_FEE + 1_000 }).where(and(eq(schema.creditGrant.userId, askerId), eq(schema.creditGrant.source, 'welcome')));
     await boughtPack(askerId, 100_000);
-    await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    await ask(askerId, ree, QUESTION);
     const earned = await earnedGrants(ownerId);
     expect(earned.map((grant) => [grant.amount, grant.withdrawableAt !== null]).sort()).toEqual([
       [1_000, false],
@@ -164,10 +179,10 @@ describeWithDb('a refund of the asker’s purchase voids the owner’s unmatured
   }
 
   it('a refund the purchase’s own credits cover leaves the owner’s earnings alone', async () => {
-    const { ownerId, ree, askerId, conversation } = await setUp();
+    const { ownerId, ree, askerId } = await setUp();
     await emptyWelcome(askerId);
     const pack = await boughtPack(askerId, 100_000);
-    await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    await ask(askerId, ree, QUESTION);
     /* Half refunded: 50,000 credits, all still on the Pack. */
     expect(await billing.applyPaddleEvent(refundEvent(pack.transactionId, '500'), { planPriceId: 'x', packPriceId: 'y' })).toBe('refunded');
     expect((await earnedGrants(ownerId)).map((grant) => grant.remaining)).toEqual([FEE]);
@@ -176,10 +191,10 @@ describeWithDb('a refund of the asker’s purchase voids the owner’s unmatured
   });
 
   it('a refund the buyer’s other balances cover leaves the owner’s earnings alone', async () => {
-    const { ownerId, ree, askerId, conversation } = await setUp();
+    const { ownerId, ree, askerId } = await setUp();
     await emptyWelcome(askerId);
     const pack = await boughtPack(askerId, 100_000);
-    await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    await ask(askerId, ree, QUESTION);
     /* The rest of the Pack is held, so the refund comes wholly from another Pack bought later. */
     await db().transaction((tx) => placeHold(tx, { userId: askerId, kind: 'knowledge', amount: 100_000 - QUERY_BASE_FEE - FEE, refId: crypto.randomUUID() }));
     const other = await boughtPack(askerId, 200_000);
@@ -192,10 +207,10 @@ describeWithDb('a refund of the asker’s purchase voids the owner’s unmatured
   });
 
   it('a debt voids at most its own amount of unmatured earnings, never what matured, and a replay changes nothing', async () => {
-    const { ownerId, ree, askerId, conversation } = await setUp();
+    const { ownerId, ree, askerId } = await setUp();
     await emptyWelcome(askerId);
     const pack = await boughtPack(askerId, 100_000);
-    for (let i = 0; i < 3; i++) await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    for (let i = 0; i < 3; i++) await ask(askerId, ree, QUESTION);
     const earned = await earnedGrants(ownerId);
     expect(earned).toHaveLength(3);
     const matured = earned[0]!.id;
@@ -224,11 +239,11 @@ describeWithDb('a refund of the asker’s purchase voids the owner’s unmatured
   });
 
   it('voids what has not matured, notes what has, and never takes the owner below zero', async () => {
-    const { ownerId, ree, askerId, conversation } = await setUp();
+    const { ownerId, ree, askerId } = await setUp();
     await emptyWelcome(askerId);
     const pack = await boughtPack(askerId, 100_000);
-    await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
-    await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    await ask(askerId, ree, QUESTION);
+    await ask(askerId, ree, QUESTION);
     const earned = await earnedGrants(ownerId);
     expect(earned.map((grant) => grant.fundingPurchaseId)).toEqual([pack.purchaseId, pack.purchaseId]);
     /* One of the two has already matured: it stays the owner's. */
@@ -261,7 +276,7 @@ describeWithDb('paying off a refund debt restores the owner’s voided earnings 
     const setup = await setUp();
     await emptyWelcome(setup.askerId);
     const pack = await boughtPack(setup.askerId, 100_000);
-    await read(await answer({ userId: setup.askerId, lang: 'en', conversation: setup.conversation, targets: [setup.ree], question: QUESTION }));
+    await ask(setup.askerId, setup.ree, QUESTION);
     await db().transaction((tx) => placeHold(tx, { userId: setup.askerId, kind: 'knowledge', amount: 100_000 - QUERY_BASE_FEE - FEE, refId: crypto.randomUUID() }));
     const [grant] = await earnedGrants(setup.ownerId);
     expect(await billing.applyPaddleEvent(refundEvent(pack.transactionId, '1000', action), PRICES)).toBe(action === 'refund' ? 'refunded' : 'charged_back');
@@ -291,11 +306,11 @@ describeWithDb('paying off a refund debt restores the owner’s voided earnings 
   });
 
   it('a debt that voided less than it owed gives back only what was voided', async () => {
-    const { ownerId, askerId, conversation, ree } = await setUp();
+    const { ownerId, askerId, ree } = await setUp();
     await emptyWelcome(askerId);
     const pack = await boughtPack(askerId, 100_000);
-    await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
-    await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    await ask(askerId, ree, QUESTION);
+    await ask(askerId, ree, QUESTION);
     const earned = await earnedGrants(ownerId);
     /* One matured: the void cannot take it (unrecovered), so it never comes back either. */
     await db().update(schema.creditGrant).set({ withdrawableAt: new Date(Date.now() - DAY) }).where(eq(schema.creditGrant.id, earned[0]!.id));
@@ -326,15 +341,13 @@ describeWithDb('paying off a refund debt restores the owner’s voided earnings 
 
 describeWithDb('the price the asker saw (review low)', () => {
   it('refuses a question when a fee went up since it was shown, before holding anything', async () => {
-    const { ree, askerId, conversation } = await setUp();
+    const { ree, askerId } = await setUp();
     const before = await balanceOf(db(), askerId);
-    const raised = await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, seenFees: { [ree.id]: FEE - 1 } });
-    expect(raised.status).toBe(409);
-    expect(await raised.json()).toEqual({ error: 'price_changed', fees: [{ reeId: ree.id, fee: FEE }] });
+    const raised = await ask(askerId, ree, QUESTION, FEE - 1);
+    expect(raised.refused).toEqual({ ok: false, error: 'price_changed', prices: [{ reeId: ree.id, price: QUERY_BASE_FEE + FEE }] });
     expect(await balanceOf(db(), askerId)).toBe(before);
-    expect(await chat.messagesOf(conversation.id)).toHaveLength(0);
     /* The same or a lower fee than shown is asked as usual. */
-    const same = await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, seenFees: { [ree.id]: FEE } }));
+    const same = await ask(askerId, ree, QUESTION, FEE);
     expect(same.outcome).toMatchObject({ noAnswer: false, cost: QUERY_BASE_FEE + FEE });
   });
 });
@@ -357,124 +370,34 @@ describeWithDb('the earnings card (H2 follow-up)', () => {
 
 describeWithDb('settling the stream (H3, M6)', () => {
   it('charges a full answer that ends on the no-answer sentinel, and keeps a short refusal free', async () => {
-    const { ownerId, ree, askerId, conversation } = await setUp();
+    const { ownerId, ree, askerId } = await setUp();
     const before = await balanceOf(db(), askerId);
-    const long = await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: `${QUESTION} LONG THEN SENTINEL` }));
+    const long = await ask(askerId, ree, `${QUESTION} LONG THEN SENTINEL`);
     expect(long.text).toContain('14 days');
     expect(long.text).not.toContain('[[NO_ANSWER]]');
     expect(long.outcome).toMatchObject({ noAnswer: false, cost: QUERY_BASE_FEE + FEE });
     expect(await balanceOf(db(), askerId)).toBe(before - QUERY_BASE_FEE - FEE);
     expect((await earnedGrants(ownerId)).map((grant) => grant.amount)).toEqual([FEE]);
 
-    /* A conversation of its own: earlier turns are part of what the model reads. */
+    /* Another asker and Ree, so the first answer's earnings stay apart. */
     const other = await setUp();
     const otherBefore = await balanceOf(db(), other.askerId);
-    const short = await read(await answer({ userId: other.askerId, lang: 'en', conversation: other.conversation, targets: [other.ree], question: `${QUESTION} LATE REFUSAL` }));
+    const short = await ask(other.askerId, other.ree, `${QUESTION} LATE REFUSAL`);
     expect(short.outcome).toMatchObject({ noAnswer: true, cost: 0 });
     expect(await balanceOf(db(), other.askerId)).toBe(otherBefore);
   });
 
   it('a stream cut off by a provider error fails the Ree and charges nothing', async () => {
-    const { ownerId, ree, askerId, conversation } = await setUp();
+    const { ownerId, ree, askerId } = await setUp();
     const before = await balanceOf(db(), askerId);
-    const result = await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: `${QUESTION} STREAM ERROR` }));
+    const result = await ask(askerId, ree, `${QUESTION} STREAM ERROR`);
     expect(result.outcome).toMatchObject({ failed: true, cost: 0 });
     expect(await balanceOf(db(), askerId)).toBe(before);
     expect(await earnedGrants(ownerId)).toHaveLength(0);
-    const replies = (await chat.messagesOf(conversation.id)).filter((row) => row.role === 'ree');
-    expect(replies).toHaveLength(0);
+    const [reply] = await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.postId, result.postId!));
+    expect(reply).toMatchObject({ state: 'failed', text: '' });
     const open = await db().select().from(schema.creditHold).where(and(eq(schema.creditHold.userId, askerId), eq(schema.creditHold.status, 'held')));
     expect(open).toHaveLength(0);
-  });
-});
-
-describeWithDb('the chat-hold cron (H5)', () => {
-  it('gives back the holds of a question whose stream died, under each hold’s own reasons, once', async () => {
-    const { ree, askerId, conversation } = await setUp();
-    const before = await balanceOf(db(), askerId);
-    /* Held, then the function "dies": nothing ever runs the question. */
-    const holding = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, verify: true });
-    expect(holding.ok).toBe(true);
-    const askedId = holding.ok ? holding.question.askedId : '';
-    expect(await balanceOf(db(), askerId)).toBeLessThan(before);
-
-    const mine = () => db().select().from(schema.creditHold).where(and(eq(schema.creditHold.userId, askerId), eq(schema.creditHold.status, 'held')));
-    /* Young holds belong to a stream that may still be running. */
-    await releaseStaleChatHolds();
-    expect(await mine()).toHaveLength(3);
-    /* Age them past the limit (other files share the database, so the clock stays real). */
-    await db().update(schema.creditHold).set({ createdAt: new Date(Date.now() - CHAT_HOLD_STALE_MS - 60_000) }).where(eq(schema.creditHold.refId, askedId));
-    const first = await releaseStaleChatHolds();
-    expect(first.released).toBeGreaterThanOrEqual(3);
-    expect(first.failed).toBe(0);
-    expect(await mine()).toHaveLength(0);
-    expect(await balanceOf(db(), askerId)).toBe(before);
-    const entries = await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, askerId), eq(schema.creditEntry.refId, askedId)));
-    expect(entries.filter((entry) => entry.delta > 0).map((entry) => [entry.reason, entry.reeId]).sort()).toEqual([
-      ['query_refund', ree.id],
-      ['query_refund', ree.id],
-      ['verify_refund', ree.id],
-    ]);
-    await releaseStaleChatHolds();
-    expect(await balanceOf(db(), askerId)).toBe(before);
-    expect((await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, askerId), eq(schema.creditEntry.refId, askedId)))).length).toBe(entries.length);
-  });
-
-  it('gives back the fee of a round-table synthesis that died while running, and frees the request for another', async () => {
-    const { ree, askerId, conversation } = await setUp();
-    const holding = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION });
-    const askedId = holding.ok ? holding.question.askedId : '';
-    await db().update(schema.creditHold).set({ status: 'released' }).where(eq(schema.creditHold.refId, askedId));
-    const before = await balanceOf(db(), askerId);
-    const old = new Date(Date.now() - CHAT_HOLD_STALE_MS - 60_000);
-    const [row] = await db().insert(schema.synthesis).values({ conversationId: conversation.id, requestId: askedId, userId: askerId, reeIds: [ree.id], createdAt: old }).returning({ id: schema.synthesis.id });
-    await db().transaction((tx) => placeHold(tx, { userId: askerId, kind: 'chat', ledger: 'chat_synthesis', amount: 30, refId: row!.id, note: 'synthesis' }, old));
-    expect(await balanceOf(db(), askerId)).toBe(before - 30);
-    await releaseStaleChatHolds();
-    expect(await balanceOf(db(), askerId)).toBe(before);
-    expect(await db().select().from(schema.synthesis).where(eq(schema.synthesis.id, row!.id))).toHaveLength(0);
-    const [refund] = await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.refId, row!.id), eq(schema.creditEntry.reason, 'synthesis_refund')));
-    expect(refund).toMatchObject({ delta: 30 });
-  });
-
-  it('the cron route wants the cron secret', async () => {
-    vi.stubEnv('CRON_SECRET', 'cron-test-secret');
-    const unauthorized = await cron.GET(new Request('http://localhost/api/cron/release-chat-holds') as never);
-    expect(unauthorized.status).toBe(401);
-    const ok = await cron.GET(new Request('http://localhost/api/cron/release-chat-holds', { headers: { authorization: 'Bearer cron-test-secret' } }) as never);
-    expect(ok.status).toBe(200);
-    expect(await ok.json()).toMatchObject({ failed: 0 });
-  });
-});
-
-describeWithDb('one ask, one hold (review C2)', () => {
-  it('refuses a repeated client request id in the conversation before holding anything', async () => {
-    const { ree, askerId, conversation } = await setUp();
-    const requestId = randomUUID();
-    const first = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: requestId });
-    expect(first.ok).toBe(true);
-    const askedId = first.ok ? first.question.askedId : '';
-    const afterFirst = await balanceOf(db(), askerId);
-
-    const again = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: requestId.toUpperCase() });
-    expect(again).toEqual({ ok: false, reason: 'duplicate' });
-    /* Even when the fee shown with it is now out of date: a replay is not offered as a new question. */
-    const stale = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: requestId, seenFees: { [ree.id]: 0 } });
-    expect(stale).toEqual({ ok: false, reason: 'duplicate' });
-    expect(await balanceOf(db(), askerId)).toBe(afterFirst);
-    const asked = await db().select().from(schema.message).where(and(eq(schema.message.conversationId, conversation.id), eq(schema.message.role, 'user')));
-    expect(asked).toHaveLength(1);
-
-    const response = await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: requestId });
-    expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: 'duplicate_request' });
-
-    /* A new id, or none (MCP, older clients), asks again; a malformed one is ignored rather than failing the ask. */
-    const other = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: randomUUID() });
-    const bare = await holdQuestion({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION, clientRequestId: 'not-a-uuid' });
-    expect(other.ok && bare.ok).toBe(true);
-    const ids = [askedId, other.ok ? other.question.askedId : '', bare.ok ? bare.question.askedId : ''];
-    await db().update(schema.creditHold).set({ status: 'released' }).where(inArray(schema.creditHold.refId, ids));
   });
 });
 
@@ -488,12 +411,12 @@ describeWithDb('starter task rewards and invite-funded fees through the real que
 
   it('pays the first question once, beside the holds and their settlement, and never for later ones', async () => {
     await rewardsOn();
-    const { ownerId, ree, askerId, conversation } = await setUp();
+    const { ownerId, ree, askerId } = await setUp();
     const before = await balanceOf(db(), askerId);
-    const first = await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    const first = await ask(askerId, ree, QUESTION);
     expect(first.outcome).toMatchObject({ noAnswer: false, cost: QUERY_BASE_FEE + FEE });
     expect(await balanceOf(db(), askerId)).toBe(before - QUERY_BASE_FEE - FEE + 1_000);
-    const second = await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: `${QUESTION} Again?` }));
+    const second = await ask(askerId, ree, `${QUESTION} Again?`);
     expect(second.outcome).toMatchObject({ noAnswer: false, cost: QUERY_BASE_FEE + FEE });
     expect(await balanceOf(db(), askerId)).toBe(before - 2 * (QUERY_BASE_FEE + FEE) + 1_000);
     const rewards = await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, askerId), eq(schema.creditEntry.reason, 'task_first_question')));
@@ -501,8 +424,8 @@ describeWithDb('starter task rewards and invite-funded fees through the real que
     /* Every hold of both questions settled; nothing left held. */
     const held = await db().select().from(schema.creditHold).where(and(eq(schema.creditHold.userId, askerId), eq(schema.creditHold.status, 'held')));
     expect(held).toHaveLength(0);
-    /* The owner's own Ree, published, and a comment on it: each paid once. */
-    await db().update(schema.ree).set({ isPublic: true }).where(eq(schema.ree.id, ree.id));
+    /* The owner's own Ree, published (unpublished first: `setUp` made it public to be asked), and a comment on it: each paid once. */
+    await db().update(schema.ree).set({ isPublic: true, isPublished: false }).where(eq(schema.ree.id, ree.id));
     await rees.setReePublished(ownerId, ree.id, true);
     const { addReeComment } = await import('@/lib/services/ree-comments');
     await addReeComment(ree.id, { id: askerId, name: 'Asker', avatarBlob: null }, { id: randomUUID(), content: 'Helpful' });
@@ -514,10 +437,10 @@ describeWithDb('starter task rewards and invite-funded fees through the real que
 
   it('a fee paid with invite-funded credits reaches the owner withdrawable after maturity, marked invite-funded', async () => {
     await rewardsOn({ firstQuestionCredits: 0 });
-    const { ownerId, ree, askerId, conversation } = await setUp();
+    const { ownerId, ree, askerId } = await setUp();
     await emptyWelcome(askerId);
     await db().transaction((tx) => addGrant(tx, { userId: askerId, source: 'earned', amount: 50_000, reason: 'invite_reward', refId: randomUUID(), withdrawableAt: new Date(), inviteFunded: true }));
-    const result = await read(await answer({ userId: askerId, lang: 'en', conversation, targets: [ree], question: QUESTION }));
+    const result = await ask(askerId, ree, QUESTION);
     expect(result.outcome).toMatchObject({ noAnswer: false, cost: QUERY_BASE_FEE + FEE });
     const [grant] = await db().select().from(schema.creditGrant).where(and(eq(schema.creditGrant.userId, ownerId), eq(schema.creditGrant.source, 'earned')));
     expect(grant).toMatchObject({ amount: FEE, inviteFunded: true, fundingPurchaseId: null });

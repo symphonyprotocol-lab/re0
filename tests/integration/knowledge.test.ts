@@ -470,7 +470,7 @@ describeWithDb('document processing', () => {
     const [run] = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.knowledgeId, id));
     expect(run!.charges.map((charge) => charge.service)).toEqual(['bandwidth', 'embedding']);
     await expectChargedAtLeastCost(id);
-    const { retrieve } = await import('@/lib/services/chat');
+    const { retrieve } = await import('@/lib/services/retrieval');
     const result = await retrieve(ree.id, 'Devices are covered for how many years?');
     expect(result.evidence).toBe(true);
     expect(result.passages.some((passage) => passage.knowledgeId === id && passage.content.includes('two years'))).toBe(true);
