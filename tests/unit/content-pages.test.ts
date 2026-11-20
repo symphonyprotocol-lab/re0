@@ -9,7 +9,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '@/i18n/client';
 import { messages } from '@/i18n';
-import { POST_DAILY_LIMIT, POST_MAX_ANSWERS, POST_SUMMARY_FEE, QUERY_BASE_FEE } from '@/lib/constants';
+import { QUERY_BASE_FEE } from '@/lib/constants';
+import { POST_DAILY_LIMIT, POST_MAX_ANSWERS, POST_SUMMARY_FEE } from '@/lib/domain/post';
 import { defaultPrice } from '@/lib/domain/pricing';
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/pricing', useRouter: () => ({ refresh: () => {}, push: () => {}, replace: () => {}, prefetch: () => {} }), useSearchParams: () => new URLSearchParams() }));
@@ -25,14 +26,15 @@ vi.mock('@/lib/services/pricing', async () => {
 vi.mock('@/lib/services/signup-reward', () => ({ welcomeCredits: async () => ({ credits: 100_000 }) }));
 vi.mock('@/lib/services/video-pricing', () => ({ videoScriptPrice: async () => ({ credits: 5 }), videoExportPrice: async () => ({ credits: 50 }) }));
 vi.mock('@/lib/services/public-copy', async () => {
-  const c = await import('@/lib/constants');
+  const { QUERY_BASE_FEE: fee } = await import('@/lib/constants');
+  const p = await import('@/lib/domain/post');
   return {
     publicCopyValues: async () => ({
-      postBaseFee: String(c.QUERY_BASE_FEE),
-      postMaxAutoCost: String(c.POST_MAX_ANSWERS * c.QUERY_BASE_FEE),
-      postDailyLimit: String(c.POST_DAILY_LIMIT),
-      postSummaryFee: String(c.POST_SUMMARY_FEE),
-      postMaxAnswers: String(c.POST_MAX_ANSWERS),
+      postBaseFee: String(fee),
+      postMaxAutoCost: String(p.POST_MAX_ANSWERS * fee),
+      postDailyLimit: String(p.POST_DAILY_LIMIT),
+      postSummaryFee: String(p.POST_SUMMARY_FEE),
+      postMaxAnswers: String(p.POST_MAX_ANSWERS),
       payoutMinCredits: '500,000',
       payoutMinUsd: '$50.00',
       inviteFaq: '',
@@ -50,6 +52,8 @@ describe('价格 in the shell (v6)', () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await PricingPage() }));
     const costs = t.site.pricing.costs;
     for (const row of [costs.postPublish, costs.postAnswer, costs.postSummary]) expect(html).toContain(row.activity);
+    for (const n of [QUERY_BASE_FEE, POST_DAILY_LIMIT, POST_SUMMARY_FEE, POST_MAX_ANSWERS]) expect(Number.isInteger(n) && n > 0).toBe(true);
+    expect(html).not.toMatch(/undefined|NaN/);
     expect(html).toContain(`${QUERY_BASE_FEE} credits / 回答`);
     expect(html).toContain(`${POST_SUMMARY_FEE} credits / 次`);
     expect(html).toContain(`每天最多 ${POST_DAILY_LIMIT} 个`);
