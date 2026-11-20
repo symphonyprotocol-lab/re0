@@ -12,7 +12,8 @@ type Context = { params: Promise<{ answerId: string }> };
  * `409 price_changed` with `{price}`, too little balance `402 insufficient`
  * with `{balance, needed}`, a Ree that can no longer answer `409 unavailable`
  * (the request is closed), one agreed already (another tab) `409 already`.
- * `{action: 'decline'}` → `{ok}`. Only the post's author.
+ * `{action: 'decline'}` → `{ok}`. Only whoever asked: the post's author for
+ * its first round, the asker for a follow-up's (追问).
  */
 export async function POST(request: NextRequest, { params }: Context) {
   const user = await apiUser(request);

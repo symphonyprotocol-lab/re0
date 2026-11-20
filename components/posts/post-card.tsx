@@ -178,6 +178,13 @@ export function PostCard({ post: initial, now, signedIn }: { post: PostView; now
           <button type="button" className="icon-btn" title={c.share} aria-label={c.share} onClick={() => void copyLink()}>
             <Icon name="link" className="" />
           </button>
+          {/* Published follow-ups (追问), beside 查看全部回答; a follow-up never lifts the post in 最新. */}
+          {post.followupCount > 0 && (
+            <Link href={`${href}#followup`} className="fu-count" title={fill(c.followups, { n: formatNumber(post.followupCount, locale) })}>
+              <Icon name="reply" className="" />
+              {fill(c.followups, { n: formatNumber(post.followupCount, locale) })}
+            </Link>
+          )}
           {post.answered > 0 && (
             <Link href={href} className="post-open">
               {c.viewAll}

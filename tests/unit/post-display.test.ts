@@ -49,7 +49,7 @@ const post: PostView = {
       { marker: 'B3', reeId: 'b', messageId: 'm2', index: 3, citation: null },
     ],
   },
-  summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, followUps: [], paidRequests: [], spent: null, deleted: false,
+  summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, followUps: [], paidRequests: [], spent: null, followupCount: 0, followups: [], followupCandidates: [], followupBlocked: null, deleted: false,
 };
 
 describe('a post\'s round-table summary', () => {

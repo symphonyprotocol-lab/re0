@@ -73,6 +73,64 @@ export type AnswerState = (typeof ANSWER_STATES)[number];
 export const ANSWER_HIDERS = ['owner', 'admin', 'reports'] as const;
 export type AnswerHider = (typeof ANSWER_HIDERS)[number];
 
+/*
+ * 追问 (follow-ups in a post, design draft 1 approved 2026-11-20): a signed-in
+ * reader asks on under a public post; only the Rees that answered its first
+ * round answer, those @-mentioned or else the relevant ones. Whoever asks
+ * pays, as the post's author does for its first round.
+ */
+/** Follow-ups one user may ask a day, counted apart from posts. */
+export const FOLLOWUP_DAILY_LIMIT = 30;
+/** Follow-ups one user may ask under one post a day. */
+export const FOLLOWUP_POST_DAILY_LIMIT = 10;
+/** Published follow-ups one post takes; past it the composer says to post anew. */
+export const FOLLOWUP_POST_MAX = 100;
+/** Rees one follow-up may @: at most every first-round answerer. */
+export const FOLLOWUP_MAX_MENTIONS = POST_MAX_ANSWERS;
+/** The thread shows this many of the earliest and the latest follow-ups when it is longer than both, the rest folded. */
+export const FOLLOWUP_FOLD_HEAD = 2;
+export const FOLLOWUP_FOLD_TAIL = 3;
+/** A round shows this many answers, the rest folded. */
+export const FOLLOWUP_ROUND_ANSWERS = 2;
+export const FOLLOWUP_STATUSES = ['pending', 'published', 'rejected', 'hidden'] as const;
+export type FollowupStatus = (typeof FOLLOWUP_STATUSES)[number];
+
+/** Who asked a follow-up: the post's author ("发帖人", by name unless the post is anonymous) or another user. */
+export type FollowupAuthor = { name: string | null; avatar: string | null; poster: boolean; mine: boolean };
+
+export interface FollowupView {
+  id: string;
+  author: FollowupAuthor;
+  /** Empty for a hidden follow-up shown to anyone but its author. */
+  question: string;
+  mentions: { reeId: string; reeName: string }[];
+  status: FollowupStatus;
+  hiddenBy: 'admin' | 'reports' | null;
+  answerState: PostAnswerState;
+  /** First-round Rees compared for relevance (no @), and those not close enough. */
+  candidates: number;
+  skipped: number;
+  createdAt: string;
+  answers: PostAnswerView[];
+  /** Paid Rees (and free ones the balance could not cover) waiting for the asker; only the asker gets them. */
+  paidRequests: PaidRequestView[];
+  /** Only for the asker: a paid Ree they were asked about and declined or ignored. */
+  declined: string[];
+  /** What this follow-up's answers cost the asker; null for anyone else. */
+  spent: number | null;
+}
+
+/** A first-round Ree one may @ in a follow-up, with what one answer costs the viewer. */
+export interface FollowupCandidate {
+  reeId: string;
+  reeSlug: string;
+  reeName: string;
+  reeAvatar: string | null;
+  reeColor: string;
+  price: number;
+  paid: boolean;
+}
+
 export const FEED_TABS = ['for_you', 'latest', 'unanswered'] as const;
 export type FeedTab = (typeof FEED_TABS)[number];
 
@@ -185,8 +243,16 @@ export interface PostView {
   quote: PostQuote | null;
   /** Visible posts that quote this one. */
   quotes: number;
-  /** The author's follow-up conversations from this post ("继续问"), only for the author. */
+  /** The author's earlier private follow-up conversations from this post (before 追问 moved into the post), only for the author. */
   followUps: { id: string; title: string; reeName: string | null }[];
+  /** Published follow-ups (追问), for the cards. */
+  followupCount: number;
+  /** The thread under the first round, on the post's page only (oldest first); empty in feeds. */
+  followups: FollowupView[];
+  /** Who a follow-up may @ (the first round's answerers that still take posts), on the post's page only. */
+  followupCandidates: FollowupCandidate[];
+  /** Why the viewer cannot ask a follow-up now, on the post's page: null when they can. */
+  followupBlocked: 'full' | null;
   /** Rees waiting for the author to agree (paid ones, and free ones the balance could not cover), only for the author on the post's page. */
   paidRequests: PaidRequestView[];
   /** What the answers cost the author so far, only for the author on the post's page; null otherwise. */
@@ -208,6 +274,13 @@ export function postDay(now: Date): string {
 export function stripMention(question: string, name: string | null): string {
   if (!name) return question.trim();
   return question.replace(new RegExp(`(^|\\s)@${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$)`, 'g'), ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** A follow-up fits: something to ask, and no longer than a post's question. */
+export function followupInputError(question: string): 'empty' | 'too_long' | null {
+  if (!question.trim()) return 'empty';
+  if (question.trim().length > POST_QUESTION_MAX) return 'too_long';
+  return null;
 }
 
 /** Whether the question fits: something to ask, and not too long. */

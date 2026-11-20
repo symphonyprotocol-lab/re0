@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { CitationSnapshot } from '@/lib/domain/answer';
-import { POST_SUMMARY_FEE, type PostAnswerView, type PostPage, type PostView } from '@/lib/domain/post';
+import { FOLLOWUP_FOLD_HEAD, FOLLOWUP_FOLD_TAIL, FOLLOWUP_ROUND_ANSWERS, POST_SUMMARY_FEE, type FollowupView, type PaidRequestView, type PostAnswerView, type PostPage, type PostView } from '@/lib/domain/post';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber, formatRelative } from '@/i18n/format';
 import { AnswerText, CitationChips, CitationDrawer, Typing } from '@/components/chat/message-parts';
@@ -14,15 +14,17 @@ import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { useToast } from '@/components/ui/toast';
 import { AuthorAvatar, authorName, PostState, QuoteCard } from '@/components/posts/post-card';
 import { PostFeed } from '@/components/posts/post-feed';
+import { FollowupComposer, type FollowupComposerHandle } from '@/components/posts/followup-composer';
 import './posts.css';
 
 const POLL_MS = 2_500;
 
 /**
  * A post's page (v5 "帖子页"): the question, then each Ree's answer with
- * its citations, 有帮助, copy link, report and 继续问; the round-table
- * summary; for the author their private follow-ups and the trash. While
- * Rees are still answering the page asks again every few seconds.
+ * its citations and one row of small actions -- 有帮助, copy link, report,
+ * 继续问 and 引用; the round-table summary; then the thread of follow-ups
+ * (追问) and the box to ask one. While Rees are still answering the page
+ * asks again every few seconds.
  */
 export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { initial: PostView; quoting?: PostPage; signedIn: boolean; now: number; loginHref: string }) {
   const { t, locale } = useI18n();
@@ -34,6 +36,14 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [citation, setCitation] = useState<{ entry: CitationSnapshot; answer: PostAnswerView } | null>(null);
+  const composer = useRef<FollowupComposerHandle>(null);
+  const t2 = t.posts.followups;
+  /* The thread folds in the middle once it is long, unless a link points into it. */
+  const [threadOpen, setThreadOpen] = useState(false);
+  const [roundsOpen, setRoundsOpen] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (window.location.hash.startsWith('#f-')) setThreadOpen(true);
+  }, []);
   const mine = post.author.kind !== 'visitor' && post.author.kind !== 'example' && post.author.mine;
   const q = t.posts.quote;
   /* "引用提问": the composer over this page with the quote; a visitor signs in first and comes back to it. */
@@ -43,7 +53,12 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
   };
   /* Only a post anyone can see takes votes, saves, reports and 继续问; on a trashed, pending or taken-down one they could only fail (O2). */
   const live = post.status === 'published' && !post.deleted;
-  const settled = post.status !== 'pending' && post.answerState === 'done' && post.summary?.state !== 'running' && !post.paidRequests.some((entry) => entry.state === 'answering');
+  const settled =
+    post.status !== 'pending' &&
+    post.answerState === 'done' &&
+    post.summary?.state !== 'running' &&
+    !post.paidRequests.some((entry) => entry.state === 'answering') &&
+    post.followups.every((entry) => entry.status !== 'pending' && entry.answerState === 'done' && !entry.paidRequests.some((request) => request.state === 'answering'));
   /* A paid request whose price was refused: the price to confirm again; one the balance could not pay: the top-up link. */
   const [lacking, setLacking] = useState<string | null>(null);
 
@@ -64,7 +79,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
    * spent change -- polled, or after an action -- refresh them (the page's own
    * state stays).
    */
-  const shownState = `${post.answered}|${post.summary?.state ?? ''}|${post.spent ?? ''}|${post.paidRequests.map((entry) => entry.state).join(',')}`;
+  const shownState = `${post.answered}|${post.summary?.state ?? ''}|${post.spent ?? ''}|${post.paidRequests.map((entry) => entry.state).join(',')}|${post.followups.map((entry) => `${entry.answerState}:${entry.answers.length}:${entry.spent ?? ''}`).join(',')}`;
   const seenState = useRef(shownState);
   useEffect(() => {
     if (seenState.current === shownState) return;
@@ -72,7 +87,13 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
     router.refresh();
   }, [shownState, router]);
 
-  const replace = (id: string, change: Partial<PostAnswerView>) => setPost((current) => ({ ...current, answers: current.answers.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)) }));
+  /* An answer of the first round or of a follow-up. */
+  const replace = (id: string, change: Partial<PostAnswerView>) =>
+    setPost((current) => ({
+      ...current,
+      answers: current.answers.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)),
+      followups: current.followups.map((round) => ({ ...round, answers: round.answers.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)) })),
+    }));
 
   const refresh = () =>
     fetch(`/api/posts/${post.id}`)
@@ -108,8 +129,19 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
     setConfirm(null);
     return call(entry.id, `/api/posts/answers/${entry.id}/report`, { method: 'POST' }, () => toast(p.reported));
   };
-  const followUp = (entry: PostAnswerView) =>
-    call(entry.id, `/api/posts/${post.id}/follow-up`, { method: 'POST', body: JSON.stringify({ answerId: entry.id }) }, (body) => router.push(`/chats/${String(body.conversationId)}`));
+  /* 继续问 X: the box at the end of the thread, with X @-mentioned (追问; no longer a private conversation). */
+  const followUp = (entry: PostAnswerView) => composer.current?.mention(entry.reeId);
+  const deleteRound = (round: FollowupView) => {
+    setConfirm(null);
+    return call(round.id, `/api/posts/followups/${round.id}`, { method: 'DELETE' }, () => {
+      setPost((current) => ({ ...current, followups: current.followups.filter((entry) => entry.id !== round.id) }));
+      toast(t2.deleted);
+    });
+  };
+  const reportRound = (round: FollowupView) => {
+    setConfirm(null);
+    return call(round.id, `/api/posts/followups/${round.id}/report`, { method: 'POST' }, () => toast(t2.reported));
+  };
   /* Each refusal says what happened (O3); a summary already written or being written shows itself. */
   const summarize = () =>
     call('summary', `/api/posts/${post.id}/summary`, { method: 'POST' }, () => void refresh(), (code) => {
@@ -133,29 +165,35 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
   const copy = (anchor?: string) =>
     navigator.clipboard.writeText(`${window.location.origin}/p/${post.id}${anchor ? `#${anchor}` : ''}`).then(() => toast(c.copied), () => toast(t.common.errors.generic));
 
-  const setRequests = (change: (entries: PostView['paidRequests']) => PostView['paidRequests']) => setPost((current) => ({ ...current, paidRequests: change(current.paidRequests) }));
-  /* A paid Ree answers once the author agrees at the price shown (2026-11-19); a higher price comes back to confirm again. */
-  async function agree(entry: PostView['paidRequests'][number]) {
+  /* The first round's requests (`scope` null) or one follow-up's: each waits for whoever asked. */
+  const setRequests = (scope: string | null, change: (entries: PaidRequestView[]) => PaidRequestView[]) =>
+    setPost((current) =>
+      scope === null
+        ? { ...current, paidRequests: change(current.paidRequests) }
+        : { ...current, followups: current.followups.map((round) => (round.id === scope ? { ...round, paidRequests: change(round.paidRequests) } : round)) },
+    );
+  /* A paid Ree answers once whoever asked agrees at the price shown (2026-11-19); a higher price comes back to confirm again. */
+  async function agree(entry: PaidRequestView, scope: string | null) {
     setBusy(entry.id);
     try {
       const response = await fetch(`/api/posts/answers/${entry.id}/request`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'agree', price: entry.price }) });
       const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       if (response.ok) {
         setLacking(null);
-        setRequests((entries) => entries.map((other) => (other.id === entry.id ? { ...other, state: 'answering' } : other)));
+        setRequests(scope, (entries) => entries.map((other) => (other.id === entry.id ? { ...other, state: 'answering' } : other)));
       } else if (response.status === 402) {
         setLacking(entry.id);
         toast(fill(t.posts.composer.insufficient, { needed: formatNumber(Number(body.needed) || 0, locale), balance: formatNumber(Number(body.balance) || 0, locale) }));
       } else if (body.error === 'price_changed') {
         const price = Number(body.price) || entry.price;
-        setRequests((entries) => entries.map((other) => (other.id === entry.id ? { ...other, price } : other)));
+        setRequests(scope, (entries) => entries.map((other) => (other.id === entry.id ? { ...other, price } : other)));
         toast(fill(p.paidChanged, { n: formatNumber(price, locale) }));
       } else if (body.error === 'already') {
         /* Agreed in another tab: show where it stands. */
         void refresh();
       } else if (body.error === 'unavailable' || response.status === 404) {
         toast(p.paidUnavailable);
-        setRequests((entries) => entries.filter((other) => other.id !== entry.id));
+        setRequests(scope, (entries) => entries.filter((other) => other.id !== entry.id));
       } else {
         throw new Error(String(response.status));
       }
@@ -165,13 +203,258 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
       setBusy(null);
     }
   }
-  const decline = (entry: PostView['paidRequests'][number]) =>
-    call(entry.id, `/api/posts/answers/${entry.id}/request`, { method: 'POST', body: JSON.stringify({ action: 'decline' }) }, () => setRequests((entries) => entries.filter((other) => other.id !== entry.id)));
+  const decline = (entry: PaidRequestView, scope: string | null) =>
+    call(entry.id, `/api/posts/answers/${entry.id}/request`, { method: 'POST', body: JSON.stringify({ action: 'decline' }) }, () => setRequests(scope, (entries) => entries.filter((other) => other.id !== entry.id)));
 
   const shown = post.answers.filter((entry) => entry.state === 'answered');
   const waiting = post.answers.filter((entry) => entry.state === 'queued' || entry.state === 'answering');
   const nameOf = (reeId: string) => post.answers.find((entry) => entry.reeId === reeId)?.reeName ?? '';
   const category = post.category ? (t.common.categories[post.category as keyof typeof t.common.categories] ?? null) : null;
+
+  /* Rees one may ask on: the first round's, still taking posts. */
+  const askable = new Set(post.followupCandidates.map((entry) => entry.reeId));
+  const published = post.followups.filter((entry) => entry.status === 'published' || entry.status === 'hidden');
+  const roundOf = new Map(published.map((entry, index) => [entry.id, index + 1]));
+  const foldable = post.followups.length > FOLLOWUP_FOLD_HEAD + FOLLOWUP_FOLD_TAIL && !threadOpen;
+  const listedRounds: (FollowupView | 'fold')[] = foldable
+    ? [...post.followups.slice(0, FOLLOWUP_FOLD_HEAD), 'fold', ...post.followups.slice(-FOLLOWUP_FOLD_TAIL)]
+    : post.followups;
+
+  /* One answer, of the first round or of a follow-up: the text, its citations, and one row of small actions alike (继续问 and 引用 included). */
+  const answerArticle = (entry: PostAnswerView, open: boolean, round?: FollowupView) => (
+    <article key={entry.id} id={`a-${entry.id}`} className={`post-answer scroll-mt-24${round ? ' fu-answer' : ''}`}>
+      <div className="post-answer-head">
+        <ReeAvatar avatar={entry.reeAvatar} color={entry.reeColor} size="sm" />
+        <Link href={`/r/${entry.reeSlug}`}>
+          <strong>{entry.reeName}</strong>
+        </Link>
+        {entry.official && <span className="tag">{c.official}</span>}
+        {entry.paid && <span className="tag">{p.paidTag}</span>}
+        {entry.pinned && <Icon name="pin" className="size-3" />}
+        {entry.similarity !== null && <span className="post-match">{fill(p.match, { score: entry.similarity.toFixed(2) })}</span>}
+      </div>
+      <div className="answer-text studio-conversation" style={{ background: 'transparent' }}>
+        <AnswerText text={entry.text} citations={entry.citations} onCitation={(found) => setCitation({ entry: found, answer: entry })} />
+        <CitationChips citations={entry.citations} onCitation={(found) => setCitation({ entry: found, answer: entry })} />
+      </div>
+      <div className="post-answer-foot">
+        {!open ? null : signedIn ? (
+          <button type="button" className="icon-btn" aria-pressed={entry.voted} disabled={busy === entry.id} onClick={() => void helpful(entry)}>
+            <Icon name="thumbUp" className={entry.voted ? 'text-blue' : ''} />
+            {c.helpful} {formatNumber(entry.helpful, locale)}
+          </button>
+        ) : (
+          <Link href={loginHref} className="icon-btn" title={p.signInToVote}>
+            <Icon name="thumbUp" className="" />
+            {c.helpful} {formatNumber(entry.helpful, locale)}
+          </Link>
+        )}
+        <button type="button" className="icon-btn" onClick={() => void copy(`a-${entry.id}`)}>
+          <Icon name="link" className="" />
+          {c.share}
+        </button>
+        {!open ? null : confirm === entry.id ? (
+          <span className="inline-flex items-center gap-2 text-[11px] text-muted">
+            {p.reportConfirm}
+            <button type="button" className="text-red hover:underline" disabled={busy === entry.id} onClick={() => void report(entry)}>{p.report}</button>
+            <button type="button" className="hover:text-blue" onClick={() => setConfirm(null)}>{t.common.actions.cancel}</button>
+          </span>
+        ) : (
+          <button type="button" className="icon-btn" onClick={() => setConfirm(entry.id)}>
+            <Icon name="info" className="" />
+            {p.report}
+          </button>
+        )}
+        {/* 继续问 X: a follow-up under this post, X @-mentioned; anyone signed in, the author included (追问). */}
+        {open && signedIn && live && askable.has(entry.reeId) && !post.followupBlocked && (
+          <button type="button" className="icon-btn" title={fill(p.followUpHint, { name: entry.reeName })} onClick={() => followUp(entry)}>
+            <Icon name="reply" className="" />
+            {fill(p.followUp, { name: entry.reeName })}
+          </button>
+        )}
+        {/* 引用: a new post of one's own quoting this answer; not one's own post, and only the first round's answers. */}
+        {open && !mine && live && !round && (
+          <Link href={quoteHref(entry.id)} className="icon-btn" title={fill(q.quoteAnswerHint, { name: entry.reeName })}>
+            <Icon name="quote" className="" />
+            {q.quoteAnswer}
+          </Link>
+        )}
+      </div>
+    </article>
+  );
+
+  const waitingArticle = (entry: PostAnswerView) => (
+    <article key={entry.id} className="post-answer is-streaming">
+      <div className="post-answer-head">
+        <ReeAvatar avatar={entry.reeAvatar} color={entry.reeColor} size="sm" />
+        <strong>{entry.reeName}</strong>
+        <span className="post-match">{p.answering}</span>
+      </div>
+      <Typing />
+    </article>
+  );
+
+  /* Requests waiting for whoever asked (`scope`: null for the post's author, a follow-up's id for its asker); nobody else sees them. */
+  const paidSection = (entries: PaidRequestView[], scope: string | null) => (
+    <section className={`post-paid${scope ? ' fu-paid' : ''}`} aria-label={scope ? t2.paidTitle : p.paidTitle}>
+      <div className="post-answers-head">
+        <strong>{scope ? t2.paidTitle : p.paidTitle}</strong>
+        <small>{scope ? t2.paidHint : p.paidHint}</small>
+      </div>
+      {entries.map((entry) => (
+        <article key={entry.id} className={`post-answer post-paid-request${entry.state === 'answering' ? ' is-streaming' : ''}`}>
+          <div className="post-answer-head">
+            <ReeAvatar avatar={entry.reeAvatar} color={entry.reeColor} size="sm" />
+            <Link href={`/r/${entry.reeSlug}`}>
+              <strong>{entry.reeName}</strong>
+            </Link>
+            {entry.ownerName && <span className="text-[11px] text-muted">{fill(p.paidBy, { owner: entry.ownerName })}</span>}
+            {entry.similarity !== null && <span className="post-match">{fill(p.match, { score: entry.similarity.toFixed(2) })}</span>}
+            <span className="tag">{fill(p.paidPrice, { n: formatNumber(entry.price, locale) })}</span>
+          </div>
+          {entry.state === 'answering' ? (
+            <>
+              <span className="text-[12px] text-muted">{p.paidAnswering}</span>
+              <Typing />
+            </>
+          ) : (
+            <div className="post-answer-foot">
+              {entry.state === 'refunded' && <span className="basis-full text-[12px] text-muted">{p.paidRefunded}</span>}
+              {entry.state === 'no_answer' && <span className="basis-full text-[12px] text-muted">{p.paidNoAnswer}</span>}
+              {entry.state === 'exhausted' && <span className="basis-full text-[12px] text-muted">{p.paidExhausted}</span>}
+              {/* Found no answer, or failed again: refunded, no more tries (each costs a model call). */}
+              {(entry.state === 'awaiting' || entry.state === 'refunded') && (
+                <button type="button" className="btn btn-sm" disabled={busy === entry.id} onClick={() => void agree(entry, scope)}>
+                  {busy === entry.id ? <i className="spinner" /> : null}
+                  {fill(entry.state === 'refunded' ? p.paidAgain : p.paidAgree, { n: formatNumber(entry.price, locale) })}
+                </button>
+              )}
+              <button type="button" className="btn-secondary btn-sm" disabled={busy === entry.id} onClick={() => void decline(entry, scope)}>
+                {p.paidDecline}
+              </button>
+              {lacking === entry.id && (
+                <Link href="/settings?tab=balance" className="text-[12px] text-blue hover:underline">
+                  {p.paidTopUp} →
+                </Link>
+              )}
+            </div>
+          )}
+        </article>
+      ))}
+    </section>
+  );
+
+  /* One follow-up: who asked, its round and time, the question (@ in blue), then where it stands and its answers. */
+  const roundArticle = (round: FollowupView) => {
+    const asker = round.author.mine;
+    const who = round.author.poster ? (round.author.name ?? t2.poster) : asker ? t2.you : (round.author.name ?? t2.someone);
+    const author = round.author.name ? { kind: 'user' as const, name: round.author.name, avatar: round.author.avatar, mine: asker } : { kind: 'hidden' as const, mine: asker };
+    const number = roundOf.get(round.id);
+    const shownAnswers = round.answers.filter((entry) => entry.state === 'answered');
+    const running = round.answers.filter((entry) => entry.state === 'queued' || entry.state === 'answering');
+    const folded = shownAnswers.length > FOLLOWUP_ROUND_ANSWERS && !roundsOpen.has(round.id);
+    const open = round.status === 'published';
+    const hiddenToMe = round.status === 'hidden' && !asker;
+    return (
+      <article key={round.id} id={`f-${round.id}`} className={`fu-round scroll-mt-24${round.status === 'rejected' ? ' is-rejected' : ''}${hiddenToMe ? ' is-hidden' : ''}`}>
+        {hiddenToMe ? (
+          <p className="fu-hidden-note">{t2.hidden}</p>
+        ) : (
+          <>
+            <span className="fu-round-rail" aria-hidden="true" />
+            <div className="fu-round-head">
+              <AuthorAvatar author={author} className="size-8" />
+              <div className="min-w-0">
+                <strong>
+                  {who}
+                  {round.author.poster && round.author.name && <span className="tag ml-1.5">{t2.poster}</span>}
+                </strong>
+                <span className="fu-round-meta">
+                  {number ? `${fill(t2.round, { n: number })} · ` : ''}
+                  {formatRelative(round.createdAt, now, locale, t.discover.public.qa.justNow)}
+                </span>
+              </div>
+              {asker ? (
+                confirm === round.id ? (
+                  <span className="ml-auto inline-flex items-center gap-2 text-[11px] text-muted">
+                    {t2.deleteConfirm}
+                    <button type="button" className="text-red hover:underline" disabled={busy === round.id} onClick={() => void deleteRound(round)}>{t2.delete}</button>
+                    <button type="button" className="hover:text-blue" onClick={() => setConfirm(null)}>{t.common.actions.cancel}</button>
+                  </span>
+                ) : (
+                  <button type="button" className="icon-btn fu-round-tool" onClick={() => setConfirm(round.id)}>
+                    <Icon name="trash" className="" />
+                    {t2.delete}
+                  </button>
+                )
+              ) : open && (
+                confirm === round.id ? (
+                  <span className="ml-auto inline-flex items-center gap-2 text-[11px] text-muted">
+                    {t2.reportConfirm}
+                    <button type="button" className="text-red hover:underline" disabled={busy === round.id} onClick={() => void reportRound(round)}>{t2.report}</button>
+                    <button type="button" className="hover:text-blue" onClick={() => setConfirm(null)}>{t.common.actions.cancel}</button>
+                  </span>
+                ) : (
+                  <button type="button" className="icon-btn fu-round-tool" onClick={() => setConfirm(round.id)}>
+                    <Icon name="info" className="" />
+                    {t2.report}
+                  </button>
+                )
+              )}
+            </div>
+            <p className="fu-round-q">
+              {round.mentions.map((entry) => (
+                <span key={entry.reeId} className="fu-at">@{entry.reeName}</span>
+              ))}
+              {round.question}
+            </p>
+            {round.status === 'published' && round.answerState === 'done' && (
+              <p className="fu-round-note">
+                {round.mentions.length ? t2.byMention : round.skipped > 0 ? fill(t2.byRelevanceSkipped, { n: round.candidates - round.skipped, skipped: round.skipped }) : fill(t2.byRelevance, { n: round.candidates })}
+              </p>
+            )}
+            <div className="fu-round-answers">
+              {round.status === 'pending' && (
+                <div className="post-state is-gathering">
+                  <i className="spinner" />
+                  <span>{t2.pending}</span>
+                </div>
+              )}
+              {round.status === 'rejected' && <div className="post-state is-rejected">{t2.rejected}</div>}
+              {round.status === 'hidden' && <div className="post-state is-rejected">{round.hiddenBy === 'admin' ? t2.hiddenAdmin : t2.hiddenReports}</div>}
+              {round.status === 'published' && round.answerState !== 'done' && running.length === 0 && (
+                <div className="post-state is-gathering">
+                  <i className="spinner" />
+                  <span>{round.mentions.length ? t2.waitingMention : t2.answering}</span>
+                </div>
+              )}
+              {(folded ? shownAnswers.slice(0, FOLLOWUP_ROUND_ANSWERS) : shownAnswers).map((entry) => answerArticle(entry, open, round))}
+              {folded && (
+                <button type="button" className="fu-fold" onClick={() => setRoundsOpen((current) => new Set(current).add(round.id))}>
+                  <Icon name="chevronDown" className="" />
+                  {fill(t2.moreAnswers, { n: formatNumber(shownAnswers.length - FOLLOWUP_ROUND_ANSWERS, locale) })}
+                </button>
+              )}
+              {running.map((entry) => waitingArticle(entry))}
+              {open && round.answerState === 'done' && shownAnswers.length === 0 && running.length === 0 && round.paidRequests.length === 0 && (
+                asker && !round.mentions.length ? (
+                  <div className="post-state is-unmatched">
+                    <span>{t2.noAnswerMine}</span>
+                    <Link href={`/p/${post.id}?compose=public`}>{t2.postAnew} →</Link>
+                  </div>
+                ) : (
+                  <div className="post-state is-unmatched">{t2.noAnswer}</div>
+                )
+              )}
+              {asker && round.declined.length > 0 && <p className="post-skipped">{fill(t2.declined, { names: round.declined.join('、') })}</p>}
+              {asker && round.spent !== null && round.spent > 0 && <p className="post-skipped">{fill(t2.spent, { n: formatNumber(round.spent, locale) })}</p>}
+              {asker && open && round.paidRequests.length > 0 && paidSection(round.paidRequests, round.id)}
+            </div>
+          </>
+        )}
+      </article>
+    );
+  };
 
   return (
     <div className="post-page">
@@ -319,130 +602,38 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
         )
       )}
 
-      {shown.map((entry) => (
-        <article key={entry.id} id={`a-${entry.id}`} className="post-answer scroll-mt-24">
-          <div className="post-answer-head">
-            <ReeAvatar avatar={entry.reeAvatar} color={entry.reeColor} size="sm" />
-            <Link href={`/r/${entry.reeSlug}`}>
-              <strong>{entry.reeName}</strong>
-            </Link>
-            {entry.official && <span className="tag">{c.official}</span>}
-            {entry.paid && <span className="tag">{p.paidTag}</span>}
-            {entry.pinned && <Icon name="pin" className="size-3" />}
-            {entry.similarity !== null && <span className="post-match">{fill(p.match, { score: entry.similarity.toFixed(2) })}</span>}
-          </div>
-          <div className="answer-text studio-conversation" style={{ background: 'transparent' }}>
-            <AnswerText text={entry.text} citations={entry.citations} onCitation={(found) => setCitation({ entry: found, answer: entry })} />
-            <CitationChips citations={entry.citations} onCitation={(found) => setCitation({ entry: found, answer: entry })} />
-          </div>
-          <div className="post-answer-foot">
-            {!live ? null : signedIn ? (
-              <button type="button" className="icon-btn" aria-pressed={entry.voted} disabled={busy === entry.id} onClick={() => void helpful(entry)}>
-                <Icon name="thumbUp" className={entry.voted ? 'text-blue' : ''} />
-                {c.helpful} {formatNumber(entry.helpful, locale)}
-              </button>
-            ) : (
-              <Link href={loginHref} className="icon-btn" title={p.signInToVote}>
-                <Icon name="thumbUp" className="" />
-                {c.helpful} {formatNumber(entry.helpful, locale)}
-              </Link>
-            )}
-            <button type="button" className="icon-btn" onClick={() => void copy(`a-${entry.id}`)}>
-              <Icon name="link" className="" />
-              {c.share}
-            </button>
-            {!live ? null : confirm === entry.id ? (
-              <span className="inline-flex items-center gap-2 text-[11px] text-muted">
-                {p.reportConfirm}
-                <button type="button" className="text-red hover:underline" disabled={busy === entry.id} onClick={() => void report(entry)}>{p.report}</button>
-                <button type="button" className="hover:text-blue" onClick={() => setConfirm(null)}>{t.common.actions.cancel}</button>
-              </span>
-            ) : (
-              <button type="button" className="icon-btn" onClick={() => setConfirm(entry.id)}>
-                <Icon name="info" className="" />
-                {p.report}
-              </button>
-            )}
-            {mine && live && (
-              <button type="button" className="btn-secondary btn-sm post-follow" title={p.followUpHint} disabled={busy === entry.id} onClick={() => void followUp(entry)}>
-                <Icon name="chat" className="" />
-                {fill(p.followUp, { name: entry.reeName })}
-              </button>
-            )}
-            {/* Anyone else asks on in public, quoting this answer (the author's 继续问 is private). */}
-            {!mine && live && (
-              <Link href={quoteHref(entry.id)} className="btn-secondary btn-sm post-follow" title={q.quoteAnswerHint}>
-                <Icon name="chat" className="" />
-                {fill(q.quoteAnswer, { name: entry.reeName })}
-              </Link>
-            )}
-          </div>
-        </article>
-      ))}
+      {shown.map((entry) => answerArticle(entry, live))}
 
-      {waiting.map((entry) => (
-        <article key={entry.id} className="post-answer is-streaming">
-          <div className="post-answer-head">
-            <ReeAvatar avatar={entry.reeAvatar} color={entry.reeColor} size="sm" />
-            <strong>{entry.reeName}</strong>
-            <span className="post-match">{p.answering}</span>
-          </div>
-          <Typing />
-        </article>
-      ))}
+      {waiting.map((entry) => waitingArticle(entry))}
 
       {mine && post.spent !== null && post.spent > 0 && <p className="post-skipped">{fill(p.spent, { n: formatNumber(post.spent, locale) })}</p>}
 
-      {mine && live && post.paidRequests.length > 0 && (
-        <section className="post-paid" aria-label={p.paidTitle}>
-          <div className="post-answers-head">
-            <strong>{p.paidTitle}</strong>
-            <small>{p.paidHint}</small>
-          </div>
-          {post.paidRequests.map((entry) => (
-            <article key={entry.id} className={`post-answer post-paid-request${entry.state === 'answering' ? ' is-streaming' : ''}`}>
-              <div className="post-answer-head">
-                <ReeAvatar avatar={entry.reeAvatar} color={entry.reeColor} size="sm" />
-                <Link href={`/r/${entry.reeSlug}`}>
-                  <strong>{entry.reeName}</strong>
-                </Link>
-                {entry.ownerName && <span className="text-[11px] text-muted">{fill(p.paidBy, { owner: entry.ownerName })}</span>}
-                {entry.similarity !== null && <span className="post-match">{fill(p.match, { score: entry.similarity.toFixed(2) })}</span>}
-                <span className="tag">{fill(p.paidPrice, { n: formatNumber(entry.price, locale) })}</span>
-              </div>
-              {entry.state === 'answering' ? (
-                <>
-                  <span className="text-[12px] text-muted">{p.paidAnswering}</span>
-                  <Typing />
-                </>
-              ) : (
-                <div className="post-answer-foot">
-                  {entry.state === 'refunded' && <span className="basis-full text-[12px] text-muted">{p.paidRefunded}</span>}
-                  {entry.state === 'no_answer' && <span className="basis-full text-[12px] text-muted">{p.paidNoAnswer}</span>}
-                  {entry.state === 'exhausted' && <span className="basis-full text-[12px] text-muted">{p.paidExhausted}</span>}
-                  {/* Found no answer, or failed again: refunded, no more tries (each costs a model call). */}
-                  {(entry.state === 'awaiting' || entry.state === 'refunded') && (
-                    <button type="button" className="btn btn-sm" disabled={busy === entry.id} onClick={() => void agree(entry)}>
-                      {busy === entry.id ? <i className="spinner" /> : null}
-                      {fill(entry.state === 'refunded' ? p.paidAgain : p.paidAgree, { n: formatNumber(entry.price, locale) })}
-                    </button>
-                  )}
-                  <button type="button" className="btn-secondary btn-sm" disabled={busy === entry.id} onClick={() => void decline(entry)}>
-                    {p.paidDecline}
-                  </button>
-                  {lacking === entry.id && (
-                    <Link href="/settings?tab=balance" className="text-[12px] text-blue hover:underline">
-                      {p.paidTopUp} →
-                    </Link>
-                  )}
-                </div>
-              )}
-            </article>
-          ))}
-        </section>
-      )}
+      {mine && live && post.paidRequests.length > 0 && paidSection(post.paidRequests, null)}
 
       {post.answerState === 'done' && post.skipped > 0 && post.answered > 0 && <p className="post-skipped">{fill(p.skipped, { n: formatNumber(post.skipped, locale) })}</p>}
+
+      {(post.followups.length > 0 || (live && shown.length > 0)) && (
+        <section className="fu-thread" aria-label={t2.title}>
+          {published.length > 0 && (
+            <div className="post-answers-head">
+              <strong>{fill(t2.heading, { n: formatNumber(published.length, locale) })}</strong>
+            </div>
+          )}
+          {listedRounds.map((entry) =>
+            entry === 'fold' ? (
+              <button key="fold" type="button" className="fu-fold" onClick={() => setThreadOpen(true)}>
+                <Icon name="chevronDown" className="" />
+                {fill(t2.more, { n: formatNumber(post.followups.length - FOLLOWUP_FOLD_HEAD - FOLLOWUP_FOLD_TAIL, locale) })}
+              </button>
+            ) : (
+              roundArticle(entry)
+            ),
+          )}
+          {live && shown.length > 0 && (
+            <FollowupComposer ref={composer} postId={post.id} candidates={post.followupCandidates} signedIn={signedIn} loginHref={loginHref} blocked={post.followupBlocked} onAsked={() => void refresh()} />
+          )}
+        </section>
+      )}
 
       {quoting && quoting.items.length > 0 && (
         <section className="post-quotes" aria-label={fill(q.quotedBy, { n: formatNumber(post.quotes, locale) })}>

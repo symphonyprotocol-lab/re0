@@ -313,9 +313,6 @@
   width: 14px;
   height: 14px;
 }
-.post-answer-foot .post-follow {
-  margin-left: auto;
-}
 .post-promo {
   border-radius: 5px;
   padding: 0 6px;
@@ -745,5 +742,315 @@ a.post-quote:hover {
     border-radius: 0;
     opacity: 1;
     transition: none;
+  }
+}
+
+/*
+ * 追问 (follow-ups in a post, draft 1 approved 2026-11-20): the thread under
+ * the first round and the box at its end.
+ */
+/* The thread under the first round: one block per follow-up, a thin rail down its left. */
+.fu-thread {
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-line);
+}
+.fu-round {
+  position: relative;
+  margin-top: 16px;
+  padding-left: 18px;
+}
+.fu-round-rail {
+  position: absolute;
+  top: 40px;
+  bottom: 0;
+  left: 15px;
+  width: 2px;
+  border-radius: 2px;
+  background: #e6ecf6;
+}
+.fu-round-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: -18px;
+}
+.fu-round-head strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+}
+.fu-round-meta {
+  display: block;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.fu-round-tool {
+  width: auto;
+  height: 28px;
+  margin-left: auto;
+  gap: 4px;
+  padding: 0 8px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.fu-round-tool svg {
+  width: 14px;
+  height: 14px;
+}
+.fu-round-q {
+  margin: 8px 0 0 24px;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.fu-round-note {
+  margin: 4px 0 0 24px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.fu-round-answers {
+  margin-left: 24px;
+}
+.fu-round-answers > .post-state,
+.fu-round-answers > .post-paid {
+  margin-top: 12px;
+}
+.fu-answer {
+  margin-top: 12px;
+}
+.fu-at {
+  display: inline-flex;
+  margin-right: 4px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--color-soft);
+  color: var(--color-blue);
+  font-size: 13px;
+  font-weight: 600;
+}
+.fu-round.is-rejected .fu-round-q {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fdf3f2;
+  color: #b4372c;
+  font-size: 12px;
+  font-weight: 400;
+}
+.fu-round.is-hidden {
+  padding-left: 0;
+}
+.fu-hidden-note {
+  padding: 10px 12px;
+  border: 1px dashed var(--color-line);
+  border-radius: 12px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.fu-paid .post-answers-head strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.fu-paid .post-answers-head svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* The follow-up box at the end of the thread: the composer's look, one line until focused. */
+.fu-composer {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 22px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+.fu-composer.is-visitor {
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--color-wash);
+}
+.fu-composer.is-visitor strong {
+  font-size: 14px;
+}
+.fu-composer.is-visitor p {
+  margin-top: 4px;
+  color: #3b4361;
+  font-size: 12px;
+}
+.fu-form {
+  position: relative;
+  min-width: 0;
+}
+.fu-input {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding-top: 7px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.fu-input::placeholder {
+  color: #8a94ae;
+}
+.fu-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.fu-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 4px;
+  border: 1px solid #d6e6fb;
+  border-radius: 999px;
+  background: var(--color-soft);
+  color: var(--color-blue);
+  font-size: 12px;
+  font-weight: 550;
+}
+.fu-chip > span {
+  border-radius: 50% !important;
+}
+.fu-chip button {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+.fu-chip button svg {
+  width: 12px;
+  height: 12px;
+}
+.fu-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #edf0f7;
+}
+.fu-foot .post-cost {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.fu-at-btn svg {
+  width: 17px;
+  height: 17px;
+}
+.fu-picker {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  z-index: 10;
+  width: min(320px, 100%);
+  padding: 6px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 12px 32px #0911351a;
+}
+.fu-picker > p {
+  padding: 6px 8px 8px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.fu-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 8px;
+  text-align: left;
+}
+.fu-pick.is-active {
+  background: var(--color-soft);
+}
+.fu-pick strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+.fu-pick small {
+  display: block;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+/* A feed card's follow-up count, beside 查看全部回答. */
+.fu-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  margin-right: 10px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.fu-count svg {
+  width: 14px;
+  height: 14px;
+}
+.post-actions .fu-count + .post-open {
+  margin-left: 0;
+}
+.fu-count:hover {
+  color: var(--color-blue);
+}
+
+/* "展开另外 N 条追问" and "另外 N 个回答": a quiet line, like the answers' own actions. */
+.fu-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 12px 0 0 18px;
+  color: var(--color-blue);
+  font-size: 12px;
+}
+.fu-round-answers .fu-fold {
+  margin-left: 0;
+}
+.fu-fold svg {
+  width: 14px;
+  height: 14px;
+}
+.fu-round-head .ml-auto {
+  margin-left: auto;
+}
+
+@media (max-width: 760px) {
+  .fu-round-q,
+  .fu-round-note,
+  .fu-round-answers {
+    margin-left: 6px;
+  }
+  .fu-round {
+    padding-left: 12px;
+  }
+  .fu-round-head {
+    margin-left: -12px;
+  }
+  .fu-round-rail {
+    left: 9px;
+  }
+  .fu-composer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fu-composer > span:first-child {
+    display: none;
   }
 }

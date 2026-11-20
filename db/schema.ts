@@ -43,12 +43,14 @@ import { PAGE_KINDS, type PageKind } from '@/lib/domain/traffic';
 import {
   ANSWER_HIDERS,
   ANSWER_STATES,
+  FOLLOWUP_STATUSES,
   POST_ANSWER_STATES,
   POST_DETAIL_MAX,
   POST_SOURCES,
   POST_STATUSES,
   type AnswerHider,
   type AnswerState,
+  type FollowupStatus,
   type PostAnswerState,
   type PostSource,
   type PostStatus,
@@ -1383,6 +1385,8 @@ export const post = pgTable(
     candidates: integer('candidates').notNull().default(0),
     skipped: integer('skipped').notNull().default(0),
     answerCount: integer('answer_count').notNull().default(0),
+    /** Published follow-ups (追问) shown under it, for the cards; kept as they are published, hidden, restored and deleted. */
+    followupCount: integer('followup_count').notNull().default(0),
     summaryState: text('summary_state').$type<'running' | 'done'>(),
     summaryContent: text('summary_content'),
     summarySources: jsonb('summary_sources').$type<SynthesisSource[]>(),
@@ -1421,12 +1425,71 @@ export const post = pgTable(
   ],
 );
 
+/**
+ * A follow-up (追问) under a public post: a signed-in reader asks on, and
+ * only Rees that answered the post's first round answer it -- those it
+ * @-mentions, or else the relevant ones (lib/services/post-followups.ts).
+ * Reviewed like a post before any Ree is asked; its answers are
+ * `post_answer` rows pointing back at it, charged to whoever asked.
+ */
+export const postFollowup = pgTable(
+  'post_followup',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    question: text('question').notNull(),
+    lang: text('lang').$type<'zh' | 'en'>().notNull(),
+    /** The Rees it @-mentions: at most every first-round answerer, checked when asked. */
+    mentionReeIds: uuid('mention_ree_ids').array().notNull().default(sql`'{}'::uuid[]`),
+    status: text('status').$type<FollowupStatus>().notNull().default('pending'),
+    hiddenBy: text('hidden_by').$type<'admin' | 'reports'>(),
+    reportCount: integer('report_count').notNull().default(0),
+    moderationAttempts: integer('moderation_attempts').notNull().default(0),
+    answerState: text('answer_state').$type<PostAnswerState>().notNull().default('waiting'),
+    candidates: integer('candidates').notNull().default(0),
+    skipped: integer('skipped').notNull().default(0),
+    /** The composer's token: the same token, or the same text under the same post within a minute, asks once. */
+    clientToken: uuid('client_token'),
+    deletedAt: timestampTz('deleted_at'),
+    createdAt: createdAt(),
+    publishedAt: timestampTz('published_at'),
+    answeredAt: timestampTz('answered_at'),
+  },
+  (t) => [
+    index('post_followup_thread_idx').on(t.postId, t.createdAt),
+    index('post_followup_user_idx').on(t.userId, t.createdAt.desc()),
+    index('post_followup_pending_idx').on(t.createdAt).where(sql`status = 'pending' or answer_state <> 'done'`),
+    uniqueIndex('post_followup_client_token_key').on(t.userId, t.clientToken).where(sql`client_token is not null`),
+    check('post_followup_status_check', oneOf('status', [...FOLLOWUP_STATUSES])),
+    check('post_followup_answer_state_check', oneOf('answer_state', [...POST_ANSWER_STATES])),
+    check('post_followup_hidden_by_check', sql`hidden_by is null or hidden_by in ('admin', 'reports')`),
+    check('post_followup_lang_check', oneOf('lang', ['zh', 'en'])),
+    check('post_followup_question_check', sql`char_length(question) between 1 and 2000`),
+    check('post_followup_mentions_check', sql`cardinality(mention_ree_ids) <= 5`),
+    check('post_followup_published_check', sql`(status = 'published') <= (published_at is not null)`),
+  ],
+);
+
+/** "举报" on a follow-up: one per reporter, the account or an HMAC of the visitor's network. */
+export const postFollowupReport = pgTable(
+  'post_followup_report',
+  {
+    followupId: uuid('followup_id').notNull().references(() => postFollowup.id, { onDelete: 'cascade' }),
+    reporterKey: text('reporter_key').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.followupId, t.reporterKey] })],
+);
+
 /** One Ree's answer to a post. */
 export const postAnswer = pgTable(
   'post_answer',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    /** Null for the post's first round; a follow-up's answers point at it (追问). */
+    followupId: uuid('followup_id').references((): AnyPgColumn => postFollowup.id, { onDelete: 'cascade' }),
     reeId: uuid('ree_id').notNull().references(() => ree.id, { onDelete: 'cascade' }),
     legacyQaId: uuid('legacy_qa_id').references(() => reePublicQa.id, { onDelete: 'set null' }),
     /** The best passage's similarity when the search picked it; null for a mention or a copied Q&A. */
@@ -1454,7 +1517,9 @@ export const postAnswer = pgTable(
   },
   (t) => [
     index('post_answer_awaiting_idx').on(t.postId).where(sql`state in ('awaiting', 'answering')`),
-    uniqueIndex('post_answer_post_ree_key').on(t.postId, t.reeId),
+    /* One answer per Ree in the first round, and one per Ree in each follow-up. */
+    uniqueIndex('post_answer_post_ree_key').on(t.postId, t.reeId).where(sql`followup_id is null`),
+    uniqueIndex('post_answer_followup_ree_key').on(t.followupId, t.reeId).where(sql`followup_id is not null`),
     index('post_answer_ree_idx').on(t.reeId, t.answeredAt.desc(), t.id.desc()).where(sql`state = 'answered' and hidden_by is null`),
     uniqueIndex('post_answer_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
     uniqueIndex('post_answer_pinned_key').on(t.reeId).where(sql`pinned_at is not null`),
@@ -1543,7 +1608,7 @@ export const verificationRequest = pgTable(
   ],
 );
 
-export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests'] as const;
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**

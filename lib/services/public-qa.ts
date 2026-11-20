@@ -249,7 +249,8 @@ function answers() {
 }
 
 function shown(): SQL {
-  return and(shownAnswer(), visiblePost())!;
+  /* A Ree page's Q&A is the posts' first rounds: a follow-up's answer is read under its post (追问). */
+  return and(shownAnswer(), visiblePost(), isNull(answer.followupId))!;
 }
 
 function toPublic(row: Row, voted: Set<string>, whole = false): PublicQa {
