@@ -38,7 +38,7 @@ const citation = { index: 2, title: '组件状态清单', excerpt: '默认、悬
 const post: PostView = {
   id: '00000000-0000-4000-8000-000000000001', question: '按钮组件规范？', detail: '', lang: 'zh', category: null,
   author: { kind: 'user', name: 'Lin', avatar: null, mine: false }, status: 'published', answerState: 'done', answered: 2, candidates: 2, skipped: 0,
-  helpful: 0, saved: false, createdAt: '2026-11-19T00:00:00.000Z',
+  helpful: 0, voted: false, saved: false, createdAt: '2026-11-19T00:00:00.000Z',
   answers: [ree('a', '设计系统顾问'), ree('b', 'APAGE')],
   summary: {
     state: 'done',

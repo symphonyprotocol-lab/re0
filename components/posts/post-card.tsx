@@ -64,6 +64,60 @@ export function QuoteCard({ quote, now }: { quote: PostQuote; now: number }) {
   );
 }
 
+/**
+ * The post's own "有帮助" (the card's and the post page's first action): the
+ * number is the post's votes added to its first-round answers'. Signed in,
+ * a click marks the post helpful or takes it back, shown at once and
+ * corrected by the server's count; a visitor goes to sign in. A post nobody
+ * else can see (pending, taken down, trashed) only shows the number.
+ */
+export function PostHelpful({ post, signedIn, loginHref, onChange }: { post: PostView; signedIn: boolean; loginHref?: string; onChange: (change: { helpful: number; voted: boolean }) => void }) {
+  const { t, locale } = useI18n();
+  const c = t.posts.card;
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const count = formatNumber(post.helpful, locale);
+  if (post.status !== 'published' || post.deleted) {
+    return (
+      <span className="icon-btn" title={c.helpful}>
+        <Icon name="thumbUp" className="" />
+        {count}
+      </span>
+    );
+  }
+  if (!signedIn) {
+    return (
+      <Link href={loginHref ?? `/login?returnTo=${encodeURIComponent(`/p/${post.id}`)}`} className="icon-btn" title={t.posts.page.signInToVote} aria-label={`${c.helpful} ${count}`}>
+        <Icon name="thumbUp" className="" />
+        {count}
+      </Link>
+    );
+  }
+  async function toggle() {
+    const before = { helpful: post.helpful, voted: post.voted };
+    const on = !post.voted;
+    setBusy(true);
+    onChange({ helpful: Math.max(0, post.helpful + (on ? 1 : -1)), voted: on });
+    try {
+      const response = await fetch(`/api/posts/${post.id}/helpful`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
+      if (!response.ok) throw new Error(String(response.status));
+      const body = (await response.json()) as { helpful: number; voted: boolean };
+      onChange({ helpful: Number(body.helpful) || 0, voted: body.voted === true });
+    } catch {
+      onChange(before);
+      toast(t.common.errors.generic);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button type="button" className="icon-btn" aria-pressed={post.voted} disabled={busy} title={c.helpful} aria-label={`${c.helpful} ${count}`} onClick={() => void toggle()}>
+      <Icon name="thumbUp" className={post.voted ? 'text-blue' : ''} />
+      {count}
+    </button>
+  );
+}
+
 /** Where a post stands, as the card and the page say it (answering, nobody could answer, under review, refused). */
 export function PostState({ post }: { post: PostView }) {
   const { t } = useI18n();
@@ -162,10 +216,7 @@ export function PostCard({ post: initial, now, signedIn }: { post: PostView; now
           <PostState post={post} />
         )}
         <div className="post-actions">
-          <span className="icon-btn" title={c.helpful}>
-            <Icon name="thumbUp" className="" />
-            {formatNumber(post.helpful, locale)}
-          </span>
+          <PostHelpful post={post} signedIn={signedIn} onChange={(change) => setPost((current) => ({ ...current, ...change }))} />
           <span className="icon-btn" title={c.answers}>
             <Icon name="chat" className="" />
             {formatNumber(post.answered, locale)}

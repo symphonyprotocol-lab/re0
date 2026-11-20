@@ -1385,6 +1385,8 @@ export const post = pgTable(
     candidates: integer('candidates').notNull().default(0),
     skipped: integer('skipped').notNull().default(0),
     answerCount: integer('answer_count').notNull().default(0),
+    /** "有帮助" on the post itself (`post_vote`); the cards show it added to its first-round answers' votes. */
+    helpfulCount: integer('helpful_count').notNull().default(0),
     /** Published follow-ups (追问) shown under it, for the cards; kept as they are published, hidden, restored and deleted. */
     followupCount: integer('followup_count').notNull().default(0),
     summaryState: text('summary_state').$type<'running' | 'done'>(),
@@ -1538,6 +1540,17 @@ export const postAnswerVote = pgTable(
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.answerId, t.userId] }), index('post_answer_vote_user_idx').on(t.userId)],
+);
+
+/** "有帮助" on a post itself: one per signed-in user. */
+export const postVote = pgTable(
+  'post_vote',
+  {
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.postId, t.userId] }), index('post_vote_user_idx').on(t.userId)],
 );
 
 /** "举报" on an answer: one per reporter, the account or an HMAC of the anonymous id. */

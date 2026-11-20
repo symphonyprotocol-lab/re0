@@ -84,7 +84,7 @@ import { notify } from '@/lib/services/notices';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
 import { questionRewriter } from '@/lib/services/question-rewrite';
 
-const { post, postAnswer: answer, postAnswerVote: vote, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user, message, conversation } = schema;
+const { post, postVote, postAnswer: answer, postAnswerVote: vote, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user, message, conversation } = schema;
 
 /* --------------------------------------------------------------- visibility */
 
@@ -716,6 +716,12 @@ export async function votedBy(viewerId: string | undefined, ids: string[]): Prom
   return new Set(rows.map((row) => row.id));
 }
 
+async function postVotedBy(viewerId: string | undefined, ids: string[]): Promise<Set<string>> {
+  if (!viewerId || ids.length === 0) return new Set();
+  const rows = await db().select({ id: postVote.postId }).from(postVote).where(and(eq(postVote.userId, viewerId), inArray(postVote.postId, ids)));
+  return new Set(rows.map((row) => row.id));
+}
+
 async function savedBy(viewerId: string | undefined, ids: string[]): Promise<Set<string>> {
   if (!viewerId || ids.length === 0) return new Set();
   const rows = await db().select({ id: save.postId }).from(save).where(and(eq(save.userId, viewerId), inArray(save.postId, ids)));
@@ -751,7 +757,7 @@ export function answerView(row: AnswerRow, voted: Set<string>, whole: boolean): 
  */
 async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: { whole: boolean; onlyRee?: string }): Promise<PostView[]> {
   const ids = rows.map((row) => row.id);
-  const [answers, saved] = await Promise.all([answersFor(ids), savedBy(viewerId, ids)]);
+  const [answers, saved, postVoted] = await Promise.all([answersFor(ids), savedBy(viewerId, ids), postVotedBy(viewerId, ids)]);
   const voted = await votedBy(viewerId, answers.map((row) => row.id));
   const followUps = options.whole && viewerId && rows.length === 1 && rows[0]!.userId === viewerId
     ? await db()
@@ -793,7 +799,8 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
       answered: shown.length,
       candidates: row.candidates,
       skipped: row.skipped,
-      helpful: shown.reduce((sum, entry) => sum + entry.helpful, 0),
+      helpful: shown.reduce((sum, entry) => sum + entry.helpful, 0) + row.helpfulCount,
+      voted: postVoted.has(row.id),
       saved: saved.has(row.id),
       createdAt: (row.publishedAt ?? row.createdAt).toISOString(),
       answers: listed.map((entry) => answerView(entry, voted, options.whole)),
@@ -882,7 +889,8 @@ export async function listFeed(tab: FeedTab, options: { cursor?: string | null; 
   const search = options.q?.trim() ? sql`${searchable} ilike ${`%${options.q.trim().replace(/[%_\\]/g, '\\$&')}%`}` : undefined;
   if (tab === 'for_you') {
     const offset = Math.max(0, Number.parseInt(options.cursor ?? '0', 10) || 0);
-    const helpful = sql`(select coalesce(sum(a.helpful_count), 0) from ${answer} a where a.post_id = ${post.id} and a.followup_id is null and a.state = 'answered' and a.hidden_by is null)`;
+    /* The first round's answers' votes and the post's own, as the cards count them. */
+    const helpful = sql`((select coalesce(sum(a.helpful_count), 0) from ${answer} a where a.post_id = ${post.id} and a.followup_id is null and a.state = 'answered' and a.hidden_by is null) + ${post.helpfulCount})`;
     const score = sql`((${helpful} * 2 + ${post.answerCount} + 1)::float / power(extract(epoch from (now() - ${post.publishedAt})) / 3600 + 2, 1.3))`;
     /* Scored over the last 30 days only (post_feed_idx narrows it by published_at), so the sort never covers the whole table. */
     const recent = sql`${post.publishedAt} > ${new Date(Date.now() - FOR_YOU_WINDOW_MS).toISOString()}::timestamptz`;
@@ -1033,6 +1041,32 @@ export async function setAnswerHelpful(userId: string, id: string, on: boolean, 
       ? await tx.update(answer).set({ helpfulCount: sql`greatest(${answer.helpfulCount} + ${on ? 1 : -1}, 0)` }).where(eq(answer.id, id)).returning({ helpful: answer.helpfulCount })
       : await tx.select({ helpful: answer.helpfulCount }).from(answer).where(eq(answer.id, id));
     return { helpful: row!.helpful, voted: on };
+  });
+}
+
+/**
+ * "有帮助" on a post itself, once per signed-in user, its author included
+ * (as on answers); only while anyone can see it. Answers what the cards
+ * show -- the post's own votes added to its first-round answers' shown ones
+ * -- or null when the post is not shown.
+ */
+export async function setPostHelpful(userId: string, id: string, on: boolean): Promise<{ helpful: number; voted: boolean } | null> {
+  if (!isUuid(id)) return null;
+  return db().transaction(async (tx) => {
+    const [target] = await tx.select({ id: post.id }).from(post).where(and(eq(post.id, id), visiblePost())).for('update');
+    if (!target) return null;
+    const changed = on
+      ? await tx.insert(postVote).values({ postId: id, userId }).onConflictDoNothing().returning({ id: postVote.postId })
+      : await tx.delete(postVote).where(and(eq(postVote.postId, id), eq(postVote.userId, userId))).returning({ id: postVote.postId });
+    const [row] = changed.length
+      ? await tx.update(post).set({ helpfulCount: sql`greatest(${post.helpfulCount} + ${on ? 1 : -1}, 0)` }).where(eq(post.id, id)).returning({ own: post.helpfulCount })
+      : await tx.select({ own: post.helpfulCount }).from(post).where(eq(post.id, id));
+    const [answers] = await tx
+      .select({ n: sql<number>`coalesce(sum(${answer.helpfulCount}), 0)::int` })
+      .from(answer)
+      .innerJoin(ree, eq(ree.id, answer.reeId))
+      .where(and(eq(answer.postId, id), firstRound(), shownAnswer()));
+    return { helpful: row!.own + (answers?.n ?? 0), voted: on };
   });
 }
 

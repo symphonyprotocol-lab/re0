@@ -230,7 +230,10 @@ export interface PostView {
   candidates: number;
   /** Candidates that were not close enough to answer. */
   skipped: number;
+  /** "有帮助": the post's own votes added to its first-round answers' shown ones. */
   helpful: number;
+  /** The viewer marked the post itself helpful. */
+  voted: boolean;
   saved: boolean;
   createdAt: string;
   answers: PostAnswerView[];

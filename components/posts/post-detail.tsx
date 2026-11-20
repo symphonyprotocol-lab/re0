@@ -12,7 +12,7 @@ import { Markdown } from '@/components/chat/markdown';
 import { Icon } from '@/components/ui/icons';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { useToast } from '@/components/ui/toast';
-import { AuthorAvatar, authorName, PostState, QuoteCard } from '@/components/posts/post-card';
+import { AuthorAvatar, authorName, PostHelpful, PostState, QuoteCard } from '@/components/posts/post-card';
 import { PostFeed } from '@/components/posts/post-feed';
 import { FollowupComposer, type FollowupComposerHandle } from '@/components/posts/followup-composer';
 import './posts.css';
@@ -124,7 +124,12 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
   }
 
   const helpful = (entry: PostAnswerView) =>
-    call(entry.id, `/api/posts/answers/${entry.id}/helpful`, { method: 'POST', body: JSON.stringify({ on: !entry.voted }) }, (body) => replace(entry.id, { helpful: Number(body.helpful) || 0, voted: body.voted === true }));
+    call(entry.id, `/api/posts/answers/${entry.id}/helpful`, { method: 'POST', body: JSON.stringify({ on: !entry.voted }) }, (body) => {
+      const count = Number(body.helpful) || 0;
+      /* A first-round answer's vote is part of the post's total too. */
+      if (post.answers.some((other) => other.id === entry.id)) setPost((current) => ({ ...current, helpful: Math.max(0, current.helpful + count - entry.helpful) }));
+      replace(entry.id, { helpful: count, voted: body.voted === true });
+    });
   const report = (entry: PostAnswerView) => {
     setConfirm(null);
     return call(entry.id, `/api/posts/answers/${entry.id}/report`, { method: 'POST' }, () => toast(p.reported));
@@ -491,10 +496,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
         </div>
       )}
       <div className="post-actions">
-        <span className="icon-btn" title={c.helpful}>
-          <Icon name="thumbUp" className="" />
-          {formatNumber(post.helpful, locale)}
-        </span>
+        <PostHelpful post={post} signedIn={signedIn} loginHref={loginHref} onChange={(change) => setPost((current) => ({ ...current, ...change }))} />
         <span className="icon-btn" title={c.answers}>
           <Icon name="chat" className="" />
           {formatNumber(post.answered, locale)}
