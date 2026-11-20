@@ -112,7 +112,11 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
   const paidNames = picked.filter((entry) => entry.paid).map((entry) => entry.reeName);
   /* Private: named Rees (@ and 加 Ree) answer, else the relevant ones of the thread -- at most all of them. */
   const named = [...picked, ...addedNow];
-  const cost = isPrivate
+  /* A private thread with no Ree in it (只问 AI): the AI answers each follow-up, at the base fee. */
+  const aiOnly = isPrivate && named.length === 0 && candidates.length === 0;
+  const cost = aiOnly
+    ? fill(t.posts.ai.followupAiOnly, { fee: formatNumber(AI_ANSWER_FEE, locale) })
+    : isPrivate
     ? named.length
       ? fill(f.privateCostNamed, { names: named.map((entry) => entry.reeName).join('、'), total: formatNumber(named.reduce((sum, entry) => sum + entry.price, 0), locale) })
       : fill(f.privateCost, { total: formatNumber(candidates.reduce((sum, entry) => sum + entry.price, 0), locale) })
@@ -281,7 +285,7 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
           />
         )}
         {/* When no Ree answers, the AI does, at the base fee (AI 通用回答). */}
-        <p className="post-hint ai-fu-hint">{fill(t.posts.ai.followupCost, { fee: formatNumber(AI_ANSWER_FEE, locale) })}</p>
+        {!aiOnly && <p className="post-hint ai-fu-hint">{fill(t.posts.ai.followupCost, { fee: formatNumber(AI_ANSWER_FEE, locale) })}</p>}
         <div className="fu-foot">
           {isPrivate && (
             <button type="button" className="icon-btn chip-btn" data-ree-picker="" aria-expanded={adding} disabled={threadFull} title={threadFull ? f.errors.too_many_rees : undefined} onClick={() => setAdding((current) => !current)}>

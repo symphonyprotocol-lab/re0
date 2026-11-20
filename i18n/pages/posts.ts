@@ -376,6 +376,7 @@ export const zh = {
     askAiCost: '{fee} credits · 生成失败不收费',
     askAiHint: '没有选 Ree：AI 会给一个通用回答，无出处、只有你能看到，{fee} credits；生成失败不收费。',
     followupCost: '没有 Ree 能回答时 AI 兜底 · {fee} credits',
+    followupAiOnly: '只问 AI · {fee} credits，没有回答不收费',
   },
   quote: {
     quotePost: '引用提问',
@@ -786,6 +787,7 @@ export const en: Shape<typeof zh> = {
     askAiCost: '{fee} credits · nothing charged if it fails',
     askAiHint: 'No Ree chosen: the AI writes a general answer, with no sources and seen only by you, for {fee} credits; nothing is charged if it fails.',
     followupCost: 'If no Ree can answer, the AI does · {fee} credits',
+    followupAiOnly: 'AI only · {fee} credits; no answer, no charge',
   },
   quote: {
     quotePost: 'Quote and ask',
