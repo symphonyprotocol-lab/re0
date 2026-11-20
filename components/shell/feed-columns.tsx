@@ -16,7 +16,7 @@ import './columns.css';
  * navigation drawer. Used by the feed-like pages; the creator tools keep
  * their full-width pages and top bar.
  */
-export function FeedColumns({ title, back, tabs, rail, heading = true, children }: {
+export function FeedColumns({ title, back, tabs, rail, heading = true, wide = false, children }: {
   title: ReactNode;
   /** The title is the page's h1; false when the page has its own (a visitor's 首页, whose introduction carries it). */
   heading?: boolean;
@@ -25,12 +25,14 @@ export function FeedColumns({ title, back, tabs, rail, heading = true, children 
   /** The head's second row, usually `.cl-tabs`. */
   tabs?: ReactNode;
   rail?: ReactNode;
+  /** One column the width of the centre and right ones together (v6): 价格, 了解 RE0, the legal pages, checkout. */
+  wide?: boolean;
   children: ReactNode;
 }) {
   const { t } = useI18n();
   const { openDrawer, activitiesPending, signedIn } = useShell();
   return (
-    <div className="xmain-grid">
+    <div className={wide ? 'xmain-grid is-wide' : 'xmain-grid'}>
       <div className="xcol">
         <div className="xtop">
           <Link href="/" className="wordmark" aria-label={t.common.nav.home}>

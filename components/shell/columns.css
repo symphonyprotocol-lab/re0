@@ -430,3 +430,8 @@
 .xcol .discovery-feed-banner .knowledge-banner {
   margin-top: 20px;
 }
+
+/* One wide column (v6): 价格, 了解 RE0, the legal pages and checkout use the centre and right columns' width together. */
+.xmain-grid.is-wide {
+  grid-template-columns: minmax(0, 1fr);
+}
