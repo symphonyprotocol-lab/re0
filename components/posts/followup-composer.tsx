@@ -102,7 +102,8 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-0 flex-1">
             <strong className="block">{f.visitorTitle}</strong>
-            <p>{f.visitorBody}</p>
+            {/* 继续问 AI: no Ree answered, so the AI answers follow-ups, not the first round's Rees. */}
+            <p>{publicAi && threadRees.length === 0 ? f.visitorBodyAi : f.visitorBody}</p>
           </div>
           <Link href={loginHref} className="btn btn-sm">
             {f.signIn}
