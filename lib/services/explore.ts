@@ -20,6 +20,7 @@ import {
   EXPLORE_EXACT_PASSAGES,
   EXPLORE_INDEX_CHECK_MS,
   EXPLORE_NAME_REES,
+  EXPLORE_PASSAGE_CANDIDATES,
   EXPLORE_PASSAGE_EF_SEARCH,
   EXPLORE_PASSAGE_SCAN_MAX,
   EXPLORE_PASSAGES,
@@ -271,9 +272,11 @@ export function forgetSearchIndexCheck(): void {
  * First through each vector slot's HNSW index (lib/infra/search-indexes.ts), on half-precision
  * copies, with an iterative scan so the filter still fills the list; the
  * similarity is then computed again on the stored vectors of the rows
- * found. Only those rows' vectors and texts are read -- not, as an exact
- * scan does, every passage of every candidate (some 50,000 vectors of
- * 6 KB, three times each, per search). The planner cannot tell how many
+ * found, and the nearest `limit` of them kept: each leg reads at least
+ * EXPLORE_PASSAGE_CANDIDATES rows, since a relaxed-order scan's first rows
+ * are only roughly its nearest. Only those rows' vectors and texts are
+ * read -- not, as an exact scan does, every passage of every candidate
+ * (some 50,000 vectors of 6 KB, three times each, per search). The planner cannot tell how many
  * passages the space tag keeps, so it is told to skip the sort-everything
  * plan (`enable_sort`, `jit` off for the statement).
  *
@@ -339,7 +342,7 @@ export function passageSearch(vector: QuestionVector, rees: readonly string[], l
     (slot) => sql`(select ${columns} from ${schema.chunk} c join ${schema.knowledge} k on k.id = c.knowledge_id
       where ${inRees} and ${ready} and ${slot.vector} is not null and ${slot.inSpace(vector.space)}
       order by ${slot.vector}::${half} <=> ${literal}::${half}
-      limit ${limit})`,
+      limit ${Math.max(limit, EXPLORE_PASSAGE_CANDIDATES)})`,
   );
   return {
     settings: sql`select

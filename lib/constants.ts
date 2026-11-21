@@ -466,6 +466,13 @@ export const EXPLORE_EXACT_PASSAGES = 3_000;
  */
 export const EXPLORE_PASSAGE_EF_SEARCH = 100;
 export const EXPLORE_PASSAGE_SCAN_MAX = 10_000;
+/**
+ * The fewest rows each index leg reads, however few are wanted (a named
+ * Ree's one nearest passage): the iterative scan returns them only roughly
+ * in order, so the first row is not always the nearest it would find; the
+ * search keeps the nearest by the stored vectors among these.
+ */
+export const EXPLORE_PASSAGE_CANDIDATES = 20;
 /** How long a server instance trusts its last look at whether those indexes are valid (they are built after a deploy, concurrently). */
 export const EXPLORE_INDEX_CHECK_MS = 60_000;
 /** How long, and for how many questions, a server instance keeps a search question's vector. */
