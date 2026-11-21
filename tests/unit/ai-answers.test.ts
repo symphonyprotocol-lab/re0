@@ -1,8 +1,10 @@
 /**
  * AI 通用回答 (design draft 1, approved 2026-11-20): what the model is told
  * and what is kept of its text, and how the asker's card, its guidance, its
- * folded line, the skipped state and their own feed card read -- and that a
- * post without one (anyone else's view) reads as before.
+ * folded line, the skipped state and the feed card read; on a public post
+ * everyone reads a reviewed one (no "仅你可见", no votes, no guidance),
+ * the asker sees where its review stands, and a post without one reads as
+ * before.
  */
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -24,8 +26,12 @@ const en = messages('en');
 const a = zh.posts.ai;
 /* The unmatched line up to its quoted word (the markup escapes the quotes). */
 const unmatched = zh.posts.card.unmatched.split('。')[0]!;
+/* A line as the markup has it (quotes escaped). */
+const html_ = (text: string) => text.replace(/"/g, '&quot;');
 
-const answered: AiAnswerView = { id: 'ai1', state: 'answered', text: '叶子发黄**又卷边**，常见原因：浇水过多。', truncated: false, vote: null, cost: AI_ANSWER_FEE, retry: false, folded: false };
+const answered: AiAnswerView = { id: 'ai1', state: 'answered', text: '叶子发黄**又卷边**，常见原因：浇水过多。', truncated: false, vote: null, cost: AI_ANSWER_FEE, retry: false, folded: false, mine: true, review: 'passed', private: false };
+/* The same answer as anyone else gets it on a public post: passed review, no vote or cost of theirs. */
+const public_: AiAnswerView = { ...answered, cost: 0, mine: false };
 const base: PostView = {
   id: '00000000-0000-4000-8000-000000000001', visibility: 'public', title: null, pinned: false, archived: false, publishedCopyId: null, question: '龟背竹叶子发黄卷边？', detail: '', lang: 'zh', category: null,
   author: { kind: 'user', name: '林夏', avatar: null, mine: true }, status: 'published', answerState: 'done', answered: 0, candidates: 4, skipped: 4,
@@ -79,11 +85,14 @@ describe('the model is a general assistant with no sources', () => {
 describe('the asker reads the AI answer, marked as no Ree’s', () => {
   it('shows the state line, the card with its tags, note and cost, the guidance, and no Ree mark or citation', () => {
     const html = page(base);
-    expect(html).toContain(a.stateStrong);
+    expect(html).toContain(html_(a.state));
+    expect(a.state).not.toContain('只有你能看到');
     expect(html).toContain('post-answer ai-answer');
     expect(html).toContain(`>${a.title}</strong>`);
     expect(html).toContain(a.noSource);
-    expect(html).toContain(a.onlyYou);
+    /* A public post's, passed review: everyone reads it, so no "仅你可见" and no review note. */
+    expect(html).not.toContain(a.onlyYou);
+    expect(html).not.toContain(a.reviewPendingNote);
     expect(html).toContain(a.note);
     expect(html).toContain('<strong>又卷边</strong>');
     expect(html).toContain(`>${fill(a.cost, { n: String(AI_ANSWER_FEE) })}</span>`);
@@ -97,11 +106,52 @@ describe('the asker reads the AI answer, marked as no Ree’s', () => {
     expect(html).not.toContain(zh.posts.followupComposer.placeholder);
   });
 
-  it('reads as before for anyone else: no card, the unmatched line', () => {
+  it('reads as before for anyone else while there is none they may read: no card, the unmatched line', () => {
     const html = page({ ...base, author: { kind: 'user', name: '林夏', avatar: null, mine: false }, aiAnswer: null });
     expect(html).not.toContain('ai-answer');
     expect(html).not.toContain(a.guideTitle);
     expect(html).toContain(unmatched);
+  });
+
+  it('shows anyone else a public post’s reviewed AI answer: the same card, no 仅你可见, no votes or cost, no guidance', () => {
+    const html = page({ ...base, author: { kind: 'user', name: '林夏', avatar: null, mine: false }, aiAnswer: public_ });
+    expect(html).toContain('post-answer ai-answer');
+    expect(html).toContain(html_(a.stateOthers));
+    expect(html).toContain(a.noSource);
+    expect(html).toContain(a.note);
+    expect(html).toContain('<strong>又卷边</strong>');
+    expect(html).not.toContain(a.onlyYou);
+    expect(html).not.toContain(`</svg>${a.helpful}</button>`);
+    expect(html).not.toContain(`</svg>${a.unhelpful}</button>`);
+    expect(html).toContain(`</svg>${a.copy}</button>`);
+    expect(html).not.toContain(fill(a.cost, { n: String(AI_ANSWER_FEE) }));
+    expect(html).not.toContain(a.guideTitle);
+    expect(html).not.toContain(unmatched);
+    /* A visitor reads it too, and gets the sign-in line to ask the AI on. */
+    const visitor = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t: zh, children: createElement(PostDetail, { initial: { ...base, author: { kind: 'user', name: '林夏', avatar: null, mine: false }, aiAnswer: public_, followupAiOnly: true }, signedIn: false, now, loginHref: '/login' }) }));
+    expect(visitor).toContain('post-answer ai-answer');
+    expect(visitor).not.toContain(a.onlyYou);
+    expect(visitor).toContain(zh.posts.followupComposer.signIn);
+    expect(visitor).not.toContain(a.askMore);
+  });
+
+  it('tells its asker while the review is pending, and when it did not pass', () => {
+    const pending = page({ ...base, aiAnswer: { ...answered, review: 'pending' } });
+    expect(pending).toContain(`>${a.reviewPending}</span>`);
+    expect(pending).toContain(a.reviewPendingNote);
+    expect(pending).not.toContain(a.onlyYou);
+    const rejected = page({ ...base, aiAnswer: { ...answered, review: 'rejected' } });
+    expect(rejected).toContain(`>${a.reviewRejected}</span>`);
+    expect(rejected).toContain(a.reviewRejectedNote);
+    /* The fee stays charged: they got the answer. */
+    expect(rejected).toContain(`>${fill(a.cost, { n: String(AI_ANSWER_FEE) })}</span>`);
+  });
+
+  it('keeps 仅你可见 on a private post’s', () => {
+    const html = page({ ...base, visibility: 'private', candidates: 2, skipped: 0, aiAnswer: { ...answered, review: null, private: true } });
+    expect(html).toContain(a.onlyYou);
+    expect(html).toContain(a.statePrivate);
+    expect(html).not.toContain(a.reviewPendingNote);
   });
 
   it('folds to one line under the Rees once one answered', () => {
@@ -110,7 +160,7 @@ describe('the asker reads the AI answer, marked as no Ree’s', () => {
     expect(html).toContain(a.folded);
     expect(html).not.toContain(a.note);
     expect(html.indexOf('绿植顾问')).toBeLessThan(html.indexOf(a.folded));
-    expect(html).not.toContain(a.stateStrong);
+    expect(html).not.toContain(html_(a.state));
   });
 
   it('says a short balance skipped it, with the top-up and the one-time button', () => {
@@ -143,6 +193,12 @@ describe('the asker reads the AI answer, marked as no Ree’s', () => {
     const theirs = page({ ...post, followups: [{ ...round, author: { ...round.author, mine: false }, aiAnswer: null, spent: null }] });
     expect(theirs).not.toContain('取决于城市的规则。');
     expect(theirs).toContain(zh.posts.followups.noAnswer);
+    /* Once it passed review, anyone reads it -- without the asker's ways to a Ree. */
+    const reviewed = page({ ...post, followups: [{ ...round, author: { ...round.author, mine: false }, aiAnswer: { ...public_, text: '取决于城市的规则。' }, spent: null }] });
+    expect(reviewed).toContain('取决于城市的规则。');
+    expect(reviewed).toContain(a.followupNote);
+    expect(reviewed).not.toContain(`<strong>${a.postAnew}</strong>`);
+    expect(reviewed).not.toContain(a.onlyYou);
     /* The box says the AI steps in when no Ree can, at the base fee. */
     expect(mine).toContain(fill(a.followupCost, { fee: String(QUERY_BASE_FEE) }));
   });
@@ -199,15 +255,21 @@ describe('the asker reads the AI answer, marked as no Ree’s', () => {
     expect(html).not.toContain('fu-at-btn');
   });
 
-  it('previews it on the asker’s own feed card, in place of "nobody could answer"', () => {
+  it('previews it on the feed card for everyone, marked AI 通用回答, in place of "nobody could answer"', () => {
     const html = card({ ...base, aiAnswer: { ...answered, text: '叶子发黄又卷边，常见原因：浇水过多…', truncated: true } });
     expect(html).toContain('ai-preview');
     expect(html).toContain(a.preview);
     expect(html).toContain('常见原因：浇水过多');
     expect(html).not.toContain(unmatched);
-    const theirs = card({ ...base, author: { kind: 'user', name: '林夏', avatar: null, mine: false }, aiAnswer: null });
-    expect(theirs).not.toContain('ai-preview');
-    expect(theirs).toContain(unmatched);
+    const theirs = card({ ...base, author: { kind: 'user', name: '林夏', avatar: null, mine: false }, aiAnswer: { ...public_, text: '叶子发黄又卷边，常见原因：浇水过多…', truncated: true } });
+    expect(theirs).toContain('ai-preview');
+    expect(theirs).toContain(`${a.title} · `);
+    expect(theirs).toContain('常见原因：浇水过多');
+    expect(theirs).not.toContain(a.onlyYou);
+    expect(theirs).not.toContain(unmatched);
+    const none = card({ ...base, author: { kind: 'user', name: '林夏', avatar: null, mine: false }, aiAnswer: null });
+    expect(none).not.toContain('ai-preview');
+    expect(none).toContain(unmatched);
   });
 });
 
@@ -222,6 +284,13 @@ describe('the copy', () => {
     expect(zh.legal.terms.s10.body).toContain('AI 通用回答由模型按通用知识生成');
     expect(en.legal.terms.s10.body).toContain('AI general answers are generated by a model');
     expect(zh.notices.lines.postAiAnswer).toContain('{question}');
+    /* Public after review, private stays the author's: no longer "only you" everywhere. */
+    expect(zh.legal.terms.reeAnswers.body).toContain('通过后所有人（包括未登录的访客）都能看到');
+    expect(en.legal.terms.reeAnswers.body).toContain('once it passes, everyone, including signed-out visitors, can see it');
+    expect(zh.legal.terms.reeAnswers.body).not.toContain('AI 通用回答只有提问人能看到');
+    expect(zh.site.faq.q9.a).toContain('私密帖子里的只有你能看到');
+    expect(zh.posts.composer.cost).not.toContain('只有你能看到');
+    expect(en.posts.ai.preview).not.toContain('only you');
     expect(AI_ANSWER_FEE).toBe(QUERY_BASE_FEE);
   });
 });

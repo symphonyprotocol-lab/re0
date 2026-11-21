@@ -1,17 +1,22 @@
 /**
  * AI 通用回答 (design draft 1, approved 2026-11-20): when no Ree answers a
- * round, its asker -- and only its asker -- gets one general answer at the
- * base fee: held, settled once written, given back when it fails; skipped
- * for a short balance and then generated once by hand. It is never an
- * answer anywhere else: no count, feed, sitemap, Ree figure or other reader.
+ * round, its asker gets one general answer at the base fee: held, settled
+ * once written, given back when it fails; skipped for a short balance and
+ * then generated once by hand. On a public post everyone -- visitors
+ * included -- reads it once it passed review (2026-11-21); before that, or
+ * refused, only its asker (no refund); on a private post only its author.
+ * It is never a Ree's answer: no answered count, rank, role metric,
+ * sitemap or cover reads it, and the post stays 待回答.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { and, eq, inArray } from 'drizzle-orm';
+import { readFileSync } from 'node:fs';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import type { AiAnswerer, AiAnswerInput } from '@/lib/services/ai-answers';
 import type { AnswerOne, Matcher } from '@/lib/services/posts';
+import type { Judge } from '@/lib/services/public-qa';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
@@ -39,6 +44,7 @@ const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
 const { QUERY_BASE_FEE: BASE } = await import('@/lib/constants');
 const { AI_ANSWER_FEE, AI_ANSWER_STALE_MS } = await import('@/lib/domain/post');
+const { PUBLIC_QA_MODERATION_ATTEMPTS } = await import('@/lib/domain/public-qa');
 const { GET: getRoute } = await import('@/app/api/posts/[id]/route');
 const { POST: retryRoute } = await import('@/app/api/posts/[id]/ai-answer/route');
 const { POST: requestRoute } = await import('@/app/api/posts/[id]/ree-request/route');
@@ -76,7 +82,16 @@ async function makeRee(queryFee = 0, ownerId?: string) {
   return { ownerId: owner, reeId: ree.id };
 }
 
-const approve = async () => ({ publish: true });
+const approve: Judge = async () => ({ publish: true });
+/* Questions pass; an AI answer's review cannot run (it stays pending for the sweep). */
+const holdAi: Judge = async (_question, answer) => {
+  if (answer) throw new Error('review down');
+  return { publish: true };
+};
+/* Questions pass; AI answers are refused. */
+const refuseAi: Judge = async (_question, answer) => ({ publish: !answer });
+/* The sweep's clock: past the minute a review waits before it is retried. */
+const sweepTime = () => new Date(Date.now() + 120_000);
 const noMatch: Matcher = async () => ({ answerers: [], candidates: 4, skipped: 4, vector: null });
 const matchOnly = (reeIds: string[]): Matcher => async () => ({ answerers: reeIds.map((reeId) => ({ reeId, similarity: 0.8, mentioned: false })), candidates: reeIds.length, skipped: 0, vector: null });
 const says = (text: (reeId: string) => string | null): AnswerOne => async ({ reeId }) => {
@@ -113,48 +128,60 @@ const request = (url: string, body?: unknown) =>
   new NextRequest(`http://localhost:3000${url}`, body === undefined ? { headers: { host: 'localhost:3000' } } : { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', origin: 'http://localhost:3000', host: 'localhost:3000' } });
 
 describeWithDb('AI 通用回答 when no Ree answers', () => {
-  it('answers a public post nothing matched, charges its author the base fee, and shows it to nobody else', async () => {
+  it('answers a public post nothing matched, charges its author the base fee, and shows it to everyone once it passed review', async () => {
     const author = await user('ai-author', 100);
     const other = await user('ai-reader', 100);
     const id = await publish(author);
     const seen: AiAnswerInput[] = [];
-    await posts.processPost(id, { judge: approve, match: noMatch, aiAnswer: aiStub('Water less often [1] and call 13812345678 if unsure. '.repeat(4), seen) });
+    await posts.processPost(id, { judge: holdAi, match: noMatch, aiAnswer: aiStub('Water less often [1] and call 13812345678 if unsure. '.repeat(4), seen) });
 
     /* The free tier's answer of the question alone; the fee held, then settled to the platform. */
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ userId: author, lang: 'en', question: expect.stringContaining('monstera') });
     expect(seen[0]!.thread).toBeUndefined();
     const [row] = await aiRows(id);
-    expect(row).toMatchObject({ state: 'answered', userId: author, followupId: null, price: AI_ANSWER_FEE, model: 'free-stub' });
+    expect(row).toMatchObject({ state: 'answered', userId: author, followupId: null, price: AI_ANSWER_FEE, model: 'free-stub', review: 'pending', reviewAttempts: 1 });
     /* Citation markers out, contact details hidden as a post's are. */
     expect(row!.text).not.toMatch(/\[1\]|13812345678/);
     expect(await balanceOf(db(), author)).toBe(100 - AI_ANSWER_FEE);
     expect(await ledger(author)).toEqual([['ai_answer_hold', -AI_ANSWER_FEE], ['ai_answer_settle', 0]]);
     expect(await db().select().from(schema.notice).where(and(eq(schema.notice.userId, author), eq(schema.notice.kind, 'post_ai_answer')))).toHaveLength(1);
 
-    /* The author's page and their own card have it; nobody else, signed in or not, has a trace of it. */
+    /* Until its review passes: the author's page and card have it, marked in review; nobody else has a trace of it. */
     const mine = (await posts.getPost(id, author))!;
-    expect(mine.aiAnswer).toMatchObject({ id: row!.id, state: 'answered', cost: AI_ANSWER_FEE, retry: false, folded: false, vote: null, truncated: false });
+    expect(mine.aiAnswer).toMatchObject({ id: row!.id, state: 'answered', cost: AI_ANSWER_FEE, retry: false, folded: false, vote: null, truncated: false, mine: true, review: 'pending', private: false });
     expect(mine.answered).toBe(0);
     expect((await posts.getPost(id, other))!.aiAnswer).toBeNull();
     expect((await posts.getPost(id))!.aiAnswer).toBeNull();
     const latestMine = (await posts.listFeed('latest', { viewerId: author, size: 50 })).items.find((entry) => entry.id === id)!;
     expect(latestMine.aiAnswer).toMatchObject({ state: 'answered', truncated: true });
-    expect(latestMine.answers).toEqual([]);
     for (const viewer of [other, undefined]) {
+      expect((await posts.listFeed('latest', { viewerId: viewer, size: 50 })).items.find((entry) => entry.id === id)?.aiAnswer ?? null).toBeNull();
+    }
+    await signIn(other);
+    expect(await (await getRoute(request(`/api/posts/${id}`), { params: Promise.resolve({ id }) })).text()).not.toContain('Water less often');
+    await signIn(null);
+    expect(await (await getRoute(request(`/api/posts/${id}`), { params: Promise.resolve({ id }) })).text()).not.toContain('Water less often');
+
+    /* The posts sweep retries the review that could not run: passed, it is everyone's to read. */
+    await posts.processStalePosts({ judge: approve, match: noMatch, aiAnswer: aiStub() }, { now: sweepTime(), budgetMs: 0 });
+    expect((await aiRows(id))[0]).toMatchObject({ review: 'passed', reviewAttempts: 2 });
+    for (const viewer of [other, undefined]) {
+      expect((await posts.getPost(id, viewer))!.aiAnswer).toMatchObject({ id: row!.id, state: 'answered', mine: false, review: 'passed', cost: 0, vote: null, retry: false, private: false, text: expect.stringContaining('Water less often') });
       for (const tab of ['latest', 'unanswered'] as const) {
-        const listed = (await posts.listFeed(tab, { viewerId: viewer, size: 50 })).items.find((entry) => entry.id === id);
-        expect(listed?.aiAnswer ?? null).toBeNull();
+        const listed = (await posts.listFeed(tab, { viewerId: viewer, size: 50 })).items.find((entry) => entry.id === id)!;
+        expect(listed.aiAnswer).toMatchObject({ state: 'answered', truncated: true, mine: false });
+        expect(listed.answers).toEqual([]);
       }
     }
     await signIn(other);
-    const asOther = (await (await getRoute(request(`/api/posts/${id}`), { params: Promise.resolve({ id }) })).json()) as { aiAnswer: unknown };
-    expect(asOther.aiAnswer).toBeNull();
-    expect(JSON.stringify(asOther)).not.toContain('Water less often');
+    const asOther = (await (await getRoute(request(`/api/posts/${id}`), { params: Promise.resolve({ id }) })).json()) as { aiAnswer: { state: string; mine: boolean } };
+    expect(asOther.aiAnswer).toMatchObject({ state: 'answered', mine: false });
     await signIn(null);
-    expect(JSON.stringify(await (await getRoute(request(`/api/posts/${id}`), { params: Promise.resolve({ id }) })).json())).not.toContain('Water less often');
+    expect(await (await getRoute(request(`/api/posts/${id}`), { params: Promise.resolve({ id }) })).text()).toContain('Water less often');
     await signIn(author);
     expect(((await (await getRoute(request(`/api/posts/${id}`), { params: Promise.resolve({ id }) })).json()) as { aiAnswer: { state: string } }).aiAnswer.state).toBe('answered');
+    await signIn(null);
 
     /* It counts as no answer: still 待回答, not in the sitemap, no cover answer, no Ree question in the ledger. */
     expect((await postRow(id)).answerCount).toBe(0);
@@ -168,13 +195,47 @@ describeWithDb('AI 通用回答 when no Ree answers', () => {
     await ai.answerWithAi(id, null, { aiAnswer: aiStub() });
     expect(await aiRows(id)).toHaveLength(1);
 
-    /* 有帮助 / 没帮助: its asker only. */
+    /* 有帮助 / 没帮助: its asker only, though everyone reads it. */
     await signIn(other);
     expect((await voteRoute(request(`/api/posts/ai-answers/${row!.id}/vote`, { vote: 'helpful' }), { params: Promise.resolve({ aiId: row!.id }) })).status).toBe(404);
     await signIn(author);
     expect(await (await voteRoute(request(`/api/posts/ai-answers/${row!.id}/vote`, { vote: 'unhelpful' }), { params: Promise.resolve({ aiId: row!.id }) })).json()).toEqual({ vote: 'unhelpful' });
     expect((await posts.getPost(id, author))!.aiAnswer!.vote).toBe('unhelpful');
+    expect((await posts.getPost(id, other))!.aiAnswer!.vote).toBeNull();
     await signIn(null);
+  });
+
+  it('keeps it its asker’s alone when review refuses it, or never manages to run, with the fee kept', async () => {
+    const author = await user('ai-author', 100);
+    const other = await user('ai-reader', 100);
+    const refused = await publish(author);
+    await posts.processPost(refused, { judge: refuseAi, match: noMatch, aiAnswer: aiStub('Overwatering.') });
+    expect((await aiRows(refused))[0]).toMatchObject({ state: 'answered', review: 'rejected', price: AI_ANSWER_FEE });
+    expect(await balanceOf(db(), author)).toBe(100 - AI_ANSWER_FEE);
+    expect(await ledger(author)).toEqual([['ai_answer_hold', -AI_ANSWER_FEE], ['ai_answer_settle', 0]]);
+    expect((await posts.getPost(refused, author))!.aiAnswer).toMatchObject({ state: 'answered', mine: true, review: 'rejected', cost: AI_ANSWER_FEE });
+    expect((await posts.getPost(refused, other))!.aiAnswer).toBeNull();
+    expect((await posts.getPost(refused))!.aiAnswer).toBeNull();
+    expect((await posts.listFeed('latest', { viewerId: other, size: 50 })).items.find((entry) => entry.id === refused)?.aiAnswer ?? null).toBeNull();
+    /* Nobody else may ask on under it; its author still may. */
+    expect(await ai.aiFollowupsOpen(refused, other)).toBe(false);
+    expect(await ai.aiFollowupsOpen(refused, undefined)).toBe(false);
+    expect(await ai.aiFollowupsOpen(refused, author)).toBe(true);
+    /* The sweep does not review it again. */
+    await ai.sweepAiAnswers(sweepTime(), { judge: approve });
+    expect((await aiRows(refused))[0]!.review).toBe('rejected');
+
+    /* A review that never runs is tried PUBLIC_QA_MODERATION_ATTEMPTS times in all, then refused: never public unreviewed. */
+    const broken = await publish(author);
+    await posts.processPost(broken, { judge: holdAi, match: noMatch, aiAnswer: aiStub('Overwatering.') });
+    expect((await aiRows(broken))[0]).toMatchObject({ review: 'pending', reviewAttempts: 1 });
+    for (let attempt = 2; attempt <= PUBLIC_QA_MODERATION_ATTEMPTS; attempt += 1) {
+      await ai.sweepAiAnswers(sweepTime(), { judge: holdAi });
+      expect((await aiRows(broken))[0]!.reviewAttempts).toBe(attempt);
+    }
+    expect((await aiRows(broken))[0]!.review).toBe('rejected');
+    expect((await posts.getPost(broken, other))!.aiAnswer).toBeNull();
+    expect(await balanceOf(db(), author)).toBe(100 - 2 * AI_ANSWER_FEE);
   });
 
   it('answers when every matched Ree found nothing, never while a paid Ree waits for the author, and never for RE0, 试问 or MCP', async () => {
@@ -281,7 +342,7 @@ describeWithDb('AI 通用回答 when no Ree answers', () => {
     await signIn(null);
   });
 
-  it('answers a public follow-up no Ree answered for whoever asked it, with the thread, and leaves the round as it was for everyone else', async () => {
+  it('answers a public follow-up no Ree answered for whoever asked it, with the thread, and shows it to everyone once it passed review', async () => {
     const near = await makeRee();
     const author = await user('ai-author', 200);
     const id = await publish(author, `Monstera yellow leaves ${crypto.randomUUID()}`);
@@ -303,9 +364,10 @@ describeWithDb('AI 通用回答 when no Ree answers', () => {
     expect(await db().select().from(schema.notice).where(and(eq(schema.notice.userId, reader), eq(schema.notice.kind, 'post_ai_answer')))).toHaveLength(1);
 
     const roundOf = async (viewer?: string) => (await posts.getPost(id, viewer))!.followups.find((entry) => entry.id === asked.id)!;
-    expect((await roundOf(reader)).aiAnswer).toMatchObject({ state: 'answered', cost: AI_ANSWER_FEE });
-    expect((await roundOf(author)).aiAnswer).toBeNull();
-    expect((await roundOf()).aiAnswer).toBeNull();
+    expect(row).toMatchObject({ review: 'passed' });
+    expect((await roundOf(reader)).aiAnswer).toMatchObject({ state: 'answered', cost: AI_ANSWER_FEE, mine: true });
+    expect((await roundOf(author)).aiAnswer).toMatchObject({ state: 'answered', cost: 0, mine: false, text: 'It depends on the city.' });
+    expect((await roundOf()).aiAnswer).toMatchObject({ state: 'answered', mine: false });
     expect((await roundOf(author)).answers).toEqual([]);
     /* The post's own figures do not move. */
     expect((await postRow(id)).answerCount).toBe(1);
@@ -322,6 +384,15 @@ describeWithDb('AI 通用回答 when no Ree answers', () => {
     expect((await posts.getPost(made.id, author))!.aiAnswer).toMatchObject({ state: 'answered', cost: AI_ANSWER_FEE });
     /* The author is on the page: no notice for a private post. */
     expect(await db().select().from(schema.notice).where(and(eq(schema.notice.userId, author), eq(schema.notice.kind, 'post_ai_answer')))).toEqual([]);
+    /* Never reviewed, never anyone else's -- even marked passed, a private post's stays its author's. */
+    const [privateAi] = await aiRows(made.id);
+    expect(privateAi).toMatchObject({ review: null, reviewAttempts: 0 });
+    expect((await posts.getPost(made.id, author))!.aiAnswer).toMatchObject({ private: true, review: null, mine: true });
+    const stranger = await user('ai-reader', 0);
+    await db().update(schema.postAiAnswer).set({ review: 'passed' }).where(eq(schema.postAiAnswer.id, privateAi!.id));
+    expect((await ai.aiAnswersFor(stranger, { postIds: [made.id] }, { whole: true })).size).toBe(0);
+    expect((await ai.aiAnswersFor(undefined, { postIds: [made.id] }, { whole: true })).size).toBe(0);
+    await db().update(schema.postAiAnswer).set({ review: null }).where(eq(schema.postAiAnswer.id, privateAi!.id));
 
     /* 只问 AI: no Rees at all, only from the composer, and only with the fee in the balance. */
     const question = `Ask the AI only ${crypto.randomUUID()}`;
@@ -404,11 +475,58 @@ describeWithDb('AI 通用回答 when no Ree answers', () => {
     /* Only the Ree's answer counts: its answered posts, its answers by others, its owner's figures. */
     expect((await posts.answeredPostCounts([free.reeId])).get(free.reeId)).toBe(1);
     expect((await posts.reeAnsweredPosts(free.reeId, { viewerId: author }))!.items.map((entry) => [entry.id, entry.aiAnswer?.folded])).toEqual([[id, true]]);
-    expect((await posts.reeAnsweredPosts(free.reeId, { viewerId: other }))!.items.map((entry) => entry.aiAnswer)).toEqual([null]);
+    /* Anyone else reads it folded the same way: it passed review. */
+    expect((await posts.reeAnsweredPosts(free.reeId, { viewerId: other }))!.items.map((entry) => [entry.aiAnswer?.folded, entry.aiAnswer?.mine])).toEqual([[true, false]]);
     await computeRanks();
     const [counted] = await db().select({ answers: answersByOthers }).from(schema.ree).where(eq(schema.ree.id, free.reeId));
     expect(counted!.answers).toBe(1);
     expect((await roleMetrics(db(), free.ownerId)).externalQuestions).toBe(1);
     expect((await roleMetrics(db(), author)).externalQuestions).toBe(0);
+  });
+
+  it('backfills (0072): old public AI answers and 继续问 AI follow-ups go back to review, private posts stay as they were', async () => {
+    const author = await user('ai-author', 200);
+    const other = await user('ai-reader');
+    const id = await publish(author);
+    await posts.processPost(id, { judge: approve, match: noMatch, aiAnswer: aiStub('Old answer.') });
+    const asked = await followups.askFollowup(author, id, { question: `Old follow-up ${crypto.randomUUID()}?`, lang: 'en' });
+    if (!asked.ok) throw new Error(asked.error);
+    await followups.processFollowup(asked.id, { judge: approve, aiAnswer: aiStub('Old follow-up answer.') });
+    const only = await privatePosts.publishPrivatePost(author, { question: `Private ${crypto.randomUUID()}`, reeIds: [], aiOnly: true, lang: 'en' });
+    if (!only.ok) throw new Error(only.error);
+    await privatePosts.processPrivatePost(only.id, { aiAnswer: aiStub('Private answer.') });
+    /* As they stood before 0072: never reviewed, the 继续问 AI published at once and not counted. */
+    await db().update(schema.postAiAnswer).set({ review: null, reviewAttempts: 0 }).where(eq(schema.postAiAnswer.postId, id));
+    await db().update(schema.post).set({ followupCount: 0 }).where(eq(schema.post.id, id));
+
+    /* The migration's own UPDATEs, in a transaction rolled back after looking (they touch every row). */
+    const updates = readFileSync('db/migrations/0072_public_ai_answers.sql', 'utf8').split('--> statement-breakpoint').filter((chunk) => /^UPDATE/m.test(chunk));
+    expect(updates).toHaveLength(3);
+    const rollback = new Error('rollback');
+    let seen: { answers: (string | null)[]; privateReview: string | null; followup: { status: string; moderationAttempts: number; answerState: string }; count: number } | null = null;
+    await expect(
+      db().transaction(async (tx) => {
+        for (const statement of updates) await tx.execute(sql.raw(statement));
+        const rows = await tx.select().from(schema.postAiAnswer).where(inArray(schema.postAiAnswer.postId, [id, only.id]));
+        const [round] = await tx.select().from(schema.postFollowup).where(eq(schema.postFollowup.id, asked.id));
+        const [target] = await tx.select().from(schema.post).where(eq(schema.post.id, id));
+        seen = { answers: rows.filter((row) => row.postId === id).map((row) => row.review), privateReview: rows.find((row) => row.postId === only.id)!.review ?? null, followup: round!, count: target!.followupCount };
+        throw rollback;
+      }),
+    ).rejects.toBe(rollback);
+    expect(seen).toMatchObject({ answers: ['pending', 'pending'], privateReview: null, followup: { status: 'pending', moderationAttempts: 0, answerState: 'done' }, count: 0 });
+
+    /* What the sweep then does with them (the same rows, set as the migration sets them): reviewed, published, counted -- never answered again. */
+    await db().update(schema.postAiAnswer).set({ review: 'pending' }).where(eq(schema.postAiAnswer.postId, id));
+    await db().update(schema.postFollowup).set({ status: 'pending', moderationAttempts: 0 }).where(eq(schema.postFollowup.id, asked.id));
+    expect((await posts.getPost(id, other))!).toMatchObject({ aiAnswer: null, followups: [] });
+    await ai.sweepAiAnswers(sweepTime(), { judge: approve });
+    await followups.processFollowup(asked.id, { judge: approve, aiAnswer: aiStub('unused') });
+    const theirs = (await posts.getPost(id, other))!;
+    expect(theirs.aiAnswer).toMatchObject({ text: 'Old answer.', mine: false });
+    expect(theirs.followups.map((entry) => [entry.status, entry.aiAnswer?.text])).toEqual([['published', 'Old follow-up answer.']]);
+    expect((await postRow(id)).followupCount).toBe(1);
+    expect(await db().select().from(schema.postAiAnswer).where(eq(schema.postAiAnswer.postId, id))).toHaveLength(2);
+    expect(await balanceOf(db(), author)).toBe(200 - 3 * AI_ANSWER_FEE);
   });
 });

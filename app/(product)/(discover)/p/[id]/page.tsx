@@ -72,7 +72,7 @@ export default async function PostPage({ params }: Props) {
           </ol>
         )}
       </section>
-      {/* Only the author of a public post no Ree answered, beside their AI answer: the way to become the Ree such posts wait for. */}
+      {/* A public post no Ree answered, beside its AI answer (its author's, or anyone's once reviewed): the way to become the Ree such posts wait for. */}
       {!isPrivate && answered.length === 0 && post.aiAnswer?.state === 'answered' && (
         <section className="rail-card ai-rail">
           <h3>{t.posts.ai.railTitle}</h3>

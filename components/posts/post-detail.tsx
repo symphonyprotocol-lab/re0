@@ -301,16 +301,16 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
   /* Rees one may ask on: the first round's, still taking posts. */
   const askable = new Set(post.followupCandidates.map((entry) => entry.reeId));
   /*
-   * 继续问 AI: the author's follow-ups under their AI answer to a post no Ree
-   * answered (only they get them). Once a Ree has answered, they fold with
-   * the first AI answer, kept; the thread goes on with the public ones.
+   * 继续问 AI: follow-ups under the AI answer of a public post no Ree
+   * answered, public like any other. Once a Ree has answered, they fold
+   * with the first AI answer, kept; the thread goes on with the Rees.
    */
   const aiRounds = post.followups.filter((entry) => entry.aiOnly);
   const aiRoundsFolded = aiRounds.length > 0 && shown.length > 0;
   const [aiRoundsOpen, setAiRoundsOpen] = useState(false);
   const rounds = aiRoundsFolded ? post.followups.filter((entry) => !entry.aiOnly) : post.followups;
-  /* The box asks the AI alone: a public post's author under their AI answer, or a private thread no Ree is in (只问 AI). */
-  const aiThread = live && mine && (post.followupAiOnly || (isPrivate && post.answerState === 'done' && post.followupCandidates.length === 0));
+  /* The box asks the AI alone: anyone signed in under a public post's AI answer, or a private thread no Ree is in (只问 AI). */
+  const aiThread = live && signedIn && (post.followupAiOnly || (mine && isPrivate && post.answerState === 'done' && post.followupCandidates.length === 0));
   const askAi = aiThread ? () => composer.current?.focus() : undefined;
   const published = rounds.filter((entry) => entry.status === 'published' || entry.status === 'hidden');
   const roundOf = new Map(published.map((entry, index) => [entry.id, index + 1]));
@@ -564,10 +564,10 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
             <div className="fu-round-answers">
               {round.status === 'pending' && (
                 <div className="post-state is-gathering">
-                  <Pending label={t2.pending} />
+                  <Pending label={round.aiOnly ? t2.pendingAi : t2.pending} />
                 </div>
               )}
-              {round.status === 'rejected' && <div className="post-state is-rejected">{t2.rejected}</div>}
+              {round.status === 'rejected' && <div className="post-state is-rejected">{round.aiAnswer?.state === 'answered' ? t2.rejectedAi : t2.rejected}</div>}
               {round.status === 'hidden' && <div className="post-state is-rejected">{round.hiddenBy === 'admin' ? t2.hiddenAdmin : t2.hiddenReports}</div>}
               {round.status === 'published' && round.answerState !== 'done' && running.length === 0 && (
                 <div className="post-state is-gathering">
@@ -589,8 +589,8 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
                 </div>
               )}
               {open && round.answerState === 'done' && shownAnswers.length === 0 && running.length === 0 && round.paidRequests.length === 0 && round.awaiting === 0 && (
-                /* No Ree answered: its asker gets the AI's general answer (only they see it); everyone else, the line as before. */
-                asker && round.aiAnswer && (round.aiAnswer.state === 'answered' || round.aiAnswer.state === 'running') ? (
+                /* No Ree answered: the AI's general answer -- its asker's at once, on a public post everyone's once it passed review; otherwise the line as before. */
+                round.aiAnswer && (round.aiAnswer.state === 'answered' || round.aiAnswer.state === 'running') ? (
                   <>
                     <AiRound
                       ai={round.aiOnly ? { ...round.aiAnswer, folded: false } : round.aiAnswer}
@@ -603,7 +603,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
                       onRefresh={() => void refresh()}
                     />
                     {/* A 继续问 AI round leaves the ways to a Ree to the first AI answer's guide. */}
-                    {round.aiAnswer.state === 'answered' && !round.aiOnly && <AiGuide items={followupGuide(round)} />}
+                    {asker && round.aiAnswer.state === 'answered' && !round.aiOnly && <AiGuide items={followupGuide(round)} />}
                   </>
                 ) : (
                   <>
@@ -619,8 +619,8 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
                   </>
                 )
               )}
-              {/* A Ree answered after all: the asker's AI answer folds under the answers. */}
-              {asker && round.aiAnswer?.folded && shownAnswers.length > 0 && <AiRound ai={round.aiAnswer} postId={post.id} followupId={round.id} compact onChange={(next) => setAi(round.id, next)} onRefresh={() => void refresh()} />}
+              {/* A Ree answered after all: the AI answer folds under the answers. */}
+              {round.aiAnswer?.folded && shownAnswers.length > 0 && <AiRound ai={round.aiAnswer} postId={post.id} followupId={round.id} compact onChange={(next) => setAi(round.id, next)} onRefresh={() => void refresh()} />}
               {asker && round.declined.length > 0 && <p className="post-skipped">{fill(t2.declined, { names: round.declined.join('、') })}</p>}
               {asker && round.spent !== null && round.spent > 0 && <p className="post-skipped">{fill(t2.spent, { n: formatNumber(round.spent, locale) })}</p>}
               {asker && open && round.paidRequests.length > 0 && paidSection(round.paidRequests, round.id)}
@@ -797,22 +797,16 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
       </div>
       )}
 
-      {/* No Ree answered the first round: its author reads the AI's general answer (only they see it) and the ways to one with sources. */}
+      {/* No Ree answered the first round: the AI's general answer (its author's at once; on a public post everyone's once it passed review), and for the author the ways to one with sources. */}
       {firstAi && shown.length === 0 && (firstAi.state === 'answered' || firstAi.state === 'running') ? (
         <>
           <div className="post-state is-unmatched ai-state">
             <span>
-              {isPrivate ? (post.candidates === 0 ? a.stateAiOnly : a.statePrivate) : (
-                <>
-                  {a.state}
-                  <strong>{a.stateStrong}</strong>
-                  {a.stateTail}
-                </>
-              )}
+              {isPrivate ? (post.candidates === 0 ? a.stateAiOnly : a.statePrivate) : mine ? a.state : a.stateOthers}
             </span>
           </div>
           <AiRound ai={firstAi} postId={post.id} onAskAi={askAi} onChange={(next) => setAi(null, next)} onRefresh={() => void refresh()} />
-          {firstAi.state === 'answered' && live && (
+          {mine && firstAi.state === 'answered' && live && (
             <AiGuide items={firstGuide}>
               {requesting && <PrivateReePicker title={a.requestTitle} exclude={[]} inline scope="post" onPick={(option) => void requestRee(option)} onClose={() => setRequesting(false)} />}
             </AiGuide>
@@ -886,7 +880,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
 
       {shown.map((entry) => answerArticle(entry, live))}
 
-      {/* A Ree has answered since: the author's AI answer folds to one line under the Rees' answers (kept, not refunded). */}
+      {/* A Ree has answered since: the AI answer folds to one line under the Rees' answers (kept, not refunded). */}
       {firstAi?.folded && shown.length > 0 && <AiRound ai={firstAi} postId={post.id} onChange={(next) => setAi(null, next)} onRefresh={() => void refresh()} />}
       {aiRoundsFolded &&
         (aiRoundsOpen ? (

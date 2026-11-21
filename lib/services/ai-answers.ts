@@ -24,15 +24,26 @@
  *      question and its detail, and for a follow-up the thread's questions
  *      and the asker's earlier AI answers -- never a Ree's answer. The text
  *      is cleaned of citation markers and redacted like a post.
- *   3a. 继续问 AI (`aiFollowupsOpen`): under the AI answer to their public
- *      post no Ree answered, its author asks on; those follow-ups
- *      (`ai_only`) go to the AI alone, at the same fee, and only the author
- *      ever sees them -- for everyone else the post stays 待回答 with no
- *      follow-ups. Once a Ree answers the post, they fold with the first
- *      AI answer (kept, not refunded).
- *   4. Reading (`aiAnswersFor`): only for the asker. It is never a
- *      `post_answer`, so no Ree figure, feed, sitemap, share page or count
- *      reads it, and a public post with only an AI answer stays 待回答.
+ *   3a. Review (`reviewAiAnswer`, 2026-11-21): on a public post the
+ *      written text is reviewed like public text (the posts' judge, with
+ *      the question) before anyone but its asker reads it -- `pending`,
+ *      then `passed` or `rejected`; a check that cannot run is retried by
+ *      the posts sweep and given up (rejected) after
+ *      `PUBLIC_QA_MODERATION_ATTEMPTS`. Rejected, it stays its asker's
+ *      alone; the fee stays charged (they got the answer). A private
+ *      post's is never reviewed (`review` null): only its author reads it.
+ *   3b. 继续问 AI (`aiFollowupsOpen`): under the AI answer of a public post
+ *      no Ree answered, anyone signed in asks on -- its author once it is
+ *      written, anyone else once it passed review. Those follow-ups
+ *      (`ai_only`) are public follow-ups like any other (reviewed, counted,
+ *      seen by all) that go to the AI alone, at the same fee, paid by
+ *      whoever asked (谁问谁出钱). Once a Ree answers the post, they fold
+ *      with the first AI answer (kept, not refunded).
+ *   4. Reading (`aiAnswersFor`): its asker always; on a public post anyone,
+ *      visitors included, once it passed review. It is never a
+ *      `post_answer`, so no Ree figure, rank, role metric, sitemap, cover
+ *      or answered count reads it, and a public post with only an AI answer
+ *      stays 待回答.
  */
 import { generateText } from 'ai';
 import { and, asc, eq, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
@@ -49,9 +60,11 @@ import {
 } from '@/lib/domain/post';
 import { plainOf, previewOf } from '@/lib/domain/public-qa';
 import { modelFor } from '@/lib/infra/ai/models';
+import { PUBLIC_QA_MODERATION_ATTEMPTS } from '@/lib/domain/public-qa';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { balanceOf, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
 import { notify } from '@/lib/services/notices';
+import { modelJudge, type Judge } from '@/lib/services/public-qa';
 
 const { post, postAnswer: answer, postFollowup: followup, postAiAnswer: aiAnswer } = schema;
 
@@ -89,6 +102,8 @@ export const modelAiAnswer: AiAnswerer = async ({ userId, question, detail, lang
 
 export interface AiDeps {
   aiAnswer?: AiAnswerer;
+  /** The review of a public post's AI answer (`reviewAiAnswer`); the posts' judge by default. */
+  judge?: Judge;
   now?: () => Date;
 }
 
@@ -120,10 +135,10 @@ async function askedRound(postId: string, followupId: string | null): Promise<{ 
 }
 
 /**
- * For a follow-up: the post's question, the asker's own AI answer to the
- * first round, and the follow-ups asked before this one that the asker can
- * read -- a public one, or their own 继续问 AI -- each with the asker's own
- * AI answer to it. Never a Ree's answer.
+ * For a follow-up: the post's question, the AI answer to the first round,
+ * and the published follow-ups asked before this one, each with its AI
+ * answer -- only AI answers the asker can read (their own, or a public
+ * post's that passed review). Never a Ree's answer.
  */
 async function threadOf(postId: string, followupId: string, userId: string, postQuestion: string): Promise<AiAnswerThread> {
   const [asked] = await db().select({ createdAt: followup.createdAt }).from(followup).where(eq(followup.id, followupId)).limit(1);
@@ -131,13 +146,13 @@ async function threadOf(postId: string, followupId: string, userId: string, post
     ? await db()
         .select({ id: followup.id, question: followup.question })
         .from(followup)
-        .where(and(eq(followup.postId, postId), eq(followup.status, 'published'), isNull(followup.deletedAt), or(eq(followup.aiOnly, false), eq(followup.userId, userId)), lt(followup.createdAt, asked.createdAt)))
+        .where(and(eq(followup.postId, postId), eq(followup.status, 'published'), isNull(followup.deletedAt), lt(followup.createdAt, asked.createdAt)))
         .orderBy(asc(followup.createdAt))
     : [];
   const answers = await db()
     .select({ followupId: aiAnswer.followupId, text: aiAnswer.text })
     .from(aiAnswer)
-    .where(and(eq(aiAnswer.postId, postId), eq(aiAnswer.userId, userId), eq(aiAnswer.state, 'answered')));
+    .where(and(eq(aiAnswer.postId, postId), eq(aiAnswer.state, 'answered'), or(eq(aiAnswer.userId, userId), eq(aiAnswer.review, 'passed'))));
   const first = answers.find((entry) => entry.followupId === null);
   return {
     postQuestion,
@@ -147,14 +162,16 @@ async function threadOf(postId: string, followupId: string, userId: string, post
 }
 
 /**
- * 继续问 AI: whether this user may ask on under their AI answer to this post
- * -- its author, of a real public post that is live, whose first round has
- * their AI answer written and no Ree in it (answered, answering or waiting).
- * Their follow-ups then go to the AI alone and only they see them
- * (post-followups.ts `askFollowup`). Once a Ree is brought in (请 Ree 回答)
- * it closes, and follow-ups are public again.
+ * 继续问 AI: whether this viewer may ask on under the AI answer of this post
+ * -- a real public post that is live, whose first round has its AI answer
+ * written and no Ree in it (answered, answering or waiting): its author
+ * (the AI answer's asker) at once, anyone else once it passed review. A
+ * visitor (no `userId`) is told whether signing in would let them. Their
+ * follow-ups then go to the AI alone (post-followups.ts `askFollowup`).
+ * Once a Ree is brought in (请 Ree 回答) it closes, and follow-ups go to
+ * the Rees again.
  */
-export async function aiFollowupsOpen(postId: string, userId: string): Promise<boolean> {
+export async function aiFollowupsOpen(postId: string, userId: string | undefined): Promise<boolean> {
   if (!isUuid(postId)) return false;
   const [row] = await db()
     .select({ id: aiAnswer.id })
@@ -164,9 +181,8 @@ export async function aiFollowupsOpen(postId: string, userId: string): Promise<b
       and(
         eq(aiAnswer.postId, postId),
         isNull(aiAnswer.followupId),
-        eq(aiAnswer.userId, userId),
         eq(aiAnswer.state, 'answered'),
-        eq(post.userId, userId),
+        userId ? or(eq(aiAnswer.userId, userId), eq(aiAnswer.review, 'passed')) : eq(aiAnswer.review, 'passed'),
         eq(post.visibility, 'public'),
         eq(post.source, 'post'),
         eq(post.status, 'published'),
@@ -242,9 +258,11 @@ export async function runAiAnswer(id: string, deps: AiDeps = {}): Promise<void> 
     }
   }
   await closeAiAnswer(id, written, now(), round);
+  /* A public post's: reviewed before anyone else reads it (the sweep retries a check that could not run). */
+  if (written && round?.visibility === 'public') await reviewAiAnswer(id, deps.judge);
 }
 
-/** Settles one running AI answer, once (the row is locked and must still be running); the public post's asker hears it was written. */
+/** Settles one running AI answer, once (the row is locked and must still be running); the public post's asker hears it was written, and it waits for review. */
 async function closeAiAnswer(id: string, written: { text: string; model: string | null } | null, now: Date, round: { question: string; visibility: 'public' | 'private' } | null): Promise<void> {
   await db().transaction(async (tx) => {
     const [target] = await tx.select().from(aiAnswer).where(and(eq(aiAnswer.id, id), eq(aiAnswer.state, 'running'))).for('update');
@@ -255,7 +273,10 @@ async function closeAiAnswer(id: string, written: { text: string; model: string 
       return;
     }
     if (target.holdId) await settleHold(tx, target.holdId, AI_ANSWER_FEE, { note: NOTE, ledger: 'ai_answer' }, now);
-    await tx.update(aiAnswer).set({ state: 'answered', text: written.text.slice(0, 20_000), model: written.model, price: target.holdId ? AI_ANSWER_FEE : 0, answeredAt: now }).where(eq(aiAnswer.id, id));
+    await tx
+      .update(aiAnswer)
+      .set({ state: 'answered', text: written.text.slice(0, 20_000), model: written.model, price: target.holdId ? AI_ANSWER_FEE : 0, answeredAt: now, review: round?.visibility === 'public' ? 'pending' : null })
+      .where(eq(aiAnswer.id, id));
     /* A private post's asker is on its page, waiting: no notice (as for its Rees' answers). */
     if (round?.visibility === 'public') {
       await notify(tx, { userId: target.userId, kind: 'post_ai_answer', params: { question: round.question.slice(0, 80), followup: target.followupId }, refId: target.postId });
@@ -298,16 +319,68 @@ export async function retryAiAnswer(userId: string, postId: string, followupId: 
   return { ok: true, id: row.id };
 }
 
-/** The posts sweep's part: AI answers no live run finished fail, their fee given back. */
-export async function sweepAiAnswers(now = new Date()): Promise<number> {
+/* ----------------------------------------------------------------- review */
+
+/**
+ * Reviews a written AI answer of a public post, with the question it
+ * answers (the post's, or the follow-up's), by the judge public text goes
+ * through: `passed` (anyone reads it), `rejected` (its asker alone, the fee
+ * kept), or still `pending` when the check failed -- the sweep retries it,
+ * and the last attempt rejects it.
+ */
+export async function reviewAiAnswer(id: string, judge: Judge = modelJudge): Promise<'passed' | 'rejected' | 'pending' | 'gone'> {
+  const [row] = await db()
+    .update(aiAnswer)
+    .set({ reviewAttempts: sql`${aiAnswer.reviewAttempts} + 1` })
+    .where(and(eq(aiAnswer.id, id), eq(aiAnswer.review, 'pending'), eq(aiAnswer.state, 'answered'), lt(aiAnswer.reviewAttempts, PUBLIC_QA_MODERATION_ATTEMPTS)))
+    .returning({ postId: aiAnswer.postId, followupId: aiAnswer.followupId, text: aiAnswer.text, attempts: aiAnswer.reviewAttempts });
+  if (!row) return 'gone';
+  const [asked] = row.followupId
+    ? await db().select({ question: followup.question, detail: sql<string>`''` }).from(followup).where(eq(followup.id, row.followupId)).limit(1)
+    : await db().select({ question: post.question, detail: post.detail }).from(post).where(eq(post.id, row.postId)).limit(1);
+  let verdict: boolean | null = null;
+  try {
+    verdict = (await judge([asked?.question ?? '', asked?.detail ?? ''].filter(Boolean).join('\n\n'), row.text)).publish;
+  } catch (error) {
+    console.warn(`ai answer ${id} review failed: ${error instanceof Error ? error.message : 'unknown'}`);
+  }
+  if (verdict === null && row.attempts < PUBLIC_QA_MODERATION_ATTEMPTS) return 'pending';
+  const review = verdict ? ('passed' as const) : ('rejected' as const);
+  await db().update(aiAnswer).set({ review }).where(and(eq(aiAnswer.id, id), eq(aiAnswer.review, 'pending')));
+  return review;
+}
+
+/** At most this many reviews per sweep (every 5 minutes): the backfill of 0072 drains over a few runs. */
+const AI_ANSWER_REVIEW_BATCH = 50;
+
+/**
+ * The posts sweep's part: AI answers no live run finished fail, their fee
+ * given back; reviews that could not run are tried again (a minute after
+ * the answer, `PUBLIC_QA_MODERATION_ATTEMPTS` in all), and one whose last
+ * attempt never finished is rejected -- never public unreviewed.
+ */
+export async function sweepAiAnswers(now = new Date(), deps: Pick<AiDeps, 'judge'> = {}): Promise<number> {
   const stale = await db()
     .select({ id: aiAnswer.id })
     .from(aiAnswer)
     .where(and(eq(aiAnswer.state, 'running'), lt(aiAnswer.startedAt, new Date(now.getTime() - AI_ANSWER_STALE_MS))))
     .limit(100);
   for (const row of stale) await closeAiAnswer(row.id, null, now, null);
-  return stale.length;
+  const stuck = await db()
+    .update(aiAnswer)
+    .set({ review: 'rejected' })
+    .where(and(eq(aiAnswer.review, 'pending'), sql`${aiAnswer.reviewAttempts} >= ${PUBLIC_QA_MODERATION_ATTEMPTS}`, lt(aiAnswer.answeredAt, new Date(now.getTime() - AI_ANSWER_STALE_MS))))
+    .returning({ id: aiAnswer.id });
+  const waiting = await db()
+    .select({ id: aiAnswer.id })
+    .from(aiAnswer)
+    .where(and(eq(aiAnswer.review, 'pending'), eq(aiAnswer.state, 'answered'), lt(aiAnswer.reviewAttempts, PUBLIC_QA_MODERATION_ATTEMPTS), lt(aiAnswer.answeredAt, new Date(now.getTime() - 60_000))))
+    .orderBy(asc(aiAnswer.answeredAt))
+    .limit(AI_ANSWER_REVIEW_BATCH);
+  for (const row of waiting) await reviewAiAnswer(row.id, deps.judge).catch((error: unknown) => console.warn(`ai answer ${row.id} review failed: ${error instanceof Error ? error.message : 'unknown'}`));
+  return stale.length + stuck.length + waiting.length;
 }
+
 
 /* ---------------------------------------------------------------- reading */
 
@@ -315,22 +388,26 @@ export async function sweepAiAnswers(now = new Date()): Promise<number> {
 export const aiRoundKey = (postId: string, followupId: string | null): string => (followupId ? `f:${followupId}` : `p:${postId}`);
 
 /**
- * The viewer's own AI answers to these rounds, keyed by `aiRoundKey`: only
- * rows they asked (and pay for), so nobody else -- nor a visitor -- ever gets
- * one. `whole`: the Markdown on the post page; otherwise a plain excerpt for
- * a feed card. `answeredRounds`: rounds a Ree has answered since, where the
- * AI answer folds.
+ * The AI answers to these rounds this viewer may read, keyed by
+ * `aiRoundKey`: their own (they asked and pay), in any state; and on a
+ * public post anyone's -- visitors' too -- once written and passed review.
+ * A private post's, or one pending or refused review, is its asker's alone.
+ * `whole`: the Markdown on the post page; otherwise a plain excerpt for a
+ * feed card. `answeredRounds`: rounds a Ree has answered since, where the AI
+ * answer folds. The callers pass only rounds the viewer can read.
  */
 export async function aiAnswersFor(viewerId: string | undefined, rounds: { postIds?: readonly string[]; followupIds?: readonly string[] }, options: { whole: boolean; answeredRounds?: ReadonlySet<string> }): Promise<Map<string, AiAnswerView>> {
   const postIds = [...(rounds.postIds ?? [])];
   const followupIds = [...(rounds.followupIds ?? [])];
-  if (!viewerId || (postIds.length === 0 && followupIds.length === 0)) return new Map();
+  if (postIds.length === 0 && followupIds.length === 0) return new Map();
+  const shown = and(eq(post.visibility, 'public'), eq(aiAnswer.state, 'answered'), eq(aiAnswer.review, 'passed'));
   const rows = await db()
-    .select()
+    .select({ row: aiAnswer, visibility: post.visibility })
     .from(aiAnswer)
+    .innerJoin(post, eq(post.id, aiAnswer.postId))
     .where(
       and(
-        eq(aiAnswer.userId, viewerId),
+        viewerId ? or(eq(aiAnswer.userId, viewerId), shown) : shown,
         or(
           postIds.length ? and(inArray(aiAnswer.postId, postIds), isNull(aiAnswer.followupId)) : undefined,
           followupIds.length ? inArray(aiAnswer.followupId, followupIds) : undefined,
@@ -338,20 +415,24 @@ export async function aiAnswersFor(viewerId: string | undefined, rounds: { postI
       ),
     );
   const out = new Map<string, AiAnswerView>();
-  for (const row of rows) {
+  for (const { row, visibility } of rows) {
     const key = aiRoundKey(row.postId, row.followupId);
     /* A failed one leaves nothing to show; the round reads as it did before. */
     if (row.state === 'failed') continue;
+    const mine = row.userId === viewerId;
     const cut = options.whole || row.state !== 'answered' ? { answer: row.text, truncated: false } : previewOf(plainOf(row.text), AI_ANSWER_PREVIEW_CHARS);
     out.set(key, {
       id: row.id,
       state: row.state,
       text: cut.answer,
       truncated: cut.truncated,
-      vote: row.vote ?? null,
-      cost: row.state === 'answered' ? row.price : 0,
-      retry: row.state === 'skipped_balance',
+      vote: mine ? (row.vote ?? null) : null,
+      cost: mine && row.state === 'answered' ? row.price : 0,
+      retry: mine && row.state === 'skipped_balance',
       folded: options.answeredRounds?.has(key) ?? false,
+      mine,
+      review: row.review ?? null,
+      private: visibility === 'private',
     });
   }
   return out;

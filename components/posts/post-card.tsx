@@ -236,7 +236,7 @@ export function PostCard({ post: initial, now, signedIn, footer }: { post: PostV
             </div>
           </div>
         ) : post.aiAnswer && post.answerState === 'done' && (post.aiAnswer.state === 'answered' || post.aiAnswer.state === 'skipped_balance') ? (
-          /* Only the author's own card has one: their AI answer's first lines, in place of "暂时没有 Ree 能回答". */
+          /* The AI answer's first lines, in place of "暂时没有 Ree 能回答": everyone's on a public post once it passed review, its asker's at once. */
           <AiPreview ai={post.aiAnswer} />
         ) : (
           <PostState post={post} />

@@ -25,6 +25,11 @@
  *      A hidden follow-up is one line for everyone else, its answers hidden.
  *   4. Its asker deletes it; three reporters hide it (the post's rule).
  *
+ * On a public post no Ree answered, follow-ups under its AI answer
+ * (继续问 AI, `ai_only`) are public follow-ups like these -- reviewed,
+ * counted, seen by all -- that the AI alone answers, charged to whoever
+ * asked (ai-answers.ts).
+ *
  * A follow-up's answers are `post_answer` rows with `followup_id` set: the
  * post's own figures (answers, the summary, the Ree pages) stay first-round
  * only (`firstRound`, posts.ts).
@@ -81,9 +86,9 @@ import {
 
 const { post, postAnswer: answer, postFollowup: followup, postFollowupReport: followupReport, ree, user, notice } = schema;
 
-/** A follow-up anyone may read: published, not deleted by its asker, and not a 继续问 AI only its asker sees. */
+/** A follow-up anyone may read: published and not deleted by its asker (a 继续问 AI included). */
 export function shownFollowup(): SQL {
-  return and(eq(followup.status, 'published'), isNull(followup.deletedAt), eq(followup.aiOnly, false))!;
+  return and(eq(followup.status, 'published'), isNull(followup.deletedAt))!;
 }
 
 /* ------------------------------------------------------------ candidates */
@@ -144,9 +149,10 @@ export type AskOutcome =
 
 /**
  * Asks a follow-up under a visible post, as `pending`. On a public post no
- * Ree answered, only its author may, under their AI answer (继续问 AI,
- * ai-answers.ts `aiFollowupsOpen`): published at once and `ai_only` --
- * answered by the AI alone and seen by them alone. Asking costs
+ * Ree answered, anyone may under its AI answer -- its author once written,
+ * anyone else once it passed review (继续问 AI, ai-answers.ts
+ * `aiFollowupsOpen`): `ai_only`, reviewed and counted like any follow-up,
+ * answered by the AI alone and paid by whoever asked. Asking costs
  * nothing -- each answer is charged on its own, to the asker -- but a
  * balance below one base fee could pay for no answer, so it is refused with
  * a top-up. Counted under an advisory lock against `FOLLOWUP_DAILY_LIMIT`,
@@ -161,7 +167,7 @@ export async function askFollowup(userId: string, postId: string, input: Followu
   const [target] = await db().select({ id: post.id }).from(post).where(and(eq(post.id, postId), visiblePost())).limit(1);
   if (!target) return { ok: false, error: 'not_found' };
   const candidates = await firstRoundRees(postId);
-  /* No Ree in the first round: only its author asks on, under their AI answer, and the AI answers (继续问 AI). */
+  /* No Ree in the first round: anyone asks on under its AI answer (once they can read it), and the AI answers (继续问 AI). */
   const aiOnly = candidates.length === 0 && (await aiFollowupsOpen(postId, userId));
   if (candidates.length === 0 && !aiOnly) return { ok: false, error: 'no_candidates' };
   const mentions = [...new Set((input.mentionReeIds ?? []).filter((id) => isUuid(id)))];
@@ -199,17 +205,12 @@ export async function askFollowup(userId: string, postId: string, input: Followu
         .where(and(eq(followup.userId, userId), sql`${followup.createdAt} >= ${day}::date`));
       if ((counts?.today ?? 0) >= FOLLOWUP_DAILY_LIMIT) return { ok: false, error: 'daily_limit' } as const;
       if ((counts?.here ?? 0) >= FOLLOWUP_POST_DAILY_LIMIT) return { ok: false, error: 'post_daily_limit' } as const;
-      /* A 继续问 AI thread is not in the post's count: it has its own, to the same cap. */
-      const [thread] = aiOnly
-        ? await tx.select({ n: sql<number>`count(*)::int` }).from(followup).where(and(eq(followup.postId, postId), eq(followup.aiOnly, true), eq(followup.status, 'published'), isNull(followup.deletedAt)))
-        : await tx.select({ n: post.followupCount }).from(post).where(eq(post.id, postId));
+      const [thread] = await tx.select({ n: post.followupCount }).from(post).where(eq(post.id, postId));
       if ((thread?.n ?? 0) >= FOLLOWUP_POST_MAX) return { ok: false, error: 'full' } as const;
       const balance = await balanceOf(tx, userId, now);
       if (balance < QUERY_BASE_FEE) return { ok: false, error: 'insufficient_credits', balance, needed: QUERY_BASE_FEE } as const;
-      /* Only its asker ever reads a 继续问 AI, like their AI answer: no review, published at once, never counted. */
-      await tx
-        .insert(followup)
-        .values(aiOnly ? { id, postId, userId, question, lang: input.lang, mentionReeIds: [], clientToken, aiOnly: true, status: 'published', publishedAt: now, createdAt: now } : { id, postId, userId, question, lang: input.lang, mentionReeIds: mentions, clientToken, createdAt: now });
+      /* A 继续问 AI is public like any follow-up: reviewed first, then counted (`moderateFollowup`). */
+      await tx.insert(followup).values({ id, postId, userId, question, lang: input.lang, mentionReeIds: aiOnly ? [] : mentions, clientToken, aiOnly, createdAt: now });
       return { ok: true, id } as const;
     });
   } catch (error) {
@@ -239,7 +240,8 @@ export async function moderateFollowup(id: string, judge: Judge = modelJudge, no
     await db().transaction(async (tx) => {
       const [published] = await tx
         .update(followup)
-        .set({ status: 'published', publishedAt: now })
+        /* A 继续问 AI asked before 0072 keeps the time it was first published. */
+        .set({ status: 'published', publishedAt: sql`coalesce(${followup.publishedAt}, ${now.toISOString()}::timestamptz)` })
         .where(and(eq(followup.id, id), eq(followup.status, 'pending'), isNull(followup.deletedAt)))
         .returning({ postId: followup.postId, userId: followup.userId });
       if (!published) return;
@@ -466,7 +468,7 @@ export async function finishFollowup(id: string, now = new Date()): Promise<void
  * last attempt are rejected, and runs that died while answering are settled
  * with what they have.
  */
-export async function settleStaleFollowups(now = new Date(), deps: Pick<FollowupDeps, 'aiAnswer'> = {}): Promise<number> {
+export async function settleStaleFollowups(now = new Date(), deps: Pick<FollowupDeps, 'aiAnswer' | 'judge'> = {}): Promise<number> {
   const stuck = await db()
     .select({ id: followup.id })
     .from(followup)
@@ -536,8 +538,7 @@ export async function threadFor(row: PostRow, viewerId: string | undefined): Pro
       and(
         eq(followup.postId, row.id),
         isNull(followup.deletedAt),
-        /* A 继续问 AI is only ever its asker's (the post's author): nobody else gets it, nor learns there is one. */
-        viewerId ? or(and(inArray(followup.status, ['published', 'hidden']), eq(followup.aiOnly, false)), eq(followup.userId, viewerId)) : and(inArray(followup.status, ['published', 'hidden']), eq(followup.aiOnly, false)),
+        viewerId ? or(inArray(followup.status, ['published', 'hidden']), eq(followup.userId, viewerId)) : inArray(followup.status, ['published', 'hidden']),
       ),
     )
     .orderBy(asc(followup.createdAt), asc(followup.id));
@@ -548,10 +549,9 @@ export async function threadFor(row: PostRow, viewerId: string | undefined): Pro
     const price = maxCostFor({ ownerId: entry.ownerId, queryFee: entry.queryFee }, viewerId!);
     return { reeId: entry.reeId, reeSlug: entry.slug, reeName: entry.name, reeAvatar: entry.avatar, reeColor: entry.color, price, paid: price > QUERY_BASE_FEE };
   });
-  /* No Ree in the first round: its author may ask on under their AI answer (继续问 AI), to the same cap. */
-  const aiOnly = Boolean(viewerId && live && row.visibility === 'public' && row.userId === viewerId && candidates.length === 0 && (await aiFollowupsOpen(row.id, viewerId)));
-  const aiAsked = rows.filter((entry) => entry.followup.aiOnly && entry.followup.status === 'published').length;
-  const blocked = (aiOnly ? aiAsked : row.followupCount) >= FOLLOWUP_POST_MAX ? ('full' as const) : null;
+  /* No Ree in the first round: anyone who can read its AI answer may ask on under it (继续问 AI); a visitor, once signed in. */
+  const aiOnly = Boolean(live && row.visibility === 'public' && candidates.length === 0 && (await aiFollowupsOpen(row.id, viewerId)));
+  const blocked = row.followupCount >= FOLLOWUP_POST_MAX ? ('full' as const) : null;
   if (rows.length === 0) return { followups: [], candidates, blocked, aiOnly };
   /* Answers only where the viewer may read them: a published follow-up for anyone, any of their own for the asker. */
   const readable = rows.filter((entry) => entry.followup.status === 'published' || entry.followup.userId === viewerId).map((entry) => entry.followup.id);
@@ -579,13 +579,13 @@ export async function threadFor(row: PostRow, viewerId: string | undefined): Pro
       : Promise.resolve([]),
   ]);
   const posterId = row.source === 'post' ? row.userId : null;
-  /* The viewer's own AI answers to their follow-ups no Ree answered (ai-answers.ts); folded once a Ree has. */
+  /* The AI answers to follow-ups no Ree answered (ai-answers.ts): the viewer's own, and on a public post those that passed review; folded once a Ree has. */
   const answeredRounds = new Set(answers.filter((other) => other.shown && other.followupId).map((other) => aiRoundKey(row.id, other.followupId)));
   /* Once a Ree has answered the post, the 继续问 AI thread folds with the first AI answer (kept, not refunded). */
   if (rows.some((entry) => entry.followup.aiOnly) && (await answersFor([row.id])).some((other) => other.shown && !other.followupId)) {
     for (const entry of rows) if (entry.followup.aiOnly) answeredRounds.add(aiRoundKey(row.id, entry.followup.id));
   }
-  const ai = await aiAnswersFor(viewerId, { followupIds: mine.map((entry) => entry.followup.id) }, { whole: true, answeredRounds });
+  const ai = await aiAnswersFor(viewerId, { followupIds: readable }, { whole: true, answeredRounds });
   return {
     followups: rows.map(({ followup: entry, name, avatar }) => {
       const asker = entry.userId === viewerId;
@@ -609,7 +609,7 @@ export async function threadFor(row: PostRow, viewerId: string | undefined): Pro
         paidRequests: asker && entry.status === 'published' && row.visibility === 'public' ? (requests.find(([key]) => key === entry.id)?.[1] ?? []) : [],
         declined: asker ? declined.filter((other) => other.followupId === entry.id).map((other) => other.name) : [],
         spent: asker ? (spent.find(([key]) => key === entry.id)?.[1] ?? 0) : null,
-        aiAnswer: asker ? (ai.get(aiRoundKey(row.id, entry.id)) ?? null) : null,
+        aiAnswer: hiddenToViewer ? null : (ai.get(aiRoundKey(row.id, entry.id)) ?? null),
         aiOnly: entry.aiOnly,
       };
     }),
@@ -633,9 +633,9 @@ export async function deleteFollowup(userId: string, id: string, now = new Date(
       .update(followup)
       .set({ deletedAt: now })
       .where(and(eq(followup.id, id), eq(followup.userId, userId), isNull(followup.deletedAt)))
-      .returning({ postId: followup.postId, status: followup.status, aiOnly: followup.aiOnly });
+      .returning({ postId: followup.postId, status: followup.status });
     if (!gone) return false;
-    if (gone.status === 'published' && !gone.aiOnly) await tx.update(post).set({ followupCount: sql`greatest(${post.followupCount} - 1, 0)` }).where(eq(post.id, gone.postId));
+    if (gone.status === 'published') await tx.update(post).set({ followupCount: sql`greatest(${post.followupCount} - 1, 0)` }).where(eq(post.id, gone.postId));
     await tx.update(answer).set({ state: 'declined', decidedAt: now }).where(and(eq(answer.followupId, id), eq(answer.state, 'awaiting')));
     return true;
   });

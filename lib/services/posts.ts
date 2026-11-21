@@ -636,7 +636,7 @@ export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOp
   /* Follow-ups (追问) the request left behind: the same three steps, cheap first. */
   const followups = await import('@/lib/services/post-followups');
   handled += await followups.settleStaleFollowups(now, deps);
-  handled += await (await import('@/lib/services/ai-answers')).sweepAiAnswers(now);
+  handled += await (await import('@/lib/services/ai-answers')).sweepAiAnswers(now, deps);
   for (;;) {
     const dead = await db()
       .select({ id: post.id })
@@ -832,13 +832,12 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
   /* The thread of follow-ups (追问), on the post's page only. */
   const thread = options.whole && rows.length === 1 ? await (await import('@/lib/services/post-followups')).threadFor(rows[0]!, viewerId) : null;
   /*
-   * The author's own AI answer to the first round (ai-answers.ts): only the
-   * posts the viewer wrote, so nobody else ever gets one; folded once a Ree
-   * has answered.
+   * The AI answer to the first round (ai-answers.ts): the author's own, and
+   * on a public post anyone's once it passed review; folded once a Ree has
+   * answered.
    */
-  const asked = viewerId ? rows.filter((row) => row.userId === viewerId).map((row) => row.id) : [];
   const answeredRounds = new Set(rows.filter((row) => answers.some((entry) => entry.postId === row.id && entry.shown)).map((row) => aiRoundKey(row.id, null)));
-  const ai = await aiAnswersFor(viewerId, { postIds: asked }, { whole: options.whole, answeredRounds });
+  const ai = await aiAnswersFor(viewerId, { postIds: ids }, { whole: options.whole, answeredRounds });
   /* For its author, on the post's page: whether rewriting a stale summary is free (`freeRewrite`). */
   const rewriteFree = new Map<string, boolean>();
   for (const row of rows) {

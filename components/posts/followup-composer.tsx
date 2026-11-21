@@ -31,10 +31,10 @@ export interface FollowupComposerHandle {
  * shown goes along as `fees` and is held when sent, so a raised price comes
  * back to confirm again.
  *
- * `aiOnly` (继续问 AI): the author of a public post no Ree answered, under
- * their AI answer -- no Ree to @, and the AI answers each follow-up at the
- * base fee, seen by them only. A private thread no Ree is in (只问 AI) reads
- * the same.
+ * `aiOnly` (继续问 AI): under the AI answer of a public post no Ree
+ * answered -- no Ree to @, and the AI answers each follow-up at the base
+ * fee, paid by whoever asks; the follow-up is reviewed and public like any
+ * other. A private thread no Ree is in (只问 AI) reads the same.
  */
 export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: string; isPrivate?: boolean; aiOnly?: boolean; candidates: FollowupCandidate[]; signedIn: boolean; loginHref: string; blocked: 'full' | null; onAsked: () => void }>(function FollowupComposer(
   { postId, isPrivate = false, aiOnly: publicAi = false, candidates: threadRees, signedIn, loginHref, blocked, onAsked },
