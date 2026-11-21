@@ -7,6 +7,8 @@ import { fill, formatDate, formatNumber, formatUsd } from '@/i18n/format';
 import { ArrivalNotice } from '@/components/billing/arrival';
 import { RenewalControl } from '@/components/billing/renewal';
 import { RedeemCard } from '@/components/billing/redeem-card';
+import { ConvertEarned } from '@/components/billing/convert-earned';
+import { earnedSettings } from '@/lib/services/earned';
 import { PayoutCard } from '@/components/payouts/payout-card';
 import { I } from '@/components/settings/icon';
 
@@ -14,7 +16,8 @@ import { I } from '@/components/settings/icon';
 export async function BalanceTab({ userId, query }: { userId: string; query: Record<string, string | undefined> }) {
   const { t, locale } = await serverMessages();
   const b = t.billing;
-  const [summary, prices] = await Promise.all([billingSummary(userId), currentPricing()]);
+  const [summary, prices, earnedRules] = await Promise.all([billingSummary(userId), currentPricing(), earnedSettings()]);
+  const earned = summary.earned;
   const plan = summary.plan;
   const periodEnd = plan.periodEnd ? formatDate(plan.periodEnd, locale) : '';
   const redeemed = plan.source === 'redeemed';
@@ -36,6 +39,7 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
             <span>credits</span>
           </p>
           {summary.buckets.welcome > 0 && <p className="billing-total-gift">{fill(b.total.includesWelcome, { n: n(summary.buckets.welcome) })}</p>}
+          {!summary.official && <p className="billing-total-gift">{b.total.spendNote}</p>}
         </div>
         <ul className="billing-buckets" aria-label={b.total.buckets}>
           <li className="billing-bucket">
@@ -68,7 +72,40 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
                 <I name="sparkle" />
               </p>
               <p className="billing-bucket-number">{n(summary.buckets.earned)}</p>
+              {earned.total > 0 && (
+                <dl className="billing-earned-rows">
+                  <dt>{b.total.earned.withdrawable}</dt>
+                  <dd>{n(earned.withdrawable)}</dd>
+                  {earned.maturing > 0 && (
+                    <>
+                      <dt>{b.total.earned.maturing}</dt>
+                      <dd>{n(earned.maturing)}</dd>
+                    </>
+                  )}
+                  {earned.locked > 0 && (
+                    <>
+                      <dt>{b.total.earned.locked}</dt>
+                      <dd>{n(earned.locked)}</dd>
+                    </>
+                  )}
+                  {earned.invite > 0 && (
+                    <>
+                      <dt>{b.total.earned.invite}</dt>
+                      <dd>{n(earned.invite)}</dd>
+                    </>
+                  )}
+                </dl>
+              )}
               <small>{b.total.earned.note}</small>
+              <ConvertEarned
+                earned={earned.total}
+                withdrawable={earned.withdrawable}
+                maturing={earned.maturing}
+                locked={earned.locked}
+                rateBp={earnedRules.convertRateBp}
+                minimum={earnedRules.convertMinCredits}
+                enabled={earnedRules.convertEnabled}
+              />
             </li>
           )}
         </ul>

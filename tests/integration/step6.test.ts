@@ -319,7 +319,8 @@ describeWithDb('payouts', () => {
 
     const payout = await payouts.requestPayout(userId, 600_000);
     expect(payout).toMatchObject({ status: 'pending', credits: 600_000, paypalEmail: 'creator@example.com' });
-    expect(await balanceOf(db(), userId)).toBe(before - 600_000);
+    /* Earned credits are apart from the spendable balance: the payout moves them only. */
+    expect(await balanceOf(db(), userId)).toBe(before);
     expect(await earnedRemaining(userId)).toBe(100_000);
     const [hold] = await entries(userId, payout.id);
     expect(hold).toMatchObject({ reason: 'payout_hold', delta: -600_000 });

@@ -18,7 +18,8 @@ export interface PurchaseRow {
   email: string;
   kind: 'plan' | 'pack';
   quantity: number;
-  paddleTransactionId: string;
+  /** Null for a purchase paid in full with earned credits. */
+  paddleTransactionId: string | null;
   status: 'paid' | 'refunded' | 'chargeback';
   amountMinor: number;
   currency: string;

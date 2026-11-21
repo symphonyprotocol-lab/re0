@@ -5,7 +5,7 @@
  * billing page shows.
  */
 import type { CreditEntryReason } from '@/db/schema';
-import { PACK, PLAN, PLAN_USAGE_WARN_PERCENT } from '@/lib/constants';
+import { GRANT_SOURCES, PACK, PLAN, PLAN_USAGE_WARN_PERCENT } from '@/lib/constants';
 import { spendOrder, type Allocation, type SpendableGrant } from '@/lib/domain/credits';
 
 export type PurchaseKind = 'plan' | 'pack';
@@ -249,7 +249,8 @@ export function takeBack(
   amount: number,
   now: Date,
 ): { allocations: Allocation[]; shortfall: number } {
-  const ordered = spendOrder(grants, now);
+  /* A take-back is recovering what was paid, not using the product: earned credits count, last. */
+  const ordered = spendOrder(grants, now, GRANT_SOURCES);
   const own = ordered.filter((grant) => grant.id === purchaseGrantId);
   const rest = ordered.filter((grant) => grant.id !== purchaseGrantId);
   const allocations: Allocation[] = [];

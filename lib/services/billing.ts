@@ -11,11 +11,13 @@
  * arrives (the webhook is the authority, 8.3); the cron only catches what no
  * renewal will (cancelled or lapsed Plans).
  */
+import { randomUUID } from 'node:crypto';
 import { cache } from 'react';
 import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm';
-import { CHECKOUT_REUSE_MS, PACK, PLAN_EXPIRY_BATCH } from '@/lib/constants';
+import { CHECKOUT_REUSE_MS, EARNED_CHECKOUT_HOLD_MS, EARNED_MATURITY_DAYS, PACK, PLAN_EXPIRY_BATCH } from '@/lib/constants';
 import {
   ACTIVITY_REASONS,
+  addMonths,
   creditsFor,
   parseOrder,
   planIsActive,
@@ -33,7 +35,8 @@ import {
   type PurchaseKind,
   type RedeemedPlan,
 } from '@/lib/domain/billing';
-import { availableOf, type Allocation } from '@/lib/domain/credits';
+import { allocate, availableOf, InsufficientCredits, isDeductible, type Allocation } from '@/lib/domain/credits';
+import { planDeduction, returnedEarned, type Deduction, type DeductionRefusal } from '@/lib/domain/earned';
 import { clampPage, likePattern } from '@/lib/domain/list';
 import { periodRange, reportingDate, type PeriodFilter } from '@/lib/domain/statistics';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
@@ -57,7 +60,8 @@ import {
   type PaddleTransaction,
 } from '@/lib/infra/paddle';
 import { checkoutPrice, currentUnitCredits } from '@/lib/services/pricing';
-import { addGrant, expirePlanGrants, grantsOf, moveGrants, restoreVoidedEarned } from '@/lib/services/credits';
+import { addGrant, expirePlanGrants, grantsOf, moveGrants, placeHold, releaseHold, restoreVoidedEarned, settleHold } from '@/lib/services/credits';
+import { earnedBalance, earnedSettings, type EarnedBalance } from '@/lib/services/earned';
 
 export class WebhookRejected extends Error {
   constructor(message: string) {
@@ -114,7 +118,23 @@ export async function redeemedPlansOf(executor: Executor, userId: string, now: D
         now ? gt(schema.redeemRedemption.planEndsAt, now) : undefined,
       ),
     );
-  return rows.map((row) => ({ startsAt: row.startsAt!, endsAt: row.endsAt!, months: row.months!, credits: row.credits }));
+  /* A month of Plan paid in full with earned credits never reaches Paddle: it stands like a redeemed one (docs/design/earned-credits.md). */
+  const earned = await executor
+    .select({ startsAt: schema.purchase.periodStart, endsAt: schema.purchase.periodEnd, credits: schema.purchase.credits })
+    .from(schema.purchase)
+    .where(
+      and(
+        eq(schema.purchase.userId, userId),
+        eq(schema.purchase.kind, 'plan'),
+        isNull(schema.purchase.paddleTransactionId),
+        eq(schema.purchase.status, 'paid'),
+        now ? gt(schema.purchase.periodEnd, now) : undefined,
+      ),
+    );
+  return [
+    ...rows.map((row) => ({ startsAt: row.startsAt!, endsAt: row.endsAt!, months: row.months!, credits: row.credits })),
+    ...earned.map((row) => ({ startsAt: row.startsAt!, endsAt: row.endsAt!, months: 1, credits: row.credits })),
+  ];
 }
 
 /**
@@ -141,7 +161,8 @@ export type CheckoutRefusal =
   | 'already_subscribed'
   | 'renewal_pending'
   | 'plan_redeemed_active'
-  | 'price_changed';
+  | 'price_changed'
+  | DeductionRefusal;
 
 export interface CheckoutDeps {
   config?: PaddleConfig;
@@ -149,6 +170,11 @@ export interface CheckoutDeps {
   cancel?: typeof cancelCheckoutTransaction;
   now?: Date;
 }
+
+/** A checkout started: a Paddle transaction for the overlay, or -- earned credits paid it all -- the purchase already made. */
+export type CheckoutStarted =
+  | { ok: true; order: CheckoutOrder; transactionId: string; purchaseId?: undefined; earnedMinor: number }
+  | { ok: true; order: CheckoutOrder; transactionId?: undefined; purchaseId: string; earnedMinor: number };
 
 /**
  * `POST /api/billing/checkout`: checks the order and creates the Paddle
@@ -158,25 +184,34 @@ export interface CheckoutDeps {
  * Paddle may yet collect -- and a Plan checkout opened in the last hour is
  * reopened instead of created again, so two tabs cannot start two
  * subscriptions. A per-user advisory lock serialises the check and the create.
+ *
+ * `earnedMinor` (US cents) pays that much of the order with earned credits
+ * (docs/design/earned-credits.md): they are held with the checkout and the
+ * rest goes through Paddle as a one-off discount. All of it paid that way
+ * never reaches Paddle: the purchase is made at once -- a Pack, or one
+ * month of Plan that does not renew. Opening a checkout that uses earned
+ * credits first cancels the user's other open checkouts holding some.
  */
 export async function startCheckout(
   userId: string,
-  input: { kind?: unknown; quantity?: unknown; consent?: unknown; quoteKey?: unknown },
+  input: { kind?: unknown; quantity?: unknown; consent?: unknown; quoteKey?: unknown; earnedMinor?: unknown },
   deps: CheckoutDeps = {},
-): Promise<{ ok: true; transactionId: string; order: CheckoutOrder } | { ok: false; error: CheckoutRefusal }> {
+): Promise<CheckoutStarted | { ok: false; error: CheckoutRefusal }> {
   const order = parseOrder(input);
   if ('error' in order) return { ok: false, error: order.error };
   if (input.consent !== true) return { ok: false, error: 'consent_required' };
+  const requested = input.earnedMinor ?? 0;
+  if (typeof requested !== 'number' || !Number.isSafeInteger(requested) || requested < 0) return { ok: false, error: 'invalid_deduction' };
   const now = deps.now ?? new Date();
   /*
-   * Replacing a stale Plan checkout commits its cancellation and supersede on
+   * Replacing a stale checkout commits its cancellation and supersede on
    * their own, then starts over under the lock: a later Paddle or DB failure
    * can no longer roll back our record of a cancellation Paddle already made.
    */
   for (let attempt = 0; ; attempt += 1) {
-    const result = await checkoutAttempt(userId, input, order, now, deps);
+    const result = await checkoutAttempt(userId, input, order, requested, now, deps);
     if (result !== 'superseded') return result;
-    if (attempt >= 2) throw new Error('plan checkout kept changing while it was replaced');
+    if (attempt >= 4) throw new Error('checkout kept changing while it was replaced');
   }
 }
 
@@ -184,15 +219,19 @@ async function checkoutAttempt(
   userId: string,
   input: { quoteKey?: unknown },
   order: CheckoutOrder,
+  requested: number,
   now: Date,
   deps: CheckoutDeps,
-): Promise<{ ok: true; transactionId: string; order: CheckoutOrder } | { ok: false; error: CheckoutRefusal } | 'superseded'> {
+): Promise<CheckoutStarted | { ok: false; error: CheckoutRefusal } | 'superseded'> {
   return db().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`checkout:${userId}`}))`);
+    /* Conversions take the same user's earned credits; one at a time. */
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`earned:${userId}`}))`);
     if (order.kind === 'pack' && !(await planStateOf(tx, userId, now)).active) return { ok: false as const, error: 'plan_required' as const };
     const config = deps.config ?? requirePaddle();
     const price = await checkoutPrice(tx, config, order.kind, now);
     if (input.quoteKey !== undefined && input.quoteKey !== price.quoteKey) return { ok: false as const, error: 'price_changed' as const };
+    let reuse: string | null = null;
     if (order.kind === 'plan') {
       const live = await tx
         .select({ status: schema.subscription.status })
@@ -200,10 +239,10 @@ async function checkoutAttempt(
         .where(and(eq(schema.subscription.userId, userId), inArray(schema.subscription.status, ['active', 'expired'])));
       if (live.some((row) => row.status === 'active')) return { ok: false as const, error: 'already_subscribed' as const };
       if (live.length > 0) return { ok: false as const, error: 'renewal_pending' as const };
-      /* A redeemed Plan, in force or waiting: subscribing now would pay for months already given. */
+      /* A redeemed Plan (or one paid with earned credits), in force or waiting: subscribing now would pay for months already given. */
       if ((await redeemedPlansOf(tx, userId, now)).length > 0) return { ok: false as const, error: 'plan_redeemed_active' as const };
       const [open] = await tx
-        .select({ id: schema.paddleCheckout.paddleTransactionId, priceKey: schema.paddleCheckout.priceKey })
+        .select()
         .from(schema.paddleCheckout)
         .where(
           and(
@@ -215,21 +254,163 @@ async function checkoutAttempt(
         )
         .orderBy(desc(schema.paddleCheckout.createdAt))
         .limit(1);
-      if (open?.priceKey === price.quoteKey) return { ok: true as const, transactionId: open.id, order };
-      if (open) {
+      if (open?.priceKey === price.quoteKey && open.earnedMinor === requested && (await holdIsOpen(tx, open.earnedHoldId))) reuse = open.paddleTransactionId;
+      else if (open) {
         // Cancel before replacing: a failed cancellation must never start a second subscription.
-        await (deps.cancel ?? cancelCheckoutTransaction)(config, open.id);
-        await tx.update(schema.paddleCheckout).set({ supersededAt: now }).where(eq(schema.paddleCheckout.paddleTransactionId, open.id));
+        await abandonCheckout(tx, config, open, deps.cancel, now);
         return 'superseded' as const;
       }
     }
-    const transaction = await (deps.create ?? createCheckoutTransaction)(config, order, userId, price);
+    /* Earned credits held by another open checkout are freed for this one. */
+    if (requested > 0) {
+      const holding = await openEarnedCheckouts(tx, userId);
+      const other = holding.find((row) => row.paddleTransactionId !== reuse);
+      if (other) {
+        await abandonCheckout(tx, config, other, deps.cancel, now);
+        return 'superseded' as const;
+      }
+    }
+    if (reuse) return { ok: true as const, order, transactionId: reuse, earnedMinor: requested };
+
+    const priceMinor = price.priceMinor * order.quantity;
+    const settings = await earnedSettings(tx);
+    const deductible = requested > 0 ? (await grantsOf(tx, userId, true)).filter(isDeductible).reduce((sum, grant) => sum + grant.remaining, 0) : 0;
+    const planned = planDeduction(requested, priceMinor, deductible, settings);
+    if (!planned.ok) return planned;
+    const deduction = planned.deduction;
+    /* The purchase this checkout becomes, named now so the earned hold and the purchase share one id in the ledger. */
+    const purchaseId = randomUUID();
+    if (deduction.credits > 0 && deduction.payMinor === 0) {
+      await buyWithEarned(tx, userId, order, price, deduction, purchaseId, now);
+      return { ok: true as const, order, purchaseId, earnedMinor: deduction.minor };
+    }
+    const holdId = deduction.credits > 0 ? await holdDeduction(tx, userId, order, deduction, purchaseId, now) : null;
+    const transaction = await (deps.create ?? createCheckoutTransaction)(config, order, userId, price, deduction.minor);
     await tx.insert(schema.paddleCheckout).values({
       paddleTransactionId: transaction.id, userId, kind: order.kind, quantity: order.quantity,
       priceKey: price.quoteKey, unitPriceMinor: price.priceMinor, unitCredits: price.credits, paddlePriceId: price.priceId, createdAt: now,
+      earnedHoldId: holdId, earnedCredits: deduction.credits, earnedMinor: deduction.minor,
     });
-    return { ok: true as const, transactionId: transaction.id, order };
+    return { ok: true as const, order, transactionId: transaction.id, earnedMinor: deduction.minor };
   });
+}
+
+/** Holds `deduction` of the user's deductible earned credits for a checkout, under the purchase id it will have. */
+function holdDeduction(tx: Tx, userId: string, order: CheckoutOrder, deduction: Deduction, purchaseId: string, now: Date): Promise<string> {
+  return placeHold(
+    tx,
+    { userId, kind: 'deduction', amount: deduction.credits, refId: purchaseId, sources: ['earned'], deductibleOnly: true, note: `${order.kind === 'plan' ? 'Plan' : `Pack x${order.quantity}`}: USD ${(deduction.minor / 100).toFixed(2)} paid with earned credits` },
+    now,
+  );
+}
+
+/**
+ * A Plan or Pack paid in full with earned credits: no Paddle, no tax. The
+ * hold is taken and paid at once, the purchase written without a Paddle
+ * transaction, and the credits granted. A Plan bought this way is one month
+ * from now that does not renew; `redeemedPlansOf` reads it like a redeemed
+ * Plan, so a subscription waits for it to end.
+ */
+async function buyWithEarned(
+  tx: Tx,
+  userId: string,
+  order: CheckoutOrder,
+  price: { credits: number },
+  deduction: Deduction,
+  purchaseId: string,
+  now: Date,
+): Promise<void> {
+  const holdId = await holdDeduction(tx, userId, order, deduction, purchaseId, now);
+  await settleHold(tx, holdId, deduction.credits, {}, now);
+  const credits = creditsFor(order, price.credits);
+  const periodStart = order.kind === 'plan' ? now : null;
+  const periodEnd = order.kind === 'plan' ? addMonths(now, 1) : null;
+  await tx.insert(schema.purchase).values({
+    id: purchaseId,
+    userId,
+    kind: order.kind,
+    quantity: order.quantity,
+    paddleTransactionId: null,
+    amountMinor: 0,
+    currency: 'USD',
+    credits,
+    periodStart,
+    periodEnd,
+    earnedCredits: deduction.credits,
+    earnedMinor: deduction.minor,
+    earnedHoldId: holdId,
+    createdAt: now,
+  });
+  await addGrant(
+    tx,
+    {
+      userId,
+      source: order.kind,
+      amount: credits,
+      reason: 'purchase',
+      refId: purchaseId,
+      purchaseId,
+      expiresAt: periodEnd,
+      periodStart,
+      note: `${order.kind === 'plan' ? 'plan, one month' : `pack x${order.quantity}`} paid with ${deduction.credits} earned credits`,
+    },
+    now,
+  );
+}
+
+async function holdIsOpen(executor: Executor, holdId: string | null): Promise<boolean> {
+  if (!holdId) return true;
+  const [hold] = await executor.select({ status: schema.creditHold.status }).from(schema.creditHold).where(eq(schema.creditHold.id, holdId)).limit(1);
+  return hold?.status === 'held';
+}
+
+/** The user's checkouts not yet replaced whose earned hold is still held. */
+async function openEarnedCheckouts(executor: Executor, userId: string): Promise<CheckoutRow[]> {
+  const rows = await executor
+    .select({ checkout: schema.paddleCheckout })
+    .from(schema.paddleCheckout)
+    .innerJoin(schema.creditHold, eq(schema.creditHold.id, schema.paddleCheckout.earnedHoldId))
+    .where(and(eq(schema.paddleCheckout.userId, userId), isNull(schema.paddleCheckout.supersededAt), eq(schema.creditHold.status, 'held')));
+  return rows.map((row) => row.checkout);
+}
+
+/** Cancels a checkout in Paddle, then marks it replaced and gives back any earned credits it held. Cancelling first: a transaction that can still be paid keeps its hold. */
+async function abandonCheckout(tx: Tx, config: PaddleConfig, checkout: CheckoutRow, cancel: CheckoutDeps['cancel'], now: Date): Promise<void> {
+  await (cancel ?? cancelCheckoutTransaction)(config, checkout.paddleTransactionId);
+  await tx.update(schema.paddleCheckout).set({ supersededAt: now }).where(eq(schema.paddleCheckout.paddleTransactionId, checkout.paddleTransactionId));
+  if (checkout.earnedHoldId) await releaseHold(tx, checkout.earnedHoldId, { note: `checkout ${checkout.paddleTransactionId} replaced or left unpaid` }, now);
+}
+
+/**
+ * The cron's sweep: checkouts holding earned credits that are still unpaid
+ * after `EARNED_CHECKOUT_HOLD_MS` are cancelled in Paddle and their holds
+ * released. One whose cancellation fails (Paddle down, or it was paid and the
+ * payment is on its way) is left for the next run or the webhook.
+ */
+export async function releaseStaleEarnedCheckouts(now = new Date(), deps: { config?: PaddleConfig; cancel?: CheckoutDeps['cancel'] } = {}): Promise<number> {
+  const config = deps.config ?? paddleConfig();
+  if (!config) return 0;
+  const stale = await db()
+    .select({ checkout: schema.paddleCheckout })
+    .from(schema.paddleCheckout)
+    .innerJoin(schema.creditHold, eq(schema.creditHold.id, schema.paddleCheckout.earnedHoldId))
+    .where(and(isNull(schema.paddleCheckout.supersededAt), eq(schema.creditHold.status, 'held'), lt(schema.paddleCheckout.createdAt, new Date(now.getTime() - EARNED_CHECKOUT_HOLD_MS))))
+    .limit(100);
+  let released = 0;
+  for (const { checkout } of stale) {
+    try {
+      await db().transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`checkout:${checkout.userId}`}))`);
+        const [still] = await tx.select().from(schema.paddleCheckout).where(and(eq(schema.paddleCheckout.paddleTransactionId, checkout.paddleTransactionId), isNull(schema.paddleCheckout.supersededAt)));
+        if (!still || !(await holdIsOpen(tx, still.earnedHoldId))) return;
+        await abandonCheckout(tx, config, still, deps.cancel, now);
+        released += 1;
+      });
+    } catch (error) {
+      console.warn(`checkout ${checkout.paddleTransactionId}: earned hold not released yet`, error instanceof Error ? error.message : error);
+    }
+  }
+  return released;
 }
 
 /** `GET /api/billing/checkout?transaction=`: has this checkout's payment been credited to this user yet? */
@@ -351,8 +532,9 @@ async function buyerOf(
     if (checkout.paddlePriceId && !priceIds.includes(checkout.paddlePriceId)) return { refused: `price ${priceIds.join(',')} is not the quoted ${checkout.paddlePriceId}` };
     const paid = minorUnits(transaction.details?.totals?.grand_total);
     const quantity = transaction.items[0]?.quantity ?? 1;
-    if (checkout.unitPriceMinor !== null && Number.isFinite(paid) && paid < checkout.unitPriceMinor * quantity) {
-      return { refused: `paid ${paid} for ${quantity} at the quoted ${checkout.unitPriceMinor}` };
+    /* Earned credits paid `earned_minor` of it; Paddle charged the rest. */
+    if (checkout.unitPriceMinor !== null && Number.isFinite(paid) && paid < checkout.unitPriceMinor * quantity - checkout.earnedMinor) {
+      return { refused: `paid ${paid} for ${quantity} at the quoted ${checkout.unitPriceMinor}${checkout.earnedMinor ? ` less ${checkout.earnedMinor} in earned credits` : ''}` };
     }
     return { userId: checkout.userId };
   }
@@ -413,9 +595,14 @@ async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices:
     periodStart = paddleDate(transaction.billing_period?.starts_at) ?? subscription?.currentPeriodStart ?? now;
     periodEnd = paddleDate(transaction.billing_period?.ends_at) ?? subscription?.currentPeriodEnd ?? addMonth(periodStart);
   }
+  /* The earned credits this checkout held: the purchase takes the id the hold was placed under, so both read as one in the ledger. */
+  const [earnedHold] = checkout?.earnedHoldId
+    ? await tx.select({ refId: schema.creditHold.refId }).from(schema.creditHold).where(eq(schema.creditHold.id, checkout.earnedHoldId)).limit(1)
+    : [];
   const [purchase] = await tx
     .insert(schema.purchase)
     .values({
+      ...(earnedHold?.refId ? { id: earnedHold.refId } : {}),
       userId,
       kind,
       quantity: order.quantity,
@@ -429,6 +616,8 @@ async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices:
       createdAt: now,
     })
     .returning({ id: schema.purchase.id });
+
+  if (checkout?.earnedHoldId && checkout.earnedCredits > 0) await payDeduction(tx, purchase!.id, userId, checkout, now);
 
   if (kind === 'plan') {
     if (subscription === null && transaction.subscription_id) {
@@ -478,6 +667,32 @@ async function creditTransaction(tx: Tx, transaction: PaddleTransaction, prices:
     now,
   );
   return 'credited';
+}
+
+/**
+ * The earned credits a paid checkout held are now spent: its hold is paid
+ * and the purchase records them. If the hold was released meanwhile (the
+ * checkout swept as unpaid just as the payment landed), the same credits
+ * are held and paid again; what the user no longer has is owed.
+ */
+async function payDeduction(tx: Tx, purchaseId: string, userId: string, checkout: CheckoutRow, now: Date): Promise<void> {
+  let holdId: string | null = checkout.earnedHoldId;
+  const paid = holdId ? await settleHold(tx, holdId, checkout.earnedCredits, {}, now) : null;
+  if (!paid) {
+    try {
+      holdId = await placeHold(tx, { userId, kind: 'deduction', amount: checkout.earnedCredits, refId: purchaseId, sources: ['earned'], deductibleOnly: true, note: `checkout ${checkout.paddleTransactionId} paid after its hold was released` }, now);
+      await settleHold(tx, holdId, checkout.earnedCredits, {}, now);
+    } catch (error) {
+      if (!(error instanceof InsufficientCredits)) throw error;
+      holdId = null;
+      await tx.insert(schema.creditDebt).values({ userId, amount: checkout.earnedCredits, remaining: checkout.earnedCredits, createdAt: now });
+      console.warn(`checkout ${checkout.paddleTransactionId}: ${checkout.earnedCredits} earned credits it held are gone; recorded as a debt`);
+    }
+  }
+  await tx
+    .update(schema.purchase)
+    .set({ earnedCredits: checkout.earnedCredits, earnedMinor: checkout.earnedMinor, earnedHoldId: holdId })
+    .where(eq(schema.purchase.id, purchaseId));
 }
 
 /** A subscription event: the Plan's state as Paddle holds it, unless we already hold a newer one. */
@@ -592,6 +807,7 @@ async function applyAdjustment(tx: Tx, adjustment: PaddleAdjustment, now: Date):
   if (adjustment.action === 'chargeback_reverse') return reverseChargeback(tx, purchase, adjustment, now);
   const credits = reversalCredits(purchase, minorUnits(adjustment.totals?.total));
   const chargeback = adjustment.action === 'chargeback';
+  let debtId: string | null = null;
   if (credits > 0) {
     const [own] = await tx.select().from(schema.creditGrant).where(eq(schema.creditGrant.purchaseId, purchase.id)).for('update');
     /* A Plan period that ended: what expired unused (or is left but no longer spendable) was never spent, so it is not owed. */
@@ -627,18 +843,98 @@ async function applyAdjustment(tx: Tx, adjustment: PaddleAdjustment, now: Date):
       createdAt: now,
     });
     if (shortfall > 0) {
-      await tx.insert(schema.creditDebt).values({ userId: purchase.userId, amount: shortfall, remaining: shortfall, purchaseId: purchase.id, createdAt: now });
+      const [debt] = await tx.insert(schema.creditDebt).values({ userId: purchase.userId, amount: shortfall, remaining: shortfall, purchaseId: purchase.id, createdAt: now }).returning({ id: schema.creditDebt.id });
+      debtId = debt!.id;
     }
   }
+  /* Earned credits that paid part of the price come back in the same share as the money. */
+  const earnedBack = returnedEarned(purchase, minorUnits(adjustment.totals?.total));
+  if (earnedBack > 0) await returnDeduction(tx, purchase, earnedBack, debtId, `${adjustment.action} ${adjustment.id}`, now);
   await tx
     .update(schema.purchase)
     .set({
       status: chargeback ? 'chargeback' : 'refunded',
+      earnedReturned: sql`${schema.purchase.earnedReturned} + ${earnedBack}`,
       reversedCredits: sql`${schema.purchase.reversedCredits} + ${credits}`,
       adjustmentIds: sql`array_append(${schema.purchase.adjustmentIds}, ${adjustment.id})`,
     })
     .where(eq(schema.purchase.id, purchase.id));
   return chargeback ? 'charged_back' : 'refunded';
+}
+
+/**
+ * Gives back `amount` of the earned credits a refunded or charged-back
+ * purchase was paid with (`deduction_return`): to the grants the deduction
+ * took them from, last taken first, so they keep their payout date; whatever
+ * those grants can no longer take (returned before, or a chargeback reversal
+ * took them again from elsewhere) comes back as a new earned grant that
+ * matures like a fresh earning. When this refund left the buyer owing
+ * (`debtId`), the returned credits pay that debt first (`debt_offset`), so
+ * a buyer never both keeps a debt and gets the earned credits back.
+ */
+async function returnDeduction(tx: Tx, purchase: typeof schema.purchase.$inferSelect, amount: number, debtId: string | null, label: string, now: Date): Promise<void> {
+  const [hold] = purchase.earnedHoldId ? await tx.select({ allocations: schema.creditHold.allocations }).from(schema.creditHold).where(eq(schema.creditHold.id, purchase.earnedHoldId)) : [];
+  const earlier = await tx
+    .select({ allocations: schema.creditEntry.allocations })
+    .from(schema.creditEntry)
+    .where(and(eq(schema.creditEntry.refId, purchase.id), eq(schema.creditEntry.reason, 'deduction_return')));
+  const outstanding = new Map<string, number>();
+  for (const entry of hold?.allocations ?? []) outstanding.set(entry.grantId, (outstanding.get(entry.grantId) ?? 0) + entry.amount);
+  for (const row of earlier) for (const entry of row.allocations) outstanding.set(entry.grantId, (outstanding.get(entry.grantId) ?? 0) - entry.amount);
+  const ids = [...outstanding].filter(([, left]) => left > 0).map(([grantId]) => grantId);
+  const grants = ids.length ? await tx.select().from(schema.creditGrant).where(inArray(schema.creditGrant.id, ids)).for('update') : [];
+  const allocations: Allocation[] = [];
+  let left = amount;
+  for (const entry of [...(hold?.allocations ?? [])].reverse()) {
+    if (left === 0) break;
+    const grant = grants.find((row) => row.id === entry.grantId);
+    if (!grant) continue;
+    const already = allocations.filter((part) => part.grantId === grant.id).reduce((sum, part) => sum + part.amount, 0);
+    const give = Math.min(left, (outstanding.get(grant.id) ?? 0) - already, grant.amount - grant.remaining - already);
+    if (give <= 0) continue;
+    allocations.push({ grantId: grant.id, source: 'earned', amount: give });
+    left -= give;
+  }
+  if (allocations.length > 0) {
+    await moveGrants(tx, allocations, 1);
+    await tx.insert(schema.creditEntry).values({
+      userId: purchase.userId,
+      delta: amount - left,
+      reason: 'deduction_return',
+      refId: purchase.id,
+      note: `${label}: earned credits that paid USD ${(purchase.earnedMinor / 100).toFixed(2)} given back in proportion`,
+      allocations,
+      createdAt: now,
+    });
+  }
+  const back = [...allocations];
+  if (left > 0) {
+    const { grantId } = await addGrant(
+      tx,
+      { userId: purchase.userId, source: 'earned', amount: left, reason: 'deduction_return', refId: purchase.id, note: `${label}: earned credits given back`, withdrawableAt: new Date(now.getTime() + EARNED_MATURITY_DAYS * 86_400_000), fundingPurchaseId: null },
+      now,
+    );
+    /* `addGrant` paid open debts from it already, the oldest first; what it has left is what may pay this one. */
+    const [fresh] = await tx.select({ remaining: schema.creditGrant.remaining }).from(schema.creditGrant).where(eq(schema.creditGrant.id, grantId));
+    if ((fresh?.remaining ?? 0) > 0) back.push({ grantId, source: 'earned', amount: fresh!.remaining });
+  }
+  if (!debtId) return;
+  const [debt] = await tx.select().from(schema.creditDebt).where(eq(schema.creditDebt.id, debtId)).for('update');
+  if (!debt || debt.remaining <= 0) return;
+  const offset: Allocation[] = [];
+  let owed = debt.remaining;
+  for (const part of back) {
+    if (owed === 0) break;
+    const take = Math.min(owed, part.amount);
+    offset.push({ ...part, amount: take });
+    owed -= take;
+  }
+  const paid = offset.reduce((sum, part) => sum + part.amount, 0);
+  if (paid === 0) return;
+  await moveGrants(tx, offset, -1);
+  await tx.update(schema.creditDebt).set({ remaining: debt.remaining - paid, clearedAt: debt.remaining === paid ? now : null }).where(eq(schema.creditDebt.id, debt.id));
+  await tx.insert(schema.creditEntry).values({ userId: purchase.userId, delta: -paid, reason: 'debt_offset', refId: debt.id, note: `debts ${debt.id}:${paid} (from the earned credits ${label} gave back)`, allocations: offset, createdAt: now });
+  await restoreVoidedEarned(tx, purchase.id, now);
 }
 
 /** What of a grant the expiry wrote off. */
@@ -660,7 +956,8 @@ async function voidFundedEarned(tx: Tx, purchaseId: string, wanted: number, labe
   const funded = await tx
     .select()
     .from(schema.creditGrant)
-    .where(eq(schema.creditGrant.fundingPurchaseId, purchaseId))
+    /* Earned grants only: a Pack converted from them keeps the purchase for tracing, but a refund never voids Pack credits. */
+    .where(and(eq(schema.creditGrant.fundingPurchaseId, purchaseId), eq(schema.creditGrant.source, 'earned')))
     .orderBy(desc(schema.creditGrant.createdAt))
     .for('update');
   if (funded.length === 0) return { voided: 0, unrecovered: 0 };
@@ -763,10 +1060,29 @@ async function reverseChargeback(tx: Tx, purchase: typeof schema.purchase.$infer
     createdAt: now,
   });
   const reversed = purchase.reversedCredits - restore;
+  /* The earned credits the chargeback gave back are paid again, in the same share; what is no longer there is owed. */
+  const retake = purchase.earnedReturned === 0 || purchase.reversedCredits === 0 ? 0 : restore === purchase.reversedCredits ? purchase.earnedReturned : Math.min(purchase.earnedReturned, Math.round((purchase.earnedReturned * restore) / purchase.reversedCredits));
+  if (retake > 0) {
+    const grants = await grantsOf(tx, purchase.userId, true);
+    const taken = Math.min(retake, availableOf(grants, now, ['earned']));
+    const earnedAllocations = taken > 0 ? allocate(grants, taken, now, ['earned']) : [];
+    await moveGrants(tx, earnedAllocations, -1);
+    await tx.insert(schema.creditEntry).values({
+      userId: purchase.userId,
+      delta: -taken,
+      reason: 'deduction_paid',
+      refId: purchase.id,
+      note: `chargeback_reverse ${adjustment.id}: ${retake} earned credits paid again${retake > taken ? `, ${retake - taken} owed` : ''}`,
+      allocations: earnedAllocations,
+      createdAt: now,
+    });
+    if (retake > taken) await tx.insert(schema.creditDebt).values({ userId: purchase.userId, amount: retake - taken, remaining: retake - taken, createdAt: now });
+  }
   await tx
     .update(schema.purchase)
     .set({
       status: purchase.status === 'chargeback' && reversed === 0 ? 'paid' : purchase.status,
+      earnedReturned: purchase.earnedReturned - retake,
       reversedCredits: reversed,
       adjustmentIds: sql`array_append(${schema.purchase.adjustmentIds}, ${adjustment.id})`,
     })
@@ -877,8 +1193,10 @@ export async function expireDuePlans(now = new Date(), budgetMs = 240_000): Prom
 /* ------------------------------------------------------------ billing page */
 
 export interface BillingSummary {
+  /** What using the product can spend: Plan, welcome and Pack. Earned credits are apart. */
   total: number;
   buckets: { plan: number; welcome: number; pack: number; earned: number };
+  earned: EarnedBalance;
   debt: number;
   plan: PlanUsage;
   /** Official accounts see no user-side query income: no earned card, no 收入 tab or rows. */
@@ -930,9 +1248,9 @@ async function currentPlanUsage(subscription: SubscriptionRow | null, redeemed: 
 }
 
 /**
- * What every workspace page's sidebar shows: the total balance (the billing
- * tab's 总余额), the welcome credits it includes, any open debt, and the
- * Plan meter.
+ * What every workspace page's sidebar shows: the spendable balance (the
+ * billing tab's 可用余额, earned credits apart), the welcome credits it
+ * includes, any open debt, and the Plan meter.
  */
 export async function shellBilling(userId: string, now = new Date()): Promise<{ balance: number; welcome: number; debt: number; plan: PlanUsage }> {
   const [{ grants, subscription, redeemed, planGrants }, debt] = await Promise.all([billingRows(userId), openDebt(userId)]);
@@ -957,19 +1275,21 @@ async function openDebt(userId: string): Promise<number> {
 }
 
 export async function billingSummary(userId: string, now = new Date()): Promise<BillingSummary> {
-  const [{ grants, subscription, redeemed, planGrants }, debt, official] = await Promise.all([
+  const [{ grants, subscription, redeemed, planGrants }, debt, official, earned] = await Promise.all([
     billingRows(userId),
     db()
       .select({ remaining: sql<number>`coalesce(sum(${schema.creditDebt.remaining}), 0)::bigint` })
       .from(schema.creditDebt)
       .where(and(eq(schema.creditDebt.userId, userId), gt(schema.creditDebt.remaining, 0))),
     isOfficial(userId),
+    earnedBalance(db(), userId, now),
   ]);
-  const bucket = (source: 'plan' | 'welcome' | 'pack' | 'earned') => availableOf(grants.filter((grant) => grant.source === source), now);
+  const bucket = (source: 'plan' | 'welcome' | 'pack' | 'earned') => availableOf(grants, now, [source]);
   const buckets = { plan: bucket('plan'), welcome: bucket('welcome'), pack: bucket('pack'), earned: bucket('earned') };
   return {
-    total: buckets.plan + buckets.welcome + buckets.pack + buckets.earned,
+    total: buckets.plan + buckets.welcome + buckets.pack,
     buckets,
+    earned,
     debt: Number(debt[0]?.remaining ?? 0),
     plan: await currentPlanUsage(subscription, redeemed, planGrants, now),
     official,

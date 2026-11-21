@@ -8,6 +8,7 @@ import { useNavigationRouter as useRouter } from '@/components/shell/navigation-
 import { useEffect, useRef, useState } from 'react';
 import { PACK } from '@/lib/constants';
 import { creditsFor } from '@/lib/domain/billing';
+import { DEFAULT_EARNED_SETTINGS, maxDeductionMinor } from '@/lib/domain/earned';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber, formatUsd } from '@/i18n/format';
 import { Icon, Spinner } from '@/components/ui/icons';
@@ -49,6 +50,7 @@ export function CheckoutPanel({
   planActive,
   paddle,
   pendingTransaction,
+  earned = null,
 }: {
   kind: 'plan' | 'pack';
   price: PriceView;
@@ -58,6 +60,8 @@ export function CheckoutPanel({
   planActive: boolean;
   paddle: { clientToken: string; environment: 'sandbox' | 'production' } | null;
   pendingTransaction: string | null;
+  /** Earned credits that may pay part or all of the order, and the console's rules; null when there are none to offer. */
+  earned?: { deductible: number; creditsPerCent: number; maxPercent: number; minChargeMinor: number } | null;
 }) {
   const { t, locale } = useI18n();
   const c = t.site.checkout;
@@ -76,6 +80,26 @@ export function CheckoutPanel({
   const credits = creditsFor({ kind, quantity }, price.credits);
   const locked = kind === 'pack' && signedIn && !planActive;
   const alreadyPlan = kind === 'plan' && planActive;
+
+  /* Earned credits toward this order (docs/design/earned-credits.md): whole cents, at most the console's share, leaving 0 or Paddle's minimum. */
+  const rules = earned
+    ? { ...DEFAULT_EARNED_SETTINGS, deductEnabled: true, deductCreditsPerCent: earned.creditsPerCent, deductMaxPercent: earned.maxPercent, deductMinChargeMinor: earned.minChargeMinor }
+    : null;
+  const maxEarnedMinor = rules && earned ? maxDeductionMinor(subtotal, earned.deductible, rules) : 0;
+  const [useEarned, setUseEarned] = useState(false);
+  const [earnedInput, setEarnedInput] = useState('');
+  const typedMinor = Math.round(Number(earnedInput || '0') * 100);
+  let earnedMinor = useEarned && Number.isFinite(typedMinor) ? Math.min(Math.max(typedMinor, 0), maxEarnedMinor) : 0;
+  const adjusted = rules !== null && earnedMinor > 0 && subtotal - earnedMinor > 0 && subtotal - earnedMinor < rules.deductMinChargeMinor;
+  if (adjusted && rules) earnedMinor = Math.max(0, subtotal - rules.deductMinChargeMinor);
+  const earnedCredits = earned ? earnedMinor * earned.creditsPerCent : 0;
+  const payMinor = subtotal - earnedMinor;
+  const paidByEarned = earnedMinor > 0 && payMinor === 0;
+  const startEarned = (on: boolean) => {
+    setUseEarned(on);
+    if (on) setEarnedInput((maxEarnedMinor / 100).toFixed(2));
+    transaction.current = null;
+  };
 
   /* Paddle.Initialize may only run once per page, so its callback forwards to whatever this listener is now. */
   useEffect(() => {
@@ -133,9 +157,16 @@ export function CheckoutPanel({
       const response = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ kind, quantity, consent: true, quoteKey: price.quoteKey }),
+        body: JSON.stringify({ kind, quantity, consent: true, quoteKey: price.quoteKey, ...(earnedMinor > 0 ? { earnedMinor } : {}) }),
       });
-      const body = (await response.json().catch(() => ({}))) as { transactionId?: string; error?: keyof typeof c.errors };
+      const body = (await response.json().catch(() => ({}))) as { transactionId?: string; purchaseId?: string; error?: keyof typeof c.errors };
+      if (response.ok && body.purchaseId) {
+        /* Paid in full with earned credits: nothing for Paddle to do. */
+        setPhase('completed');
+        router.push('/settings?tab=balance');
+        router.refresh();
+        return;
+      }
       if (!response.ok || !body.transactionId) {
         if (response.status === 401) {
           router.push(`/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`);
@@ -156,6 +187,7 @@ export function CheckoutPanel({
 
   const changeQuantity = (value: number) => {
     setQuantity(value);
+    setUseEarned(false);
     transaction.current = null;
     router.replace(`/checkout?kind=pack&quantity=${value}`, { scroll: false });
   };
@@ -200,10 +232,61 @@ export function CheckoutPanel({
           <dd className="text-muted">{c.taxesNote}</dd>
         </div>
       </dl>
+      {earned && signedIn && !locked && !alreadyPlan && (
+        <div className="mt-4 rounded-xl border border-line bg-wash px-4 py-3 text-[12px]">
+          {maxEarnedMinor > 0 ? (
+            <>
+              <label className="flex items-center gap-2.5 font-semibold">
+                <input
+                  id="checkout-use-earned"
+                  type="checkbox"
+                  className="size-4 flex-none accent-blue"
+                  checked={useEarned}
+                  disabled={phase === 'creating' || phase === 'open'}
+                  onChange={(event) => startEarned(event.target.checked)}
+                />
+                {c.earned.toggle}
+              </label>
+              <p className="mt-1 text-muted">
+                {fill(c.earned.available, { credits: formatNumber(earned.deductible, locale), usd: money(Math.floor(earned.deductible / earned.creditsPerCent)) })}
+              </p>
+              {useEarned && (
+                <div className="mt-3 flex flex-col gap-2">
+                  <label htmlFor="checkout-earned-amount" className="font-semibold">
+                    {c.earned.amount}
+                  </label>
+                  <input
+                    id="checkout-earned-amount"
+                    inputMode="decimal"
+                    value={earnedInput}
+                    disabled={phase === 'creating' || phase === 'open'}
+                    onChange={(event) => {
+                      setEarnedInput(event.target.value.replace(/[^\d.]/g, ''));
+                      transaction.current = null;
+                    }}
+                    onBlur={() => setEarnedInput((earnedMinor / 100).toFixed(2))}
+                    className="rounded-lg border border-line bg-white px-3 py-2 font-mono text-[13px]"
+                  />
+                  {adjusted && rules && <p className="text-muted">{fill(c.earned.leaveMin, { min: money(rules.deductMinChargeMinor) })}</p>}
+                  <p className="text-muted">{paidByEarned ? (kind === 'plan' ? c.earned.planFull : c.earned.packFull) : kind === 'plan' ? c.earned.planOnce : ''}</p>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-muted">{c.earned.none}</p>
+          )}
+        </div>
+      )}
+      {earnedMinor > 0 && (
+        <div className="mt-3 flex justify-between text-[13px]">
+          <span className="text-muted">{fill(c.earned.line, { credits: formatNumber(earnedCredits, locale) })}</span>
+          <span className="font-mono font-semibold text-blue">−{money(earnedMinor)}</span>
+        </div>
+      )}
       <hr className="my-4 border-line" />
       <div className="flex items-baseline justify-between">
-        <span className="text-[13px] font-semibold">{c.total}</span>
-        <strong className="font-mono text-[30px]">{money(subtotal)}</strong>
+        <span className="text-[13px] font-semibold">{earnedMinor > 0 ? c.earned.payNow : c.total}</span>
+        <strong className="font-mono text-[30px]">{money(payMinor)}</strong>
       </div>
       <p className="text-right font-mono text-[12px] text-blue">
         {formatNumber(credits, locale)} credits{kind === 'plan' ? ` / ${c.perCycle}` : ''}
@@ -257,12 +340,14 @@ export function CheckoutPanel({
             <button
               type="button"
               className="btn mt-4 min-h-12 w-full text-[14px]"
-              disabled={!signedIn || !paddle || !ready || phase === 'creating' || phase === 'open'}
+              disabled={!signedIn || (!paidByEarned && (!paddle || !ready)) || phase === 'creating' || phase === 'open'}
               onClick={confirm}
             >
-              {phase === 'creating' || phase === 'open' || (signedIn && paddle && !ready) ? <Spinner /> : null}
-              {phase === 'creating' || phase === 'open' ? c.opening : signedIn && paddle && !ready ? c.loading : c.confirm}
-              {phase === 'idle' && ready && <Icon name="arrow" />}
+              {phase === 'creating' || phase === 'open' || (!paidByEarned && signedIn && paddle && !ready) ? <Spinner /> : null}
+              {paidByEarned
+                ? phase === 'creating' ? c.earned.paying : c.earned.payWithEarned
+                : phase === 'creating' || phase === 'open' ? c.opening : signedIn && paddle && !ready ? c.loading : c.confirm}
+              {phase === 'idle' && (ready || paidByEarned) && <Icon name="arrow" />}
             </button>
           )}
           {!paddle && signedIn && <p className="mt-2 text-[11px] text-muted">{c.errors.payments_unavailable}</p>}

@@ -96,25 +96,27 @@ async function fundingOf(ids: readonly string[]): Promise<Map<string, PayoutFund
       left join post_followup f on f.id = a.followup_id
       group by l.payout_id, l.owner_id, l.reply_id, a.id, a.ree_id, f.user_id, p.user_id, a.created_at
     ), spend as (
-      select r.payout_id, r.reply_id, g.source, g.purchase_id, g.redemption_id, g.withdrawable_at, g.funding_purchase_id, g.invite_funded,
+      select r.payout_id, r.reply_id, g.source, g.purchase_id, g.redemption_id, g.withdrawable_at, g.funding_purchase_id, g.invite_funded, g.converted_paid,
         sum(case when f.delta < 0 then (a->>'amount')::bigint else -(a->>'amount')::bigint end) as amount
       from replies r
       join credit_entry f on f.ref_id = r.request_id and f.reason = 'query_fee_paid' and f.user_id = r.asker_id and f.ree_id = r.ree_id
       cross join lateral jsonb_array_elements(f.allocations) a
       join credit_grant g on g.id = (a->>'grantId')::uuid
-      group by 1, 2, 3, 4, 5, 6, 7, 8
+      group by 1, 2, 3, 4, 5, 6, 7, 8, 9
     ), classified as (
       select s.payout_id, s.reply_id, s.amount,
         case
           when s.source = 'welcome' then 'welcome'
           when s.source = 'earned' then case when s.withdrawable_at is null then 'earnedFree' when s.invite_funded then 'invite' else 'paid' end
+          /* A Pack converted from paid-for earnings (docs/design/earned-credits.md) keeps their mark. */
+          when s.converted_paid then case when s.invite_funded then 'invite' else 'paid' end
           when s.redemption_id is not null then 'redeemed'
           when s.purchase_id is not null then 'paid'
           else 'console'
         end as kind,
         coalesce(pp.status <> 'paid' or pp.reversed_credits > 0, false) as refunded
       from spend s
-      left join purchase pp on pp.id = case when s.source = 'earned' then s.funding_purchase_id else s.purchase_id end
+      left join purchase pp on pp.id = case when s.source = 'earned' or s.converted_paid then s.funding_purchase_id else s.purchase_id end
     ), fees as (
       select payout_id, reply_id, sum(amount) as fee from classified group by 1, 2
     ), payers as (

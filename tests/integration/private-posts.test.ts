@@ -117,11 +117,12 @@ describeWithDb('private posts (私密提问)', () => {
     expect(await privatePosts.publishPrivatePost(author, { question, reeIds, fees, lang: 'en', clientToken })).toEqual({ ok: true, id, duplicate: true });
     expect(await postRow(id)).toMatchObject({ visibility: 'private', status: 'published', source: 'post', answerState: 'answering' });
 
-    const paidOwnerBefore = await balanceOf(db(), paid.ownerId);
+    /* The owner's income is earned credits: apart from the spendable balance. */
+    const paidOwnerBefore = (await (await import('@/lib/services/earned')).earnedBalance(db(), paid.ownerId)).total;
     await privatePosts.processPrivatePost(id, { answerOne: answers((reeId) => (reeId === own.reeId ? null : `Private answer from ${reeId}.`)) });
     /* The own Ree found nothing: its base fee came back. */
     expect(await balanceOf(db(), author)).toBe(start - 2 * BASE - 30);
-    expect(await balanceOf(db(), paid.ownerId)).toBe(paidOwnerBefore + 30);
+    expect((await (await import('@/lib/services/earned')).earnedBalance(db(), paid.ownerId)).total).toBe(paidOwnerBefore + 30);
     expect(await postRow(id)).toMatchObject({ answerState: 'done', answerCount: 2 });
 
     const view = (await posts.getPost(id, author))!;

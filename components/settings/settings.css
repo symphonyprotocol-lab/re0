@@ -989,6 +989,89 @@
 .settings-page .billing-bucket.earned .billing-bucket-number {
   color: #fff;
 }
+.settings-page .billing-earned-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  margin: 0 0 8px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #9aa9d1;
+}
+.settings-page .billing-earned-rows dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: #e6ebfa;
+  text-align: right;
+}
+.settings-page .billing-bucket.earned .earned-convert {
+  margin-top: 10px;
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+  background: #fff;
+  color: var(--color-ink);
+}
+.settings-page .billing-bucket.earned .earned-convert:disabled {
+  opacity: 0.5;
+}
+.earned-convert-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.earned-convert-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.earned-convert-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid #dfe6f2;
+  border-radius: 8px;
+  background: #fff;
+}
+.earned-convert-input input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 0;
+  border: 0;
+  outline: none;
+  font: 14px var(--font-mono);
+  background: transparent;
+}
+.earned-convert-input:focus-within {
+  border-color: var(--color-blue);
+}
+.earned-convert-calc {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f5f8fd;
+  font-size: 12px;
+}
+.earned-convert-calc dt {
+  color: #6b7790;
+}
+.earned-convert-calc dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  text-align: right;
+}
+.earned-convert-calc dd.strong {
+  font-weight: 600;
+  color: var(--color-blue);
+}
+.earned-convert-error {
+  color: var(--color-red, #c23b3b);
+}
 @media (max-width: 760px) {
   .settings-page .billing-total-main {
     padding: 18px 20px 16px;

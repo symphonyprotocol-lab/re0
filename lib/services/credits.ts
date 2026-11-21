@@ -7,12 +7,13 @@
  */
 import { and, asc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
 import type { CreditEntryReason } from '@/db/schema';
-import { EARNED_MATURITY_DAYS, PAYING_GRANT_SOURCES, type GrantSource } from '@/lib/constants';
+import { EARNED_MATURITY_DAYS, PAYING_GRANT_SOURCES, SPENDABLE_SOURCES, type GrantSource } from '@/lib/constants';
 import { offsetDebts } from '@/lib/domain/billing';
 import {
   allocate,
   availableOf,
   chargedFrom,
+  isDeductible,
   isWithdrawable,
   releaseFrom,
   settlement,
@@ -26,7 +27,7 @@ import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 export { InsufficientCredits } from '@/lib/domain/credits';
 
 /* `chat` holds (the conversations' questions): nothing places one since migration 0070; `releaseLegacyChatHolds` gives back any the release left open. */
-type HoldKind = 'knowledge' | 'video' | 'payout' | 'post';
+type HoldKind = 'knowledge' | 'video' | 'payout' | 'post' | 'deduction';
 
 /**
  * The reasons each hold kind writes when it is taken, settled and released.
@@ -35,7 +36,7 @@ type HoldKind = 'knowledge' | 'video' | 'payout' | 'post';
  * first wrote it), so the ledger shows the two as `query_base` and
  * `query_fee_paid` (2.3).
  */
-const REASONS: Record<'knowledge' | 'chat' | 'chat_fee' | 'chat_verify' | 'chat_synthesis' | 'payout' | 'post' | 'post_summary' | 'post_answer' | 'ai_answer' | VideoLedger, { hold: CreditEntryReason; settle: CreditEntryReason; release: CreditEntryReason }> = {
+const REASONS: Record<'knowledge' | 'chat' | 'chat_fee' | 'chat_verify' | 'chat_synthesis' | 'payout' | 'deduction' | 'post' | 'post_summary' | 'post_answer' | 'ai_answer' | VideoLedger, { hold: CreditEntryReason; settle: CreditEntryReason; release: CreditEntryReason }> = {
   /* The conversations' own holds: only ever released now, by `releaseLegacyChatHolds`. */
   chat: { hold: 'query_hold', settle: 'query_base', release: 'query_refund' },
   chat_verify: { hold: 'verify_hold', settle: 'verify_settle', release: 'verify_refund' },
@@ -52,6 +53,8 @@ const REASONS: Record<'knowledge' | 'chat' | 'chat_fee' | 'chat_verify' | 'chat_
   knowledge: { hold: 'knowledge_hold', settle: 'knowledge_settle', release: 'knowledge_refund' },
   /* Step 6: a payout request holds earned credits; payment settles the whole hold, rejection or failure releases it. */
   payout: { hold: 'payout_hold', settle: 'payout_paid', release: 'payout_release' },
+  /* Earned credits paying for a Plan or Pack: held with the checkout, paid when the purchase is credited, released if it never is. */
+  deduction: { hold: 'deduction_hold', settle: 'deduction_paid', release: 'deduction_release' },
   /* Step 7: a `video` hold is a script or an export; both are given back as `video_refund`. */
   video_script: { hold: 'video_script', settle: 'video_script', release: 'video_refund' },
   video_export: { hold: 'video_export', settle: 'video_export', release: 'video_refund' },
@@ -111,9 +114,12 @@ export async function addGrant(
     fundingPurchaseId?: string | null;
     /** Withdrawable earned grants: originates from an invitation reward (the payout funding review shows it as such). */
     inviteFunded?: boolean;
+    /** Pack grants converted from withdrawable earned credits: they count as paid (`paidShare`), keeping `fundingPurchaseId` and `inviteFunded`. */
+    convertedPaid?: boolean;
   },
   now = new Date(),
 ): Promise<{ grantId: string; offset: number }> {
+  const converted = input.source === 'pack' && input.convertedPaid === true;
   const [grant] = await tx
     .insert(schema.creditGrant)
     .values({
@@ -127,8 +133,9 @@ export async function addGrant(
       redemptionId: input.redemptionId ?? null,
       redemptionPeriod: input.redemptionId ? (input.redemptionPeriod ?? 0) : null,
       withdrawableAt: input.source === 'earned' ? (input.withdrawableAt ?? null) : null,
-      fundingPurchaseId: input.source === 'earned' ? (input.fundingPurchaseId ?? null) : null,
-      inviteFunded: input.source === 'earned' && Boolean(input.withdrawableAt) && input.inviteFunded === true,
+      fundingPurchaseId: input.source === 'earned' || converted ? (input.fundingPurchaseId ?? null) : null,
+      inviteFunded: ((input.source === 'earned' && Boolean(input.withdrawableAt)) || converted) && input.inviteFunded === true,
+      convertedPaid: converted,
       createdAt: now,
     })
     .returning({ id: schema.creditGrant.id });
@@ -339,10 +346,12 @@ export interface HoldInput {
   note?: string | null;
   /** `chat_fee`: the query-fee part of an answer, written as `query_fee_paid`; `post_summary` / `post_answer`: a post's summary or paid answer; a video hold's script or export. */
   ledger?: SubLedger;
-  /** Only these grants may pay (a payout draws on earned credits alone, 2.3). */
+  /** Only these grants may pay (a payout draws on earned credits alone, 2.3); by default the spendable ones, never earned. */
   sources?: readonly GrantSource[];
   /** Only withdrawable earned grants may pay: paid for and matured (a payout, review H2). */
   withdrawableOnly?: boolean;
+  /** Only earned grants paid for by askers, matured or not, may pay (a Plan or Pack deduction). */
+  deductibleOnly?: boolean;
 }
 
 /**
@@ -351,10 +360,11 @@ export interface HoldInput {
  * nothing is overdrawn.
  */
 export async function placeHold(tx: Tx, input: HoldInput, now = new Date()): Promise<string> {
+  const sources = input.sources ?? SPENDABLE_SOURCES;
   const grants = (await grantsOf(tx, input.userId, true)).filter(
-    (grant) => (!input.sources || input.sources.includes(grant.source)) && (!input.withdrawableOnly || isWithdrawable(grant, now)),
+    (grant) => (!input.withdrawableOnly || isWithdrawable(grant, now)) && (!input.deductibleOnly || isDeductible(grant)),
   );
-  const allocations = allocate(grants, input.amount, now);
+  const allocations = allocate(grants, input.amount, now, sources);
   await moveGrants(tx, allocations, -1);
   const [hold] = await tx
     .insert(schema.creditHold)
@@ -567,12 +577,13 @@ export async function paidShare(
       withdrawableAt: schema.creditGrant.withdrawableAt,
       fundingPurchaseId: schema.creditGrant.fundingPurchaseId,
       inviteFunded: schema.creditGrant.inviteFunded,
+      convertedPaid: schema.creditGrant.convertedPaid,
     })
     .from(schema.creditGrant)
     .where(inArray(schema.creditGrant.id, ids));
   const inviteFunded = new Set(rows.filter((row) => row.inviteFunded && grantIsPaid(row)).map((row) => row.id));
   /* The purchase each paying grant traces back to: its own for a Plan or Pack, the one that funded it for earned credits. */
-  const funding = new Map(rows.filter(grantIsPaid).map((row) => [row.id, row.source === 'earned' ? row.fundingPurchaseId : row.purchaseId]));
+  const funding = new Map(rows.filter(grantIsPaid).map((row) => [row.id, row.source === 'earned' || row.convertedPaid ? row.fundingPurchaseId : row.purchaseId]));
   let paid = 0;
   let free = 0;
   let invite = 0;
@@ -615,9 +626,9 @@ export async function creditQueryFee(
   if (share.free > 0) await credit(share.free, null, `${input.reeName} · free credits, not withdrawable`, null);
 }
 
-function grantIsPaid(grant: { source: GrantSource; purchaseId: string | null; withdrawableAt: Date | null }): boolean {
+function grantIsPaid(grant: { source: GrantSource; purchaseId: string | null; withdrawableAt: Date | null; convertedPaid?: boolean }): boolean {
   if (!(PAYING_GRANT_SOURCES as readonly GrantSource[]).includes(grant.source)) return false;
-  return grant.source === 'earned' ? grant.withdrawableAt !== null : grant.purchaseId !== null;
+  return grant.source === 'earned' ? grant.withdrawableAt !== null : grant.purchaseId !== null || grant.convertedPaid === true;
 }
 
 /** The open hold for a reference (a knowledge row being processed), if any. */

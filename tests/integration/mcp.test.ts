@@ -214,7 +214,8 @@ describeWithDb('MCP server: tools', () => {
     const asker = await person();
     const { key, secret } = await apiKeys.createApiKey(asker, { name: 'k' });
     const before = await balanceOf(db(), asker);
-    const ownerBefore = await balanceOf(db(), owner);
+    /* The owner's income is earned credits: apart from the spendable balance. */
+    const ownerBefore = (await (await import('@/lib/services/earned')).earnedBalance(db(), owner)).total;
     const client = await connect(secret);
 
     const steps: string[] = [];
@@ -225,7 +226,7 @@ describeWithDb('MCP server: tools', () => {
     expect((first.structuredContent!.citations as { index: number; excerpt: string }[])[0]).toMatchObject({ index: 1 });
     expect(steps.length).toBeGreaterThan(0);
     expect(await balanceOf(db(), asker)).toBe(before - 50);
-    expect(await balanceOf(db(), owner)).toBe(ownerBefore + 30);
+    expect((await (await import('@/lib/services/earned')).earnedBalance(db(), owner)).total).toBe(ownerBefore + 30);
 
     /* The question is the caller's private post (source api), tagged with the key; its id is the conversation's. */
     const conversationId = first.structuredContent!.conversation_id as string;

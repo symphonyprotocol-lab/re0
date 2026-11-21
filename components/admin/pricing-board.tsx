@@ -7,13 +7,15 @@ import { fill, formatNumber, formatUsd } from '@/i18n/format';
 import './pricing-board.css';
 import type { PricingView, PriceView, CreditAmountView } from '@/lib/domain/pricing';
 import type { InfraCostRatesView } from '@/lib/domain/infra-cost';
+import type { EarnedSettingsView } from '@/lib/services/earned';
 
 // datetime-local uses the explicitly labelled business timezone, regardless of the browser timezone.
 const localTime = (iso: string) => new Date(Date.parse(iso) + 8 * 3600_000).toISOString().slice(0, 16);
 const utcTime = (value: string) => (value ? new Date(`${value}:00+08:00`).toISOString() : '');
 
-export function PricingBoard({ initial, configured, welcome, videoScript, videoExport, infraCosts }: {
+export function PricingBoard({ initial, configured, welcome, videoScript, videoExport, infraCosts, earned }: {
   initial: PricingView;
+  earned: EarnedSettingsView;
   configured: boolean;
   welcome: CreditAmountView;
   videoScript: CreditAmountView;
@@ -34,6 +36,7 @@ export function PricingBoard({ initial, configured, welcome, videoScript, videoE
       <CreditAmountForm kind="video_script" initial={videoScript} />
       <CreditAmountForm kind="video_export" initial={videoExport} />
       <InfraCostForm initial={infraCosts} />
+      <EarnedForm initial={earned} />
       <div className="pricing-admin-grid">
         {(['plan', 'pack'] as const).map((kind) => (
           <PriceForm key={kind} kind={kind} initial={initial[kind]} configured={configured} />
@@ -306,6 +309,104 @@ function InfraCostForm({ initial }: { initial: InfraCostRatesView }) {
           <label className="grid gap-2" key={field.key}>
             {labels.fields[field.key]}
             <input
+              className="input"
+              type="number"
+              inputMode="decimal"
+              required
+              min={field.min}
+              step={field.step}
+              value={values[field.key]}
+              onChange={(e) => setValues({ ...values, [field.key]: e.target.value })}
+            />
+          </label>
+        ))}
+        <button className="btn" type="submit">
+          {busy ? p.saving : labels.save}
+        </button>
+      </fieldset>
+      {message && <p role="status">{message}</p>}
+    </form>
+  );
+}
+
+/** Earned conversion and deductions (docs/design/earned-credits.md): `/api/admin/earned-settings`, against the revision loaded. */
+function EarnedForm({ initial }: { initial: EarnedSettingsView }) {
+  const { t } = useI18n();
+  const p = t.pricingAdmin;
+  const labels = p.earned;
+  const [saved, setSaved] = useState(initial);
+  const [convertEnabled, setConvertEnabled] = useState(initial.convertEnabled);
+  const [deductEnabled, setDeductEnabled] = useState(initial.deductEnabled);
+  const [values, setValues] = useState({
+    convertRate: String(initial.convertRateBp / 10_000),
+    convertMin: String(initial.convertMinCredits),
+    deductPerCent: String(initial.deductCreditsPerCent),
+    deductMax: String(initial.deductMaxPercent),
+    deductMinCharge: String(initial.deductMinChargeMinor),
+  });
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const whole = (value: string) => (/^\d+$/.test(value.trim()) ? Number(value.trim()) : null);
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage('');
+    try {
+      const rate = Number(values.convertRate.trim());
+      const response = await fetch('/api/admin/earned-settings', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          revision: saved.revision,
+          convertEnabled,
+          deductEnabled,
+          convertRateBp: Number.isFinite(rate) ? Math.round(rate * 10_000) : null,
+          convertMinCredits: whole(values.convertMin),
+          deductCreditsPerCent: whole(values.deductPerCent),
+          deductMaxPercent: whole(values.deductMax),
+          deductMinChargeMinor: whole(values.deductMinCharge),
+        }),
+      });
+      const result = (await response.json()) as { settings?: EarnedSettingsView; error?: keyof typeof p.errors };
+      if (!response.ok || !result.settings) {
+        setMessage((result.error && p.errors[result.error]) || t.common.errors.generic);
+        return;
+      }
+      setSaved(result.settings);
+      setMessage(labels.saved);
+    } catch {
+      setMessage(t.common.errors.network);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const fields = [
+    { key: 'convertRate', label: labels.convertRate, step: '0.0001', min: '0.0001' },
+    { key: 'convertMin', label: labels.convertMin, step: '1', min: '1' },
+    { key: 'deductPerCent', label: labels.deductPerCent, step: '1', min: '1' },
+    { key: 'deductMax', label: labels.deductMax, step: '1', min: '1' },
+    { key: 'deductMinCharge', label: labels.deductMinCharge, step: '1', min: '1' },
+  ] as const;
+  return (
+    <form className="card pricing-admin-card pricing-credit-card" onSubmit={save}>
+      <div>
+        <h2>{labels.title}</h2>
+        <p className="muted">{labels.note}</p>
+      </div>
+      <fieldset disabled={busy} className="grid gap-4">
+        <label className="flex items-center gap-2">
+          <input id="earned-convert-enabled" type="checkbox" checked={convertEnabled} onChange={(e) => setConvertEnabled(e.target.checked)} />
+          {labels.convertEnabled}
+        </label>
+        <label className="flex items-center gap-2">
+          <input id="earned-deduct-enabled" type="checkbox" checked={deductEnabled} onChange={(e) => setDeductEnabled(e.target.checked)} />
+          {labels.deductEnabled}
+        </label>
+        {fields.map((field) => (
+          <label className="grid gap-2" key={field.key}>
+            {field.label}
+            <input
+              id={`earned-${field.key}`}
               className="input"
               type="number"
               inputMode="decimal"

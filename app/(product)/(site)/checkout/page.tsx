@@ -10,6 +10,7 @@ import { UNLISTED_ROBOTS } from '@/lib/seo';
 import { db } from '@/lib/infra/db';
 import { paddleConfig } from '@/lib/infra/paddle';
 import { hasActivePlan } from '@/lib/services/billing';
+import { earnedBalance, earnedSettings } from '@/lib/services/earned';
 import { serverMessages } from '@/i18n/server';
 import { Icon } from '@/components/ui/icons';
 import { UserAvatar } from '@/components/ui/ree-avatar';
@@ -47,6 +48,11 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
   }
   const c = t.site.checkout;
   const planActive = user ? await hasActivePlan(db(), user.id) : false;
+  /* Earned credits that may pay for this order (paid for by askers), and the console's rules for it; none for a reopened payment link. */
+  const [balance, rules] = user && !pending ? await Promise.all([earnedBalance(db(), user.id), earnedSettings()]) : [null, null];
+  const earned = balance && rules && rules.deductEnabled
+    ? { deductible: balance.deductible, creditsPerCent: rules.deductCreditsPerCent, maxPercent: rules.deductMaxPercent, minChargeMinor: rules.deductMinChargeMinor }
+    : null;
   const config = paddleConfig();
   return (
     <ContentPage title={c.title} heading={false}>
@@ -101,6 +107,7 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
           planActive={planActive}
           paddle={config ? { clientToken: config.clientToken, environment: config.environment } : null}
           pendingTransaction={pending}
+          earned={earned}
         />
       </div>
       </div>

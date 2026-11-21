@@ -2,7 +2,7 @@
  * Acceptance (8.4 step 3), against the database with Paddle's notifications
  * replayed as signed bodies: a Plan payment credits 50,000 credits for its
  * period; a Pack needs an active Plan and 3 Packs credit 300,000 that never
- * expire; credits are spent Plan → welcome → Pack → earned and every ledger
+ * expire; credits are spent Plan → welcome → Pack (never earned) and every ledger
  * row names its grants; turning renewal off keeps the period, which then
  * expires while Packs stay; a refund takes credits back without a negative
  * balance, recording a debt the next credits pay off; webhooks are applied
@@ -248,22 +248,25 @@ describeWithDb('Plan and Pack purchases', () => {
     expect(await balanceOf(db(), userId, new Date('2028-01-01T00:00:00Z'))).toBe(WELCOME_CREDITS + 300_000);
   });
 
-  it('spends Plan, then welcome, then Pack, then earned; refunds walk back', async () => {
+  it('spends Plan, then welcome, then Pack, never earned; refunds walk back', async () => {
     const userId = await newUser();
     await subscribe(userId);
     await applyPaddleEvent(transactionEvent(userId, { kind: 'pack', quantity: 1 }), PRICES, during);
     await db().transaction((tx) => addGrant(tx, { userId, source: 'earned', amount: 5_000, reason: 'admin_adjust', refId: randomUUID() }, during));
+    /* Earned credits are not spendable (docs/design/earned-credits.md): one credit more than the rest is refused. */
+    await expect(
+      db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount: 50_000 + WELCOME_CREDITS + 100_000 + 1, refId: randomUUID() }, during)),
+    ).rejects.toThrow('available');
     const holdId = await db().transaction((tx) =>
-      placeHold(tx, { userId, kind: 'knowledge', amount: 50_000 + WELCOME_CREDITS + 100_000 + 1_000, refId: randomUUID() }, during),
+      placeHold(tx, { userId, kind: 'knowledge', amount: 50_000 + WELCOME_CREDITS + 100_000, refId: randomUUID() }, during),
     );
     const [hold] = await db().select().from(schema.creditHold).where(eq(schema.creditHold.id, holdId));
     expect(hold!.allocations.map((allocation) => [allocation.source, allocation.amount])).toEqual([
       ['plan', 50_000],
       ['welcome', WELCOME_CREDITS],
       ['pack', 100_000],
-      ['earned', 1_000],
     ]);
-    expect(await balanceOf(db(), userId, during)).toBe(4_000);
+    expect(await balanceOf(db(), userId, during)).toBe(0);
     await db().transaction((tx) => releaseHold(tx, holdId, {}, during));
     const byKind = Object.fromEntries((await grantsOf(userId)).map((grant) => [grant.source, grant.remaining]));
     expect(byKind).toEqual({ welcome: WELCOME_CREDITS, plan: 50_000, pack: 100_000, earned: 5_000 });

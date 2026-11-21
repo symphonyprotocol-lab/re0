@@ -76,7 +76,7 @@ export default async function PurchaseDetailPage({ params, searchParams }: Props
         <DetailSection title={d.record}>
           <Fields
             items={[
-              [d.transaction, mono(purchase.paddleTransactionId)],
+              [d.transaction, purchase.paddleTransactionId ? mono(purchase.paddleTransactionId) : '—'],
               [d.status, <Tag key="status" tone={purchase.status === 'paid' ? 'green' : purchase.status === 'refunded' ? 'grey' : 'red'}>{p.status[purchase.status]}</Tag>],
               [d.created, time(purchase.createdAt)],
               [d.user, <Person key="user" name={data.name} email={data.email} href={`/admin/users/${purchase.userId}?tab=purchases&from=${encodeURIComponent(self)}`} />],
