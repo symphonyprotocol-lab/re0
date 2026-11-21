@@ -1,14 +1,16 @@
 /**
  * The user-route limits as the console sets them: `USER_RATE_LIMITS` are the
  * defaults, a `rate_limit_setting` row replaces one name's per-minute and
- * per-hour values, and accounts in `rate_limit_exemption` pass every limit
- * (official batch work such as QA runs and cover uploads). The limiter reads
- * both through a short in-process cache, so a change reaches every instance
- * within `RATE_LIMIT_SETTINGS_TTL_MS`; the instance that saved it sees it at
- * once. Every change is audited.
+ * per-hour values, and an account in `rate_limit_exemption` passes the
+ * limits its row names (official batch work such as QA runs and cover
+ * uploads), and only those. The limiter reads both through a short
+ * in-process cache, so a change reaches every instance within
+ * `RATE_LIMIT_SETTINGS_TTL_MS`; the instance that saved it sees it at once.
+ * If the tables cannot be read the limiter keeps the code defaults, with no
+ * exemptions, and tries again shortly. Every change is audited.
  */
 import { asc, eq, sql } from 'drizzle-orm';
-import { USER_RATE_LIMITS } from '@/lib/constants';
+import { RATE_LIMIT_EXEMPT_DEFAULT, USER_RATE_LIMITS } from '@/lib/constants';
 import { isUuid } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
@@ -16,9 +18,14 @@ import { AdminInputError, audit } from '@/lib/services/admin';
 export type RateLimitName = keyof typeof USER_RATE_LIMITS;
 export const RATE_LIMIT_NAMES = Object.keys(USER_RATE_LIMITS) as RateLimitName[];
 export const RATE_LIMIT_SETTINGS_TTL_MS = 30_000;
+/** After a failed read, the defaults are kept this long before the tables are tried again. */
+export const RATE_LIMIT_SETTINGS_RETRY_MS = 5_000;
+export const DEFAULT_EXEMPT_LIMITS: readonly RateLimitName[] = RATE_LIMIT_EXEMPT_DEFAULT;
 /** Bounds of one window's value, as the table's checks hold them. */
 export const RATE_LIMIT_VALUE_BOUNDS = { min: 1, max: 1_000_000 } as const;
 const NOTE_MAX = 200;
+const MINUTE = 60;
+const HOUR = 3_600;
 
 export interface RateRuleValue {
   windowSeconds: number;
@@ -27,9 +34,13 @@ export interface RateRuleValue {
 
 export interface RateLimitRow {
   name: RateLimitName;
-  perMinute: number;
-  perHour: number;
-  defaults: { perMinute: number; perHour: number };
+  /** The code default's windows, as `rateLimited` counts them without a stored row. */
+  defaultRules: RateRuleValue[];
+  /** Only a limit whose default is exactly one minute and one hour window can be changed here. */
+  editable: boolean;
+  /** Current values; `null` when not editable. */
+  perMinute: number | null;
+  perHour: number | null;
   overridden: boolean;
   updatedAt: string | null;
 }
@@ -38,27 +49,41 @@ export interface RateLimitExemptionRow {
   userId: string;
   name: string;
   email: string;
+  limits: RateLimitName[];
   note: string | null;
   createdAt: string;
 }
 
-function defaultsOf(name: RateLimitName): { perMinute: number; perHour: number } {
-  const rules = USER_RATE_LIMITS[name] as readonly RateRuleValue[];
-  return {
-    perMinute: rules.find((rule) => rule.windowSeconds === 60)?.limit ?? 0,
-    perHour: rules.find((rule) => rule.windowSeconds === 3_600)?.limit ?? 0,
-  };
+function defaultRulesOf(name: RateLimitName): RateRuleValue[] {
+  return (USER_RATE_LIMITS[name] as readonly RateRuleValue[]).map((rule) => ({ windowSeconds: rule.windowSeconds, limit: rule.limit }));
+}
+
+/** The default's minute and hour values, or `null` unless its windows are exactly those two. */
+function editableDefaults(name: RateLimitName): { perMinute: number; perHour: number } | null {
+  const rules = defaultRulesOf(name);
+  const windows = rules.map((rule) => rule.windowSeconds).sort((a, b) => a - b);
+  if (windows.length !== 2 || windows[0] !== MINUTE || windows[1] !== HOUR) return null;
+  return { perMinute: rules.find((rule) => rule.windowSeconds === MINUTE)!.limit, perHour: rules.find((rule) => rule.windowSeconds === HOUR)!.limit };
+}
+
+/** The default's own windows, in its order, with the stored values put in. */
+function overriddenRules(name: RateLimitName, perMinute: number, perHour: number): RateRuleValue[] {
+  return defaultRulesOf(name).map((rule) => ({ windowSeconds: rule.windowSeconds, limit: rule.windowSeconds === MINUTE ? perMinute : perHour }));
 }
 
 function isRateLimitName(value: unknown): value is RateLimitName {
   return typeof value === 'string' && Object.hasOwn(USER_RATE_LIMITS, value);
 }
 
+function knownLimits(values: readonly string[]): RateLimitName[] {
+  return RATE_LIMIT_NAMES.filter((name) => values.includes(name));
+}
+
 /* ------------------------------------------------------------ the hot path */
 
 interface Snapshot {
   rules: Map<RateLimitName, readonly RateRuleValue[]>;
-  exempt: Set<string>;
+  exempt: Map<string, ReadonlySet<RateLimitName>>;
   expiresAt: number;
 }
 
@@ -68,19 +93,22 @@ let loading: Promise<Snapshot> | null = null;
 let generation = 0;
 
 async function load(): Promise<Snapshot> {
-  const [settings, exemptions] = await Promise.all([
-    db().select().from(schema.rateLimitSetting),
-    db().select({ userId: schema.rateLimitExemption.userId }).from(schema.rateLimitExemption),
-  ]);
-  const rules = new Map<RateLimitName, readonly RateRuleValue[]>();
-  for (const row of settings) {
-    if (!isRateLimitName(row.name)) continue;
-    rules.set(row.name, [
-      { windowSeconds: 60, limit: row.perMinute },
-      { windowSeconds: 3_600, limit: row.perHour },
+  try {
+    const [settings, exemptions] = await Promise.all([
+      db().select().from(schema.rateLimitSetting),
+      db().select({ userId: schema.rateLimitExemption.userId, limits: schema.rateLimitExemption.limits }).from(schema.rateLimitExemption),
     ]);
+    const rules = new Map<RateLimitName, readonly RateRuleValue[]>();
+    for (const row of settings) {
+      if (!isRateLimitName(row.name) || !editableDefaults(row.name)) continue;
+      rules.set(row.name, overriddenRules(row.name, row.perMinute, row.perHour));
+    }
+    const exempt = new Map(exemptions.map((row) => [row.userId, new Set(knownLimits(row.limits))] as const));
+    return { rules, exempt, expiresAt: Date.now() + RATE_LIMIT_SETTINGS_TTL_MS };
+  } catch (error) {
+    console.error('rate limit settings unreadable; using the code defaults', error);
+    return { rules: new Map(), exempt: new Map(), expiresAt: Date.now() + RATE_LIMIT_SETTINGS_RETRY_MS };
   }
-  return { rules, exempt: new Set(exemptions.map((row) => row.userId)), expiresAt: Date.now() + RATE_LIMIT_SETTINGS_TTL_MS };
 }
 
 async function snapshot(): Promise<Snapshot> {
@@ -106,10 +134,10 @@ export function forgetRateLimitSettings(): void {
   loading = null;
 }
 
-/** The windows `rateLimited` counts for `name`, or `null` for an exempt account. */
+/** The windows `rateLimited` counts for `name`, or `null` for an account exempt from `name`. */
 export async function effectiveRateRules(name: RateLimitName, userId: string | null): Promise<readonly RateRuleValue[] | null> {
   const current = await snapshot();
-  if (userId && current.exempt.has(userId)) return null;
+  if (userId && current.exempt.get(userId)?.has(name)) return null;
   return current.rules.get(name) ?? USER_RATE_LIMITS[name];
 }
 
@@ -120,13 +148,14 @@ export async function listRateLimits(): Promise<RateLimitRow[]> {
   const rows = await db().select().from(schema.rateLimitSetting);
   const byName = new Map(rows.map((row) => [row.name, row]));
   return RATE_LIMIT_NAMES.map((name) => {
-    const defaults = defaultsOf(name);
-    const row = byName.get(name);
+    const defaults = editableDefaults(name);
+    const row = defaults ? byName.get(name) : undefined;
     return {
       name,
-      perMinute: row?.perMinute ?? defaults.perMinute,
-      perHour: row?.perHour ?? defaults.perHour,
-      defaults,
+      defaultRules: defaultRulesOf(name),
+      editable: Boolean(defaults),
+      perMinute: row?.perMinute ?? defaults?.perMinute ?? null,
+      perHour: row?.perHour ?? defaults?.perHour ?? null,
       overridden: Boolean(row),
       updatedAt: row?.updatedAt.toISOString() ?? null,
     };
@@ -139,13 +168,14 @@ export async function listRateLimitExemptions(): Promise<RateLimitExemptionRow[]
       userId: schema.rateLimitExemption.userId,
       name: schema.user.name,
       email: schema.user.email,
+      limits: schema.rateLimitExemption.limits,
       note: schema.rateLimitExemption.note,
       createdAt: schema.rateLimitExemption.createdAt,
     })
     .from(schema.rateLimitExemption)
     .innerJoin(schema.user, eq(schema.user.id, schema.rateLimitExemption.userId))
     .orderBy(asc(schema.rateLimitExemption.createdAt));
-  return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
+  return rows.map((row) => ({ ...row, limits: knownLimits(row.limits), createdAt: row.createdAt.toISOString() }));
 }
 
 function validValue(value: unknown): value is number {
@@ -155,6 +185,8 @@ function validValue(value: unknown): value is number {
 /** Saves one limit's per-minute and per-hour values (`{ perMinute, perHour }`). */
 export async function saveRateLimit(administratorId: string, name: string, input: Record<string, unknown>): Promise<RateLimitRow> {
   if (!isRateLimitName(name)) throw new AdminInputError('not_found');
+  const defaults = editableDefaults(name);
+  if (!defaults) throw new AdminInputError('not_editable');
   const { perMinute, perHour } = input;
   if (!validValue(perMinute) || !validValue(perHour) || perMinute > perHour) throw new AdminInputError('invalid_rate_limit');
   await db().transaction(async (tx) => {
@@ -167,7 +199,7 @@ export async function saveRateLimit(administratorId: string, name: string, input
       administratorId,
       action: 'rate_limit.update',
       target: name,
-      before: before ? { perMinute: before.perMinute, perHour: before.perHour } : { ...defaultsOf(name), default: true },
+      before: before ? { perMinute: before.perMinute, perHour: before.perHour } : { ...defaults, default: true },
       after: { perMinute, perHour },
     });
   });
@@ -186,17 +218,27 @@ export async function resetRateLimit(administratorId: string, name: string): Pro
       action: 'rate_limit.reset',
       target: name,
       before: { perMinute: before.perMinute, perHour: before.perHour },
-      after: { ...defaultsOf(name), default: true },
+      after: { rules: defaultRulesOf(name), default: true },
     });
   });
   forgetRateLimitSettings();
   return (await listRateLimits()).find((row) => row.name === name)!;
 }
 
-/** Exempts an account (`{ userId }` or `{ email }`, optional `note`). Already exempt is fine. */
+/**
+ * Exempts an account (`{ userId }` or `{ email }`) from the limits in
+ * `limits` (default `DEFAULT_EXEMPT_LIMITS`), with an optional `note`. For
+ * an account already exempt this replaces its limits (and its note, when
+ * one is given).
+ */
 export async function addRateLimitExemption(administratorId: string, input: Record<string, unknown>): Promise<RateLimitExemptionRow> {
-  const note = typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null;
+  const note = typeof input.note === 'string' ? input.note.trim() || null : undefined;
   if (note && note.length > NOTE_MAX) throw new AdminInputError('invalid_note');
+  let limits: RateLimitName[] | undefined;
+  if (input.limits !== undefined) {
+    if (!Array.isArray(input.limits) || input.limits.length === 0 || !input.limits.every(isRateLimitName)) throw new AdminInputError('invalid_limits');
+    limits = knownLimits(input.limits as string[]);
+  }
   let userId: string;
   if (isUuid(input.userId)) {
     const [account] = await db().select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.id, input.userId)).limit(1);
@@ -215,12 +257,16 @@ export async function addRateLimitExemption(administratorId: string, input: Reco
     throw new AdminInputError('user_not_found');
   }
   await db().transaction(async (tx) => {
-    const [added] = await tx
-      .insert(schema.rateLimitExemption)
-      .values({ userId, note, createdBy: administratorId })
-      .onConflictDoNothing()
-      .returning({ userId: schema.rateLimitExemption.userId });
-    if (added) await audit(tx, { administratorId, action: 'rate_limit.exempt.add', target: userId, after: { note } });
+    const [before] = await tx.select().from(schema.rateLimitExemption).where(eq(schema.rateLimitExemption.userId, userId)).for('update');
+    if (!before) {
+      const next = { limits: limits ?? [...DEFAULT_EXEMPT_LIMITS], note: note ?? null };
+      await tx.insert(schema.rateLimitExemption).values({ userId, ...next, createdBy: administratorId });
+      await audit(tx, { administratorId, action: 'rate_limit.exempt.add', target: userId, after: next });
+      return;
+    }
+    const next = { limits: limits ?? knownLimits(before.limits), note: note === undefined ? before.note : note };
+    await tx.update(schema.rateLimitExemption).set(next).where(eq(schema.rateLimitExemption.userId, userId));
+    await audit(tx, { administratorId, action: 'rate_limit.exempt.update', target: userId, before: { limits: before.limits, note: before.note }, after: next });
   });
   forgetRateLimitSettings();
   return (await listRateLimitExemptions()).find((row) => row.userId === userId)!;
@@ -231,7 +277,7 @@ export async function removeRateLimitExemption(administratorId: string, userId: 
   await db().transaction(async (tx) => {
     const [removed] = await tx.delete(schema.rateLimitExemption).where(eq(schema.rateLimitExemption.userId, userId)).returning();
     if (!removed) throw new AdminInputError('not_found');
-    await audit(tx, { administratorId, action: 'rate_limit.exempt.remove', target: userId, before: { note: removed.note } });
+    await audit(tx, { administratorId, action: 'rate_limit.exempt.remove', target: userId, before: { limits: removed.limits, note: removed.note } });
   });
   forgetRateLimitSettings();
 }

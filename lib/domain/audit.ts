@@ -29,6 +29,7 @@ export const AUDIT_ACTIONS = [
   'rate_limit.update',
   'rate_limit.reset',
   'rate_limit.exempt.add',
+  'rate_limit.exempt.update',
   'rate_limit.exempt.remove',
   'user.disable',
   'user.restore',

@@ -1,5 +1,5 @@
 {
-  "id": "9cb3d186-59d5-44a9-9006-98a8996bdf55",
+  "id": "72cbdf19-eb7c-4e6c-a611-d28d8c6cc0e8",
   "prevId": "791d98ed-a5cc-48f5-a642-5508883b9159",
   "version": "7",
   "dialect": "postgresql",
@@ -6741,6 +6741,13 @@
           "primaryKey": true,
           "notNull": true
         },
+        "limits": {
+          "name": "limits",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{uploadToken,browse}'::text[]"
+        },
         "note": {
           "name": "note",
           "type": "text",
@@ -6793,7 +6800,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "rate_limit_exemption_limits_check": {
+          "name": "rate_limit_exemption_limits_check",
+          "value": "cardinality(limits) > 0"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.rate_limit_setting": {

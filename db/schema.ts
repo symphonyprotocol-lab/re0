@@ -1101,13 +1101,18 @@ export const rateLimitSetting = pgTable('rate_limit_setting', {
   check('rate_limit_setting_hour_check', sql`per_hour between 1 and 1000000`),
 ]);
 
-/** Accounts the user-route limiter lets straight through, for every limit (official batch work). */
+/**
+ * Accounts the user-route limiter lets straight through (official batch
+ * work), for the limit names in `limits` only, so an exemption from upload
+ * tokens does not also open the model-cost routes.
+ */
 export const rateLimitExemption = pgTable('rate_limit_exemption', {
   userId: uuid('user_id').primaryKey().references(() => user.id, { onDelete: 'cascade' }),
+  limits: text('limits').array().notNull().default(sql`'{uploadToken,browse}'::text[]`),
   note: text('note'),
   createdBy: uuid('created_by').references(() => administrator.id, { onDelete: 'set null' }),
   createdAt: timestampTz('created_at').notNull().defaultNow(),
-});
+}, () => [check('rate_limit_exemption_limits_check', sql`cardinality(limits) > 0`)]);
 
 /**
  * Beyond 4: anonymous chat with free Rees (query fee 0) on the public and

@@ -1,8 +1,10 @@
 CREATE TABLE "rate_limit_exemption" (
 	"user_id" uuid PRIMARY KEY NOT NULL,
+	"limits" text[] DEFAULT '{uploadToken,browse}'::text[] NOT NULL,
 	"note" text,
 	"created_by" uuid,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "rate_limit_exemption_limits_check" CHECK (cardinality(limits) > 0)
 );
 --> statement-breakpoint
 CREATE TABLE "rate_limit_setting" (
