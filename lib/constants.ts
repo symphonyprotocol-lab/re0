@@ -488,8 +488,15 @@ export const EXPLORE_RESULTS = 10;
 export const EXPLORE_NAME_REES = 5;
 export const EXPLORE_NAME_BOOST = 1;
 export const EXPLORE_TAG_WEIGHT = 0.4;
-/** HNSW candidate list for the profile search; the default 40 would cap the vectors returned. */
-export const EXPLORE_EF_SEARCH = 400;
+/**
+ * HNSW candidate list for the profile search's first batch; its iterative
+ * scan goes on from there. On production's profiles 40 to 400 found the same
+ * 20 Rees as an exact scan, give or take one; every candidate is index pages
+ * to read.
+ */
+export const EXPLORE_EF_SEARCH = 100;
+/** Profile rows the search reads at a time, until enough Rees have turned up (explore.ts `nearestProfiles`). */
+export const EXPLORE_PROFILE_BATCH = 40;
 /**
  * Rees holding at most this many passages in all are searched exactly: the
  * passage index spans every Ree's passages, so a filter keeping a few Rees'
@@ -509,7 +516,8 @@ export const EXPLORE_PASSAGE_SCAN_MAX = 10_000;
  * The fewest rows each index leg reads, however few are wanted (a named
  * Ree's one nearest passage): the iterative scan returns them only roughly
  * in order, so the first row is not always the nearest it would find; the
- * search keeps the nearest by the stored vectors among these.
+ * search keeps the nearest by the stored vectors among these. Through the
+ * binary index each leg reads twice the rows wanted, at least this many.
  */
 export const EXPLORE_PASSAGE_CANDIDATES = 20;
 /** How long a server instance trusts its last look at whether those indexes are valid (they are built after a deploy, concurrently). */

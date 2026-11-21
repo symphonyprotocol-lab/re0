@@ -263,9 +263,15 @@ describeWithDb('P3: re-embedding after a model switch', () => {
   }, 180_000);
 
   /* The switch itself is one row (no slot swap to rewrite a graph); re-embedding into the spare slot adds to Discover's indexes as it goes, when they are built (lib/infra/search-indexes.ts). */
-  it('has no vector index on passages but Discover\'s, one per slot on half-precision copies', async () => {
+  it('has no vector index on passages but Discover\'s, per slot on binary or half-precision copies', async () => {
     const { rows } = await db().execute<{ name: string; def: string }>(sql`select indexname as name, indexdef as def from pg_indexes where tablename = 'chunk' and indexdef ilike '%embedding%' order by indexname`);
-    expect(rows.every((row) => ['chunk_embedding_half_idx', 'chunk_embedding_next_half_idx'].includes(row.name) && /hnsw .*halfvec\(1536\)/.test(row.def))).toBe(true);
+    const discover: Record<string, RegExp> = {
+      chunk_embedding_half_idx: /hnsw .*halfvec\(1536\)/,
+      chunk_embedding_next_half_idx: /hnsw .*halfvec\(1536\)/,
+      chunk_embedding_bit_idx: /hnsw .*binary_quantize.*bit\(1536\)/,
+      chunk_embedding_next_bit_idx: /hnsw .*binary_quantize.*bit\(1536\)/,
+    };
+    expect(rows.every((row) => discover[row.name]?.test(row.def))).toBe(true);
   });
 });
 

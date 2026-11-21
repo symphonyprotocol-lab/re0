@@ -1,6 +1,17 @@
 /**
- * Discover's passage indexes: one HNSW index per vector slot of `chunk`, on
- * half-precision copies (lib/services/explore.ts `nearestPassages`).
+ * Discover's search indexes (lib/services/explore.ts): HNSW indexes on
+ * binary-quantized copies of the vectors -- one per vector slot of `chunk`,
+ * and one on the profiles -- and the older half-precision passage indexes.
+ *
+ * The search reads the binary ones once they are valid, and the
+ * half-precision ones until then. A binary copy is 192 bytes against 3 KB
+ * (half) or 6 KB (full) per vector: on production's million passages the
+ * half-precision index is about 4 GB, more than Neon's local file cache
+ * holds, so a first search read some 800 of its pages from storage (1.3 s);
+ * the binary one is about a tenth of that and stays cached. Its distance is
+ * coarse, so the search reads twice the rows it needs and orders them by
+ * the stored vectors (`nearestPassages`): on production vectors that found
+ * the same 50 passages as an exact scan.
  *
  * They are not built by a migration. A production deploy applies every
  * pending migration in one transaction with a ten-minute statement limit
@@ -16,8 +27,9 @@
  * again; a build that runs out of time is cancelled and its half-built index
  * dropped, so the next run starts clean. A session advisory lock keeps two
  * builds (two deploys, or a deploy and a manual run) from dropping each
- * other's index in progress. Until both indexes are valid, the search uses
- * its exact scan, as before they existed.
+ * other's index in progress. Until both of a pair are valid, the search uses
+ * what it used before they existed: the half-precision pair, else its exact
+ * scan; the profiles, their own full-precision index (a migration's).
  *
  * Plain SQL over one session (`Queryable`): the deploy script, a manual run
  * and the tests share it, and settings and the lock hold across statements.
@@ -27,10 +39,20 @@ export interface Queryable {
   query(text: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
 }
 
+const DIMENSIONS = 1536;
+const binary = (column: string) => `(binary_quantize("${column}")::bit(${DIMENSIONS})) bit_hamming_ops`;
+const half = (column: string) => `(("${column}"::halfvec(${DIMENSIONS})) halfvec_cosine_ops)`;
+
+/** In build order: the binary ones first, which the search prefers (the half-precision pair exists already where it was built before). */
 export const SEARCH_INDEXES = [
-  { name: 'chunk_embedding_half_idx', column: 'embedding' },
-  { name: 'chunk_embedding_next_half_idx', column: 'embedding_next' },
+  { name: 'ree_profile_vector_embedding_bit_idx', table: 'ree_profile_vector', group: 'profile-bit', using: `(${binary('embedding')})` },
+  { name: 'chunk_embedding_bit_idx', table: 'chunk', group: 'passage-bit', using: `(${binary('embedding')})` },
+  { name: 'chunk_embedding_next_bit_idx', table: 'chunk', group: 'passage-bit', using: `(${binary('embedding_next')})` },
+  { name: 'chunk_embedding_half_idx', table: 'chunk', group: 'passage-half', using: half('embedding') },
+  { name: 'chunk_embedding_next_half_idx', table: 'chunk', group: 'passage-half', using: half('embedding_next') },
 ] as const;
+
+export type SearchIndexGroup = (typeof SEARCH_INDEXES)[number]['group'];
 
 export const SEARCH_INDEX_LOCK = 're0:search-indexes';
 
@@ -49,12 +71,10 @@ export interface SearchIndexOptions {
   budgetMs: number;
   /** `maintenance_work_mem` for the build, only ever raised (HNSW builds far faster when the graph fits in it). */
   memory?: string;
-  /** How long to wait for a lock on `chunk` before giving up on an index. */
+  /** How long to wait for a lock on the table before giving up on an index. */
   lockTimeoutMs?: number;
   log?: (line: string) => void;
 }
-
-const DIMENSIONS = 1536;
 
 /** Each index's state: valid (usable by the planner), invalid (left by an interrupted concurrent build, or still being built) or missing. */
 export async function searchIndexStates(db: Queryable): Promise<Map<string, SearchIndexState>> {
@@ -68,8 +88,9 @@ export async function searchIndexStates(db: Queryable): Promise<Map<string, Sear
   return new Map(SEARCH_INDEXES.map((index) => [index.name, found.has(index.name) ? (found.get(index.name) ? 'valid' : 'invalid') : 'missing']));
 }
 
-function createStatement(index: (typeof SEARCH_INDEXES)[number]): string {
-  return `create index concurrently if not exists "${index.name}" on public.chunk using hnsw (("${index.column}"::halfvec(${DIMENSIONS})) halfvec_cosine_ops)`;
+/** The index's CREATE statement; the tests build them without CONCURRENTLY (nothing else runs there). */
+export function createIndexStatement(index: (typeof SEARCH_INDEXES)[number], { concurrently = true } = {}): string {
+  return `create index ${concurrently ? 'concurrently ' : ''}if not exists "${index.name}" on public.${index.table} using hnsw ${index.using}`;
 }
 
 function message(error: unknown): string {
@@ -114,7 +135,7 @@ export async function ensureSearchIndexes(db: Queryable, options: SearchIndexOpt
           await db.query(`drop index concurrently if exists public."${index.name}"`);
         }
         log(`search indexes: building ${index.name} concurrently (up to ${(left / 60_000).toFixed(1)} min)`);
-        await db.query(createStatement(index));
+        await db.query(createIndexStatement(index));
         const ms = Date.now() - started;
         outcomes.push({ name: index.name, action: state === 'invalid' ? 'rebuilt' : 'built', ms });
         log(`search indexes: ${index.name} ready in ${Math.round(ms / 1000)} s`);
