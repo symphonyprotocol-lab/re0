@@ -123,8 +123,13 @@ export async function coverData(cover: Shown): Promise<CoverData> {
   return { lang: cover.lang, question: cover.question, answers: cover.answers, rees, first };
 }
 
-/** Kept for a year at the CDN: one version is one picture. */
-const LONG_CACHE = 'public, max-age=86400, s-maxage=31536000, immutable';
+/**
+ * One version is one picture, but a post or its first answer taken down
+ * keeps its version (review S6): the CDN keeps it a day, then asks again
+ * and gets the site's image; a browser an hour. No `immutable` and no
+ * stale-while-revalidate, so nothing outlives the day.
+ */
+export const COVER_CACHE = 'public, max-age=3600, s-maxage=86400';
 
 /**
  * `/og/p/[id]`: the cover. A private post's is 404 -- the URL must not
@@ -143,6 +148,6 @@ export async function postOpenGraphImage(id: string, version: string | null): Pr
   const fonts = await ogFonts(textOf(<PostCard cover={data} font />));
   if (!fonts) return siteOpenGraphImage('en', { 'Cache-Control': SHORT_CACHE });
   const current = version === postCoverVersion(cover);
-  return new ImageResponse(<PostCard cover={data} font />, { ...OG_SIZE, fonts, headers: { 'Cache-Control': current ? LONG_CACHE : SHORT_CACHE } });
+  return new ImageResponse(<PostCard cover={data} font />, { ...OG_SIZE, fonts, headers: { 'Cache-Control': current ? COVER_CACHE : SHORT_CACHE } });
 }
 
