@@ -164,23 +164,58 @@ describeWithDb('starter tasks: the first post and the first 有帮助', () => {
     expect(await entries(author, 'task_first_post')).toHaveLength(1);
   });
 
-  it('pays a first 有帮助 on someone else\'s post or answer once, not on one\'s own post or one\'s own Ree\'s answer', async () => {
+  it('does not review, publish or pay a public post trashed before its review; restored, it is reviewed and pays', async () => {
+    const author = await user('st-trash', 1_000);
+    const posted = await posts.publishPost(author, { question: `Trashed while pending ${crypto.randomUUID()}`, lang: 'en' });
+    if (!posted.ok) throw new Error(posted.error);
+    expect(await posts.setPostTrashed(author, posted.id, true)).toBe(true);
+    let judged = 0;
+    const judge = async () => {
+      judged += 1;
+      return { publish: true };
+    };
+    expect(await posts.moderatePost(posted.id, judge)).toBe('gone');
+    expect(judged).toBe(0);
+    const [held] = await db().select().from(schema.post).where(eq(schema.post.id, posted.id));
+    expect(held).toMatchObject({ status: 'pending', moderationAttempts: 0 });
+    expect(await entries(author, 'task_first_post')).toHaveLength(0);
+
+    /* Trashed between the claim and the verdict: still not published, and still pending for later. */
+    const racing = async () => {
+      await posts.setPostTrashed(author, posted.id, true);
+      return { publish: true };
+    };
+    expect(await posts.setPostTrashed(author, posted.id, false)).toBe(true);
+    expect(await posts.moderatePost(posted.id, racing)).toBe('gone');
+    expect((await db().select().from(schema.post).where(eq(schema.post.id, posted.id)))[0]).toMatchObject({ status: 'pending' });
+    expect(await entries(author, 'task_first_post')).toHaveLength(0);
+    /* A refusal does not reach it in the trash either. */
+    expect(await posts.moderatePost(posted.id, async () => ({ publish: false }))).toBe('gone');
+
+    expect(await posts.setPostTrashed(author, posted.id, false)).toBe(true);
+    expect(await posts.moderatePost(posted.id, judge)).toBe('published');
+    expect((await entries(author, 'task_first_post')).map((entry) => entry.refId)).toEqual([posted.id]);
+  });
+
+  it('pays a first 有帮助 only on someone else\'s content: not one\'s own post, any answer under it, or one\'s own Ree\'s answer', async () => {
     const one = await publicRee();
     const author = await user('st-voter', 1_000);
     const postId = await answeredPost(author, [one.reeId]);
     const [reply] = await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.postId, postId));
 
-    /* Own post, own Ree's answer: counted as votes, but no reward. */
+    /* Own post, another owner's Ree's answer under one's own post, own Ree's answer: counted as votes, but no reward. */
     expect(await posts.setPostHelpful(author, postId, true)).toMatchObject({ voted: true, taskReward: 0 });
-    expect(await posts.setAnswerHelpful(one.ownerId, reply!.id, true)).toMatchObject({ helpful: 1, voted: true, taskReward: 0 });
+    expect(await posts.setAnswerHelpful(author, reply!.id, true)).toMatchObject({ helpful: 1, voted: true, taskReward: 0 });
+    expect(await posts.setAnswerHelpful(one.ownerId, reply!.id, true)).toMatchObject({ helpful: 2, voted: true, taskReward: 0 });
     expect(await entries(author, 'task_first_helpful')).toHaveLength(0);
     expect(await entries(one.ownerId, 'task_first_helpful')).toHaveLength(0);
 
-    /* Someone else's Ree's answer: paid; taking it back and voting again pays nothing more. */
-    expect(await posts.setAnswerHelpful(author, reply!.id, true)).toMatchObject({ helpful: 2, taskReward: 600 });
-    expect(await posts.setAnswerHelpful(author, reply!.id, false)).toMatchObject({ voted: false, taskReward: 0 });
-    expect(await posts.setAnswerHelpful(author, reply!.id, true)).toMatchObject({ voted: true, taskReward: 0 });
-    expect(await entries(author, 'task_first_helpful')).toHaveLength(1);
+    /* Someone else's Ree's answer under someone else's post: paid; taking it back and voting again pays nothing more. */
+    const reader = await user('st-reader', 0);
+    expect(await posts.setAnswerHelpful(reader, reply!.id, true)).toMatchObject({ helpful: 3, taskReward: 600 });
+    expect(await posts.setAnswerHelpful(reader, reply!.id, false)).toMatchObject({ voted: false, taskReward: 0 });
+    expect(await posts.setAnswerHelpful(reader, reply!.id, true)).toMatchObject({ voted: true, taskReward: 0 });
+    expect(await entries(reader, 'task_first_helpful')).toHaveLength(1);
 
     /* Someone else's post: the Ree owner's first. A vote already cast, sent again, is no new vote and pays nothing. */
     expect(await posts.setPostHelpful(one.ownerId, postId, true)).toMatchObject({ taskReward: 600 });

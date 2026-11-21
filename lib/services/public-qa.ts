@@ -302,7 +302,7 @@ export async function publicQaCounts(reeIds: readonly string[]): Promise<Map<str
 /* ------------------------------------------------------------------ actions */
 
 /** "有帮助", once per signed-in user; answers the new count, or null when the answer is not shown. */
-export async function setHelpful(userId: string, reeId: string, id: string, on: boolean): Promise<{ helpful: number; voted: boolean } | null> {
+export async function setHelpful(userId: string, reeId: string, id: string, on: boolean): Promise<{ helpful: number; voted: boolean; taskReward: number } | null> {
   if (!isUuid(reeId)) return null;
   return setAnswerHelpful(userId, id, on, reeId);
 }
