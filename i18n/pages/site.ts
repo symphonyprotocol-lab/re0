@@ -301,6 +301,7 @@ export const zh = {
       deduction_leaves_too_little: '剩余应付金额太小，请全额抵扣或少抵一些。',
       insufficient_earned: '可抵扣的收入不足，页面已刷新，请重新确认。',
       rate_changed: '收入抵扣比例刚刚调整，页面已刷新，请按新比例重新确认。',
+      request_mismatch: '这个订单已经变了，请刷新页面后重新确认。',
     },
   },
 };
@@ -609,6 +610,7 @@ export const en: Shape<typeof zh> = {
       deduction_leaves_too_little: 'What is left to pay is too small. Pay it all with Earned, or use a little less.',
       insufficient_earned: 'Not enough Earned credits. The page was refreshed; please confirm again.',
       rate_changed: 'The Earned rate just changed. The page was refreshed; please confirm at the new rate.',
+      request_mismatch: 'This order has changed. Refresh the page and confirm it again.',
     },
   },
 };

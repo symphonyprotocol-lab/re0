@@ -43,6 +43,7 @@ import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import {
   cancelAtPeriodEnd,
   cancelCheckoutTransaction,
+  getTransaction,
   createCheckoutTransaction,
   customUserId,
   minorUnits,
@@ -163,12 +164,15 @@ export type CheckoutRefusal =
   | 'plan_redeemed_active'
   | 'price_changed'
   | 'rate_changed'
+  | 'request_mismatch'
   | DeductionRefusal;
 
 export interface CheckoutDeps {
   config?: PaddleConfig;
   create?: typeof createCheckoutTransaction;
   cancel?: typeof cancelCheckoutTransaction;
+  /** Paddle's status of a transaction, read when a cancellation fails. */
+  status?: (config: PaddleConfig, transactionId: string) => Promise<string>;
   now?: Date;
 }
 
@@ -209,8 +213,10 @@ export async function startCheckout(
    * their own, then starts over under the lock: a later Paddle or DB failure
    * can no longer roll back our record of a cancellation Paddle already made.
    */
+  /* Checkouts whose cancellation Paddle refused: they keep their holds, and this checkout goes on without them. */
+  const stuck = new Set<string>();
   for (let attempt = 0; ; attempt += 1) {
-    const result = await checkoutAttempt(userId, input, order, requested, now, deps);
+    const result = await checkoutAttempt(userId, input, order, requested, now, deps, stuck);
     if (result !== 'superseded') return result;
     if (attempt >= 4) throw new Error('checkout kept changing while it was replaced');
   }
@@ -223,6 +229,7 @@ async function checkoutAttempt(
   requested: number,
   now: Date,
   deps: CheckoutDeps,
+  stuck: Set<string>,
 ): Promise<CheckoutStarted | { ok: false; error: CheckoutRefusal } | 'superseded'> {
   return db().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`checkout:${userId}`}))`);
@@ -235,12 +242,19 @@ async function checkoutAttempt(
         .select({ id: schema.purchase.id, kind: schema.purchase.kind, quantity: schema.purchase.quantity, earnedMinor: schema.purchase.earnedMinor })
         .from(schema.purchase)
         .where(and(eq(schema.purchase.userId, userId), eq(schema.purchase.requestId, requestId)));
-      if (made) return { ok: true as const, order: { kind: made.kind, quantity: made.quantity }, purchaseId: made.id, earnedMinor: made.earnedMinor };
+      if (made) {
+        /* The same request id with a different order is a client bug, not a retry: never hand back another order's purchase. */
+        if (made.kind !== order.kind || made.quantity !== order.quantity || made.earnedMinor !== requested) return { ok: false as const, error: 'request_mismatch' as const };
+        return { ok: true as const, order: { kind: made.kind, quantity: made.quantity }, purchaseId: made.id, earnedMinor: made.earnedMinor };
+      }
     }
     if (order.kind === 'pack' && !(await planStateOf(tx, userId, now)).active) return { ok: false as const, error: 'plan_required' as const };
     const config = deps.config ?? requirePaddle();
     const price = await checkoutPrice(tx, config, order.kind, now);
     if (input.quoteKey !== undefined && input.quoteKey !== price.quoteKey) return { ok: false as const, error: 'price_changed' as const };
+    const settings = await earnedSettings(tx);
+    /* The rate the page showed: credits are never taken at one the buyer did not see (review S5), a reused checkout's included (round 2). */
+    if (requested > 0 && input.deductCreditsPerCent !== settings.deductCreditsPerCent) return { ok: false as const, error: 'rate_changed' as const };
     let reuse: string | null = null;
     if (order.kind === 'plan') {
       const live = await tx
@@ -264,7 +278,9 @@ async function checkoutAttempt(
         )
         .orderBy(desc(schema.paddleCheckout.createdAt))
         .limit(1);
-      if (open?.priceKey === price.quoteKey && open.earnedMinor === requested && (await holdIsOpen(tx, open.earnedHoldId))) reuse = open.paddleTransactionId;
+      /* Reused only when it holds what this request would: the same price, cents off and credits for them at today's rate. */
+      const sameDeduction = open?.earnedMinor === requested && open.earnedCredits === (requested > 0 && settings.deductEnabled ? requested * settings.deductCreditsPerCent : 0);
+      if (open?.priceKey === price.quoteKey && sameDeduction && (await holdIsOpen(tx, open.earnedHoldId))) reuse = open.paddleTransactionId;
       else if (open) {
         // Cancel before replacing: a failed cancellation must never start a second subscription.
         await abandonCheckout(tx, config, open, deps.cancel, now);
@@ -273,19 +289,23 @@ async function checkoutAttempt(
     }
     /* Earned credits held by another open checkout are freed for this one. */
     if (requested > 0) {
+      /*
+       * One Paddle refuses to cancel keeps its hold -- it may yet be paid --
+       * and this checkout holds other credits instead: never the same ones
+       * twice, and a stuck checkout never blocks a new one (round 2).
+       */
       const holding = await openEarnedCheckouts(tx, userId);
-      const other = holding.find((row) => row.paddleTransactionId !== reuse);
-      if (other) {
-        await abandonCheckout(tx, config, other, deps.cancel, now);
-        return 'superseded' as const;
+      let freed = false;
+      for (const other of holding) {
+        if (other.paddleTransactionId === reuse || stuck.has(other.paddleTransactionId)) continue;
+        if (await tryAbandon(tx, config, other, deps, now)) freed = true;
+        else stuck.add(other.paddleTransactionId);
       }
+      if (freed) return 'superseded' as const;
     }
     if (reuse) return { ok: true as const, order, transactionId: reuse, earnedMinor: requested };
 
     const priceMinor = price.priceMinor * order.quantity;
-    const settings = await earnedSettings(tx);
-    /* The rate the page showed: credits are never taken at one the buyer did not see (review S5). */
-    if (requested > 0 && input.deductCreditsPerCent !== settings.deductCreditsPerCent) return { ok: false as const, error: 'rate_changed' as const };
     const deductible = requested > 0 ? (await grantsOf(tx, userId, true)).filter((grant) => isDeductible(grant, now)).reduce((sum, grant) => sum + grant.remaining, 0) : 0;
     const planned = planDeduction(requested, priceMinor, deductible, settings);
     if (!planned.ok) return planned;
@@ -396,19 +416,67 @@ async function abandonCheckout(tx: Tx, config: PaddleConfig, checkout: CheckoutR
 }
 
 /**
+ * `abandonCheckout`, unless Paddle will not cancel: then the checkout keeps
+ * its hold (it may still be paid), the failure is recorded for the sweep's
+ * back-off, and Paddle's own status is read -- a transaction Paddle calls
+ * paid or completed that we never credited means its webhook was lost, which
+ * someone has to look at.
+ */
+async function tryAbandon(tx: Tx, config: PaddleConfig, checkout: CheckoutRow, deps: Pick<CheckoutDeps, 'cancel' | 'status'>, now: Date): Promise<boolean> {
+  try {
+    await abandonCheckout(tx, config, checkout, deps.cancel, now);
+    return true;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    let status: string | null = null;
+    try {
+      status = await (deps.status ?? (async (c: PaddleConfig, id: string) => (await getTransaction(c, id)).status))(config, checkout.paddleTransactionId);
+    } catch {
+      /* Paddle is down: the next run reads it again. */
+    }
+    if (status === 'paid' || status === 'completed') {
+      console.error(`ALERT paddle transaction ${checkout.paddleTransactionId} is ${status} but was never credited: its webhook is missing; replay it or credit it by hand. Its ${checkout.earnedCredits} earned credits stay held.`);
+    } else {
+      console.warn(`checkout ${checkout.paddleTransactionId}: Paddle did not cancel it (status ${status ?? 'unknown'}); its earned hold stays`, reason);
+    }
+    await tx
+      .update(schema.paddleCheckout)
+      .set({ releaseAttempts: sql`${schema.paddleCheckout.releaseAttempts} + 1`, releaseTriedAt: now, releaseError: `${status ?? 'unknown'}: ${reason}`.slice(0, 500) })
+      .where(eq(schema.paddleCheckout.paddleTransactionId, checkout.paddleTransactionId));
+    return false;
+  }
+}
+
+/** How long the sweep waits after a checkout's `attempts`-th failed cancellation: 2, 4, 8 ... minutes, at most an hour. */
+export function releaseBackoffMinutes(attempts: number): number {
+  return Math.min(60, 2 ** Math.max(1, attempts));
+}
+
+/**
  * The cron's sweep: checkouts holding earned credits that are still unpaid
  * after `EARNED_CHECKOUT_HOLD_MS` are cancelled in Paddle and their holds
- * released. One whose cancellation fails (Paddle down, or it was paid and the
- * payment is on its way) is left for the next run or the webhook.
+ * released, oldest first. One whose cancellation fails (Paddle down, or it was
+ * paid and the payment is on its way) keeps its hold and is tried again after
+ * a back-off (`releaseBackoffMinutes`), so a few stuck ones never starve the
+ * rest; one Paddle says was paid raises an alert.
  */
-export async function releaseStaleEarnedCheckouts(now = new Date(), deps: { config?: PaddleConfig; cancel?: CheckoutDeps['cancel'] } = {}): Promise<number> {
+export async function releaseStaleEarnedCheckouts(now = new Date(), deps: { config?: PaddleConfig; cancel?: CheckoutDeps['cancel']; status?: CheckoutDeps['status'] } = {}): Promise<number> {
   const config = deps.config ?? paddleConfig();
   if (!config) return 0;
+  const c = schema.paddleCheckout;
   const stale = await db()
-    .select({ checkout: schema.paddleCheckout })
-    .from(schema.paddleCheckout)
-    .innerJoin(schema.creditHold, eq(schema.creditHold.id, schema.paddleCheckout.earnedHoldId))
-    .where(and(isNull(schema.paddleCheckout.supersededAt), eq(schema.creditHold.status, 'held'), lt(schema.paddleCheckout.createdAt, new Date(now.getTime() - EARNED_CHECKOUT_HOLD_MS))))
+    .select({ checkout: c })
+    .from(c)
+    .innerJoin(schema.creditHold, eq(schema.creditHold.id, c.earnedHoldId))
+    .where(
+      and(
+        isNull(c.supersededAt),
+        eq(schema.creditHold.status, 'held'),
+        lt(c.createdAt, new Date(now.getTime() - EARNED_CHECKOUT_HOLD_MS)),
+        sql`(${c.releaseTriedAt} is null or ${c.releaseTriedAt} + make_interval(mins => least(60, power(2, greatest(1, ${c.releaseAttempts}))::int)) <= ${now})`,
+      ),
+    )
+    .orderBy(asc(c.createdAt))
     .limit(100);
   let released = 0;
   for (const { checkout } of stale) {
@@ -417,8 +485,7 @@ export async function releaseStaleEarnedCheckouts(now = new Date(), deps: { conf
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`checkout:${checkout.userId}`}))`);
         const [still] = await tx.select().from(schema.paddleCheckout).where(and(eq(schema.paddleCheckout.paddleTransactionId, checkout.paddleTransactionId), isNull(schema.paddleCheckout.supersededAt)));
         if (!still || !(await holdIsOpen(tx, still.earnedHoldId))) return;
-        await abandonCheckout(tx, config, still, deps.cancel, now);
-        released += 1;
+        if (await tryAbandon(tx, config, still, deps, now)) released += 1;
       });
     } catch (error) {
       console.warn(`checkout ${checkout.paddleTransactionId}: earned hold not released yet`, error instanceof Error ? error.message : error);
@@ -1259,7 +1326,12 @@ export interface BillingSummary {
   total: number;
   buckets: { plan: number; welcome: number; pack: number; earned: number };
   earned: EarnedBalance;
+  /** All open debt: `refundDebt` + `usageDebt`. */
   debt: number;
+  /** Owed for a refund or chargeback (`purchase_id` set): any credits pay it, earned included, and it holds back payouts (review S3). */
+  refundDebt: number;
+  /** Owed for usage (storage, a knowledge run's overrun, a late bill): only spendable credits pay it, and payouts go on. */
+  usageDebt: number;
   plan: PlanUsage;
   /** Official accounts see no user-side query income: no earned card, no 收入 tab or rows. */
   official: boolean;
@@ -1336,13 +1408,22 @@ async function openDebt(userId: string): Promise<number> {
   return Number(row?.remaining ?? 0);
 }
 
+/** Open debt split by kind (review S3): owed for a refund or chargeback (a purchase named), or for usage. */
+export async function debtsOf(executor: Executor, userId: string): Promise<{ refund: number; usage: number }> {
+  const [row] = await executor
+    .select({
+      refund: sql<string>`coalesce(sum(${schema.creditDebt.remaining}) filter (where ${schema.creditDebt.purchaseId} is not null), 0)`,
+      usage: sql<string>`coalesce(sum(${schema.creditDebt.remaining}) filter (where ${schema.creditDebt.purchaseId} is null), 0)`,
+    })
+    .from(schema.creditDebt)
+    .where(and(eq(schema.creditDebt.userId, userId), gt(schema.creditDebt.remaining, 0)));
+  return { refund: Number(row?.refund ?? 0), usage: Number(row?.usage ?? 0) };
+}
+
 export async function billingSummary(userId: string, now = new Date()): Promise<BillingSummary> {
   const [{ grants, subscription, redeemed, planGrants }, debt, official, earned] = await Promise.all([
     billingRows(userId),
-    db()
-      .select({ remaining: sql<number>`coalesce(sum(${schema.creditDebt.remaining}), 0)::bigint` })
-      .from(schema.creditDebt)
-      .where(and(eq(schema.creditDebt.userId, userId), gt(schema.creditDebt.remaining, 0))),
+    debtsOf(db(), userId),
     isOfficial(userId),
     earnedBalance(db(), userId, now),
   ]);
@@ -1352,7 +1433,9 @@ export async function billingSummary(userId: string, now = new Date()): Promise<
     total: buckets.plan + buckets.welcome + buckets.pack,
     buckets,
     earned,
-    debt: Number(debt[0]?.remaining ?? 0),
+    debt: debt.refund + debt.usage,
+    refundDebt: debt.refund,
+    usageDebt: debt.usage,
     plan: await currentPlanUsage(subscription, redeemed, planGrants, now),
     official,
   };

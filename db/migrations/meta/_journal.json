@@ -526,6 +526,13 @@
       "when": 1795274400000,
       "tag": "0076_earned_credits",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1795278000000,
+      "tag": "0077_earned_checkout_release",
+      "breakpoints": true
     }
   ]
 }

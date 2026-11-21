@@ -19,6 +19,10 @@ export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
   const presented = request.headers.get('authorization') ?? '';
   if (!secret || !timingSafeEqual(presented, `Bearer ${secret}`)) return fail('unauthorized', 401);
-  const issued = await issueRedeemedPlanMonths();
-  return json({ ...issued, earnedCheckoutsReleased: await releaseStaleEarnedCheckouts() });
+  /* Each job on its own: one failing never keeps the other from running (review round 2). */
+  const [issued, released] = await Promise.allSettled([issueRedeemedPlanMonths(), releaseStaleEarnedCheckouts()]);
+  if (issued.status === 'rejected') console.error('cron: issueRedeemedPlanMonths failed', issued.reason);
+  if (released.status === 'rejected') console.error('cron: releaseStaleEarnedCheckouts failed', released.reason);
+  const body = { ...(issued.status === 'fulfilled' ? issued.value : {}), earnedCheckoutsReleased: released.status === 'fulfilled' ? released.value : null };
+  return issued.status === 'fulfilled' && released.status === 'fulfilled' ? json(body) : json({ ...body, error: 'partial_failure' }, 500);
 }
