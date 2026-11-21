@@ -16,9 +16,26 @@ import {
 import type { CreditEntryReason } from '@/db/schema';
 import { addMonths } from '@/lib/domain/billing';
 
-/** The new-user tasks that pay, besides registering (whose gift is `signup_reward`). */
-export const TASK_KINDS = ['first_ree', 'first_question', 'first_comment'] as const;
+/**
+ * Every new-user task a `task_reward` row may name, besides registering
+ * (whose gift is `signup_reward`): the current ones (`STARTER_TASKS`) and
+ * the retired ones, which no action pays any more but whose rows and ledger
+ * entries stay as history. v5 retired `first_question` (asking a Ree, now a
+ * post) and `first_comment` (comments under a Ree) for `first_post` and
+ * `first_helpful`.
+ */
+export const TASK_KINDS = ['first_ree', 'first_post', 'first_helpful', 'first_question', 'first_comment'] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
+/** The tasks that pay now and that the Activities page lists. */
+export const STARTER_TASKS = ['first_ree', 'first_post', 'first_helpful'] as const satisfies readonly TaskKind[];
+export type StarterTask = (typeof STARTER_TASKS)[number];
+/**
+ * A retired task that counts as this one done: a first private question was
+ * a first post, so an account paid `first_question` is not paid `first_post`
+ * again, and the page shows it done with what it was paid. `first_comment`
+ * has no successor: marking something helpful is a new action.
+ */
+export const TASK_PREDECESSOR: Partial<Record<StarterTask, TaskKind>> = { first_post: 'first_question' };
 
 /* ------------------------------------------------------------- the code */
 
@@ -55,8 +72,8 @@ export interface RewardSettings {
   withdrawableInvitesPerInviter: number;
   inviteCredits: number;
   firstReeCredits: number;
-  firstQuestionCredits: number;
-  firstCommentCredits: number;
+  firstPostCredits: number;
+  firstHelpfulCredits: number;
   checkInCredits: number;
   checkInMaxDays: number;
   checkInWindowMonths: number;
@@ -64,7 +81,7 @@ export interface RewardSettings {
   revision: string;
 }
 
-export const REWARD_AMOUNT_FIELDS = ['inviteCredits', 'firstReeCredits', 'firstQuestionCredits', 'firstCommentCredits', 'checkInCredits'] as const;
+export const REWARD_AMOUNT_FIELDS = ['inviteCredits', 'firstReeCredits', 'firstPostCredits', 'firstHelpfulCredits', 'checkInCredits'] as const;
 export type RewardAmountField = (typeof REWARD_AMOUNT_FIELDS)[number];
 /** Every number the console edits, with its upper bound (all from 0, except the window from 1). */
 export const REWARD_NUMBER_BOUNDS = {
@@ -72,8 +89,8 @@ export const REWARD_NUMBER_BOUNDS = {
   withdrawableInvitesPerInviter: WITHDRAWABLE_INVITES_PER_INVITER_MAX,
   inviteCredits: REWARD_CREDITS_MAX,
   firstReeCredits: REWARD_CREDITS_MAX,
-  firstQuestionCredits: REWARD_CREDITS_MAX,
-  firstCommentCredits: REWARD_CREDITS_MAX,
+  firstPostCredits: REWARD_CREDITS_MAX,
+  firstHelpfulCredits: REWARD_CREDITS_MAX,
   checkInCredits: REWARD_CREDITS_MAX,
   checkInMaxDays: CHECK_IN_MAX_DAYS_MAX,
   checkInWindowMonths: CHECK_IN_WINDOW_MONTHS_MAX,
@@ -178,30 +195,40 @@ export function checkInState(input: { credits: number; used: number; maxDays: nu
 
 /* ------------------------------------------------------------ the tasks */
 
-export const TASK_SETTING: Record<TaskKind, RewardAmountField> = {
+export const TASK_SETTING: Record<StarterTask, RewardAmountField> = {
   first_ree: 'firstReeCredits',
-  first_question: 'firstQuestionCredits',
-  first_comment: 'firstCommentCredits',
+  first_post: 'firstPostCredits',
+  first_helpful: 'firstHelpfulCredits',
 };
 
+/** Each task's ledger reason, the retired ones included (their entries stay in the history). */
 export const TASK_REASON: Record<TaskKind, CreditEntryReason> = {
   first_ree: 'task_first_ree',
+  first_post: 'task_first_post',
+  first_helpful: 'task_first_helpful',
   first_question: 'task_first_question',
   first_comment: 'task_first_comment',
 };
 
-/** Where the Activities page sends a user for each task. */
-export const TASK_HREF: Record<TaskKind, string> = {
+/** Where the Activities page sends a user for each task: the composer for a post, the feed for something to mark helpful. */
+export const TASK_HREF: Record<StarterTask, string> = {
   first_ree: '/rees/new',
-  first_question: '/explore',
-  first_comment: '/explore',
+  first_post: '/?compose=public',
+  first_helpful: '/',
 };
+
+/** The paid row that settles `task`: its own, or its retired predecessor's. */
+export function paidTask<Row extends { task: string }>(task: StarterTask, paid: readonly Row[]): Row | undefined {
+  const predecessor = TASK_PREDECESSOR[task];
+  return paid.find((row) => row.task === task) ?? (predecessor ? paid.find((row) => row.task === predecessor) : undefined);
+}
 
 /* ------------------------------------------------------- the activities */
 
 /** A starter task still to be done that pays something now. */
-export function openTasks(settings: Pick<RewardSettings, RewardAmountField>, paid: readonly string[]): TaskKind[] {
-  return TASK_KINDS.filter((task) => !paid.includes(task) && settings[TASK_SETTING[task]] > 0);
+export function openTasks(settings: Pick<RewardSettings, RewardAmountField>, paid: readonly string[]): StarterTask[] {
+  const rows = paid.map((task) => ({ task }));
+  return STARTER_TASKS.filter((task) => !paidTask(task, rows) && settings[TASK_SETTING[task]] > 0);
 }
 
 /** What the activities are judged on, read once for an account (`activities`, `activitiesIndicator`). */

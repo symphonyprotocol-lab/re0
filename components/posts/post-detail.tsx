@@ -161,6 +161,8 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
       if (post.answers.some((other) => other.id === entry.id)) setPost((current) => ({ ...current, helpful: Math.max(0, current.helpful + count - entry.helpful) }));
       /* On a private post 有帮助 and 没帮助 exclude each other: the server took the other mark back. */
       replace(entry.id, voted && entry.unvoted ? { helpful: count, voted, unvoted: false, unhelpful: Math.max(0, entry.unhelpful - 1) } : { helpful: count, voted });
+      /* A first 有帮助 paid its starter task: refresh the layout's balance and 活动 dot. */
+      if (Number(body.taskReward) > 0) router.refresh();
     });
   const unhelpful = (entry: PostAnswerView) =>
     call(entry.id, `/api/posts/answers/${entry.id}/unhelpful`, { method: 'POST', body: JSON.stringify({ on: !entry.unvoted }) }, (body) => {

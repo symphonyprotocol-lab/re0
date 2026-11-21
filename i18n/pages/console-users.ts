@@ -39,6 +39,8 @@ export const zh = {
       earnedHint: '仅该部分可提现',
       earnedOfficial: '官方账号 · 不提供提现',
       debt: '待还 credits',
+      refundDebt: '退款 / 拒付待还 · 挡提现',
+      usageDebt: '用量欠款 · 不挡提现',
     },
     actions: { disable: '停用账号', restore: '恢复账号', adjust: '调整 Credits' },
     toggle: {
@@ -235,6 +237,7 @@ export const zh = {
     columns: { user: '用户', typeAmount: '类型 / 金额', transaction: 'Paddle 交易号', credits: 'Credits', statusTime: '状态 / 时间 · UTC+8', action: '操作' },
     subscriptionColumns: { user: '用户', status: '订阅状态', renewal: '自动续费', planRemaining: 'Plan 剩余额度', periodEnd: '当期结束 · UTC+8', created: '创建时间 · UTC+8', action: '操作' },
     quantity: '× {n}',
+    earned: '另用收入 {usd}（{credits} 收入）',
     reversed: '已冲回 {n}',
     unmatched: {
       title: '未匹配的付款 · {n}',
@@ -321,6 +324,8 @@ export const en: Shape<typeof zh> = {
       earnedHint: 'Only these may be withdrawn',
       earnedOfficial: 'Official account · No withdrawals',
       debt: 'Credits owed',
+      refundDebt: 'Owed from refunds / chargebacks · holds back payouts',
+      usageDebt: 'Usage debt · does not hold back payouts',
     },
     actions: { disable: 'Disable account', restore: 'Restore account', adjust: 'Adjust credits' },
     toggle: {
@@ -517,6 +522,7 @@ export const en: Shape<typeof zh> = {
     columns: { user: 'User', typeAmount: 'Type / amount', transaction: 'Paddle transaction', credits: 'Credits', statusTime: 'Status / time · UTC+8', action: 'Action' },
     subscriptionColumns: { user: 'User', status: 'Status', renewal: 'Auto-renewal', planRemaining: 'Plan remaining', periodEnd: 'Period ends · UTC+8', created: 'Created · UTC+8', action: 'Action' },
     quantity: '× {n}',
+    earned: 'plus {usd} paid with Earned ({credits} earned credits)',
     reversed: '{n} reversed',
     unmatched: {
       title: 'Unmatched payments · {n}',

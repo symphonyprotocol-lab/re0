@@ -502,7 +502,8 @@ function Summary({
   lines.push([iu.invited, <span key="invited" className="mono">{formatNumber(invites.invited, locale)} · {formatNumber(invites.credits, locale)} credits</span>]);
   lines.push([iu.code, <span key="code" className="mono">{invites.code ?? iu.noCode}</span>]);
   lines.push([iu.checkIns, <span key="check-ins" className="mono">{formatNumber(invites.checkIns, locale)}</span>]);
-  if (user.debt > 0) lines.push([d.stats.debt, <span key="debt" className="mono">{formatNumber(user.debt, locale)}</span>]);
+  if (user.refundDebt > 0) lines.push([d.stats.refundDebt, <span key="refund-debt" className="mono">{formatNumber(user.refundDebt, locale)}</span>]);
+  if (user.usageDebt > 0) lines.push([d.stats.usageDebt, <span key="usage-debt" className="mono">{formatNumber(user.usageDebt, locale)}</span>]);
   return (
     <div className="user-detail-overview">
       <section className="card settings-card">

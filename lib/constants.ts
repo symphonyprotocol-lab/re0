@@ -27,8 +27,8 @@ export const INVITE_DEFAULTS = {
   withdrawableInvitesPerInviter: 20,
   inviteCredits: 5_000,
   firstReeCredits: 2_500,
-  firstQuestionCredits: 1_000,
-  firstCommentCredits: 1_000,
+  firstPostCredits: 1_000,
+  firstHelpfulCredits: 1_000,
   checkInCredits: 1_500,
   checkInMaxDays: 30,
   checkInWindowMonths: 3,
@@ -48,20 +48,59 @@ export const INVITE_CODE_LENGTH = 8;
 export const INVITEES_SHOWN = 50;
 
 /**
- * The order credits are spent in; refunds walk it backwards (8.2, "扣费顺序").
- * `earned` arrives with step 4's query fees.
+ * Every grant source, in the order a refund's take-back walks them (8.2,
+ * "扣费顺序"). `earned` arrives with step 4's query fees and invitations.
  */
-export const GRANT_SPEND_ORDER = ['plan', 'welcome', 'pack', 'earned'] as const;
-export type GrantSource = (typeof GRANT_SPEND_ORDER)[number];
+export const GRANT_SOURCES = ['plan', 'welcome', 'pack', 'earned'] as const;
+export type GrantSource = (typeof GRANT_SOURCES)[number];
+/**
+ * What using the product spends, in this order (docs/design/earned-credits.md):
+ * earned credits are never spent on their own. They leave only through a
+ * payout, a conversion into Pack credits, or paying for a Plan or Pack.
+ */
+export const SPENDABLE_SOURCES = ['plan', 'welcome', 'pack'] as const satisfies readonly GrantSource[];
+
+/**
+ * What earned credits may do besides a payout, until the console's pricing
+ * page saves its own (`earned_settings`): convert 1:1 into Pack credits, at
+ * least 100 at a time; pay 100 earned credits per US cent (1 credit = USD
+ * 0.0001, the terms' face value) for up to all of a Plan or Pack, leaving
+ * nothing or at least USD 1.00 to pay through Paddle.
+ */
+export const EARNED_DEFAULTS = {
+  convertEnabled: true,
+  convertRateBp: 10_000,
+  convertMinCredits: 100,
+  deductEnabled: true,
+  deductCreditsPerCent: 100,
+  deductMaxPercent: 100,
+  deductMinChargeMinor: 100,
+} as const;
+/** The bounds the console may set them within (the table's checks). */
+export const EARNED_BOUNDS = {
+  convertRateBp: { min: 1, max: 100_000 },
+  convertMinCredits: { min: 1, max: 100_000_000 },
+  deductCreditsPerCent: { min: 1, max: 1_000_000 },
+  deductMaxPercent: { min: 1, max: 100 },
+  /* Paddle will not charge less than USD 0.70. */
+  deductMinChargeMinor: { min: 70, max: 100_000 },
+} as const;
+/**
+ * A checkout holding earned credits that is still unpaid after this long is
+ * cancelled in Paddle and its hold released, by the every-minute billing cron
+ * (review S6): the same hour a Plan checkout is reused for (CHECKOUT_REUSE_MS).
+ */
+export const EARNED_CHECKOUT_HOLD_MS = 60 * 60 * 1000;
 
 /**
  * The grant sources that carry money someone paid (review H2). A query fee
  * is credited to the owner as withdrawable earned credits only for the part
  * the asker paid from these; the rest (welcome credits, redeemed codes,
- * console grants) still reaches the owner as earned credits they can spend
- * but never withdraw. Within a source, only grants that are themselves
- * paid count: a Plan or Pack grant bought through Paddle (it has a
- * purchase), an earned grant that is withdrawable.
+ * console grants) still reaches the owner as earned credits they can
+ * convert but never withdraw. Within a source, only grants that are
+ * themselves paid count: a Plan or Pack grant bought (through Paddle or with
+ * earned credits: it has a purchase), a Pack converted from withdrawable
+ * earned credits, an earned grant that is withdrawable.
  */
 export const PAYING_GRANT_SOURCES = ['plan', 'pack', 'earned'] as const satisfies readonly GrantSource[];
 /**
@@ -452,12 +491,27 @@ export const EXPLORE_TAG_WEIGHT = 0.4;
 /** HNSW candidate list for the profile search; the default 40 would cap the vectors returned. */
 export const EXPLORE_EF_SEARCH = 400;
 /**
+ * Rees holding at most this many passages in all are searched exactly: the
+ * passage index spans every Ree's passages, so a filter keeping a few Rees'
+ * reads thousands of index entries -- up to EXPLORE_PASSAGE_SCAN_MAX, each a
+ * heap fetch -- before it settles for nothing, and the exact scan follows
+ * anyway. A named Ree's single nearest passage is the usual case.
+ */
+export const EXPLORE_EXACT_PASSAGES = 3_000;
+/**
  * The passage level's HNSW search (0048): its candidate list, and how many
  * index entries an iterative scan may read before it settles for fewer rows
  * (a filter that keeps one Ree's passages reads further than one keeping 20).
  */
 export const EXPLORE_PASSAGE_EF_SEARCH = 100;
 export const EXPLORE_PASSAGE_SCAN_MAX = 10_000;
+/**
+ * The fewest rows each index leg reads, however few are wanted (a named
+ * Ree's one nearest passage): the iterative scan returns them only roughly
+ * in order, so the first row is not always the nearest it would find; the
+ * search keeps the nearest by the stored vectors among these.
+ */
+export const EXPLORE_PASSAGE_CANDIDATES = 20;
 /** How long a server instance trusts its last look at whether those indexes are valid (they are built after a deploy, concurrently). */
 export const EXPLORE_INDEX_CHECK_MS = 60_000;
 /** How long, and for how many questions, a server instance keeps a search question's vector. */

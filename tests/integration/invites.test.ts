@@ -10,6 +10,7 @@ import { publicCopyValues } from '@/lib/services/public-copy';
 import { messages } from '@/i18n';
 import { fill } from '@/i18n/format';
 import { payoutFunding } from '@/lib/services/payout-funding';
+import { convertEarned } from '@/lib/services/earned';
 import * as callback from '@/app/api/auth/[provider]/callback/route';
 import { HANDSHAKE_COOKIE } from '@/lib/http/cookies';
 import { NextRequest } from 'next/server';
@@ -18,6 +19,7 @@ import { activities, activitiesIndicator } from '@/lib/services/task-rewards';
 import { setReePublished } from '@/lib/services/rees';
 import { addReeComment } from '@/lib/services/ree-comments';
 import { publishPrivatePost } from '@/lib/services/private-posts';
+import { setPostHelpful } from '@/lib/services/posts';
 import type { Administrator } from '@/lib/services/admin';
 import { checkIn, checkInStatus } from '@/lib/services/check-in';
 import { checkInDay, invitePanelCopy } from '@/lib/domain/invites';
@@ -64,8 +66,8 @@ const ON = {
   withdrawableInvitesPerInviter: 1_000,
   inviteCredits: 5_000,
   firstReeCredits: 2_500,
-  firstQuestionCredits: 1_000,
-  firstCommentCredits: 1_000,
+  firstPostCredits: 1_000,
+  firstHelpfulCredits: 1_000,
   checkInCredits: 1_500,
   checkInMaxDays: 30,
   checkInWindowMonths: 3,
@@ -99,7 +101,7 @@ describeWithDb('invitations and starter tasks', () => {
   it('defaults before the first save, and validates and serialises saves with an audit entry', async () => {
     await db().delete(schema.rewardSettings);
     expect(await rewardSettings()).toEqual({ ...INVITE_DEFAULTS, revision: 'default' });
-    for (const bad of [{ withdrawableInvites: -1 }, { withdrawableInvitesPerInviter: -1 }, { withdrawableInvitesPerInviter: 1_000_001 }, { withdrawableInvitesPerInviter: 1.5 }, { checkInWindowMonths: 0 }, { checkInMaxDays: 3_651 }, { inviteCredits: 0.5 }, { firstReeCredits: 100_000_001 }, { invitesEnabled: 'yes' }, { firstCommentCredits: '10' }]) {
+    for (const bad of [{ withdrawableInvites: -1 }, { withdrawableInvitesPerInviter: -1 }, { withdrawableInvitesPerInviter: 1_000_001 }, { withdrawableInvitesPerInviter: 1.5 }, { checkInWindowMonths: 0 }, { checkInMaxDays: 3_651 }, { inviteCredits: 0.5 }, { firstReeCredits: 100_000_001 }, { invitesEnabled: 'yes' }, { firstHelpfulCredits: '10' }]) {
       await expect(saveRewardSettings(admin.id, { ...ON, ...bad, revision: 'default' })).rejects.toMatchObject({ code: 'invalid_reward_settings' });
     }
     const results = await Promise.allSettled([
@@ -204,7 +206,8 @@ describeWithDb('invitations and starter tasks', () => {
     expect(await counts()).toEqual({ all: before.all + 8, withdrawable: before.withdrawable + 3 });
     expect(await entriesOf(inviter.userId, 'invite_reward')).toHaveLength(3);
     expect(await entriesOf(inviter.userId, 'invite_reward_gift')).toHaveLength(5);
-    expect(await balanceOf(db(), inviter.userId)).toBe(8 * 5_000);
+    /* The five gift rewards are spendable; the three withdrawable ones are earned credits, never spent on their own. */
+    expect(await balanceOf(db(), inviter.userId)).toBe(5 * 5_000);
     /* A payout can draw only on the three withdrawable ones. */
     expect(await withdrawable(db(), inviter.userId)).toBe(3 * 5_000);
     await expect(
@@ -339,7 +342,7 @@ describeWithDb('invitations and starter tasks', () => {
 
   it('marks invite-funded earnings across two hops of query fees, and never the gift part', async () => {
     await configure({});
-    /* Hop 1: A pays B 6,000 -- 1,000 from welcome credits, 2,000 from a bought Pack, 3,000 from an invitation reward (spend order). */
+    /* Hop 1: A pays B 6,000 -- 1,000 from welcome credits, 2,000 from a bought Pack, 3,000 from an invitation reward converted into Pack credits (spend order). */
     const a = (await signUp('hop-a')).userId;
     const b = (await signUp('hop-b')).userId;
     const c = (await signUp('hop-c')).userId;
@@ -352,6 +355,8 @@ describeWithDb('invitations and starter tasks', () => {
       await addGrant(tx, { userId: a, source: 'pack', amount: 2_000, reason: 'purchase', refId: purchase!.id, purchaseId: purchase!.id });
       await addGrant(tx, { userId: a, source: 'earned', amount: 3_000, reason: 'invite_reward', refId: randomUUID(), withdrawableAt: new Date(), inviteFunded: true });
     });
+    /* Earned credits are never spent on their own: converted, they keep their invitation mark. */
+    expect(await convertEarned(a, { credits: 3_000, rateBp: 10_000 })).toMatchObject({ ok: true, received: 3_000 });
     const hop = async (payer: string, owner: string, fee: number) => {
       const [ree] = await db().insert(schema.ree).values({ ownerId: owner, name: 'Hop', slug: uniqueName('hop2'), queryFee: fee, isPublic: true, isPublished: true }).returning();
       const holdId = await db().transaction((tx) => placeHold(tx, { userId: payer, kind: 'post', ledger: 'chat_fee', amount: fee, refId: randomUUID(), reeId: ree!.id }));
@@ -371,7 +376,8 @@ describeWithDb('invitations and starter tasks', () => {
     expect(first.find((grant) => grant.withdrawableAt !== null && !grant.inviteFunded)!.fundingPurchaseId).toBe(purchase!.id);
     for (const grant of first.filter((row) => row.withdrawableAt === null)) expect(grant.inviteFunded).toBe(false);
 
-    /* Hop 2: B pays C the same 6,000 out of those earnings: the parts carry over, the purchase traced, the gift never marked or withdrawable. */
+    /* Hop 2: B converts those earnings and pays C the same 6,000: the parts carry over, the purchase traced, the gift never marked or withdrawable. */
+    expect(await convertEarned(b, { credits: 6_000, rateBp: 10_000 })).toMatchObject({ ok: true, received: 6_000 });
     const second = await hop(b, c, 6_000);
     const parts = split(second);
     expect(parts).toEqual({ gift: 1_000, purchase: 2_000, invite: 3_000 });
@@ -457,6 +463,7 @@ describeWithDb('invitations and starter tasks', () => {
     const [ree] = await db().insert(schema.ree).values({ ownerId: owner.userId, name: 'Hop', slug: uniqueName('hop'), queryFee: 10_000, isPublic: true, isPublished: true }).returning();
     /* A conversation answer from before migration 0070: settled as the conversations did, traced as 0070 kept it. */
     const questionId = randomUUID();
+    expect(await convertEarned(spender.userId, { credits: 600_000, rateBp: 10_000 })).toMatchObject({ ok: true });
     const holdId = await db().transaction((tx) => placeHold(tx, { userId: spender.userId, kind: 'post', ledger: 'chat_fee', amount: 600_000, refId: questionId, reeId: ree!.id }));
     const replyId = randomUUID();
     await db().transaction(async (tx) => {
@@ -535,7 +542,7 @@ describeWithDb('invitations and starter tasks', () => {
     await configure({});
     const created = new Date('2026-03-01T10:00:00Z');
     const user = await createSession(profile(uniqueName('dotter')), 'en', '/rees', created);
-    for (const task of ['first_ree', 'first_question', 'first_comment'] as const) {
+    for (const task of ['first_ree', 'first_post', 'first_helpful'] as const) {
       await db().insert(schema.taskReward).values({ userId: user.userId, task, credits: 1, refId: randomUUID(), createdAt: created });
     }
     const late = new Date('2026-03-01T15:59:59Z');
@@ -573,7 +580,7 @@ describeWithDb('invitations and starter tasks', () => {
     /* Past the window, the old account still has the page and its unpaid tasks, claimable, without a dot. */
     const old = await activities(tasker.userId, end);
     expect(old).toMatchObject({ state: { visible: true, claimable: true, dot: false }, checkIn: { state: 'expired' } });
-    expect(old.tasks.filter((item) => !item.done).map((item) => item.key)).toEqual(['first_ree', 'first_question', 'first_comment']);
+    expect(old.tasks.filter((item) => !item.done).map((item) => item.key)).toEqual(['first_ree', 'first_post', 'first_helpful']);
     expect(await activitiesIndicator(tasker.userId, end)).toEqual(quiet);
   });
 
@@ -590,32 +597,45 @@ describeWithDb('invitations and starter tasks', () => {
     await setReePublished(owner.userId, ree!.id, true);
     expect(await entriesOf(owner.userId, 'task_first_ree')).toHaveLength(1);
 
-    /* First question: two questions at once, one reward. */
+    /* First post: two private questions at once, one reward; a Ree owner's 试问 is not a post. */
     const asks = await Promise.all([1, 2].map((index) => publishPrivatePost(owner.userId, { question: `Question ${index}?`, reeIds: [ree!.id], fees: { [ree!.id]: 20 }, lang: 'en' })));
     expect(asks.every((ask) => ask.ok)).toBe(true);
-    expect(await entriesOf(owner.userId, 'task_first_question')).toHaveLength(1);
+    expect(await entriesOf(owner.userId, 'task_first_post')).toHaveLength(1);
+    const tester = await signUp('tester');
+    expect(await publishPrivatePost(tester.userId, { question: 'Trying my Ree?', reeIds: [ree!.id], fees: { [ree!.id]: 20 }, lang: 'en' }, { source: 'test' })).toMatchObject({ ok: true });
+    expect(await entriesOf(tester.userId, 'task_first_post')).toHaveLength(0);
 
-    /* First comment: a retried request and a second comment at once, one reward. */
+    /* First 有帮助: someone else's post pays once; taking it back and voting again, or voting on another, pays nothing more. */
+    const poster = await signUp('poster');
+    const [theirs, another, own] = await db()
+      .insert(schema.post)
+      .values([poster.userId, poster.userId, owner.userId].map((userId, index) => ({ userId, source: 'post' as const, question: `Public ${index}?`, lang: 'en' as const, status: 'published' as const, publishedAt: new Date() })))
+      .returning();
+    /* Not for marking one's own post. */
+    expect(await setPostHelpful(owner.userId, own!.id, true)).toMatchObject({ voted: true, taskReward: 0 });
+    expect(await entriesOf(owner.userId, 'task_first_helpful')).toHaveLength(0);
+    const votes = await Promise.all([setPostHelpful(owner.userId, theirs!.id, true), setPostHelpful(owner.userId, another!.id, true)]);
+    expect(votes.map((vote) => vote!.taskReward).sort()).toEqual([0, 1_000]);
+    expect(await setPostHelpful(owner.userId, theirs!.id, false)).toMatchObject({ voted: false, taskReward: 0 });
+    expect(await setPostHelpful(owner.userId, theirs!.id, true)).toMatchObject({ voted: true, taskReward: 0 });
+    expect(await entriesOf(owner.userId, 'task_first_helpful')).toHaveLength(1);
+
+    /* Comments no longer pay: their task is retired. */
     const author = { id: owner.userId, name: 'Tasker', avatarBlob: null };
-    const commentId = randomUUID();
-    await Promise.all([
-      addReeComment(ree!.id, author, { id: commentId, content: 'First!' }),
-      addReeComment(ree!.id, author, { id: commentId, content: 'First!' }),
-      addReeComment(ree!.id, author, { id: randomUUID(), content: 'Second' }),
-    ]);
-    expect(await entriesOf(owner.userId, 'task_first_comment')).toHaveLength(1);
+    await addReeComment(ree!.id, author, { id: randomUUID(), content: 'First!' });
+    expect(await entriesOf(owner.userId, 'task_first_comment')).toHaveLength(0);
 
     const rewards = await db().select().from(schema.taskReward).where(eq(schema.taskReward.userId, owner.userId));
     expect(rewards.map((row) => [row.task, row.credits]).sort()).toEqual([
-      ['first_comment', 1_000],
-      ['first_question', 1_000],
+      ['first_helpful', 1_000],
+      ['first_post', 1_000],
       ['first_ree', 2_500],
     ]);
     const grantIds = (
       await db()
         .select()
         .from(schema.creditEntry)
-        .where(and(eq(schema.creditEntry.userId, owner.userId), inArray(schema.creditEntry.reason, ['task_first_ree', 'task_first_question', 'task_first_comment'])))
+        .where(and(eq(schema.creditEntry.userId, owner.userId), inArray(schema.creditEntry.reason, ['task_first_ree', 'task_first_post', 'task_first_helpful'])))
     ).map((entry) => entry.allocations[0]!.grantId);
     const grants = await db().select().from(schema.creditGrant).where(inArray(schema.creditGrant.id, grantIds));
     expect(grants.every((grant) => grant.source === 'welcome' && grant.withdrawableAt === null)).toBe(true);
@@ -626,10 +646,10 @@ describeWithDb('invitations and starter tasks', () => {
       db().transaction((tx) => placeHold(tx, { userId: owner.userId, kind: 'payout', amount: 1, refId: randomUUID(), sources: ['earned'], withdrawableOnly: true })),
     ).rejects.toThrow();
 
-    /* A deleted comment keeps its reward and does not pay again. */
-    await db().delete(schema.reeComment).where(eq(schema.reeComment.userId, owner.userId));
-    await addReeComment(ree!.id, author, { id: randomUUID(), content: 'Again' });
-    expect(await entriesOf(owner.userId, 'task_first_comment')).toHaveLength(1);
+    /* A deleted post keeps its reward and does not pay again. */
+    await db().delete(schema.post).where(eq(schema.post.userId, owner.userId));
+    expect(await publishPrivatePost(owner.userId, { question: 'Once more?', reeIds: [ree!.id], fees: { [ree!.id]: 20 }, lang: 'en' })).toMatchObject({ ok: true });
+    expect(await entriesOf(owner.userId, 'task_first_post')).toHaveLength(1);
 
     /* Every task done, but a check-in is still to be had: the page and the navigation dot say so. */
     const page = await activities(owner.userId);
@@ -646,31 +666,33 @@ describeWithDb('invitations and starter tasks', () => {
   });
 
   it('reads amounts at the time of the action: 0 pays nothing and leaves the task open for later', async () => {
-    await configure({ firstCommentCredits: 0, firstQuestionCredits: 3_333 });
+    await configure({ firstHelpfulCredits: 0, firstPostCredits: 3_333 });
     const user = await signUp('later');
     const [owner] = await db().insert(schema.user).values({ name: 'Owner', email: 'owner@example.test', provider: 'github', providerSubject: uniqueName('owner') }).returning();
     const [ree] = await db().insert(schema.ree).values({ ownerId: owner!.id, name: 'Public Ree', slug: uniqueName('public-ree'), isPublic: true, isPublished: true }).returning();
-    const author = { id: user.userId, name: 'Later', avatarBlob: null };
+    const [theirs] = await db().insert(schema.post).values({ userId: owner!.id, source: 'post', question: 'Helpful?', lang: 'en', status: 'published', publishedAt: new Date() }).returning();
 
     const before = await activities(user.userId);
     expect(before.state).toEqual({ visible: true, claimable: true, dot: true });
-    expect(before.tasks.map((item) => item.key)).toEqual(['signup', 'first_ree', 'first_question']);
-    expect(before.tasks.find((item) => item.key === 'first_question')).toMatchObject({ done: false, credits: 3_333 });
+    expect(before.tasks.map((item) => item.key)).toEqual(['signup', 'first_ree', 'first_post']);
+    expect(before.tasks.find((item) => item.key === 'first_post')).toMatchObject({ done: false, credits: 3_333 });
     expect(invitePanelCopy(await invitePanel(user.userId))).toEqual({ withdrawableNote: true, progress: true, status: null });
 
-    await addReeComment(ree!.id, author, { id: randomUUID(), content: 'Unpaid' });
-    expect(await entriesOf(user.userId, 'task_first_comment')).toHaveLength(0);
-    await configure({ firstCommentCredits: 700, firstQuestionCredits: 3_333 });
-    await addReeComment(ree!.id, author, { id: randomUUID(), content: 'Paid' });
-    const [paid] = await entriesOf(user.userId, 'task_first_comment');
+    expect(await setPostHelpful(user.userId, theirs!.id, true)).toMatchObject({ taskReward: 0 });
+    expect(await entriesOf(user.userId, 'task_first_helpful')).toHaveLength(0);
+    await configure({ firstHelpfulCredits: 700, firstPostCredits: 3_333 });
+    /* Off then on again: the vote that counts is the next one cast. */
+    await setPostHelpful(user.userId, theirs!.id, false);
+    expect(await setPostHelpful(user.userId, theirs!.id, true)).toMatchObject({ taskReward: 700 });
+    const [paid] = await entriesOf(user.userId, 'task_first_helpful');
     expect(paid).toMatchObject({ delta: 700 });
 
     expect(await publishPrivatePost(user.userId, { question: 'Does it pay?', reeIds: [ree!.id], fees: { [ree!.id]: 20 }, lang: 'en' })).toMatchObject({ ok: true });
-    expect((await entriesOf(user.userId, 'task_first_question'))[0]).toMatchObject({ delta: 3_333 });
+    expect((await entriesOf(user.userId, 'task_first_post'))[0]).toMatchObject({ delta: 3_333 });
     expect(await balanceOf(db(), user.userId)).toBe(700 + 3_333);
 
     const after = await activities(user.userId);
-    expect(after.tasks.filter((item) => item.done).map((item) => item.key)).toEqual(['signup', 'first_question', 'first_comment']);
+    expect(after.tasks.filter((item) => item.done).map((item) => item.key)).toEqual(['signup', 'first_post', 'first_helpful']);
     expect(after.state.claimable).toBe(true);
     /* Only the first Ree is left; with its reward and check-ins off, nothing is available: no page, no item. */
     await configure({ firstReeCredits: 0, checkInCredits: 0 });
@@ -681,7 +703,44 @@ describeWithDb('invitations and starter tasks', () => {
     expect(await activitiesIndicator(user.userId)).toEqual({ visible: true, dot: true });
 
     const overview = await inviteOverview(admin);
-    expect(overview.tasks.find((row) => row.task === 'first_comment')!.accounts).toBeGreaterThanOrEqual(2);
+    expect(overview.tasks.find((row) => row.task === 'first_helpful')!.accounts).toBeGreaterThanOrEqual(2);
     await configure({});
+  });
+
+  it('keeps the retired tasks as history: a paid first question is the first post done, a paid first comment is not the first 有帮助', async () => {
+    await configure({});
+    const veteran = await signUp('veteran');
+    const [owner] = await db().insert(schema.user).values({ name: 'Owner', email: 'veteran-owner@example.test', provider: 'github', providerSubject: uniqueName('owner') }).returning();
+    const [ree] = await db().insert(schema.ree).values({ ownerId: owner!.id, name: 'Old Ree', slug: uniqueName('old-ree'), isPublic: true, isPublished: true }).returning();
+    const [theirs] = await db().insert(schema.post).values({ userId: owner!.id, source: 'post', question: 'Still helpful?', lang: 'en', status: 'published', publishedAt: new Date() }).returning();
+    /* Paid before v5, as production has them: the row and its ledger entry. */
+    for (const [task, credits] of [['first_question', 1_000], ['first_comment', 900]] as const) {
+      const refId = randomUUID();
+      await db().insert(schema.taskReward).values({ userId: veteran.userId, task, credits, refId });
+      await db().transaction((tx) => addGrant(tx, { userId: veteran.userId, source: 'welcome', amount: credits, reason: `task_${task}`, refId }));
+    }
+
+    /* The page lists only the current tasks; the first post shows done with what the first question paid. */
+    const page = await activities(veteran.userId);
+    expect(page.tasks.map((item) => [item.key, item.done, item.credits])).toEqual([
+      ['signup', true, null],
+      ['first_ree', false, 2_500],
+      ['first_post', true, 1_000],
+      ['first_helpful', false, 1_000],
+    ]);
+
+    /* A new post pays nothing more; a first 有帮助 still pays. */
+    expect(await publishPrivatePost(veteran.userId, { question: 'Paid again?', reeIds: [ree!.id], fees: { [ree!.id]: 20 }, lang: 'en' })).toMatchObject({ ok: true });
+    expect(await entriesOf(veteran.userId, 'task_first_post')).toHaveLength(0);
+    expect(await setPostHelpful(veteran.userId, theirs!.id, true)).toMatchObject({ taskReward: 1_000 });
+    expect((await activities(veteran.userId)).tasks.filter((item) => !item.done).map((item) => item.key)).toEqual(['first_ree']);
+
+    /* The old ledger entries keep their labels, and the console still counts them. */
+    expect(await entriesOf(veteran.userId, 'task_first_question')).toHaveLength(1);
+    expect(messages('zh').billing.reasons.task_first_question).toBe('新手任务 · 第一次提问');
+    expect(messages('en').billing.reasons.task_first_comment).toBe('Starter task · first comment');
+    const overview = await inviteOverview(admin);
+    expect(overview.tasks.find((row) => row.task === 'first_question')!.accounts).toBeGreaterThanOrEqual(1);
+    expect(overview.tasks.find((row) => row.task === 'first_comment')!.accounts).toBeGreaterThanOrEqual(1);
   });
 });

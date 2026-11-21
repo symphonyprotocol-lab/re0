@@ -83,12 +83,17 @@ export async function earnedBreakdown(executor: Executor, userId: string, now = 
   };
 }
 
-/** What the user still owes from refunds or chargebacks that found the credits spent (2.3). */
+/**
+ * What the user still owes from refunds or chargebacks that found the credits
+ * spent (2.3): the debts that hold back a payout. A usage debt (storage, a
+ * knowledge run's overrun, a late supplier bill: no purchase) is paid from
+ * spendable credits only and does not (review S3).
+ */
 export async function openDebt(executor: Executor, userId: string): Promise<number> {
   const [row] = await executor
     .select({ owed: sql<string>`coalesce(sum(${schema.creditDebt.remaining}), 0)` })
     .from(schema.creditDebt)
-    .where(and(eq(schema.creditDebt.userId, userId), sql`${schema.creditDebt.remaining} > 0`));
+    .where(and(eq(schema.creditDebt.userId, userId), sql`${schema.creditDebt.remaining} > 0`, sql`${schema.creditDebt.purchaseId} is not null`));
   return Number(row?.owed ?? 0);
 }
 

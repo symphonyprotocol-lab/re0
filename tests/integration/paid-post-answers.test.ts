@@ -173,12 +173,13 @@ describeWithDb('public posts are charged per answer', () => {
     expect(await posts.agreePaidAnswer(author, requestId, BASE)).toEqual({ ok: false, error: 'price_changed', price: BASE + FEE_20 });
     expect(await posts.agreePaidAnswer(await user('pp-stranger', 1_000), requestId, 999)).toEqual({ ok: false, error: 'not_found' });
 
-    const ownerBefore = await balanceOf(db(), paid.ownerId);
+    /* The owner's income is earned credits: apart from the spendable balance. */
+    const ownerBefore = (await (await import('@/lib/services/earned')).earnedBalance(db(), paid.ownerId)).total;
     expect(await posts.agreePaidAnswer(author, requestId, BASE + FEE_20)).toEqual({ ok: true });
     expect(await balanceOf(db(), author)).toBe(1_000 - BASE - BASE - FEE_20);
     await posts.answerPaid(requestId, { answerOne: answered() });
     expect(await balanceOf(db(), author)).toBe(1_000 - BASE - BASE - FEE_20);
-    expect(await balanceOf(db(), paid.ownerId)).toBe(ownerBefore + FEE_20);
+    expect((await (await import('@/lib/services/earned')).earnedBalance(db(), paid.ownerId)).total).toBe(ownerBefore + FEE_20);
     const earned = await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, paid.ownerId), eq(schema.creditEntry.reason, 'query_fee_earned'), eq(schema.creditEntry.refId, requestId)));
     expect(earned.reduce((sum, entry) => sum + entry.delta, 0)).toBe(FEE_20);
     expect(await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.reason, 'query_base'), eq(schema.creditEntry.refId, requestId)))).toHaveLength(1);

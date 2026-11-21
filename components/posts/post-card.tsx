@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import type { PostAuthor, PostQuote, PostView } from '@/lib/domain/post';
 import { useI18n } from '@/i18n/client';
@@ -77,6 +78,7 @@ export function PostHelpful({ post, signedIn, loginHref, onChange }: { post: Pos
   const { t, locale } = useI18n();
   const c = t.posts.card;
   const toast = useToast();
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const count = formatNumber(post.helpful, locale);
   if (post.status !== 'published' || post.deleted) {
@@ -103,8 +105,10 @@ export function PostHelpful({ post, signedIn, loginHref, onChange }: { post: Pos
     try {
       const response = await fetch(`/api/posts/${post.id}/helpful`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
       if (!response.ok) throw new Error(String(response.status));
-      const body = (await response.json()) as { helpful: number; voted: boolean };
+      const body = (await response.json()) as { helpful: number; voted: boolean; taskReward?: number };
       onChange({ helpful: Number(body.helpful) || 0, voted: body.voted === true });
+      /* A first 有帮助 paid its starter task: the sidebar's balance and the 活动 dot live in the layout, which only a refresh re-renders. */
+      if (body.taskReward) router.refresh();
     } catch {
       onChange(before);
       toast(t.common.errors.generic);

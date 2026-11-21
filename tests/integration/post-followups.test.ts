@@ -202,13 +202,14 @@ describeWithDb('follow-ups in a post (追问)', () => {
     expect(await posts.agreePaidAnswer(author, waiting!.id, BASE + 30)).toEqual({ ok: false, error: 'not_found' });
     expect(await posts.agreePaidAnswer(reader, waiting!.id, BASE)).toEqual({ ok: false, error: 'price_changed', price: BASE + 30 });
 
-    const ownerBefore = await balanceOf(db(), paid.ownerId);
+    /* The owner's income is earned credits: apart from the spendable balance. */
+    const ownerBefore = (await (await import('@/lib/services/earned')).earnedBalance(db(), paid.ownerId)).total;
     expect(await posts.agreePaidAnswer(reader, waiting!.id, BASE + 30)).toEqual({ ok: true });
     const seen: Parameters<AnswerOne>[0][] = [];
     await posts.answerPaid(waiting!.id, { answerOne: async (input) => (seen.push(input), { state: 'answered', text: 'Paid follow-up.', citations: [], model: 'stub' }) });
     expect(seen[0]!.subject).toContain('Paid one, please');
     expect(await balanceOf(db(), reader)).toBe(1_000 - BASE - 30);
-    expect(await balanceOf(db(), paid.ownerId)).toBe(ownerBefore + 30);
+    expect((await (await import('@/lib/services/earned')).earnedBalance(db(), paid.ownerId)).total).toBe(ownerBefore + 30);
     expect((await posts.getPost(postId))!.followups[0]!.answers).toMatchObject([{ reeId: paid.reeId, paid: true }]);
     /* The post's own spend is the first round's only. */
     expect((await posts.getPost(postId, author))!.spent).toBe(BASE);

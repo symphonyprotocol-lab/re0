@@ -6,7 +6,7 @@ import { param } from '@/lib/domain/list';
 import { purchaseDetail } from '@/lib/services/admin-purchases';
 import { formatCentsUsd } from '@/lib/domain/payouts';
 import { serverMessages } from '@/i18n/server';
-import { formatDateTime, formatNumber } from '@/i18n/format';
+import { fill, formatDateTime, formatNumber } from '@/i18n/format';
 import { Clip, DetailSection, Fields, PageHead, Person, RecordsTable, Tag } from '@/components/admin/list-kit';
 import { CI } from '@/components/admin/console-icon';
 import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
@@ -55,7 +55,8 @@ export default async function PurchaseDetailPage({ params, searchParams }: Props
   const self = `/admin/purchases/${id}${from !== '/admin/purchases' ? `?from=${encodeURIComponent(from)}` : ''}`;
   const n = (value: number) => formatNumber(value, locale);
   const time = (value: Date | null | undefined) => (value ? formatDateTime(value, locale) : '—');
-  const amount = purchase.currency === 'USD' ? formatCentsUsd(purchase.amountMinor) : `${(purchase.amountMinor / 100).toFixed(2)} ${purchase.currency}`;
+  const paid = purchase.currency === 'USD' ? formatCentsUsd(purchase.amountMinor) : `${(purchase.amountMinor / 100).toFixed(2)} ${purchase.currency}`;
+  const amount = purchase.earnedMinor > 0 ? `${paid} · ${fill(p.earned, { usd: formatCentsUsd(purchase.earnedMinor), credits: n(purchase.earnedCredits) })}` : paid;
   const mono = (value: string) => <span className="mono">{value}</span>;
 
   return (
@@ -76,7 +77,7 @@ export default async function PurchaseDetailPage({ params, searchParams }: Props
         <DetailSection title={d.record}>
           <Fields
             items={[
-              [d.transaction, mono(purchase.paddleTransactionId)],
+              [d.transaction, purchase.paddleTransactionId ? mono(purchase.paddleTransactionId) : '—'],
               [d.status, <Tag key="status" tone={purchase.status === 'paid' ? 'green' : purchase.status === 'refunded' ? 'grey' : 'red'}>{p.status[purchase.status]}</Tag>],
               [d.created, time(purchase.createdAt)],
               [d.user, <Person key="user" name={data.name} email={data.email} href={`/admin/users/${purchase.userId}?tab=purchases&from=${encodeURIComponent(self)}`} />],

@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { fail, json } from '@/lib/http/respond';
 import { timingSafeEqual } from '@/lib/infra/crypto/tokens';
-import { expireDuePlans } from '@/lib/services/billing';
+import { expireDuePlans, releaseStaleEarnedCheckouts } from '@/lib/services/billing';
 
 export const maxDuration = 300;
 
@@ -12,10 +12,17 @@ export const maxDuration = 300;
  * sends `Authorization: Bearer $CRON_SECRET`; without the secret the route
  * stays shut. Idempotent. Daily is enough: an ended period is already
  * unspendable and outside the balance; this only writes the `expire` entry.
+ * It also cancels checkouts that held earned credits and were left unpaid
+ * (`EARNED_CHECKOUT_HOLD_MS`), giving the credits back.
  */
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
   const presented = request.headers.get('authorization') ?? '';
   if (!secret || !timingSafeEqual(presented, `Bearer ${secret}`)) return fail('unauthorized', 401);
-  return json(await expireDuePlans());
+  /* Each job on its own: one failing never keeps the other from running (review round 2). */
+  const [expired, released] = await Promise.allSettled([expireDuePlans(), releaseStaleEarnedCheckouts()]);
+  if (expired.status === 'rejected') console.error('cron: expireDuePlans failed', expired.reason);
+  if (released.status === 'rejected') console.error('cron: releaseStaleEarnedCheckouts failed', released.reason);
+  const body = { ...(expired.status === 'fulfilled' ? expired.value : {}), earnedCheckoutsReleased: released.status === 'fulfilled' ? released.value : null };
+  return expired.status === 'fulfilled' && released.status === 'fulfilled' ? json(body) : json({ ...body, error: 'partial_failure' }, 500);
 }

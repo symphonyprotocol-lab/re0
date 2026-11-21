@@ -238,8 +238,8 @@ function BottomBar({ unread }: { unread: number }) {
 
 /**
  * The sidebar's usage card (prototype usage.js `sidebar`): the headline is the
- * total available balance -- the same 总余额 as the balance tab, Plan +
- * welcome + Pack + earned. With a Plan, the meter and the line under it show
+ * available balance -- the same 可用余额 as the balance tab, Plan +
+ * welcome + Pack (earned credits are apart, never spent automatically). With a Plan, the meter and the line under it show
  * this period's Plan credits used, turning amber from 90%. Folded, only its
  * icon shows, and the title carries the same summary.
  */

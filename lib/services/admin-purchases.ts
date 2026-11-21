@@ -18,12 +18,16 @@ export interface PurchaseRow {
   email: string;
   kind: 'plan' | 'pack';
   quantity: number;
-  paddleTransactionId: string;
+  /** Null for a purchase paid in full with earned credits. */
+  paddleTransactionId: string | null;
   status: 'paid' | 'refunded' | 'chargeback';
   amountMinor: number;
   currency: string;
   credits: number;
   reversedCredits: number;
+  /** What earned credits paid of the price (US cents) and how many they were. */
+  earnedMinor: number;
+  earnedCredits: number;
   createdAt: Date;
 }
 
@@ -93,6 +97,8 @@ export async function listPurchases(administrator: Administrator, view: Purchase
       currency: schema.purchase.currency,
       credits: schema.purchase.credits,
       reversedCredits: schema.purchase.reversedCredits,
+      earnedMinor: schema.purchase.earnedMinor,
+      earnedCredits: schema.purchase.earnedCredits,
       createdAt: schema.purchase.createdAt,
     })
     .from(schema.purchase)

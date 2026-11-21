@@ -242,7 +242,7 @@ describeWithDb('admin pricing and checkout', () => {
     );
     expect(checkout.ok).toBe(true);
     const quote = create.mock.calls[0]![3]!;
-    const transactionId = checkout.ok ? checkout.transactionId : '';
+    const transactionId = (checkout.ok && checkout.transactionId) || '';
     await savePricing(owner, 'pack', { revision: price.revision, priceMinor: 2000, credits: 70_000, promotion: null }, deps);
     await applyPaddleEvent(
       {
