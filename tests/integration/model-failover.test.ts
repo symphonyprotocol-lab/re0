@@ -215,22 +215,39 @@ describeWithDb('model failover', () => {
     }
   });
 
-  it('keeps the list rules: mirror on the first active entry, never empty, frozen members, probed additions', async () => {
+  it('keeps the list rules: mirror on the first active entry, never empty, stale pages refused, frozen members, probed additions', async () => {
     const free = (await models.listModelConfigs()).chains['generation:free'];
-    const [primary, backup] = free.map((entry) => entry.configId);
+    const [primary, backup] = free.map((entry) => entry.configId) as [string, string];
+    const items = (...entries: [string, boolean][]) => entries.map(([id, active]) => ({ id, active }));
     /* Reordering moves the primary, and `enabled` with it. */
-    await models.saveChain(administratorId, 'generation', 'free', [{ id: backup, active: true }, { id: primary, active: true }]);
+    await models.saveChain(administratorId, 'generation', 'free', items([backup, true], [primary, true]), items([primary, true], [backup, true]));
     const enabled = await db().select({ id: schema.modelConfig.id }).from(schema.modelConfig).where(and(eq(schema.modelConfig.kind, 'generation'), eq(schema.modelConfig.enabled, true)));
     expect(enabled.map((row) => row.id)).toEqual([backup]);
     expect((await chainFor('generation'))[0]!.configId).toBe(backup);
     /* Pausing the first entry hands the primary to the next active one. */
-    await models.saveChain(administratorId, 'generation', 'free', [{ id: backup, active: false }, { id: primary, active: true }]);
+    await models.saveChain(administratorId, 'generation', 'free', items([backup, false], [primary, true]), items([backup, true], [primary, true]));
     expect((await chainFor('generation')).map((endpoint) => endpoint.configId)).toEqual([primary]);
-    await expect(models.saveChain(administratorId, 'generation', 'free', [{ id: backup, active: false }, { id: primary, active: false }])).rejects.toMatchObject({ code: 'chain_empty' });
-    await expect(models.saveChain(administratorId, 'generation', 'free', [{ id: primary, active: true }, { id: '00000000-0000-4000-8000-0000000000ff', active: true }])).rejects.toMatchObject({ code: 'stale' });
-    await expect(models.saveChain(administratorId, 'generation', 'nobody', [{ id: primary, active: true }])).rejects.toMatchObject({ code: 'audience' });
+    const now = items([backup, false], [primary, true]);
+    await expect(models.saveChain(administratorId, 'generation', 'free', items([backup, false], [primary, false]), now)).rejects.toMatchObject({ code: 'chain_empty' });
+    await expect(models.removeFromChain(administratorId, 'generation', 'free', primary, now)).rejects.toMatchObject({ code: 'chain_empty' });
+    /* Entries must be exactly the ones the page saw: no silent removal, no addition. */
+    await expect(models.saveChain(administratorId, 'generation', 'free', items([primary, true]), now)).rejects.toMatchObject({ code: 'chain' });
+    await expect(models.saveChain(administratorId, 'generation', 'free', items([primary, true], ['00000000-0000-4000-8000-0000000000ff', true]), items([primary, true], ['00000000-0000-4000-8000-0000000000ff', true]))).rejects.toMatchObject({ code: 'stale' });
+    await expect(models.saveChain(administratorId, 'generation', 'nobody', items([primary, true]), items([primary, true]))).rejects.toMatchObject({ code: 'audience' });
+
+    /* A page opened before another administrator added an entry: its save is refused, and the addition stays. */
+    const third = await generation('third', 'gen-third');
+    const seen = items([backup, false], [primary, true]);
+    await models.addToChain(administratorId, 'generation', 'free', third.id);
+    await expect(models.saveChain(administratorId, 'generation', 'free', items([primary, true], [backup, false]), seen)).rejects.toMatchObject({ code: 'stale' });
+    await expect(models.removeFromChain(administratorId, 'generation', 'free', backup, seen)).rejects.toMatchObject({ code: 'stale' });
+    expect((await models.listModelConfigs()).chains['generation:free'].map((entry) => entry.configId)).toEqual([backup, primary, third.id]);
+    /* Removing is its own step, against the list as it is now. */
+    await models.removeFromChain(administratorId, 'generation', 'free', third.id, items([backup, false], [primary, true], [third.id, true]));
+    expect((await models.listModelConfigs()).chains['generation:free'].map((entry) => entry.configId)).toEqual([backup, primary]);
+
     /* A backup is frozen like the primary. */
-    await expect(models.updateModelConfig(administratorId, backup!, { name: 'renamed', transport: 'openai_compatible', baseUrl: chat.baseUrl, model: 'gen-other', timeoutMs: 10_000 })).rejects.toMatchObject({ code: 'locked' });
+    await expect(models.updateModelConfig(administratorId, backup, { name: 'renamed', transport: 'openai_compatible', baseUrl: chat.baseUrl, model: 'gen-other', timeoutMs: 10_000 })).rejects.toMatchObject({ code: 'locked' });
     /* An entry whose probe fails is not added. */
     const broken = await generation('broken', 'gen-broken');
     chat.failing.set('gen-broken', { status: 401, body: '{"error":"bad key"}' });
@@ -238,7 +255,32 @@ describeWithDb('model failover', () => {
     await expect(models.addToChain(administratorId, 'speech', 'free', broken.id)).rejects.toMatchObject({ code: 'speech_single' });
     const actions = (await db().select({ action: schema.adminAudit.action }).from(schema.adminAudit).where(eq(schema.adminAudit.administratorId, administratorId))).map((row) => row.action);
     expect(actions).toEqual(expect.arrayContaining(['model.chain.update', 'model.activate', 'model.cooldown.clear']));
-    await models.saveChain(administratorId, 'generation', 'free', [{ id: primary, active: true }, { id: backup, active: true }]);
+    await models.saveChain(administratorId, 'generation', 'free', items([primary, true], [backup, true]), items([backup, false], [primary, true]));
+  });
+
+  it('follows a cooldown cleared on another instance within ten seconds', async () => {
+    const primary = (await chainFor('generation'))[0]!;
+    chat.failing.set(primary.model, QUOTA);
+    try {
+      await generateText({ model: (await modelFor('generation', 'free')).model, prompt: 'cool', maxRetries: 0 });
+    } finally {
+      chat.failing.delete(primary.model);
+    }
+    await settleHealthWrites();
+    expect((await healthSnapshot()).get(primary.configId!)).toMatchObject({ state: 'cooling', reason: 'quota' });
+    /* Another instance clears it in the table; this one never sees the call. */
+    await db().update(schema.modelHealth)
+      .set({ state: 'ok', reason: null, coolingUntil: null, consecutiveFailures: 0, lastSuccessAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.modelHealth.modelConfigId, primary.configId!));
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date(Date.now() + 11_000) });
+    try {
+      expect((await healthSnapshot()).get(primary.configId!)).toMatchObject({ state: 'ok' });
+      chat.calls.length = 0;
+      const back = await generateText({ model: (await modelFor('generation', 'free')).model, prompt: 'back', maxRetries: 0 });
+      expect(back.text).toBe(`ok from ${primary.model}`);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('takes only same-space embedding backups, and moves a failing batch to one', async () => {

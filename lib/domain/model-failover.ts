@@ -58,28 +58,65 @@ export interface Failure {
   retryAfterMs: number | null;
 }
 
-/** Wording that means "out of money", not "too fast": OpenAI's insufficient_quota, gateway credits, DashScope's Arrearage. */
-const QUOTA_TEXT = /insufficient[_ ]?(quota|funds|balance|credits?)|billing|credit balance|out of credits|no credits|balance|arrear|payment required|余额|欠费|额度不足/i;
+const NETWORK_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT']);
+
+/**
+ * Out-of-money codes and phrases, matched only against a provider error's
+ * code, type and message -- never its whole body, which may echo the
+ * asker's text -- and never a bare "balance" or "billing" (a load balancer
+ * is not a bill).
+ */
+const QUOTA_TEXT = /insufficient[_ ]?(quota|funds|balance|credits?)|billing_hard_limit_reached|arrearage|credit balance is too low|exceeded your current quota|out of credits|余额不足|欠费|额度不足|额度已用完/i;
+/** A provider refusing the content (input or output moderation): the request's own problem. */
+const CONTENT_BLOCKED = /content[_ ]?(filter|policy|management)|data_inspection_failed|moderation|safety/i;
+const RATE_TEXT = /rate[_ ]?limit|too many requests|throttl/i;
+
+/** Errors a provider (or the road to it) raised. Anything else -- our credits, our runs, our bugs -- is the caller's. */
+const PROVIDER_NAMES = /^(AI_APICallError|AI_JSONParseError|AI_TypeValidationError|AI_InvalidResponseDataError|AI_EmptyResponseBodyError|Gateway\w*Error|PrivateAddressError)$/;
 
 interface Facts {
+  provider: boolean;
+  /** Set on an `error` part a provider wrote into its stream (lib/infra/ai/failover.ts). */
+  streamed: boolean;
   status: number | null;
   names: string[];
-  codes: string[];
-  text: string;
+  /** Codes, types and messages: what the provider said the error is. */
+  said: string[];
   headers: Record<string, string>;
 }
 
+/** `error.code` / `error.type` / `error.message` (or top-level `code` / `message`) of a JSON error body; nothing else of it. */
+function bodyFields(body: string): string[] {
+  try {
+    const parsed = JSON.parse(body.slice(0, 20_000)) as Record<string, unknown>;
+    if (typeof parsed?.error === 'string') return [parsed.error.slice(0, 500)];
+    const error = (parsed && typeof parsed.error === 'object' && parsed.error ? parsed.error : parsed) as Record<string, unknown>;
+    return [error.code, error.type, error.message, parsed.code, parsed.message].filter((value): value is string => typeof value === 'string').map((value) => value.slice(0, 500));
+  } catch {
+    return [];
+  }
+}
+
 function facts(error: unknown): Facts {
-  const found: Facts = { status: null, names: [], codes: [], text: '', headers: {} };
+  const found: Facts = { provider: false, streamed: false, status: null, names: [], said: [], headers: {} };
   for (let current: unknown = error, depth = 0; current && typeof current === 'object' && depth < 5; depth += 1) {
     const item = current as Record<string, unknown>;
     const status = typeof item.statusCode === 'number' ? item.statusCode : typeof item.status === 'number' ? item.status : null;
     if (found.status === null && status !== null && status >= 100) found.status = status;
-    if (typeof item.name === 'string') found.names.push(item.name);
-    if (typeof item.code === 'string') found.codes.push(item.code);
-    if (typeof item.type === 'string') found.codes.push(item.type);
-    if (typeof item.message === 'string') found.text += ` ${item.message}`;
-    if (typeof item.responseBody === 'string') found.text += ` ${item.responseBody.slice(0, 2000)}`;
+    const name = typeof item.name === 'string' ? item.name : '';
+    if (name) found.names.push(name);
+    if (PROVIDER_NAMES.test(name)) found.provider = true;
+    if (item.providerStreamError === true) { found.provider = true; found.streamed = true; }
+    if (typeof item.code === 'string') {
+      found.said.push(item.code);
+      if (NETWORK_CODES.has(item.code) || item.code === 'EPRIVATEADDRESS') found.provider = true;
+    }
+    if (typeof item.type === 'string') found.said.push(item.type);
+    if (typeof item.message === 'string') {
+      found.said.push(item.message.slice(0, 500));
+      if (name === 'TypeError' && item.message === 'fetch failed') found.provider = true;
+    }
+    if (typeof item.responseBody === 'string') found.said.push(...bodyFields(item.responseBody));
     if (item.responseHeaders && typeof item.responseHeaders === 'object') {
       for (const [key, value] of Object.entries(item.responseHeaders as Record<string, unknown>)) {
         if (typeof value === 'string') found.headers[key.toLowerCase()] ??= value;
@@ -102,8 +139,6 @@ export function retryAfterMs(headers: Record<string, string>, now = Date.now()):
   return Number.isFinite(at) && at > now ? Math.min(at - now, COOLING.rateLimit.max) : null;
 }
 
-const NETWORK_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT']);
-
 /**
  * What a failed attempt means. `callerAborted`: the request's own signal
  * fired (the asker left, or the whole request ran out of time); `timedOut`:
@@ -114,8 +149,10 @@ export function classifyModelFailure(error: unknown, flags: { callerAborted?: bo
   const failure = (kind: FailureClass, retry: number | null = null): Failure => ({ kind, status: seen.status, retryAfterMs: retry });
   if (flags.callerAborted) return failure('aborted');
   if (flags.timedOut) return failure('timeout');
-  const { status, names, codes, text } = seen;
-  const quotaWords = QUOTA_TEXT.test(text) || codes.some((code) => QUOTA_TEXT.test(code));
+  /* Not the provider's: insufficient credits, a stale run, a bug. Thrown as it is, and no model's health changes. */
+  if (!seen.provider) return failure('caller');
+  const { status, names } = seen;
+  const quotaWords = seen.said.some((text) => QUOTA_TEXT.test(text));
   if (status === 402) return failure('quota');
   if (status === 429) return quotaWords ? failure('quota') : failure('rate_limit', retryAfterMs(seen.headers, now));
   if (names.includes('GatewayRateLimitError')) return failure('rate_limit', retryAfterMs(seen.headers, now));
@@ -124,15 +161,20 @@ export function classifyModelFailure(error: unknown, flags: { callerAborted?: bo
   if (status === 401 || status === 403 || names.includes('GatewayAuthenticationError') || names.includes('GatewayForbiddenError')) return failure('auth');
   if (status === 404 || names.includes('GatewayModelNotFoundError') || names.includes('GatewayNotFoundError')) return failure('model_missing');
   if (status === 408) return failure('timeout');
+  /* 424: the gateway's upstream provider failed (`failed_dependency`). */
+  if (status === 424 || names.includes('GatewayFailedDependencyError')) return failure('server');
   if (status !== null && status >= 500) return failure('server');
   if (status !== null && status >= 400) return failure('caller');
   if (names.includes('GatewayInvalidRequestError')) return failure('caller');
   /* An administrator's base URL that resolves to a link-local or metadata address: a configuration problem. */
-  if (names.includes('PrivateAddressError') || codes.includes('EPRIVATEADDRESS')) return failure('auth');
-  if (names.some((name) => name === 'TimeoutError')) return failure('timeout');
-  if (codes.some((code) => NETWORK_CODES.has(code)) || /fetch failed|socket hang up|network/i.test(text)) return failure('server');
-  if (names.includes('AbortError')) return failure('timeout');
-  /* Unparseable answers, gateway internals and anything unknown: the provider's side. */
+  if (names.includes('PrivateAddressError') || seen.said.includes('EPRIVATEADDRESS')) return failure('auth');
+  /* An error the provider wrote into its stream, with no status: read what it says. */
+  if (seen.streamed) {
+    if (seen.said.some((text) => CONTENT_BLOCKED.test(text))) return failure('caller');
+    if (quotaWords) return failure('quota');
+    if (seen.said.some((text) => RATE_TEXT.test(text))) return failure('rate_limit');
+  }
+  /* Network errors, unparseable answers, gateway internals: the provider's side. */
   return failure('server');
 }
 

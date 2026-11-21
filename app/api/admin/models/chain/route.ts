@@ -4,7 +4,7 @@ import { UUID } from '@/lib/http/admin-params';
 import { body, fail, json } from '@/lib/http/respond';
 import { isModelKind } from '@/lib/domain/models';
 import { AdminInputError } from '@/lib/services/admin';
-import { addToChain, saveChain } from '@/lib/services/models';
+import { addToChain, removeFromChain, saveChain } from '@/lib/services/models';
 
 export const maxDuration = 60;
 
@@ -13,14 +13,18 @@ function failed(error: unknown) {
   throw error;
 }
 
-/** `{ kind, audience?, entries: [{ id, active }] }`: the list in its new order, entries paused or removed. */
+/**
+ * `{ kind, audience?, entries: [{ id, active }], expected: [{ id, active }] }`:
+ * the list in its new order, entries paused or resumed. `expected` is the
+ * list as the page saw it; a list changed since answers 409 `stale`.
+ */
 export async function PUT(request: NextRequest) {
   const administrator = await apiAdministrator(request);
   if (administrator instanceof Response) return administrator;
   const input = await body(request);
   if (!isModelKind(input.kind)) return fail('kind', 422);
   try {
-    return json({ chain: await saveChain(administrator.id, input.kind, input.audience, input.entries) });
+    return json({ chain: await saveChain(administrator.id, input.kind, input.audience, input.entries, input.expected) });
   } catch (error) {
     return failed(error);
   }
@@ -35,6 +39,19 @@ export async function POST(request: NextRequest) {
   if (typeof input.id !== 'string' || !UUID.test(input.id)) return fail('not_found', 404);
   try {
     return json({ chain: await addToChain(administrator.id, input.kind, input.audience, input.id) });
+  } catch (error) {
+    return failed(error);
+  }
+}
+
+/** `{ kind, audience?, id, expected }`: takes one entry out of the list the page saw. */
+export async function DELETE(request: NextRequest) {
+  const administrator = await apiAdministrator(request);
+  if (administrator instanceof Response) return administrator;
+  const input = await body(request);
+  if (!isModelKind(input.kind)) return fail('kind', 422);
+  try {
+    return json({ chain: await removeFromChain(administrator.id, input.kind, input.audience, input.id, input.expected) });
   } catch (error) {
     return failed(error);
   }

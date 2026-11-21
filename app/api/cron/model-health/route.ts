@@ -3,7 +3,8 @@ import { fail, json } from '@/lib/http/respond';
 import { timingSafeEqual } from '@/lib/infra/crypto/tokens';
 import { probeCoolingModels } from '@/lib/services/models';
 
-export const maxDuration = 120;
+/* A probe may wait out an entry's timeout (up to 300 s); the entries are probed side by side. */
+export const maxDuration = 300;
 
 /**
  * Vercel Cron (vercel.json), every five minutes: one probe of each listed

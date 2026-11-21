@@ -68,7 +68,8 @@ const aborted = (error: unknown) => error instanceof Error && ['AbortError', 'Ti
 const failure = (error: unknown): { status: CallStatus; errorCode: string } => {
   if (aborted(error)) return { status: 'aborted', errorCode: 'request_aborted' };
   const seen = classifyModelFailure(error);
-  return { status: 'failed', errorCode: seen.kind === 'aborted' ? 'provider_error' : `provider_error:${failureCode(seen)}` };
+  /* Not a provider's error (ours, or one we cannot read): the plain category, as before lists. */
+  return { status: 'failed', errorCode: seen.kind === 'aborted' || (seen.kind === 'caller' && !seen.status) ? 'provider_error' : `provider_error:${failureCode(seen)}` };
 };
 
 export function loggedLanguageModel(model: LanguageModelV4, call: Call): LanguageModelV4 {
@@ -143,7 +144,7 @@ export function loggedLanguageModel(model: LanguageModelV4, call: Call): Languag
               }
               const part = next.value;
               if (part.type === 'response-metadata') requestId = part.id ?? requestId;
-              if (part.type === 'error') { const state = failure(part.error); status = state.status; errorCode = state.errorCode; }
+              if (part.type === 'error') { const state = failure(Object.assign(new Error('stream error'), { cause: part.error, providerStreamError: true })); status = state.status; errorCode = state.errorCode; }
               if (part.type === 'finish') {
                 finished = true; usage = part.usage; metadata = part.providerMetadata;
                 if (part.finishReason.unified === 'error') { status = 'failed'; errorCode = 'provider_error'; }
@@ -157,7 +158,8 @@ export function loggedLanguageModel(model: LanguageModelV4, call: Call): Languag
           },
           async cancel(reason) {
             try { await reader.cancel(reason); }
-            finally { await save(finished ? status : 'aborted', usage, metadata, requestId, finished ? errorCode : 'request_aborted'); }
+            /* Cancelled after the provider reported an error (a failover moving on): the attempt failed, it was not aborted. */
+            finally { await save(finished || errorCode ? status : 'aborted', usage, metadata, requestId, finished || errorCode ? errorCode : 'request_aborted'); }
           },
         });
         return { ...result, stream };

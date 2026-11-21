@@ -425,7 +425,12 @@ export async function transcribeAudio(bytes: Uint8Array, format: AudioFormat): P
   const endpoint = chain[0]!;
   let used = endpoint;
   const links: Link<TranscriptionModelV4>[] = chain.map((entry) => ({ endpoint: entry, position: entry.position ?? null, model: transcriptionModel(entry) }));
-  const model = links.length === 1 ? links[0]!.model : failoverTranscriptionModel(links, (link) => { used = link.endpoint; });
+  /* Each entry gets the piece's whole budget (`callTimeoutMs`), never less than one call had before lists. */
+  const model = links.length === 1 ? links[0]!.model : failoverTranscriptionModel(
+    links,
+    (link) => { used = link.endpoint; },
+    (link, options) => callTimeoutMs(link.endpoint.timeoutMs, localSeconds(options.audio, options.mediaType) ?? null),
+  );
   const results: Awaited<ReturnType<typeof transcribe>>[] = new Array(pieces.length);
   let next = 0;
   /* One piece failing fails the source; the others stop rather than pay for transcripts nobody keeps. */

@@ -57,7 +57,7 @@ describe('generation call logging', () => {
     const error = new Error('provider secret key and prompt');
     vi.mocked(source.doGenerate).mockRejectedValue(error);
     await expect(loggedLanguageModel(source, call).doGenerate({ prompt: [] })).rejects.toBe(error);
-    expect(state.records[0]).toMatchObject({ status: 'failed', costUsd: null, errorCode: 'provider_error:server', usageKnown: false });
+    expect(state.records[0]).toMatchObject({ status: 'failed', costUsd: null, errorCode: 'provider_error', usageKnown: false });
     expect(JSON.stringify(state.records)).not.toContain('provider secret');
   });
   it('counts a failed provider attempt and its successful retry separately', async () => {

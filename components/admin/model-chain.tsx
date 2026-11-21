@@ -73,18 +73,36 @@ export function ChainPanel({ kind, audience, board, onProbe, probing }: {
     toast(code && code in m.errors ? m.errors[code] : t.common.errors.generic);
   };
 
+  /* What the page last read from the server: a list changed since (another administrator) is refused, never overwritten. */
+  const expected = stored.map((entry) => ({ id: entry.configId, active: entry.active }));
+
   const save = async (next: { id: string; active: boolean }[]) => {
     const previous = items;
     setItems(next);
     setBusy(true);
-    const result = await api<{ error?: string }>('/api/admin/models/chain', { method: 'PUT', json: { kind, audience, entries: next } });
+    const result = await api<{ error?: string }>('/api/admin/models/chain', { method: 'PUT', json: { kind, audience, entries: next, expected } });
     setBusy(false);
     if (!result.ok) {
       setItems(previous);
       failed(result.data.error);
+      /* A stale list: show what is stored now. */
+      router.refresh();
       return;
     }
     toast(c.saved);
+    router.refresh();
+  };
+
+  const remove = async (id: string) => {
+    setBusy(true);
+    const result = await api<{ error?: string }>('/api/admin/models/chain', { method: 'DELETE', json: { kind, audience, id, expected } });
+    setBusy(false);
+    if (!result.ok) {
+      failed(result.data.error);
+      router.refresh();
+      return;
+    }
+    toast(c.removed);
     router.refresh();
   };
 
@@ -172,7 +190,7 @@ export function ChainPanel({ kind, audience, board, onProbe, probing }: {
                 <button type="button" className="btn secondary sm" disabled={probing[item.id]} onClick={() => onProbe(config)}>{probing[item.id] ? m.probing : m.probe}</button>
                 {cooling && <button type="button" className="btn secondary sm" disabled={busy} onClick={() => clear(item.id)}>{c.clear}</button>}
                 {!single && <button type="button" className="btn secondary sm" disabled={busy} onClick={() => save(items.map((entry, at) => (at === index ? { ...entry, active: !entry.active } : entry)))}>{item.active ? c.pause : c.resume}</button>}
-                {!single && items.length > 1 && <button type="button" className="btn secondary sm" disabled={busy} onClick={() => save(items.filter((_, at) => at !== index))}>{c.remove}</button>}
+                {!single && items.length > 1 && <button type="button" className="btn secondary sm" disabled={busy} onClick={() => remove(item.id)}>{c.remove}</button>}
               </div>
             </li>
           );

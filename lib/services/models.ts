@@ -297,14 +297,7 @@ function listFor(kind: ModelKind, audience: unknown): ChainAudience {
   return audience;
 }
 
-/**
- * Reorders, pauses, resumes or removes entries of a list -- never adds one
- * (`addToChain` probes first). A list keeps at least one active entry: an
- * empty embedding list would read another space, and no list could be
- * emptied before lists existed either.
- */
-export async function saveChain(administratorId: string, kind: ModelKind, audience: unknown, raw: unknown): Promise<ChainEntryView[]> {
-  const list = listFor(kind, audience);
+function chainItems(raw: unknown): ChainItem[] {
   if (!Array.isArray(raw)) throw new AdminInputError('chain');
   const items: ChainItem[] = raw.map((item) => {
     const entry = item as { id?: unknown; active?: unknown } | null;
@@ -312,19 +305,53 @@ export async function saveChain(administratorId: string, kind: ModelKind, audien
     return { configId: entry.id, active: entry.active };
   });
   if (new Set(items.map((item) => item.configId)).size !== items.length) throw new AdminInputError('chain');
-  if (!items.some((item) => item.active)) throw new AdminInputError('chain_empty');
+  return items;
+}
+
+const sameItems = (a: readonly ChainItem[], b: readonly ChainItem[]) =>
+  a.length === b.length && a.every((item, index) => item.configId === b[index]!.configId && item.active === b[index]!.active);
+
+/**
+ * Changes a list the page saw as `expected` (its entries in order, each
+ * active or not): anything else stored since -- another administrator's
+ * addition, removal or reorder -- answers `stale` and changes nothing.
+ */
+async function changeChain(administratorId: string, kind: ModelKind, list: ChainAudience, expected: ChainItem[], next: (current: ChainItem[]) => ChainItem[]): Promise<ChainEntryView[]> {
   const saved = await db().transaction(async (tx) => {
     await lockKind(tx, kind);
-    const current = await readChain(tx, kind, list);
-    const known = new Set(current.map((row) => row.modelConfigId));
-    if (items.some((item) => !known.has(item.configId))) throw new AdminInputError('stale');
-    const before = current.map((row) => ({ configId: row.modelConfigId, active: row.active }));
-    await writeChain(tx, kind, list, items, administratorId);
-    await audit(tx, { administratorId, action: 'model.chain.update', target: chainKey(kind, list), before, after: items });
+    const before = (await readChain(tx, kind, list)).map((row) => ({ configId: row.modelConfigId, active: row.active }));
+    if (!sameItems(before, expected)) throw new AdminInputError('stale');
+    const after = next(before);
+    /* A list keeps an active entry: an empty embedding list would read another space, and no list could be emptied before lists existed either. */
+    if (!after.some((item) => item.active)) throw new AdminInputError('chain_empty');
+    await writeChain(tx, kind, list, after, administratorId);
+    await audit(tx, { administratorId, action: 'model.chain.update', target: chainKey(kind, list), before, after });
     return readChain(tx, kind, list);
   });
   forgetModelCache();
   return saved.map((row) => ({ configId: row.modelConfigId, position: row.position, active: row.active }));
+}
+
+/**
+ * Reorders, pauses or resumes a list's entries: `entries` must hold exactly
+ * the entries the page saw (`expected`) -- removing one is `removeFromChain`,
+ * adding one `addToChain`.
+ */
+export async function saveChain(administratorId: string, kind: ModelKind, audience: unknown, raw: unknown, rawExpected: unknown): Promise<ChainEntryView[]> {
+  const list = listFor(kind, audience);
+  const items = chainItems(raw);
+  const expected = chainItems(rawExpected);
+  const ids = (entries: ChainItem[]) => entries.map((item) => item.configId).sort().join(',');
+  if (ids(items) !== ids(expected)) throw new AdminInputError('chain');
+  return changeChain(administratorId, kind, list, expected, () => items);
+}
+
+/** Takes one entry out of a list the page saw as `expected`. */
+export async function removeFromChain(administratorId: string, kind: ModelKind, audience: unknown, id: unknown, rawExpected: unknown): Promise<ChainEntryView[]> {
+  const list = listFor(kind, audience);
+  const expected = chainItems(rawExpected);
+  if (typeof id !== 'string' || !expected.some((item) => item.configId === id)) throw new AdminInputError('stale');
+  return changeChain(administratorId, kind, list, expected, (current) => current.filter((item) => item.configId !== id));
 }
 
 /** The text both embedding entries embed to show they share a space. */
@@ -414,15 +441,13 @@ export async function probeCoolingModels(now = new Date()): Promise<{ probed: nu
       and ${schema.modelHealth.reason} in ('quota', 'auth', 'model_missing')
       and (${schema.modelHealth.lastProbeAt} is null or ${schema.modelHealth.lastProbeAt} <= ${new Date(now.getTime() - HEALTH_PROBE_EVERY_MS)})
       and exists (select 1 from ${schema.modelChain} c where c.model_config_id = ${schema.modelConfig.id} and c.active)`);
-  let recovered = 0;
-  for (const { config } of due) {
+  /* Side by side: one slow entry must not hold the others past the cron's time. */
+  const outcomes = await Promise.allSettled(due.map(async ({ config }) => {
     const result = await probeEndpoint(await consoleEndpoint(config));
     await database.update(schema.modelHealth).set({ lastProbeAt: now }).where(eq(schema.modelHealth.modelConfigId, config.id));
     await database.update(schema.modelConfig).set({ lastProbeAt: now, lastProbeOk: result.ok }).where(eq(schema.modelConfig.id, config.id));
-    if (result.ok) {
-      await reportSuccess({ configId: config.id, kind: config.kind, name: config.name, model: config.model }, now, 'probe');
-      recovered += 1;
-    }
-  }
-  return { probed: due.length, recovered };
+    if (result.ok) await reportSuccess({ configId: config.id, kind: config.kind, name: config.name, model: config.model }, now, 'probe');
+    return result.ok;
+  }));
+  return { probed: due.length, recovered: outcomes.filter((outcome) => outcome.status === 'fulfilled' && outcome.value).length };
 }

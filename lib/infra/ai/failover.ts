@@ -11,6 +11,7 @@
 import type { EmbeddingModel, LanguageModel, TranscriptionModel } from 'ai';
 import { attemptOrder, classifyModelFailure, switches, type ChainEntry } from '@/lib/domain/model-failover';
 import { healthSnapshot, reportFailure, reportSuccess } from '@/lib/infra/ai/model-health';
+import { ProviderCostUnavailable } from '@/lib/domain/provider-cost';
 import type { ModelEndpoint } from '@/lib/infra/ai/models';
 
 /* `@ai-sdk/provider` is not a direct dependency: the v4 shapes, from the `ai` unions. */
@@ -55,11 +56,23 @@ const subject = (endpoint: ModelEndpoint) => ({ configId: endpoint.configId, kin
  * are the request's own (bad parameters, the caller's abort) are thrown at
  * once; the last candidate's error is thrown when all fail.
  */
+/**
+ * How long one attempt may take before the next entry is tried: never less
+ * than the caller gave a single call before lists existed (null: no timer,
+ * the caller's own budget decides).
+ */
+export type AttemptBudget<M> = (link: Link<M>) => number | null;
+
+/** Pricing missing for this entry in a metered run: the entry cannot be used here, which says nothing about the model. */
+function unpriced(error: unknown): boolean {
+  return error instanceof ProviderCostUnavailable && error.code === 'pricing_unavailable';
+}
+
 export async function tryInOrder<M, T>(
   links: readonly Link<M>[],
   caller: AbortSignal | undefined,
   attempt: (link: Link<M>, signal: AbortSignal | undefined, timer: AttemptTimer | null) => Promise<T>,
-  served?: (link: Link<M>) => void,
+  options: { served?: (link: Link<M>) => void; budget?: AttemptBudget<M> } = {},
 ): Promise<T> {
   const now = new Date();
   const entries: ChainEntry<Link<M>>[] = links.map((link, index) => ({ configId: link.endpoint.configId ?? `environment:${index}`, position: link.position ?? index, value: link }));
@@ -67,13 +80,19 @@ export async function tryInOrder<M, T>(
   let lastError: unknown;
   for (const [index, link] of order.entries()) {
     const last = index === order.length - 1;
-    const timer = last ? null : new AttemptTimer(link.endpoint.timeoutMs);
+    const ms = last ? null : (options.budget ? options.budget(link) : link.endpoint.timeoutMs);
+    const timer = ms === null ? null : new AttemptTimer(ms);
     try {
       const result = await attempt(link, joined(caller, timer), timer);
       void reportSuccess(subject(link.endpoint)).catch(() => undefined);
-      served?.(link);
+      options.served?.(link);
       return result;
     } catch (error) {
+      if (unpriced(error) && !caller?.aborted) {
+        lastError = error;
+        if (last) break;
+        continue;
+      }
       const failure = classifyModelFailure(error, { callerAborted: Boolean(caller?.aborted), timedOut: Boolean(timer?.fired) });
       if (!switches(failure)) throw error;
       lastError = error;
@@ -87,6 +106,14 @@ export async function tryInOrder<M, T>(
   }
   throw lastError;
 }
+
+/**
+ * A whole generation: the longest single-call budget a caller gave before
+ * lists (two of the entry's timeouts, at least 30 s each: synthesis, Ree
+ * answers). A stream's timer runs only to its first content: the entry's
+ * own timeout.
+ */
+const generationBudget: AttemptBudget<LanguageModelV4> = (link) => Math.max(link.endpoint.timeoutMs, 30_000) * 2;
 
 type StreamPart = Awaited<ReturnType<LanguageModelV4['doStream']>>['stream'] extends ReadableStream<infer Part> ? Part : never;
 /** Parts that carry nothing the asker sees: held back, and an error after them still switches. */
@@ -104,7 +131,7 @@ export function failoverLanguageModel(links: readonly Link<LanguageModelV4>[]): 
       return tryInOrder(links, options.abortSignal, async (link, abortSignal) => {
         const result = await link.model.doGenerate({ ...options, abortSignal });
         return { ...result, response: { ...result.response, modelId: link.endpoint.model } };
-      });
+      }, { budget: generationBudget });
     },
     async doStream(options) {
       return tryInOrder(links, options.abortSignal, async (link, abortSignal, timer) => {
@@ -120,7 +147,8 @@ export function failoverLanguageModel(links: readonly Link<LanguageModelV4>[]): 
             const next = await reader.read();
             if (next.done) { done = true; break; }
             const part = next.value;
-            if (part.type === 'error') throw part.error instanceof Error ? part.error : Object.assign(new Error('stream error'), { cause: part.error });
+            /* The provider wrote it: marked so the failover rules read it as the provider's (lib/domain/model-failover.ts). */
+            if (part.type === 'error') throw Object.assign(new Error('stream error'), { cause: part.error, providerStreamError: true });
             head.push(named(part));
             if (!BEFORE_CONTENT.has(part.type)) break;
           }
@@ -169,19 +197,28 @@ export function failoverEmbeddingModel(links: readonly Link<EmbeddingModelV4>[],
     }),
     supportsParallelCalls: Promise.all(links.map((link) => link.model.supportsParallelCalls)).then((all) => all.every(Boolean)),
     async doEmbed(options) {
-      return tryInOrder(links, options.abortSignal, (link, abortSignal) => Promise.resolve(link.model.doEmbed({ ...options, abortSignal })), served);
+      /* No timer of its own: a batch's budget (embedding-batches.ts) is the most a single call ever had. */
+      return tryInOrder(links, options.abortSignal, (link, abortSignal) => Promise.resolve(link.model.doEmbed({ ...options, abortSignal })), { served, budget: () => null });
     },
   };
 }
 
-export function failoverTranscriptionModel(links: readonly Link<TranscriptionModelV4>[], served?: (link: Link<TranscriptionModelV4>) => void): TranscriptionModelV4 {
+/** `budget(link, options)`: the piece's own call budget for that entry (transcription.ts `callTimeoutMs`). */
+export function failoverTranscriptionModel(
+  links: readonly Link<TranscriptionModelV4>[],
+  served?: (link: Link<TranscriptionModelV4>) => void,
+  budget?: (link: Link<TranscriptionModelV4>, options: Parameters<TranscriptionModelV4['doGenerate']>[0]) => number | null,
+): TranscriptionModelV4 {
   const head = links[0]!;
   return {
     specificationVersion: 'v4',
     provider: head.model.provider,
     modelId: head.endpoint.model,
     async doGenerate(options) {
-      return tryInOrder(links, options.abortSignal, (link, abortSignal) => Promise.resolve(link.model.doGenerate({ ...options, abortSignal })), served);
+      return tryInOrder(links, options.abortSignal, (link, abortSignal) => Promise.resolve(link.model.doGenerate({ ...options, abortSignal })), {
+        served,
+        budget: budget ? (link) => budget(link, options) : () => null,
+      });
     },
   };
 }

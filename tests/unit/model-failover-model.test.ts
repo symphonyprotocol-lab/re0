@@ -1,7 +1,7 @@
 /** The failover model over a list (lib/infra/ai/failover.ts), on fake providers and this instance's health alone (no database). */
 import { APICallError, generateText, streamText } from 'ai';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { failoverEmbeddingModel, failoverLanguageModel, type EmbeddingModelV4, type LanguageModelV4, type Link } from '@/lib/infra/ai/failover';
+import { failoverEmbeddingModel, failoverLanguageModel, failoverTranscriptionModel, type EmbeddingModelV4, type LanguageModelV4, type Link, type TranscriptionModelV4 } from '@/lib/infra/ai/failover';
 import { forgetHealthCache, healthOf } from '@/lib/infra/ai/model-health';
 import type { ModelEndpoint } from '@/lib/infra/ai/models';
 import { COOLING } from '@/lib/domain/model-failover';
@@ -98,18 +98,64 @@ describe('failoverLanguageModel', () => {
     expect(backup.doGenerate).toHaveBeenCalledTimes(2);
   });
 
-  it('times out a slow attempt with the entry’s own timeout and moves on', async () => {
+  /* Review S2: an attempt has at least the budget a single call had before lists (two timeouts, 30 s each at least). */
+  const slowThen = (ms: number, answer: string) => {
+    const model = fake(answer);
+    vi.mocked(model.doGenerate).mockImplementation((options) => new Promise((resolve, reject) => {
+      const done = setTimeout(() => resolve({ content: [{ type: 'text', text: answer }], finishReason: { unified: 'stop', raw: 'stop' }, usage, warnings: [] }), ms);
+      options.abortSignal?.addEventListener('abort', () => { clearTimeout(done); reject(options.abortSignal!.reason); });
+    }));
+    return model;
+  };
+
+  it('lets a slow primary finish within the old single-call budget', async () => {
     vi.useFakeTimers();
     try {
-      const slow = fake('slow');
-      vi.mocked(slow.doGenerate).mockImplementation((options) => new Promise((_, reject) => {
-        options.abortSignal?.addEventListener('abort', () => reject(options.abortSignal!.reason));
-      }));
-      const pending = failoverLanguageModel(links(slow, fake('fast'))).doGenerate({ prompt: [] });
-      await vi.advanceTimersByTimeAsync(5_001);
-      const result = await pending;
-      expect(result.content).toEqual([{ type: 'text', text: 'fast' }]);
+      const backup = fake('fast');
+      const pending = failoverLanguageModel(links(slowThen(45_000, 'slow but done'), backup)).doGenerate({ prompt: [] });
+      await vi.advanceTimersByTimeAsync(45_001);
+      expect((await pending).content).toEqual([{ type: 'text', text: 'slow but done' }]);
+      expect(backup.doGenerate).not.toHaveBeenCalled();
+      expect((await healthOf('cfg-0')).consecutiveFailures).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('moves on once that budget is spent', async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = failoverLanguageModel(links(slowThen(600_000, 'never'), fake('fast'))).doGenerate({ prompt: [] });
+      await vi.advanceTimersByTimeAsync(60_001);
+      expect((await pending).content).toEqual([{ type: 'text', text: 'fast' }]);
       expect((await healthOf('cfg-0')).lastErrorCode).toBe('timeout');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives a stream its entry’s timeout only until the first content', async () => {
+    vi.useFakeTimers();
+    try {
+      const primary = fake('primary');
+      vi.mocked(primary.doStream).mockImplementation(async () => ({
+        stream: new ReadableStream<Part>({ async start(c) {
+          c.enqueue({ type: 'stream-start', warnings: [] });
+          c.enqueue({ type: 'text-start', id: 't' });
+          c.enqueue({ type: 'text-delta', id: 't', delta: 'first ' });
+          await new Promise((resolve) => setTimeout(resolve, 20_000));
+          c.enqueue({ type: 'text-delta', id: 't', delta: 'then the rest' });
+          c.enqueue({ type: 'text-end', id: 't' });
+          c.enqueue(finish);
+          c.close();
+        } }),
+      }));
+      const backup = fake('backup');
+      const result = streamText({ model: failoverLanguageModel(links(primary, backup)), prompt: 'hi', maxRetries: 0 });
+      const text = result.text;
+      await vi.advanceTimersByTimeAsync(20_001);
+      expect(await text).toBe('first then the rest');
+      expect(backup.doStream).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -192,7 +238,7 @@ describe('failoverEmbeddingModel', () => {
   it('moves a batch to the same-model backup and reports which entry took it', async () => {
     const served: string[] = [];
     const list: Link<EmbeddingModelV4>[] = [
-      { endpoint: { ...endpoint('e-0', 'openai/text-embedding-3-small', 0), kind: 'embedding' }, position: 0, model: embedder([1, 0], api(429, 'insufficient_quota'), 2048) },
+      { endpoint: { ...endpoint('e-0', 'openai/text-embedding-3-small', 0), kind: 'embedding' }, position: 0, model: embedder([1, 0], api(429, '{"error":{"code":"insufficient_quota"}}'), 2048) },
       { endpoint: { ...endpoint('e-1', 'text-embedding-3-small', 1), kind: 'embedding' }, position: 1, model: embedder([1, 0], undefined, 100) },
     ];
     const model = failoverEmbeddingModel(list, (link) => served.push(link.endpoint.configId!));
@@ -201,5 +247,31 @@ describe('failoverEmbeddingModel', () => {
     expect(result.embeddings).toHaveLength(2);
     expect(served).toEqual(['e-1']);
     expect((await healthOf('e-0')).reason).toBe('quota');
+  });
+});
+
+describe('failoverTranscriptionModel', () => {
+  it('gives each entry the piece’s own budget, not the entry’s bare timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const slow: TranscriptionModelV4 = {
+        specificationVersion: 'v4', provider: 'test', modelId: 'w',
+        doGenerate: vi.fn((options: Parameters<TranscriptionModelV4['doGenerate']>[0]) => new Promise<Awaited<ReturnType<TranscriptionModelV4['doGenerate']>>>((resolve, reject) => {
+          const done = setTimeout(() => resolve({ text: 'slow piece', segments: [], language: 'en', durationInSeconds: 600, warnings: [], response: { timestamp: new Date(), modelId: 'w' } }), 90_000);
+          options.abortSignal?.addEventListener('abort', () => { clearTimeout(done); reject(options.abortSignal!.reason); });
+        })),
+      };
+      const backup: TranscriptionModelV4 = { ...slow, doGenerate: vi.fn() };
+      const list: Link<TranscriptionModelV4>[] = [
+        { endpoint: { ...endpoint('t-0', 'whisper-1', 0), kind: 'transcription', timeoutMs: 60_000 }, position: 0, model: slow },
+        { endpoint: { ...endpoint('t-1', 'whisper-1', 1), kind: 'transcription' }, position: 1, model: backup },
+      ];
+      const pending = failoverTranscriptionModel(list, undefined, () => 120_000).doGenerate({ audio: new Uint8Array(1), mediaType: 'audio/wav' });
+      await vi.advanceTimersByTimeAsync(90_001);
+      expect((await pending).text).toBe('slow piece');
+      expect(backup.doGenerate).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
