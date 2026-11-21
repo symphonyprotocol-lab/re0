@@ -1272,6 +1272,8 @@ export const post = pgTable(
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     publishedAt: timestampTz('published_at'),
+    /** When a run claimed it (`answer_state` 'answering'): how long that run has had, for the sweep (null before 0073: read as `published_at`). */
+    answeringAt: timestampTz('answering_at'),
     answeredAt: timestampTz('answered_at'),
   },
   (t) => [
@@ -1328,9 +1330,9 @@ export const postFollowup = pgTable(
     candidates: integer('candidates').notNull().default(0),
     skipped: integer('skipped').notNull().default(0),
     /**
-     * Asked by the author of a public post no Ree answered, under their AI
-     * answer (继续问 AI): answered by the AI only, seen by the author only,
-     * never reviewed nor counted in `post.followup_count` (ai-answers.ts).
+     * Asked under the AI answer of a public post no Ree answered (继续问
+     * AI): answered by the AI only, at the asker's cost; reviewed, public
+     * and counted like any follow-up since 0072 (ai-answers.ts).
      */
     aiOnly: boolean('ai_only').notNull().default(false),
     /** The composer's token: the same token, or the same text under the same post within a minute, asks once. */
@@ -1340,6 +1342,8 @@ export const postFollowup = pgTable(
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     publishedAt: timestampTz('published_at'),
+    /** When a run claimed it (`answer_state` 'answering'): how long that run has had, for the sweep (null before 0073: read as `published_at`). */
+    answeringAt: timestampTz('answering_at'),
     answeredAt: timestampTz('answered_at'),
   },
   (t) => [
@@ -1541,6 +1545,10 @@ export const postAiAnswer = pgTable(
      */
     review: text('review').$type<AiAnswerReview>(),
     reviewAttempts: integer('review_attempts').notNull().default(0),
+    /** Distinct reporters (`post_ai_answer_report`); at `PUBLIC_QA_REPORT_THRESHOLD` it is refused (`review` 'rejected', `hidden_by` 'reports'). */
+    reportCount: integer('report_count').notNull().default(0),
+    /** Taken down after it passed review -- by reports or an administrator -- with `review` set to 'rejected'; an administrator may restore it. */
+    hiddenBy: text('hidden_by').$type<'reports' | 'admin'>(),
     /** When it started running (again, after a by-hand retry): what the sweep times it by. */
     startedAt: timestampTz('started_at'),
     createdAt: createdAt(),
@@ -1556,7 +1564,19 @@ export const postAiAnswer = pgTable(
     check('post_ai_answer_vote_check', sql`vote is null or vote in ('helpful', 'unhelpful')`),
     check('post_ai_answer_review_check', sql`review is null or review in ('pending', 'passed', 'rejected')`),
     check('post_ai_answer_text_check', sql`char_length(text) <= ${sql.raw(String(PUBLIC_QA_ANSWER_MAX_CHARS))}`),
+    check('post_ai_answer_hidden_by_check', sql`hidden_by is null or hidden_by in ('reports', 'admin')`),
   ],
+);
+
+/** "举报" on an AI answer anyone may read: one per reporter, the account or an HMAC of the visitor's network (as `post_answer_report`). */
+export const postAiAnswerReport = pgTable(
+  'post_ai_answer_report',
+  {
+    aiAnswerId: uuid('ai_answer_id').notNull().references(() => postAiAnswer.id, { onDelete: 'cascade' }),
+    reporterKey: text('reporter_key').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.aiAnswerId, t.reporterKey] })],
 );
 
 /* ------------------------------------------------------------- step 5 */

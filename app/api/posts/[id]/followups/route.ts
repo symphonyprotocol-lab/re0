@@ -20,8 +20,10 @@ const ids = (value: unknown): string[] => (Array.isArray(value) ? value.filter((
  * 402 with the balance below one base fee; 429 `daily_limit` /
  * `post_daily_limit`; 409 `full`; 404 for a post that cannot be seen;
  * 422 `empty` / `too_long` / `no_candidates`. On a public post no Ree
- * answered, only its author may ask, under their AI answer (继续问 AI): the
- * AI answers it and nobody else sees it; anyone else gets `no_candidates`.
+ * answered, anyone signed in may ask under its AI answer (继续问 AI) once that
+ * answer passed review (its author at once): reviewed and public like any
+ * follow-up, the AI answers it, and whoever asks pays; before that anyone
+ * else gets `no_candidates`.
  *
  * On a private post (私密提问), only its author, with `{addReeIds?, fees}`
  * too: no review, the Rees chosen and charged before the response at the

@@ -16,7 +16,8 @@
  *      - billing is per answer (2026-11-19): each free Ree of someone else
  *        holds the author's base fee, most relevant first, and answers; one
  *        the balance cannot cover, and every paid Ree, waits as a request
- *        the author agrees to (`agreePaidAnswer`). The author's own Rees and
+ *        the author agrees to (`agreePaidAnswer`). The author's own Rees hold
+ *        the base fee too, only their query fee waived (2026-11-19 review);
  *        RE0's example posts charge nobody;
  *      - each answer settles its own hold: the base fee to the platform when
  *        it answered, given back when it did not.
@@ -75,14 +76,14 @@ import {
 import { PUBLIC_QA_MODERATION_ATTEMPTS, PUBLIC_QA_REPORT_THRESHOLD, plainOf, previewOf, redact } from '@/lib/domain/public-qa';
 import { cleanSynthesis, letterAnswers, synthesisInstructions, synthesisPrompt } from '@/lib/domain/synthesis';
 import { QUERY_BASE_FEE } from '@/lib/constants';
-import { db, schema, type Executor } from '@/lib/infra/db';
+import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { maxCostFor, readyRees, streamGroundedAnswer, type Emit } from '@/lib/services/grounded-answer';
 import { embedQuestion, retrieve, type QuestionVector } from '@/lib/services/retrieval';
 import { balanceOf, creditQueryFee, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
 import { publicRee, searchRees } from '@/lib/services/explore';
 import { generationForUser } from '@/lib/services/generation';
 import { audit } from '@/lib/services/admin';
-import { aiAnswersFor, aiRoundKey, answerWithAi, type AiAnswerer } from '@/lib/services/ai-answers';
+import { adminAiAnswers, aiAnswersFor, aiRoundKey, answerWithAi, type AdminAiAnswer, type AiAnswerer } from '@/lib/services/ai-answers';
 import { notify } from '@/lib/services/notices';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
 import { questionRewriter } from '@/lib/services/question-rewrite';
@@ -501,7 +502,8 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
   }
   /* A private post is answered by the Rees its author chose (private-posts.ts), never matched. */
   if (row.status !== 'published' || row.answerState !== 'waiting' || row.visibility === 'private') return;
-  const [claimed] = await db().update(post).set({ answerState: 'answering' }).where(and(eq(post.id, id), eq(post.answerState, 'waiting'))).returning({ id: post.id });
+  /* `answeringAt`: the sweep times a dead run from its claim, not from publishing (review S3). */
+  const [claimed] = await db().update(post).set({ answerState: 'answering', answeringAt: now() }).where(and(eq(post.id, id), eq(post.answerState, 'waiting'))).returning({ id: post.id });
   if (!claimed) return;
   const subject = [row.question, row.detail].filter(Boolean).join('\n');
   /* The quote, if it can still be seen: its question also steers which Rees are asked. */
@@ -598,7 +600,7 @@ export async function finishPost(id: string, now = new Date()): Promise<void> {
 }
 
 export interface SweepOptions {
-  /** How long the sweep keeps starting new posts; work already started finishes. */
+  /** How long the sweep keeps starting new work, checked before every row of every step; work already started finishes. */
   budgetMs?: number;
   concurrency?: number;
   now?: Date;
@@ -615,43 +617,50 @@ export interface SweepOptions {
  *      `concurrency` at a time, until `budgetMs` has passed. Each claims its
  *      state first, so the request's own background work and the sweep never
  *      answer a post twice.
+ * Every step checks what is left of `budgetMs` before each row and hands
+ * the rest on (review S2): a run near the route's limit stops between rows
+ * rather than being killed in the middle of one, and the next run carries on.
  * Answers how many posts it handled.
  */
 export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOptions = {}): Promise<number> {
   const now = options.now ?? new Date();
-  const started = Date.now();
-  const budget = options.budgetMs ?? POST_SWEEP_BUDGET_MS;
+  const deadline = Date.now() + (options.budgetMs ?? POST_SWEEP_BUDGET_MS);
+  const left = () => deadline - Date.now();
   let handled = 0;
-  for (;;) {
+  for (let full = true; full && left() > 0; ) {
     const stuck = await db()
       .select({ id: post.id })
       .from(post)
       .where(and(eq(post.status, 'pending'), sql`${post.moderationAttempts} >= ${PUBLIC_QA_MODERATION_ATTEMPTS}`, lt(post.createdAt, new Date(now.getTime() - POST_ANSWERING_STALE_MS))))
       .limit(100);
-    for (const row of stuck) await rejectPost(row.id, now);
-    handled += stuck.length;
-    if (stuck.length < 100 || Date.now() - started > budget) break;
+    for (const row of stuck) {
+      if (left() <= 0) break;
+      await rejectPost(row.id, now);
+      handled += 1;
+    }
+    full = stuck.length === 100;
   }
-  handled += await sweepPaidRequests(now);
-  /* Follow-ups (追问) the request left behind: the same three steps, cheap first. */
-  const followups = await import('@/lib/services/post-followups');
-  handled += await followups.settleStaleFollowups(now, deps);
-  handled += await (await import('@/lib/services/ai-answers')).sweepAiAnswers(now, deps);
-  for (;;) {
+  if (left() > 0) handled += await sweepPaidRequests(now);
+  /* Runs that died while answering, oldest claim first: each settled and given the AI answer it never got to, one post at a time. */
+  for (let full = true; full && left() > 0; ) {
     const dead = await db()
       .select({ id: post.id })
       .from(post)
-      .where(and(eq(post.answerState, 'answering'), lt(post.publishedAt, new Date(now.getTime() - POST_ANSWERING_STALE_MS))))
-      .orderBy(asc(post.publishedAt))
+      .where(and(eq(post.answerState, 'answering'), sql`coalesce(${post.answeringAt}, ${post.publishedAt}) < ${new Date(now.getTime() - POST_ANSWERING_STALE_MS)}`))
+      .orderBy(sql`coalesce(${post.answeringAt}, ${post.publishedAt})`)
       .limit(100);
     for (const row of dead) {
+      if (left() <= 0) break;
       await finishPost(row.id, now);
-      /* Settled here with no Ree answer: the AI answer its run never got to. */
       await answerWithAi(row.id, null, deps).catch((error: unknown) => console.warn(`post ${row.id} ai answer failed: ${error instanceof Error ? error.message : 'unknown'}`));
+      handled += 1;
     }
-    handled += dead.length;
-    if (dead.length < 100 || Date.now() - started > budget) break;
+    full = dead.length === 100;
   }
+  /* Follow-ups (追问) the request left behind, then AI answers to review: the same steps, cheap first. */
+  const followups = await import('@/lib/services/post-followups');
+  if (left() > 0) handled += await followups.settleStaleFollowups(now, deps, { budgetMs: left() });
+  if (left() > 0) handled += await (await import('@/lib/services/ai-answers')).sweepAiAnswers(now, deps, { budgetMs: left() });
   const waiting = await db()
     .select({ id: post.id })
     .from(post)
@@ -665,14 +674,14 @@ export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOp
     .limit(500);
   let next = 0;
   const worker = async () => {
-    while (next < waiting.length && Date.now() - started < budget) {
+    while (next < waiting.length && left() > 0) {
       const row = waiting[next++]!;
       await processPost(row.id, deps).catch((error: unknown) => console.warn(`post ${row.id} sweep failed: ${error instanceof Error ? error.message : 'unknown'}`));
       handled += 1;
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, options.concurrency ?? POST_SWEEP_CONCURRENCY) }, worker));
-  if (Date.now() - started < budget) handled += await followups.processWaitingFollowups(deps, { budgetMs: budget - (Date.now() - started), concurrency: options.concurrency, now });
+  if (left() > 0) handled += await followups.processWaitingFollowups(deps, { budgetMs: left(), concurrency: options.concurrency, now });
   return handled;
 }
 
@@ -970,7 +979,8 @@ export async function listFeed(tab: FeedTab, options: { cursor?: string | null; 
   let boundary: SQL | undefined;
   if (options.cursor) {
     if (!isUuid(options.cursor)) return { items: [], next: null };
-    const [cursor] = await db().select({ at: post.publishedAt, id: post.id }).from(post).where(eq(post.id, options.cursor)).limit(1);
+    /* Only a public post can be a cursor: a private one's id must not tell that it exists, or when it was posted. One taken down since keeps paging. */
+    const [cursor] = await db().select({ at: post.publishedAt, id: post.id }).from(post).where(and(eq(post.id, options.cursor), eq(post.visibility, 'public'))).limit(1);
     if (!cursor?.at) return { items: [], next: null };
     boundary = sql`(${post.publishedAt}, ${post.id}) < (${cursor.at.toISOString()}::timestamptz, ${cursor.id}::uuid)`;
   }
@@ -980,13 +990,30 @@ export async function listFeed(tab: FeedTab, options: { cursor?: string | null; 
   return { items: await viewsOf(rows.slice(0, size), options.viewerId, { whole: false }), next: rows.length > size ? rows[size - 1]!.id : null };
 }
 
-/** Posts waiting for an answer, for the rail's card. */
-export async function unansweredCount(): Promise<number> {
-  const [row] = await db()
-    .select({ n: sql<number>`count(*)::int` })
-    .from(post)
-    .where(and(visiblePost(), unanswered()));
-  return row?.n ?? 0;
+/** How long the rail's 待回答 count is reused (review S7): a scan of every public post, on every home page, for a number nobody reads to the minute. */
+export const UNANSWERED_COUNT_TTL_MS = 60_000;
+let unansweredMemo: { at: number; count: Promise<number> } | null = null;
+
+/**
+ * Posts waiting for an answer, for the rail's card: counted at most once a
+ * minute per server instance, concurrent renders sharing the one count. A
+ * failed count is not kept.
+ */
+export async function unansweredCount(now = Date.now()): Promise<number> {
+  if (unansweredMemo && now - unansweredMemo.at < UNANSWERED_COUNT_TTL_MS) return unansweredMemo.count;
+  const memo = {
+    at: now,
+    count: db()
+      .select({ n: sql<number>`count(*)::int` })
+      .from(post)
+      .where(and(visiblePost(), unanswered()))
+      .then(([row]) => row?.n ?? 0),
+  };
+  unansweredMemo = memo;
+  memo.count.catch(() => {
+    if (unansweredMemo === memo) unansweredMemo = null;
+  });
+  return memo.count;
 }
 
 /**
@@ -1321,23 +1348,40 @@ const refunded = (): SQL => and(inArray(answer.state, ['failed', 'no_answer']), 
  */
 const retryable = (): SQL => and(eq(answer.state, 'failed'), isNotNull(answer.decidedAt), isNotNull(answer.baseHoldId), lt(answer.agreements, POST_PAID_AGREE_MAX))!;
 
+/** Thrown inside the hold's savepoint when the answer is no longer running: the hold is rolled back with it. */
+class AnswerSettled extends Error {}
+
 /**
- * Holds the author's base fee for one free Ree's automatic answer. Without
- * the balance the answer waits for the author instead (`awaiting`), like a
- * paid Ree's, and false is returned.
+ * Holds the author's base fee for one free Ree's automatic answer, in the
+ * caller's transaction (a savepoint). Only while the answer is still
+ * `answering`: a sweep that settled the run meanwhile (review S3) leaves
+ * nothing to hold for, so the hold is rolled back and false returned.
+ * Without the balance the answer waits for the author instead
+ * (`awaiting`), like a paid Ree's, and false is returned.
  */
-export async function holdBaseFee(userId: string, answerId: string, reeId: string, now: Date): Promise<boolean> {
+export async function holdBaseFeeIn(tx: Tx, userId: string, answerId: string, reeId: string, now: Date): Promise<boolean> {
   try {
-    await db().transaction(async (tx) => {
-      const baseHoldId = await placeHold(tx, { userId, kind: 'post', ledger: 'post_answer', amount: QUERY_BASE_FEE, refId: answerId, reeId, note: 'post answer' }, now);
-      await tx.update(answer).set({ baseHoldId, price: QUERY_BASE_FEE }).where(eq(answer.id, answerId));
+    await tx.transaction(async (savepoint) => {
+      const baseHoldId = await placeHold(savepoint, { userId, kind: 'post', ledger: 'post_answer', amount: QUERY_BASE_FEE, refId: answerId, reeId, note: 'post answer' }, now);
+      const held = await savepoint
+        .update(answer)
+        .set({ baseHoldId, price: QUERY_BASE_FEE })
+        .where(and(eq(answer.id, answerId), eq(answer.state, 'answering')))
+        .returning({ id: answer.id });
+      if (!held.length) throw new AnswerSettled();
     });
     return true;
   } catch (error) {
+    if (error instanceof AnswerSettled) return false;
     if (!(error instanceof InsufficientCredits)) throw error;
-    await db().update(answer).set({ state: 'awaiting' }).where(and(eq(answer.id, answerId), eq(answer.state, 'answering')));
+    await tx.update(answer).set({ state: 'awaiting' }).where(and(eq(answer.id, answerId), eq(answer.state, 'answering')));
     return false;
   }
+}
+
+/** `holdBaseFeeIn` in a transaction of its own. */
+export async function holdBaseFee(userId: string, answerId: string, reeId: string, now: Date): Promise<boolean> {
+  return db().transaction((tx) => holdBaseFeeIn(tx, userId, answerId, reeId, now));
 }
 
 /**
@@ -1477,15 +1521,16 @@ export async function requestReeAnswer(userId: string, postId: string, reeId: st
     const round = await tx.select({ reeId: answer.reeId, state: answer.state }).from(answer).where(and(eq(answer.postId, postId), firstRound()));
     if (round.some((entry) => entry.reeId === reeId)) return 'already' as const;
     if (round.some((entry) => ['queued', 'answering', 'awaiting'].includes(entry.state))) return 'busy' as const;
+    /* The base fee is held in this transaction: no row is left answering without one (review S1). */
     const [row] = await tx
       .insert(answer)
       .values({ postId, reeId, mentioned: true, similarity: null, state: paid ? 'awaiting' : 'answering', createdAt: now })
       .returning({ id: answer.id });
-    return row!.id;
+    if (paid) return { id: row!.id, state: 'awaiting' as const };
+    return { id: row!.id, state: (await holdBaseFeeIn(tx, userId, row!.id, reeId, now)) ? ('answering' as const) : ('awaiting' as const) };
   });
   if (made === 'already' || made === 'busy') return { ok: false, error: made };
-  if (paid) return { ok: true, id: made, state: 'awaiting' };
-  return (await holdBaseFee(userId, made, reeId, now)) ? { ok: true, id: made, state: 'answering' } : { ok: true, id: made, state: 'awaiting' };
+  return { ok: true, id: made.id, state: made.state };
 }
 
 /** The author does not want this Ree's answer: it is gone for good. Nothing was charged for it. */
@@ -1566,15 +1611,17 @@ export async function closeAnswer(id: string, result: AnswerResult, now: Date): 
 
 /**
  * The sweep's part for answers on request: requests whose Ree can no longer
- * answer are closed, and answers agreed to that no live run finished get
- * their holds back (the author may agree again).
+ * answer are closed, and answers holding a fee that no live run finished get
+ * their holds back -- agreed to (the author may agree again; timed from the
+ * agreement) or asked for by "请 Ree 回答" on a free Ree (timed from the
+ * request, which has no agreement: review S1).
  */
 export async function sweepPaidRequests(now = new Date()): Promise<number> {
   const closed = await closeUnavailableRequests(null, now);
   const stale = await db()
     .select({ id: answer.id })
     .from(answer)
-    .where(and(eq(answer.state, 'answering'), isNotNull(answer.baseHoldId), lt(answer.decidedAt, new Date(now.getTime() - POST_PAID_ANSWER_STALE_MS))))
+    .where(and(eq(answer.state, 'answering'), isNotNull(answer.baseHoldId), sql`coalesce(${answer.decidedAt}, ${answer.createdAt}) < ${new Date(now.getTime() - POST_PAID_ANSWER_STALE_MS)}`))
     .limit(100);
   for (const row of stale) await closeAnswer(row.id, { state: 'failed', model: null }, now);
   return closed + stale.length;
@@ -1795,16 +1842,18 @@ export interface AdminPost {
   createdAt: string;
   /** It quotes a post that was taken down, or an answer that was hidden, and waits for review. */
   quoteReview: boolean;
+  /** Its AI general answers anyone reads, or taken down after review: each can be taken down or restored on its own. */
+  ai: AdminAiAnswer[];
 }
 
-/** The console's posts: reported or hidden ones first, then the newest; `q` searches the question. */
+/** The console's posts: reported or hidden ones first, then the newest; `q` searches the question. A reported AI answer puts its post among the reported. */
 export async function adminPosts(options: { view?: 'reported' | 'hidden' | 'quotes' | 'all'; q?: string | null; limit?: number } = {}): Promise<AdminPost[]> {
   const view = options.view ?? 'reported';
   const where = and(
     inArray(post.status, ['published', 'hidden']),
     /* Private posts are their authors' alone, administrators included. */
     eq(post.visibility, 'public'),
-    view === 'reported' ? sql`${post.reportCount} > 0` : view === 'hidden' ? eq(post.status, 'hidden') : view === 'quotes' ? isNotNull(post.quoteReviewAt) : undefined,
+    view === 'reported' ? sql`(${post.reportCount} > 0 or exists (select 1 from ${schema.postAiAnswer} ra where ra.post_id = ${post.id} and ra.report_count > 0))` : view === 'hidden' ? eq(post.status, 'hidden') : view === 'quotes' ? isNotNull(post.quoteReviewAt) : undefined,
     options.q?.trim() ? sql`${searchable} ilike ${`%${options.q.trim().replace(/[%_\\]/g, '\\$&')}%`}` : undefined,
   );
   const rows = await db()
@@ -1813,7 +1862,8 @@ export async function adminPosts(options: { view?: 'reported' | 'hidden' | 'quot
     .where(where)
     .orderBy(view === 'quotes' ? asc(post.quoteReviewAt) : desc(post.reportCount), desc(post.createdAt))
     .limit(options.limit ?? 50);
-  return rows.map((row) => ({ ...row, status: row.status as 'published' | 'hidden', createdAt: row.createdAt.toISOString(), quoteReview: row.quoteReview !== null }));
+  const ai = await adminAiAnswers(rows.map((row) => row.id));
+  return rows.map((row) => ({ ...row, status: row.status as 'published' | 'hidden', createdAt: row.createdAt.toISOString(), quoteReview: row.quoteReview !== null, ai: ai.filter((entry) => entry.postId === row.id) }));
 }
 
 /**

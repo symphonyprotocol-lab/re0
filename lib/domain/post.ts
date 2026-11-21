@@ -52,8 +52,13 @@ export const POST_QUOTE_NOTICE_MERGE_MS = 60 * 60_000;
 export const POST_QUOTE_NOTICE_QUOTER_MS = 24 * 3_600_000;
 /** Distinct reporters that hide a post's question until an administrator looks (the answers' rule, #158). */
 export const POST_REPORT_THRESHOLD = 3;
-/** The posts sweep (`/api/cron/posts`, every 5 minutes): how long it starts new work, and how many posts it answers at once. */
-export const POST_SWEEP_BUDGET_MS = 200_000;
+/**
+ * The posts sweep (`/api/cron/posts`, every 5 minutes, `maxDuration` 300s):
+ * how long it starts new work -- a post started at the cutoff (review,
+ * up to five answers, the AI answer and its review) still has about three
+ * minutes to finish -- and how many posts it answers at once.
+ */
+export const POST_SWEEP_BUDGET_MS = 120_000;
 export const POST_SWEEP_CONCURRENCY = 4;
 /** How many times the author may agree to one request in all: a failed answer can be tried again once; one that found no answer cannot. */
 export const POST_PAID_AGREE_MAX = 2;

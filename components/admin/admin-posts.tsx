@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AdminPost } from '@/lib/services/posts';
 import { useI18n } from '@/i18n/client';
-import { formatDateTime } from '@/i18n/format';
+import { fill, formatDateTime } from '@/i18n/format';
 import { RecordsTable } from '@/components/admin/list-kit';
 import { useToast } from '@/components/ui/toast';
 
@@ -21,6 +21,20 @@ export function AdminPostsTable({ rows }: { rows: AdminPost[] }) {
     try {
       const response = await fetch(`/api/admin/posts/${row.id}/quote-review`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }) });
       toast(response.ok ? (action === 'keep' ? a.quoteKept : a.quoteAnswersHidden) : a.stale);
+      router.refresh();
+    } catch {
+      toast(t.common.errors.generic);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /* One AI general answer on its own (review S5): the post and its Ree answers stay. */
+  async function setAi(row: AdminPost, aiId: string, show: boolean) {
+    setBusy(row.id);
+    try {
+      const response = await fetch(`/api/admin/posts/ai-answers/${aiId}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ show }) });
+      toast(response.ok ? (show ? a.ai.restored : a.ai.hiddenDone) : a.stale);
       router.refresh();
     } catch {
       toast(t.common.errors.generic);
@@ -55,6 +69,13 @@ export function AdminPostsTable({ rows }: { rows: AdminPost[] }) {
           {a.status[row.status]}
           {row.hiddenBy && <span className="block text-[11px] text-muted">{a.hiddenBy[row.hiddenBy]}</span>}
           {row.quoteReview && <span className="block text-[11px] text-[#b4372c]">{a.quoteReview}</span>}
+          {row.ai.map((entry) => (
+            <span key={entry.id} className="block text-[11px] text-muted">
+              {entry.followup ? a.ai.followup : a.ai.label}
+              {entry.reports > 0 && ` · ${fill(a.ai.reports, { n: entry.reports })}`}
+              {entry.hiddenBy && ` · ${a.ai.hiddenBy[entry.hiddenBy]}`}
+            </span>
+          ))}
         </span>,
         <span key="r" className="mono">{row.reports}</span>,
         <span key="n" className="mono">{row.answers}</span>,
@@ -68,6 +89,11 @@ export function AdminPostsTable({ rows }: { rows: AdminPost[] }) {
           <button type="button" className="btn ghost sm" disabled={busy === row.id} onClick={() => void set(row, row.status === 'hidden')}>
             {row.status === 'hidden' ? a.restore : a.hide}
           </button>
+          {row.ai.map((entry) => (
+            <button key={entry.id} type="button" className="btn ghost sm" disabled={busy === row.id} title={entry.followup ? a.ai.followup : a.ai.label} onClick={() => void setAi(row, entry.id, entry.hidden)}>
+              {entry.hidden ? a.ai.restore : a.ai.hide}
+            </button>
+          ))}
         </span>,
       ])}
     />

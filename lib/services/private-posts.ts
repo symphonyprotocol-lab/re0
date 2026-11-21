@@ -224,6 +224,7 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
         status: 'published',
         publishedAt: now,
         answerState: 'answering',
+        answeringAt: now,
         candidates: rees.length,
         createdAt: now,
       });
@@ -460,6 +461,7 @@ export async function askPrivateFollowup(userId: string, postId: string, input: 
         status: 'published',
         publishedAt: now,
         answerState: 'answering',
+        answeringAt: now,
         candidates: named.length ? named.length : thread.length,
         skipped: named.length ? 0 : thread.length - chosenIds.length,
         createdAt: now,

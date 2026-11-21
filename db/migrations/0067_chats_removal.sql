@@ -11,8 +11,9 @@ ALTER TABLE "notice" ADD CONSTRAINT "notice_kind_check" CHECK (kind in ('takedow
 /*
  * Private questions are private posts now (私密提问): everyone who still has
  * a conversation with something in it is told, once, that the old
- * conversations go 7 days after this release (PR B), so they can copy what
- * they need. The page words it from the kind; nothing else is needed.
+ * conversations were deleted with the redesign: 0070 (PR B) drops them in
+ * the same release, with no window to copy them first. The page words it
+ * from the kind; nothing else is needed.
  */
 INSERT INTO "notice" ("user_id", "kind", "params", "ref_id")
 SELECT u.id, 'chats_removal', '{}'::jsonb, NULL

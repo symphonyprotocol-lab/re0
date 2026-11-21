@@ -35,7 +35,7 @@ const { POST: reportPostRoute } = await import('@/app/api/posts/[id]/report/rout
 const { reeCards } = await import('@/lib/services/explore');
 const { consoleAdministrator } = await import('../fixtures/console-administrator');
 const { roleMetrics } = await import('@/lib/services/roles');
-const { savedCounts } = await import('@/lib/services/statistics');
+const { savedCounts, answerRecords } = await import('@/lib/services/statistics');
 const { computeRanks } = await import('@/lib/services/rank');
 const { adminOverview } = await import('@/lib/services/admin-overview');
 const privatePosts = await import('@/lib/services/private-posts');
@@ -135,9 +135,37 @@ describeWithDb('public posts, review round 3', () => {
     expect(await balanceOf(db(), author)).toBe(balance - QUERY_BASE_FEE);
     const after = await figures(ownerId, reeId);
     expect(after.external).toBe(before.external + 1);
-    expect(after.saved).toBe(before.saved + 1);
+    /* Counted, but its question is its author's alone: not in the owner's saved answers (B2). */
+    expect(after.saved).toBe(before.saved);
     expect(after.explore).toBe(before.explore + 1);
     expect(after.questions30).toBe(before.questions30 + 1);
+    const records = await answerRecords([reeId], null, '', 50, 1);
+    expect(records.items.map((item) => item.question)).toEqual([QUESTION]);
+  });
+
+  it('keeps private, taken-down and trashed posts and hidden follow-ups out of the owner\'s answer records (B2)', async () => {
+    const { reeId } = await publicRee();
+    const author = await user('r3-records', 500);
+    const shown = await publish(author, `${QUESTION} shown`);
+    const trashed = await publish(author, `${QUESTION} trashed later`);
+    const hidden = await publish(author, `${QUESTION} hidden later`);
+    for (const posted of [shown, trashed, hidden]) await posts.processPost(posted.id, stub([reeId]));
+    const questions = async () => (await answerRecords([reeId], null, '', 50, 1)).items.map((item) => item.question).sort();
+    expect(await questions()).toEqual([`${QUESTION} hidden later`, `${QUESTION} shown`, `${QUESTION} trashed later`]);
+    expect((await savedCounts([reeId], null)).get(reeId)).toBe(3);
+
+    expect(await posts.setPostTrashed(author, trashed.id, true)).toBe(true);
+    await db().update(schema.post).set({ status: 'hidden', hiddenBy: 'admin' }).where(eq(schema.post.id, hidden.id));
+
+    /* A follow-up answer on the live post: shown while its follow-up is, gone once it is hidden or deleted. */
+    const [followup] = await db().insert(schema.postFollowup).values({ postId: shown.id, userId: author, question: 'And to a gift card?', lang: 'en', status: 'published', publishedAt: new Date(), answerState: 'done' }).returning();
+    await db().insert(schema.postAnswer).values({ postId: shown.id, reeId, followupId: followup!.id, state: 'answered', text: 'No, to the card.', citations: [], answeredAt: new Date() });
+    expect(await questions()).toEqual(['And to a gift card?', `${QUESTION} shown`]);
+    await db().update(schema.postFollowup).set({ status: 'hidden', hiddenBy: 'reports' }).where(eq(schema.postFollowup.id, followup!.id));
+    expect(await questions()).toEqual([`${QUESTION} shown`]);
+    await db().update(schema.postFollowup).set({ status: 'published', hiddenBy: null, deletedAt: new Date() }).where(eq(schema.postFollowup.id, followup!.id));
+    expect(await questions()).toEqual([`${QUESTION} shown`]);
+    expect((await savedCounts([reeId], null)).get(reeId)).toBe(1);
   });
 
   it('matches only a live post as the same submit (O-a)', async () => {

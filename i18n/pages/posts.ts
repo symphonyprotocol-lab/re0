@@ -423,6 +423,16 @@ export const zh = {
     quoteHideAnswers: '隐藏回答',
     quoteKept: '已保留，复核完成。',
     quoteAnswersHidden: '已隐藏这条帖子的回答。',
+    ai: {
+      label: 'AI 通用回答',
+      followup: 'AI 追问回答',
+      reports: '举报 {n}',
+      hiddenBy: { admin: '管理员已隐藏', reports: '举报达到 3 人已隐藏' },
+      hide: '隐藏 AI 回答',
+      restore: '恢复 AI 回答',
+      hiddenDone: 'AI 回答已隐藏，只有提问者还能看到。',
+      restored: 'AI 回答已恢复。',
+    },
   },
 };
 
@@ -846,5 +856,15 @@ export const en: Shape<typeof zh> = {
     quoteHideAnswers: 'Hide answers',
     quoteKept: 'Kept; reviewed.',
     quoteAnswersHidden: 'Its answers are hidden.',
+    ai: {
+      label: 'AI general answer',
+      followup: 'AI follow-up answer',
+      reports: '{n} reports',
+      hiddenBy: { admin: 'Hidden by an administrator', reports: 'Hidden after 3 reporters' },
+      hide: 'Hide AI answer',
+      restore: 'Restore AI answer',
+      hiddenDone: 'The AI answer is hidden; only its asker still sees it.',
+      restored: 'The AI answer is restored.',
+    },
   },
 };

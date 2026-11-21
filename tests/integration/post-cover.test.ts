@@ -98,11 +98,12 @@ describeWithDb('post covers', () => {
     const current = await fetchCover(id, postCoverVersion(cover));
     expect(current.status).toBe(200);
     expect(current.headers.get('content-type')).toBe('image/png');
-    expect(current.headers.get('cache-control')).toContain('immutable');
+    /* A day at the CDN, never immutable: a takedown keeps the version, so the picture must expire (review S6). */
+    expect(current.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
     expect((await current.arrayBuffer()).byteLength).toBeGreaterThan(1_000);
     /* An old or missing version: the current picture, briefly. */
     expect((await fetchCover(id, 'stale')).headers.get('cache-control')).toBe('public, max-age=300, s-maxage=300');
-    expect((await fetchCover(id)).headers.get('cache-control')).not.toContain('immutable');
+    expect((await fetchCover(id)).headers.get('cache-control')).toBe('public, max-age=300, s-maxage=300');
 
     /* Helpful votes that reorder the answers give a new first answer, so a new URL. */
     const [firstRow] = await db().select({ id: schema.postAnswer.id }).from(schema.postAnswer).where(eq(schema.postAnswer.id, cover.first!.id));
