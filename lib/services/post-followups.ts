@@ -368,7 +368,8 @@ export async function processFollowup(id: string, deps: FollowupDeps = {}): Prom
     if (!row) return;
   }
   if (row.status !== 'published' || row.deletedAt || row.answerState !== 'waiting') return;
-  const [claimed] = await db().update(followup).set({ answerState: 'answering' }).where(and(eq(followup.id, id), eq(followup.answerState, 'waiting'))).returning({ id: followup.id });
+  /* `answeringAt`: the sweep times a dead run from its claim, not from publishing (review S3). */
+  const [claimed] = await db().update(followup).set({ answerState: 'answering', answeringAt: now() }).where(and(eq(followup.id, id), eq(followup.answerState, 'waiting'))).returning({ id: followup.id });
   if (!claimed) return;
   const asker = row.userId;
   try {
@@ -465,27 +466,37 @@ export async function finishFollowup(id: string, now = new Date()): Promise<void
 
 /**
  * The sweep's cheap part (`processStalePosts`): reviews that died on their
- * last attempt are rejected, and runs that died while answering are settled
- * with what they have.
+ * last attempt are rejected, and runs that died while answering (timed from
+ * their claim) are settled with what they have and given their AI answer.
+ * `budgetMs`: checked before each row (review S2); what is left waits for
+ * the next run.
  */
-export async function settleStaleFollowups(now = new Date(), deps: Pick<FollowupDeps, 'aiAnswer' | 'judge'> = {}): Promise<number> {
+export async function settleStaleFollowups(now = new Date(), deps: Pick<FollowupDeps, 'aiAnswer' | 'judge'> = {}, options: { budgetMs?: number } = {}): Promise<number> {
+  const deadline = Date.now() + (options.budgetMs ?? Infinity);
+  let handled = 0;
   const stuck = await db()
     .select({ id: followup.id })
     .from(followup)
     .where(and(eq(followup.status, 'pending'), sql`${followup.moderationAttempts} >= ${PUBLIC_QA_MODERATION_ATTEMPTS}`, lt(followup.createdAt, new Date(now.getTime() - POST_ANSWERING_STALE_MS))))
     .limit(100);
-  for (const row of stuck) await rejectFollowup(row.id, now);
+  for (const row of stuck) {
+    if (Date.now() >= deadline) return handled;
+    await rejectFollowup(row.id, now);
+    handled += 1;
+  }
   const dead = await db()
     .select({ id: followup.id, postId: followup.postId })
     .from(followup)
-    .where(and(eq(followup.answerState, 'answering'), lt(followup.publishedAt, new Date(now.getTime() - POST_ANSWERING_STALE_MS))))
-    .orderBy(asc(followup.publishedAt))
+    .where(and(eq(followup.answerState, 'answering'), sql`coalesce(${followup.answeringAt}, ${followup.publishedAt}) < ${new Date(now.getTime() - POST_ANSWERING_STALE_MS)}`))
+    .orderBy(sql`coalesce(${followup.answeringAt}, ${followup.publishedAt})`)
     .limit(100);
   for (const row of dead) {
+    if (Date.now() >= deadline) return handled;
     await finishFollowup(row.id, now);
     await answerWithAi(row.postId, row.id, deps).catch((error: unknown) => console.warn(`followup ${row.id} ai answer failed: ${error instanceof Error ? error.message : 'unknown'}`));
+    handled += 1;
   }
-  return stuck.length + dead.length;
+  return handled;
 }
 
 /** The sweep's second part: reviews to retry and published follow-ups never started, `concurrency` at a time, within `budgetMs`. */

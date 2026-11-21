@@ -60,13 +60,14 @@ import {
 } from '@/lib/domain/post';
 import { plainOf, previewOf } from '@/lib/domain/public-qa';
 import { modelFor } from '@/lib/infra/ai/models';
-import { PUBLIC_QA_MODERATION_ATTEMPTS } from '@/lib/domain/public-qa';
+import { PUBLIC_QA_MODERATION_ATTEMPTS, PUBLIC_QA_REPORT_THRESHOLD } from '@/lib/domain/public-qa';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { balanceOf, placeHold, releaseHold, settleHold } from '@/lib/services/credits';
 import { notify } from '@/lib/services/notices';
+import { audit } from '@/lib/services/admin';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
 
-const { post, postAnswer: answer, postFollowup: followup, postAiAnswer: aiAnswer } = schema;
+const { post, postAnswer: answer, postFollowup: followup, postAiAnswer: aiAnswer, postAiAnswerReport: aiReport } = schema;
 
 /** The ledger's fixed note for an AI answer, read into the reader's language (components/billing/entries.tsx). */
 const NOTE = 'ai answer';
@@ -359,7 +360,8 @@ const AI_ANSWER_REVIEW_BATCH = 50;
  * the answer, `PUBLIC_QA_MODERATION_ATTEMPTS` in all), and one whose last
  * attempt never finished is rejected -- never public unreviewed.
  */
-export async function sweepAiAnswers(now = new Date(), deps: Pick<AiDeps, 'judge'> = {}): Promise<number> {
+export async function sweepAiAnswers(now = new Date(), deps: Pick<AiDeps, 'judge'> = {}, options: { budgetMs?: number } = {}): Promise<number> {
+  const deadline = Date.now() + (options.budgetMs ?? Infinity);
   const stale = await db()
     .select({ id: aiAnswer.id })
     .from(aiAnswer)
@@ -377,8 +379,14 @@ export async function sweepAiAnswers(now = new Date(), deps: Pick<AiDeps, 'judge
     .where(and(eq(aiAnswer.review, 'pending'), eq(aiAnswer.state, 'answered'), lt(aiAnswer.reviewAttempts, PUBLIC_QA_MODERATION_ATTEMPTS), lt(aiAnswer.answeredAt, new Date(now.getTime() - 60_000))))
     .orderBy(asc(aiAnswer.answeredAt))
     .limit(AI_ANSWER_REVIEW_BATCH);
-  for (const row of waiting) await reviewAiAnswer(row.id, deps.judge).catch((error: unknown) => console.warn(`ai answer ${row.id} review failed: ${error instanceof Error ? error.message : 'unknown'}`));
-  return stale.length + stuck.length + waiting.length;
+  /* Each review is a model call: checked against the budget before each one (review S2); the rest wait for the next run. */
+  let reviewed = 0;
+  for (const row of waiting) {
+    if (Date.now() >= deadline) break;
+    await reviewAiAnswer(row.id, deps.judge).catch((error: unknown) => console.warn(`ai answer ${row.id} review failed: ${error instanceof Error ? error.message : 'unknown'}`));
+    reviewed += 1;
+  }
+  return stale.length + stuck.length + reviewed;
 }
 
 
@@ -449,7 +457,90 @@ export async function voteAiAnswer(userId: string, id: string, vote: 'helpful' |
   return row ? { vote: row.vote ?? null } : null;
 }
 
+/**
+ * Its round can be read by anyone: a public, published post out of the
+ * trash, and -- a follow-up's -- a follow-up still published and not
+ * deleted. Needs `post_ai_answer`.
+ */
+const publicRound = (): SQL =>
+  sql`(exists (select 1 from ${post} rp where rp.id = ${aiAnswer.postId} and rp.visibility = 'public' and rp.status = 'published' and rp.deleted_at is null)
+    and (${aiAnswer.followupId} is null or exists (select 1 from ${followup} rf where rf.id = ${aiAnswer.followupId} and rf.status = 'published' and rf.deleted_at is null)))`;
+
+/**
+ * "举报" an AI answer anyone reads (review S5), signed in or not, as a
+ * Ree's answer is reported: one report per reporter (the account, or a
+ * visitor's network as an HMAC). At `PUBLIC_QA_REPORT_THRESHOLD` reporters
+ * it is refused -- `review` 'rejected', `hidden_by` 'reports' -- so only
+ * its asker reads it again, until an administrator restores it. False when
+ * there is nothing anyone else could have read.
+ */
+export async function reportAiAnswer(id: string, reporter: string): Promise<boolean> {
+  if (!isUuid(id)) return false;
+  return db().transaction(async (tx) => {
+    const [target] = await tx
+      .select({ id: aiAnswer.id })
+      .from(aiAnswer)
+      .where(and(eq(aiAnswer.id, id), eq(aiAnswer.state, 'answered'), eq(aiAnswer.review, 'passed'), publicRound()))
+      .for('update');
+    if (!target) return false;
+    const added = await tx.insert(aiReport).values({ aiAnswerId: id, reporterKey: reporter }).onConflictDoNothing().returning({ id: aiReport.aiAnswerId });
+    if (added.length === 0) return true;
+    const [row] = await tx.update(aiAnswer).set({ reportCount: sql`${aiAnswer.reportCount} + 1` }).where(eq(aiAnswer.id, id)).returning({ reports: aiAnswer.reportCount });
+    if (row!.reports >= PUBLIC_QA_REPORT_THRESHOLD) await tx.update(aiAnswer).set({ review: 'rejected', hiddenBy: 'reports' }).where(eq(aiAnswer.id, id));
+    return true;
+  });
+}
+
 /* ------------------------------------------------------------------ admin */
+
+export interface AdminAiAnswer {
+  id: string;
+  postId: string;
+  /** Under a follow-up (继续问 AI), not the post's first round. */
+  followup: boolean;
+  hidden: boolean;
+  hiddenBy: 'reports' | 'admin' | null;
+  reports: number;
+}
+
+/** The AI answers of these posts an administrator may act on: those anyone reads (passed review) and those taken down after it. */
+export async function adminAiAnswers(postIds: readonly string[]): Promise<AdminAiAnswer[]> {
+  if (!postIds.length) return [];
+  const rows = await db()
+    .select({ id: aiAnswer.id, postId: aiAnswer.postId, followupId: aiAnswer.followupId, review: aiAnswer.review, hiddenBy: aiAnswer.hiddenBy, reports: aiAnswer.reportCount })
+    .from(aiAnswer)
+    .where(and(inArray(aiAnswer.postId, [...postIds]), eq(aiAnswer.state, 'answered'), or(eq(aiAnswer.review, 'passed'), sql`${aiAnswer.hiddenBy} is not null`)))
+    .orderBy(asc(aiAnswer.createdAt));
+  return rows.map((row) => ({ id: row.id, postId: row.postId, followup: row.followupId !== null, hidden: row.hiddenBy !== null, hiddenBy: row.hiddenBy ?? null, reports: row.reports }));
+}
+
+/**
+ * An administrator takes down an AI answer that passed review (review S5)
+ * -- refused like a review refusal, so only its asker reads it, fee kept --
+ * or restores one taken down by reports or an administrator (its reports
+ * cleared). In the management log. False when it is not in that state.
+ */
+export async function adminSetAiAnswer(administratorId: string, id: string, show: boolean): Promise<boolean> {
+  if (!isUuid(id)) return false;
+  return db().transaction(async (tx) => {
+    const [before] = await tx
+      .select({ postId: aiAnswer.postId, review: aiAnswer.review, hiddenBy: aiAnswer.hiddenBy, reports: aiAnswer.reportCount })
+      .from(aiAnswer)
+      .where(and(eq(aiAnswer.id, id), eq(aiAnswer.state, 'answered')))
+      .for('update');
+    if (!before) return false;
+    if (show) {
+      if (!before.hiddenBy) return false;
+      await tx.update(aiAnswer).set({ review: 'passed', hiddenBy: null, reportCount: 0 }).where(eq(aiAnswer.id, id));
+      await tx.delete(aiReport).where(eq(aiReport.aiAnswerId, id));
+    } else {
+      if (before.review !== 'passed') return false;
+      await tx.update(aiAnswer).set({ review: 'rejected', hiddenBy: 'admin' }).where(eq(aiAnswer.id, id));
+    }
+    await audit(tx, { administratorId, action: show ? 'post.ai.restore' : 'post.ai.hide', target: id, before: { postId: before.postId, review: before.review, hiddenBy: before.hiddenBy, reports: before.reports } });
+    return true;
+  });
+}
 
 /** The overview's AI answers since `since`: made (written or failed), written, what they earned the platform, and the votes. */
 export async function aiAnswerStats(since: Date): Promise<{ total: number; answered: number; failed: number; skipped: number; revenue: number; helpful: number; unhelpful: number }> {

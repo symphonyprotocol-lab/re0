@@ -498,6 +498,13 @@
       "when": 1795260000000,
       "tag": "0072_public_ai_answers",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1795263600000,
+      "tag": "0073_release_review",
+      "breakpoints": true
     }
   ]
 }

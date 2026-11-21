@@ -5,7 +5,7 @@
  * at all. Grants are locked `FOR UPDATE` so two holds cannot spend the same
  * credit.
  */
-import { and, asc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
 import type { CreditEntryReason } from '@/db/schema';
 import { EARNED_MATURITY_DAYS, PAYING_GRANT_SOURCES, type GrantSource } from '@/lib/constants';
 import { offsetDebts } from '@/lib/domain/billing';
@@ -21,11 +21,11 @@ import {
   type SpendableGrant,
 } from '@/lib/domain/credits';
 import { welcomeCredits } from '@/lib/services/signup-reward';
-import { schema, type Executor, type Tx } from '@/lib/infra/db';
+import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 
 export { InsufficientCredits } from '@/lib/domain/credits';
 
-/* `chat` holds (the conversations' questions) are history only since migration 0070: none is open, and nothing places one. */
+/* `chat` holds (the conversations' questions): nothing places one since migration 0070; `releaseLegacyChatHolds` gives back any the release left open. */
 type HoldKind = 'knowledge' | 'video' | 'payout' | 'post';
 
 /**
@@ -35,7 +35,11 @@ type HoldKind = 'knowledge' | 'video' | 'payout' | 'post';
  * first wrote it), so the ledger shows the two as `query_base` and
  * `query_fee_paid` (2.3).
  */
-const REASONS: Record<'knowledge' | 'chat_fee' | 'payout' | 'post' | 'post_summary' | 'post_answer' | 'ai_answer' | VideoLedger, { hold: CreditEntryReason; settle: CreditEntryReason; release: CreditEntryReason }> = {
+const REASONS: Record<'knowledge' | 'chat' | 'chat_fee' | 'chat_verify' | 'chat_synthesis' | 'payout' | 'post' | 'post_summary' | 'post_answer' | 'ai_answer' | VideoLedger, { hold: CreditEntryReason; settle: CreditEntryReason; release: CreditEntryReason }> = {
+  /* The conversations' own holds: only ever released now, by `releaseLegacyChatHolds`. */
+  chat: { hold: 'query_hold', settle: 'query_base', release: 'query_refund' },
+  chat_verify: { hold: 'verify_hold', settle: 'verify_settle', release: 'verify_refund' },
+  chat_synthesis: { hold: 'synthesis_hold', settle: 'synthesis_settle', release: 'synthesis_refund' },
   chat_fee: { hold: 'query_fee_paid', settle: 'query_fee_paid', release: 'query_refund' },
   /* v5: a public post past the day's free ones, to the platform once a Ree answers. */
   post: { hold: 'post_hold', settle: 'post_settle', release: 'post_refund' },
@@ -617,6 +621,30 @@ function grantIsPaid(grant: { source: GrantSource; purchaseId: string | null; wi
 }
 
 /** The open hold for a reference (a knowledge row being processed), if any. */
+/**
+ * Chat holds the last release left open (review S4): migration 0070 refuses
+ * to run while one is held, but in the minutes between the migration and
+ * the new deployment taking traffic the old one may still place one, and
+ * nothing settles it any more. Released in full under its sub-ledger's
+ * reasons once older than `staleMs` (far past the old chat route's 300
+ * seconds). Run by the posts cron; keep it for one release cycle after
+ * 0070 is live, then delete it with its REASONS entries.
+ */
+export async function releaseLegacyChatHolds(now = new Date(), staleMs = 10 * 60_000, limit = 100): Promise<number> {
+  const stale = await db()
+    .select({ id: schema.creditHold.id })
+    .from(schema.creditHold)
+    .where(and(eq(schema.creditHold.kind, 'chat'), eq(schema.creditHold.status, 'held'), lt(schema.creditHold.createdAt, new Date(now.getTime() - staleMs))))
+    .orderBy(asc(schema.creditHold.createdAt))
+    .limit(limit);
+  let released = 0;
+  for (const hold of stale) {
+    const given = await db().transaction((tx) => releaseHold(tx, hold.id, { note: 'released: the answer never finished' }, now));
+    if (given !== null) released += 1;
+  }
+  return released;
+}
+
 export async function heldFor(executor: Executor, refId: string, kind: HoldKind): Promise<string | null> {
   const [hold] = await executor
     .select({ id: schema.creditHold.id })

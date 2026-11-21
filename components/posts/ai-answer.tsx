@@ -23,15 +23,30 @@ import { Pending } from '@/components/posts/pending';
 
 /**
  * The card itself: the answer, its note, and 有帮助 · 没帮助 (its asker
- * only) · 复制 with what it cost. `onAskAi`: 继续问 AI, where the box below
- * asks the AI alone (a public post no Ree answered, or a private thread no
- * Ree is in).
+ * only) · 复制 with what it cost; 举报 for anyone else, signed in or not,
+ * once it passed review (enough reporters take it down). `onAskAi`: 继续问
+ * AI, where the box below asks the AI alone (a public post no Ree
+ * answered, or a private thread no Ree is in).
  */
 export function AiAnswerCard({ ai, compact = false, onChange, onAskAi }: { ai: AiAnswerView; compact?: boolean; onChange: (next: AiAnswerView) => void; onAskAi?: () => void }) {
   const { t, locale } = useI18n();
   const a = t.posts.ai;
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const reportable = Boolean(ai.id) && !ai.mine && !ai.private && ai.review === 'passed';
+  async function report() {
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/posts/ai-answers/${ai.id}/report`, { method: 'POST' });
+      toast(response.ok ? t.posts.page.reported : t.common.errors.generic);
+      if (response.ok) setConfirming(false);
+    } catch {
+      toast(t.common.errors.generic);
+    } finally {
+      setBusy(false);
+    }
+  }
   async function vote(choice: 'helpful' | 'unhelpful') {
     const next = ai.vote === choice ? null : choice;
     setBusy(true);
@@ -93,6 +108,18 @@ export function AiAnswerCard({ ai, compact = false, onChange, onAskAi }: { ai: A
             {a.askMore}
           </button>
         )}
+        {reportable && (confirming ? (
+          <span className="inline-flex items-center gap-2 text-[11px] text-muted">
+            {t.posts.page.reportConfirm}
+            <button type="button" className="text-red hover:underline" disabled={busy} onClick={() => void report()}>{t.posts.page.report}</button>
+            <button type="button" className="hover:text-blue" onClick={() => setConfirming(false)}>{t.common.actions.cancel}</button>
+          </span>
+        ) : (
+          <button type="button" className="icon-btn" onClick={() => setConfirming(true)}>
+            <Icon name="info" className="" />
+            {t.posts.page.report}
+          </button>
+        ))}
         {ai.cost > 0 && <span className="answer-cost">{fill(a.cost, { n: formatNumber(ai.cost, locale) })}</span>}
       </div>
     </article>
