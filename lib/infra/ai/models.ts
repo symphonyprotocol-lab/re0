@@ -11,7 +11,7 @@
  */
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createGateway, gateway, wrapEmbeddingModel, type EmbeddingModel, type LanguageModel } from 'ai';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, ne } from 'drizzle-orm';
 import {
   DEFAULT_MODELS,
   EMBEDDING_DIMENSIONS,
@@ -21,6 +21,8 @@ import {
   type ModelKind,
 } from '@/lib/constants';
 import { mayCarryKey, type GenerationAudience, type ModelTransport } from '@/lib/domain/models';
+import { chainAudience, embeddingModelName, hasFailover, planWithFree, type ChainEntry } from '@/lib/domain/model-failover';
+import { failoverEmbeddingModel, failoverLanguageModel, type EmbeddingModelV4, type LanguageModelV4, type Link } from '@/lib/infra/ai/failover';
 import type { GenerationCallContext } from '@/lib/domain/model-calls';
 import { openCredential } from '@/lib/infra/crypto/credentials';
 import { modelFetch } from '@/lib/infra/connectors/address';
@@ -42,6 +44,8 @@ export interface ModelEndpoint {
   source: 'console' | 'environment' | 'default';
   /** Embedding only: the space of the vectors this entry makes while enabled (null: the base space; lib/services/embedding-space.ts). */
   space?: string | null;
+  /** The entry's place in its kind's list (0: the primary); null or absent outside one. */
+  position?: number | null;
 }
 
 const ENV_PREFIX: Record<ModelKind, string> = {
@@ -129,26 +133,78 @@ export async function consoleEndpoint(row: typeof schema.modelConfig.$inferSelec
   };
 }
 
-const cache = new Map<string, { at: number; endpoint: ModelEndpoint }>();
+const cache = new Map<string, { at: number; chain: ModelEndpoint[] }>();
 
 /** Called after the console changes an entry, so this instance does not wait out the minute. */
 export function forgetModelCache(): void {
   cache.clear();
 }
 
-export async function endpointFor(kind: ModelKind, now = Date.now(), audience: GenerationAudience = 'free'): Promise<ModelEndpoint> {
-  const plan = kind === 'generation' && audience === 'plan';
-  const cacheKey = plan ? 'generation:plan' : kind;
-  const cached = cache.get(cacheKey);
-  if (cached && now - cached.at < MODEL_CACHE_MS) return cached.endpoint;
+/** The enabled entry of a kind and audience: the primary. */
+async function primaryRow(kind: ModelKind, plan: boolean) {
   const [row] = await db()
     .select()
     .from(schema.modelConfig)
     .where(and(eq(schema.modelConfig.kind, kind), eq(plan ? schema.modelConfig.enabledPlan : schema.modelConfig.enabled, true)))
     .limit(1);
-  const endpoint = row ? await consoleEndpoint(row) : environmentEndpoint(kind);
-  cache.set(cacheKey, { at: now, endpoint });
-  return endpoint;
+  return row;
+}
+
+/** One list's active entries other than its primary, in order. */
+async function storedBackups(kind: ModelKind, audience: 'free' | 'plan' | 'all', primaryId: string) {
+  return db()
+    .select({ config: schema.modelConfig, position: schema.modelChain.position })
+    .from(schema.modelChain)
+    .innerJoin(schema.modelConfig, eq(schema.modelConfig.id, schema.modelChain.modelConfigId))
+    .where(and(eq(schema.modelChain.kind, kind), eq(schema.modelChain.audience, audience), eq(schema.modelChain.active, true), ne(schema.modelChain.modelConfigId, primaryId)))
+    .orderBy(asc(schema.modelChain.position));
+}
+
+/** A list: the enabled entry first (it names the primary, as before lists), then its backups. Empty without an enabled entry. */
+async function storedChain(kind: ModelKind, plan: boolean): Promise<ModelEndpoint[]> {
+  const primary = await primaryRow(kind, plan);
+  if (!primary) return [];
+  const head = { ...(await consoleEndpoint(primary)), position: 0 };
+  if (!hasFailover(kind)) return [head];
+  let backups = await storedBackups(kind, chainAudience(kind, plan ? 'plan' : 'free'), primary.id);
+  /* An embedding backup must make the primary's vectors: the same model in the same space, or it is left out. */
+  if (kind === 'embedding') {
+    backups = backups.filter(({ config }) => config.embeddingSpace === primary.embeddingSpace && embeddingModelName(config.model) === embeddingModelName(primary.model));
+  }
+  const rest = await Promise.all(backups.map(async (row) => ({ ...(await consoleEndpoint(row.config)), position: Math.max(1, row.position) })));
+  return [head, ...rest];
+}
+
+/**
+ * The entries a request of this kind and audience may use, primary first;
+ * the environment's model when no entry is enabled. Speech has one entry (a
+ * narration keeps its voice). A Plan list with a primary continues with the
+ * Free list's entries (design Q3); one without falls back to the
+ * environment, as before lists existed. Every entry of the embedding list
+ * makes the primary's vectors: it reports the primary's space.
+ */
+export async function chainFor(kind: ModelKind, audience: GenerationAudience = 'free', now = Date.now()): Promise<ModelEndpoint[]> {
+  const plan = kind === 'generation' && audience === 'plan';
+  const cacheKey = plan ? 'generation:plan' : kind;
+  const cached = cache.get(cacheKey);
+  if (cached && now - cached.at < MODEL_CACHE_MS) return cached.chain;
+  let chain = await storedChain(kind, plan);
+  if (plan && chain.length > 0) {
+    const entry = (endpoint: ModelEndpoint): ChainEntry<ModelEndpoint> => ({ configId: endpoint.configId!, position: endpoint.position ?? 0, value: endpoint });
+    chain = planWithFree(chain.map(entry), (await storedChain('generation', false)).map(entry)).map((link) => ({ ...link.value, position: link.position }));
+  }
+  if (kind === 'embedding' && chain.length > 1) {
+    const primary = chain[0]!;
+    chain = chain.map((endpoint) => ({ ...endpoint, space: primary.space ?? null }));
+  }
+  if (chain.length === 0) chain = [environmentEndpoint(kind)];
+  cache.set(cacheKey, { at: now, chain });
+  return chain;
+}
+
+/** The primary: the list's first active entry, or the environment's model. */
+export async function endpointFor(kind: ModelKind, now = Date.now(), audience: GenerationAudience = 'free'): Promise<ModelEndpoint> {
+  return (await chainFor(kind, audience, now))[0]!;
 }
 
 function compatible(endpoint: ModelEndpoint) {
@@ -171,13 +227,13 @@ export function gatewayFor(endpoint: ModelEndpoint) {
   return endpoint.apiKey ? createGateway({ apiKey: endpoint.apiKey }) : gateway;
 }
 
-export function languageModel(endpoint: ModelEndpoint, context: GenerationCallContext = {}): LanguageModel {
+export function languageModel(endpoint: ModelEndpoint, context: GenerationCallContext = {}): LanguageModelV4 {
   const model =
     endpoint.transport === 'gateway' ? gatewayFor(endpoint).languageModel(endpoint.model) : compatible(endpoint).chatModel(endpoint.model);
-  return loggedLanguageModel(model, { ...context, model: endpoint.model, configId: endpoint.configId, configName: endpoint.name, transport: endpoint.transport, baseUrl: endpoint.baseUrl });
+  return loggedLanguageModel(model, { ...context, model: endpoint.model, configId: endpoint.configId, configName: endpoint.name, transport: endpoint.transport, baseUrl: endpoint.baseUrl, chainPosition: endpoint.position ?? null });
 }
 
-export function embeddingModel(endpoint: ModelEndpoint): EmbeddingModel {
+export function embeddingModel(endpoint: ModelEndpoint): EmbeddingModelV4 {
   const model = endpoint.transport === 'gateway'
     ? gatewayFor(endpoint).embeddingModel(endpoint.model)
     : compatible(endpoint).embeddingModel(endpoint.model);
@@ -199,13 +255,34 @@ export function embeddingModel(endpoint: ModelEndpoint): EmbeddingModel {
   } });
 }
 
+/**
+ * A language model over the list: each attempt is one entry's logged model;
+ * the entry that answered is `response.modelId` (its configured model name,
+ * also with a single entry, so answers record what they always recorded).
+ */
+export function chainLanguageModel(chain: readonly ModelEndpoint[], context: GenerationCallContext = {}): LanguageModelV4 {
+  return failoverLanguageModel(chain.map((endpoint) => ({ endpoint, position: endpoint.position ?? null, model: languageModel(endpoint, context) })));
+}
+
+/**
+ * `endpoint` is the primary (the list's first entry): what answers when
+ * nothing fails. Which entry did answer is the result's `response.modelId`.
+ */
 export async function modelFor(kind: 'generation', audience?: GenerationAudience, context?: GenerationCallContext): Promise<{ model: LanguageModel; endpoint: ModelEndpoint }>;
 export async function modelFor(kind: 'embedding'): Promise<{ model: EmbeddingModel; endpoint: ModelEndpoint }>;
-export async function modelFor(kind: 'generation' | 'embedding', audience: GenerationAudience = 'free', context: GenerationCallContext = {}) {
-  const endpoint = await endpointFor(kind, Date.now(), audience);
+export async function modelFor(kind: 'generation' | 'embedding', audience: GenerationAudience = 'free', context: GenerationCallContext = {}): Promise<{ model: LanguageModel | EmbeddingModel; endpoint: ModelEndpoint }> {
+  const chain = await chainFor(kind, audience);
   return kind === 'generation'
-    ? { model: languageModel(endpoint, { ...context, audience }), endpoint }
-    : { model: embeddingModel(endpoint), endpoint };
+    ? { model: chainLanguageModel(chain, { ...context, audience }), endpoint: chain[0]! }
+    : { model: chainEmbeddingModel(chain).model, endpoint: chain[0]! };
+}
+
+/** An embedding model over the list; `served()` names the entry that took the latest batch. */
+export function chainEmbeddingModel(chain: readonly ModelEndpoint[]): { model: EmbeddingModelV4; served: () => ModelEndpoint } {
+  let last = chain[0]!;
+  const links: Link<EmbeddingModelV4>[] = chain.map((endpoint) => ({ endpoint, position: endpoint.position ?? null, model: embeddingModel(endpoint) }));
+  const model = links.length === 1 ? links[0]!.model : failoverEmbeddingModel(links, (link) => { last = link.endpoint; });
+  return { model, served: () => last };
 }
 
 /**
@@ -226,10 +303,17 @@ export function toColumn(vector: readonly number[]): number[] {
  * requests, each under the provider's per-request token and count limits
  * (embedding-batches.ts); every request is metered by `embeddingModel`.
  */
+/*
+ * An explicit endpoint (a re-embed job's candidate) is used alone; otherwise
+ * the embedding list, whose entries all make the primary's vectors -- the
+ * endpoint answered is the primary, the one vectors are tagged with.
+ */
 export async function embedTexts(texts: string[], explicit?: ModelEndpoint): Promise<{ vectors: number[][]; endpoint: ModelEndpoint }> {
-  const endpoint = explicit ?? (await endpointFor('embedding'));
-  const model = embeddingModel(endpoint);
+  const chain = explicit ? [explicit] : await chainFor('embedding');
+  const endpoint = chain[0]!;
+  const { model, served } = chainEmbeddingModel(chain);
   const { embeddings, tokens } = await embedInBatches(model, texts, { timeoutMs: Math.max(endpoint.timeoutMs, 30_000), maxRetries: 2 });
-  recordModelCall({ kind: 'embedding', model: endpoint.model, configId: endpoint.configId, inputTokens: tokens });
+  const used = served();
+  recordModelCall({ kind: 'embedding', model: used.model, configId: used.configId, inputTokens: tokens, chainPosition: used.position ?? null });
   return { vectors: embeddings.map(toColumn), endpoint };
 }

@@ -26,7 +26,8 @@ import {
 import { AUDIO_CONTENT_TYPES, type AudioFormat } from '@/lib/domain/knowledge';
 import { ProcessingFailure } from '@/lib/infra/connectors/failure';
 import { modelFetch } from '@/lib/infra/connectors/address';
-import { endpointFor, type ModelEndpoint } from '@/lib/infra/ai/models';
+import { chainFor, type ModelEndpoint } from '@/lib/infra/ai/models';
+import { failoverTranscriptionModel, type Link, type TranscriptionModelV4 } from '@/lib/infra/ai/failover';
 import { recordModelCall } from '@/lib/infra/ai/usage';
 import { meterTransfer, modelCostTarget, prepareProviderCall, providerWork, tokenUsage } from '@/lib/infra/ai/provider-meter';
 import { ProviderCostUnavailable } from '@/lib/domain/provider-cost';
@@ -95,7 +96,7 @@ function compatibleTranscriptionModel(endpoint: ModelEndpoint): V4TranscriptionM
   };
 }
 
-export function transcriptionModel(endpoint: ModelEndpoint): TranscriptionModel {
+export function transcriptionModel(endpoint: ModelEndpoint): TranscriptionModelV4 {
   const model = endpoint.transport === 'gateway'
     ? (endpoint.apiKey ? createGateway({ apiKey: endpoint.apiKey }) : gateway).transcriptionModel(endpoint.model)
     : compatibleTranscriptionModel(endpoint);
@@ -419,8 +420,12 @@ export async function transcribeAudio(bytes: Uint8Array, format: AudioFormat): P
   if (known !== null && known > AUDIO_MAX_SECONDS) {
     throw new ProcessingFailure('audio_too_long', `${Math.round(known)} s of audio is over ${AUDIO_MAX_SECONDS} s`);
   }
-  const endpoint = await endpointFor('transcription');
-  const model = transcriptionModel(endpoint);
+  /* The list, primary first: a piece moves to the next entry when one runs out of quota or fails (lib/infra/ai/failover.ts). */
+  const chain = await chainFor('transcription');
+  const endpoint = chain[0]!;
+  let used = endpoint;
+  const links: Link<TranscriptionModelV4>[] = chain.map((entry) => ({ endpoint: entry, position: entry.position ?? null, model: transcriptionModel(entry) }));
+  const model = links.length === 1 ? links[0]!.model : failoverTranscriptionModel(links, (link) => { used = link.endpoint; });
   const results: Awaited<ReturnType<typeof transcribe>>[] = new Array(pieces.length);
   let next = 0;
   /* One piece failing fails the source; the others stop rather than pay for transcripts nobody keeps. */
@@ -464,6 +469,6 @@ export async function transcribeAudio(bytes: Uint8Array, format: AudioFormat): P
     for (const segment of own) if (segment.text) segments.push(segment);
     offset += piece.seconds ?? result.durationInSeconds ?? result.segments.at(-1)?.endSecond ?? 0;
   });
-  recordModelCall({ kind: 'transcription', model: endpoint.model, configId: endpoint.configId, seconds: offset });
+  recordModelCall({ kind: 'transcription', model: used.model, configId: used.configId, seconds: offset, chainPosition: used.position ?? null });
   return { segments, durationSeconds: offset, language };
 }

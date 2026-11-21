@@ -1652,6 +1652,94 @@
   color: #b87e7e;
   background: #fff3f3;
 }
+/* Primary and backups (model-chain.tsx): one list per kind, Free and Plan for generation. */
+:where(.console-app, .admin-login-page) .model-chain-block {
+  padding: 14px 19px 4px;
+  border-bottom: 1px solid #e8eef6;
+}
+:where(.console-app, .admin-login-page) .model-chain-block h3 {
+  font-size: 11px;
+  font-weight: 550;
+  color: #6788b1;
+  margin-bottom: 10px;
+}
+:where(.console-app, .admin-login-page) .model-chain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+:where(.console-app, .admin-login-page) .model-chain-item {
+  padding: 10px 11px;
+  border: 1px solid #e4ecf7;
+  border-radius: 7px;
+  background: #fbfdff;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+:where(.console-app, .admin-login-page) .model-chain-item.paused { opacity: 0.62; }
+:where(.console-app, .admin-login-page) .model-chain-item.dragging { border-style: dashed; }
+:where(.console-app, .admin-login-page) .model-chain-item strong {
+  font-size: 11px;
+  font-weight: 550;
+  color: #597290;
+  overflow-wrap: anywhere;
+}
+:where(.console-app, .admin-login-page) .model-chain-item code {
+  font: 9px var(--mono);
+  color: #6a8cb4;
+  overflow-wrap: anywhere;
+}
+:where(.console-app, .admin-login-page) .model-chain-item p {
+  font-size: 9px;
+  color: #a2b1c8;
+  font-variant-numeric: tabular-nums;
+}
+:where(.console-app, .admin-login-page) .model-chain-item .tag { font-size: 8px; white-space: nowrap; }
+:where(.console-app, .admin-login-page) .model-chain-grip {
+  cursor: grab;
+  color: #a6b7ce;
+  font-size: 10px;
+  letter-spacing: -2px;
+  user-select: none;
+}
+:where(.console-app, .admin-login-page) .model-chain-pos {
+  font: 9px var(--mono);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #eef3fa;
+  color: #7d94b4;
+  white-space: nowrap;
+}
+:where(.console-app, .admin-login-page) .model-chain-pos.primary { background: #5b7fe0; color: #fff; }
+:where(.console-app, .admin-login-page) .model-chain-actions { flex-wrap: wrap; gap: 5px; }
+:where(.console-app, .admin-login-page) .model-chain-actions .icon-btn { font-size: 11px; }
+:where(.console-app, .admin-login-page) .model-chain-add { margin-top: 10px; gap: 6px; flex-wrap: wrap; }
+:where(.console-app, .admin-login-page) .model-chain-add select { flex: 1 1 140px; min-width: 0; font-size: 10px; }
+:where(.console-app, .admin-login-page) .model-chain-note {
+  font-size: 9px;
+  line-height: 1.7;
+  color: #a2b1c8;
+  margin-block: 10px;
+}
+:where(.console-app, .admin-login-page) .info-strip.warning { background: #fff7ea; border-color: #f6e2bf; }
+:where(.console-app, .admin-login-page) .info-strip.danger { background: #fdf0ef; border-color: #f4d3d0; color: var(--red); }
+:where(.console-app, .admin-login-page) .model-chain-events { margin-top: 19px; padding: 20px; }
+:where(.console-app, .admin-login-page) .model-chain-events h2 { font-size: 13px; margin-bottom: 12px; }
+:where(.console-app, .admin-login-page) .model-chain-events ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+:where(.console-app, .admin-login-page) .model-chain-events li {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  font-size: 10px;
+}
+:where(.console-app, .admin-login-page) .model-chain-events time { font: 9px var(--mono); color: #99b0cb; }
+@media (max-width: 760px) {
+  :where(.console-app, .admin-login-page) .model-chain-events li { grid-template-columns: 1fr; gap: 3px; }
+}
 :where(.console-app, .admin-login-page) .reembed-job {
   padding: 22px 25px;
   margin-block: 20px 23px;

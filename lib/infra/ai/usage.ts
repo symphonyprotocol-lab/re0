@@ -6,6 +6,7 @@ import { gatewayGenerationPricing } from '@/lib/infra/ai/gateway-generation-pric
 import { db, schema } from '@/lib/infra/db';
 import { configuredProviderRate, providerPrices } from '@/lib/services/provider-pricing';
 import { prepareProviderCall } from '@/lib/infra/ai/provider-meter';
+import { classifyModelFailure, failureCode } from '@/lib/domain/model-failover';
 
 type LanguageModelV4 = Extract<LanguageModel, { specificationVersion: 'v4' }>;
 type StreamPart = Awaited<ReturnType<LanguageModelV4['doStream']>>['stream'] extends ReadableStream<infer Part> ? Part : never;
@@ -15,7 +16,7 @@ export interface ModelCallRecord extends GenerationCallContext {
   kind: typeof schema.modelCall.$inferInsert.kind; model: string; configId: string | null; configName?: string;
   inputTokens?: number; outputTokens?: number; seconds?: number;
   status?: CallStatus; durationMs?: number; usageKnown?: boolean; endpoint?: string;
-  requestId?: string; errorCode?: string; createdAt?: Date;
+  requestId?: string; errorCode?: string; createdAt?: Date; chainPosition?: number | null;
   costUsd?: string | null; costBasis?: CostBasis; rate?: ProviderRate; priceRevision?: string;
 }
 
@@ -33,7 +34,7 @@ export async function recordModelCall(call: ModelCallRecord): Promise<void> {
 
 interface Call extends GenerationCallContext {
   model: string; configId: string | null; configName?: string;
-  transport?: string; baseUrl?: string | null;
+  transport?: string; baseUrl?: string | null; chainPosition?: number | null;
 }
 function safeEndpoint(call: Call): string | undefined {
   try {
@@ -59,8 +60,16 @@ function generationBound(params: { prompt: unknown; maxOutputTokens?: number }):
   return { inputTokens: utf8.encode(JSON.stringify(params.prompt ?? '')).length, outputTokens: params.maxOutputTokens ?? 8192 };
 }
 const aborted = (error: unknown) => error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name);
-// Store a controlled error category, since provider messages can contain credentials or request bodies.
-const failure = (error: unknown): { status: CallStatus; errorCode: string } => ({ status: aborted(error) ? 'aborted' : 'failed', errorCode: aborted(error) ? 'request_aborted' : 'provider_error' });
+/*
+ * Store a controlled error category, since provider messages can contain
+ * credentials or request bodies: `provider_error`, refined by what the
+ * failover rules read in it (`provider_error:quota:402`).
+ */
+const failure = (error: unknown): { status: CallStatus; errorCode: string } => {
+  if (aborted(error)) return { status: 'aborted', errorCode: 'request_aborted' };
+  const seen = classifyModelFailure(error);
+  return { status: 'failed', errorCode: seen.kind === 'aborted' ? 'provider_error' : `provider_error:${failureCode(seen)}` };
+};
 
 export function loggedLanguageModel(model: LanguageModelV4, call: Call): LanguageModelV4 {
   async function attempt() {
@@ -73,7 +82,7 @@ export function loggedLanguageModel(model: LanguageModelV4, call: Call): Languag
       const durationMs = Math.min(2_147_483_647, Math.max(0, Date.now() - started.getTime()));
       saved ??= pending.then((price) => recordModelCall({
         kind: 'generation', model: call.model, configId: call.configId, configName: call.configName,
-        userId: call.userId, audience: call.audience, purpose: call.purpose ?? 'other',
+        userId: call.userId, audience: call.audience, purpose: call.purpose ?? 'other', chainPosition: call.chainPosition ?? null,
         status, endpoint, requestId, errorCode, createdAt: started, durationMs,
         inputTokens: usage?.inputTokens.total, outputTokens: usage?.outputTokens.total,
         usageKnown: usage?.inputTokens.total !== undefined && usage.outputTokens.total !== undefined,
