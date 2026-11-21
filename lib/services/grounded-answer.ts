@@ -56,7 +56,7 @@ type Generation = Awaited<ReturnType<typeof generationForUser>>;
 export async function streamGroundedAnswer(
   args: { generation: Generation; ree: Pick<Ree, 'id' | 'name' | 'systemPrompt'>; lang: 'zh' | 'en'; subject: string; passages: readonly Passage[]; turns: { role: 'user' | 'assistant'; content: string }[] },
   emit: Emit,
-): Promise<{ declined: boolean; text: string }> {
+): Promise<{ declined: boolean; text: string; model: string }> {
   const { generation, ree, subject, passages, turns } = args;
   const model = generation.endpoint.model;
   let textOpen = false;
@@ -112,11 +112,13 @@ export async function streamGroundedAnswer(
     if (textOpen) send('', true);
     if (textOpen) emit({ type: 'text-end', reeId: ree.id });
     textOpen = false;
+    /* The entry that answered: a backup when the primary failed before writing (lib/infra/ai/failover.ts). */
+    const answered = await Promise.resolve(result.response).then((response) => response.modelId || model, () => model);
     void Promise.resolve(result.usage).then(
-      (usage) => console.info(`answer usage ree=${ree.id} model=${model} in=${usage.inputTokens ?? 0} out=${usage.outputTokens ?? 0}`),
+      (usage) => console.info(`answer usage ree=${ree.id} model=${answered} in=${usage.inputTokens ?? 0} out=${usage.outputTokens ?? 0}`),
       () => undefined,
     );
-    return { declined: decided === true || settlesAsNoAnswer(raw, streamed, NO_ANSWER_REFUSAL_CHARS), text: streamed };
+    return { declined: decided === true || settlesAsNoAnswer(raw, streamed, NO_ANSWER_REFUSAL_CHARS), text: streamed, model: answered };
   } catch (error) {
     if (textOpen) emit({ type: 'text-end', reeId: ree.id });
     throw error;
