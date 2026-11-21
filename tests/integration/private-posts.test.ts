@@ -201,7 +201,7 @@ describeWithDb('private posts (私密提问)', () => {
     expect((await posts.adminPosts({ view: 'all', q: question })).map((row) => row.id)).not.toContain(id);
 
     /* Its author may still vote on its answers, and finds it in 我的帖子 → 私密. */
-    expect(await posts.setAnswerHelpful(author, given!.id, true)).toEqual({ helpful: 1, voted: true });
+    expect(await posts.setAnswerHelpful(author, given!.id, true)).toMatchObject({ helpful: 1, voted: true });
     expect((await posts.listMyPosts(author, 'private')).items.map((item) => item.id)).toEqual([id]);
     expect((await posts.listMyPosts(author, 'all')).items.map((item) => item.id)).toEqual([id]);
     expect((await posts.listMyPosts(author, 'public')).items).toEqual([]);
@@ -326,7 +326,7 @@ describeWithDb('private posts (私密提问)', () => {
     await posts.setAnswerHelpful(author, given!.id, true);
     expect(await privatePosts.setAnswerUnhelpful(author, given!.id, true)).toEqual({ unhelpful: 1, unvoted: true, helpful: 0, voted: false });
     expect((await posts.getPost(id, author))!.answers[0]).toMatchObject({ unhelpful: 1, unvoted: true, helpful: 0, voted: false });
-    expect(await posts.setAnswerHelpful(author, given!.id, true)).toEqual({ helpful: 1, voted: true });
+    expect(await posts.setAnswerHelpful(author, given!.id, true)).toMatchObject({ helpful: 1, voted: true });
     expect((await posts.getPost(id, author))!.answers[0]).toMatchObject({ unhelpful: 0, unvoted: false });
     expect(await privatePosts.setAnswerUnhelpful(author, given!.id, false)).toEqual({ unhelpful: 0, unvoted: false, helpful: 1, voted: true });
 

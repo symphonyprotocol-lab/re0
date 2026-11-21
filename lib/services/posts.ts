@@ -85,6 +85,7 @@ import { generationForUser } from '@/lib/services/generation';
 import { audit } from '@/lib/services/admin';
 import { adminAiAnswers, aiAnswersFor, aiRoundKey, answerWithAi, type AdminAiAnswer, type AiAnswerer } from '@/lib/services/ai-answers';
 import { notify } from '@/lib/services/notices';
+import { grantTaskReward } from '@/lib/services/task-rewards';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
 import { questionRewriter } from '@/lib/services/question-rewrite';
 
@@ -364,12 +365,18 @@ async function tellQuoted(tx: Executor, id: string, published: { userId: string 
 
 /* ------------------------------------------------------------------ review */
 
-/** Reviews a pending post's question: published, rejected (nothing was charged), or still pending when the check failed. */
+/**
+ * Reviews a pending post's question: published, rejected (nothing was
+ * charged), or still pending when the check failed. A post in the trash is
+ * not reviewed (`gone`): it stays pending, and once restored the sweep
+ * (`processStalePosts`) reviews it -- so a post trashed while under review
+ * is never published, nor pays its starter task, from the trash.
+ */
 export async function moderatePost(id: string, judge: Judge = modelJudge, now = new Date()): Promise<'published' | 'rejected' | 'pending' | 'gone'> {
   const [row] = await db()
     .update(post)
     .set({ moderationAttempts: sql`${post.moderationAttempts} + 1` })
-    .where(and(eq(post.id, id), eq(post.status, 'pending'), lt(post.moderationAttempts, PUBLIC_QA_MODERATION_ATTEMPTS)))
+    .where(and(eq(post.id, id), eq(post.status, 'pending'), isNull(post.deletedAt), lt(post.moderationAttempts, PUBLIC_QA_MODERATION_ATTEMPTS)))
     .returning({ question: post.question, detail: post.detail, attempts: post.moderationAttempts });
   if (!row) return 'gone';
   /* A new post has no answer yet and its question is reviewed alone; a private post made public (转为公开) brings its answers, reviewed with it. */
@@ -382,23 +389,28 @@ export async function moderatePost(id: string, judge: Judge = modelJudge, now = 
   }
   if (verdict === null && row.attempts < PUBLIC_QA_MODERATION_ATTEMPTS) return 'pending';
   if (verdict) {
-    await db().transaction(async (tx) => {
+    const done = await db().transaction(async (tx) => {
+      /* Trashed during the review: left pending, for the sweep once restored. */
       const [published] = await tx
         .update(post)
         .set({ status: 'published', publishedAt: now })
-        .where(and(eq(post.id, id), eq(post.status, 'pending')))
-        .returning({ userId: post.userId, question: post.question, quotePostId: post.quotePostId });
+        .where(and(eq(post.id, id), eq(post.status, 'pending'), isNull(post.deletedAt)))
+        .returning({ userId: post.userId, source: post.source, question: post.question, quotePostId: post.quotePostId });
+      if (!published) return false;
       await tellQuoted(tx, id, published);
+      /* 新手任务: a first post pays once it is public (a refused one never does); a private post made public counts too, once, whichever came first. */
+      if (published.userId && published.source !== 'test') await grantTaskReward(tx, published.userId, 'first_post', id, now);
+      return true;
     });
-    return 'published';
+    return done ? 'published' : 'gone';
   }
-  await rejectPost(id, now);
-  return 'rejected';
+  return (await rejectPost(id, now)) ? 'rejected' : 'gone';
 }
 
-/** A pending post refused (or whose review never finished): not public; nothing was charged. */
-async function rejectPost(id: string, now: Date): Promise<void> {
-  await db().update(post).set({ status: 'rejected', answerState: 'done', answeredAt: now }).where(and(eq(post.id, id), eq(post.status, 'pending')));
+/** A pending post refused (or whose review never finished): not public; nothing was charged. Not while in the trash (`moderatePost`). */
+async function rejectPost(id: string, now: Date): Promise<boolean> {
+  const rows = await db().update(post).set({ status: 'rejected', answerState: 'done', answeredAt: now }).where(and(eq(post.id, id), eq(post.status, 'pending'), isNull(post.deletedAt))).returning({ id: post.id });
+  return rows.length > 0;
 }
 
 /* ---------------------------------------------------------------- matching */
@@ -631,7 +643,7 @@ export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOp
     const stuck = await db()
       .select({ id: post.id })
       .from(post)
-      .where(and(eq(post.status, 'pending'), sql`${post.moderationAttempts} >= ${PUBLIC_QA_MODERATION_ATTEMPTS}`, lt(post.createdAt, new Date(now.getTime() - POST_ANSWERING_STALE_MS))))
+      .where(and(eq(post.status, 'pending'), isNull(post.deletedAt), sql`${post.moderationAttempts} >= ${PUBLIC_QA_MODERATION_ATTEMPTS}`, lt(post.createdAt, new Date(now.getTime() - POST_ANSWERING_STALE_MS))))
       .limit(100);
     for (const row of stuck) {
       if (left() <= 0) break;
@@ -666,7 +678,8 @@ export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOp
     .from(post)
     .where(
       or(
-        and(eq(post.status, 'pending'), lt(post.moderationAttempts, PUBLIC_QA_MODERATION_ATTEMPTS), lt(post.createdAt, new Date(now.getTime() - 60_000))),
+        /* Not one in the trash: it is not reviewed there, and would only take a place. */
+        and(eq(post.status, 'pending'), isNull(post.deletedAt), lt(post.moderationAttempts, PUBLIC_QA_MODERATION_ATTEMPTS), lt(post.createdAt, new Date(now.getTime() - 60_000))),
         and(eq(post.status, 'published'), eq(post.answerState, 'waiting'), lt(post.publishedAt, new Date(now.getTime() - POST_WAITING_STALE_MS))),
       ),
     )
@@ -1209,7 +1222,7 @@ export async function setPostSaved(userId: string, id: string, saved: boolean): 
  */
 async function lockShown(tx: Parameters<Parameters<ReturnType<typeof db>['transaction']>[0]>[0], id: string, reeId?: string, voterId?: string) {
   const [row] = await tx
-    .select({ id: answer.id, reeId: answer.reeId, ownerId: ree.ownerId })
+    .select({ id: answer.id, reeId: answer.reeId, ownerId: ree.ownerId, postAuthorId: post.userId })
     .from(answer)
     .innerJoin(ree, eq(ree.id, answer.reeId))
     .innerJoin(post, eq(post.id, answer.postId))
@@ -1225,11 +1238,18 @@ async function lockShown(tx: Parameters<Parameters<ReturnType<typeof db>['transa
   return row ?? null;
 }
 
-/** "有帮助", once per signed-in user; the new count, or null when the answer is not shown. */
-export async function setAnswerHelpful(userId: string, id: string, on: boolean, reeId?: string): Promise<{ helpful: number; voted: boolean } | null> {
+/**
+ * "有帮助", once per signed-in user; the new count, or null when the answer
+ * is not shown. `taskReward`: the first-helpful starter task this paid (0
+ * for none) -- only for someone else's content: not an answer of the
+ * voter's own Ree, nor any answer under the voter's own post (private or
+ * anonymous ones included). Those votes count all the same.
+ */
+export async function setAnswerHelpful(userId: string, id: string, on: boolean, reeId?: string): Promise<{ helpful: number; voted: boolean; taskReward: number } | null> {
   if (!isUuid(id)) return null;
   return db().transaction(async (tx) => {
-    if (!(await lockShown(tx, id, reeId, userId))) return null;
+    const shown = await lockShown(tx, id, reeId, userId);
+    if (!shown) return null;
     /* 有帮助 and 没帮助 (a private post's answers only) exclude each other. */
     if (on) await tx.delete(feedback).where(and(eq(feedback.answerId, id), eq(feedback.userId, userId)));
     const changed = on
@@ -1238,7 +1258,8 @@ export async function setAnswerHelpful(userId: string, id: string, on: boolean, 
     const [row] = changed.length
       ? await tx.update(answer).set({ helpfulCount: sql`greatest(${answer.helpfulCount} + ${on ? 1 : -1}, 0)` }).where(eq(answer.id, id)).returning({ helpful: answer.helpfulCount })
       : await tx.select({ helpful: answer.helpfulCount }).from(answer).where(eq(answer.id, id));
-    return { helpful: row!.helpful, voted: on };
+    const taskReward = on && changed.length && shown.ownerId !== userId && shown.postAuthorId !== userId ? await grantTaskReward(tx, userId, 'first_helpful', id) : 0;
+    return { helpful: row!.helpful, voted: on, taskReward };
   });
 }
 
@@ -1246,12 +1267,13 @@ export async function setAnswerHelpful(userId: string, id: string, on: boolean, 
  * "有帮助" on a post itself, once per signed-in user, its author included
  * (as on answers); only while anyone can see it. Answers what the cards
  * show -- the post's own votes added to its first-round answers' shown ones
- * -- or null when the post is not shown.
+ * -- or null when the post is not shown; `taskReward` as `setAnswerHelpful`,
+ * not for the voter's own post.
  */
-export async function setPostHelpful(userId: string, id: string, on: boolean): Promise<{ helpful: number; voted: boolean } | null> {
+export async function setPostHelpful(userId: string, id: string, on: boolean): Promise<{ helpful: number; voted: boolean; taskReward: number } | null> {
   if (!isUuid(id)) return null;
   return db().transaction(async (tx) => {
-    const [target] = await tx.select({ id: post.id }).from(post).where(and(eq(post.id, id), visiblePost())).for('update');
+    const [target] = await tx.select({ id: post.id, userId: post.userId }).from(post).where(and(eq(post.id, id), visiblePost())).for('update');
     if (!target) return null;
     const changed = on
       ? await tx.insert(postVote).values({ postId: id, userId }).onConflictDoNothing().returning({ id: postVote.postId })
@@ -1264,7 +1286,8 @@ export async function setPostHelpful(userId: string, id: string, on: boolean): P
       .from(answer)
       .innerJoin(ree, eq(ree.id, answer.reeId))
       .where(and(eq(answer.postId, id), firstRound(), shownAnswer()));
-    return { helpful: row!.own + (answers?.n ?? 0), voted: on };
+    const taskReward = on && changed.length && target.userId !== userId ? await grantTaskReward(tx, userId, 'first_helpful', id) : 0;
+    return { helpful: row!.own + (answers?.n ?? 0), voted: on, taskReward };
   });
 }
 

@@ -8,8 +8,8 @@ Signup invitations with a site-wide quota of withdrawable rewards, one-time rewa
 | --- | --- | --- | --- | --- |
 | Registering | `signup_reward` (unchanged, `/admin/pricing`) | welcome | no | `welcome` |
 | First Ree published | 2,500 | welcome | no | `task_first_ree` |
-| First question to a Ree (signed in) | 1,000 | welcome | no | `task_first_question` |
-| First comment on a Ree | 1,000 | welcome | no | `task_first_comment` |
+| First post: public once it passes review, or a private question (a Ree owner's 试问 is not one) | 1,000 | welcome | no | `task_first_post` |
+| First 有帮助 on someone else's content: another user's post, or an answer under another user's post from a Ree the voter does not own | 1,000 | welcome | no | `task_first_helpful` |
 | Inviting someone who registers, within the site quota and the inviter's cap (20) | 5,000, to the inviter | earned, `withdrawable_at` = now, no `funding_purchase_id`, no `ree_id` | yes, through every payout gate | `invite_reward` |
 | The same, past either limit | the same amount | welcome | no | `invite_reward_gift` |
 | Daily check-in (first 3 months, up to 30 days) | 1,500 per day | welcome | no | `check_in` |
@@ -48,7 +48,11 @@ A withdrawable invite reward has no maturity wait, and no other exemption: `requ
 
 ## Tasks
 
-- `task_reward` (primary key `user_id, task`): one row per paid task. `grantTaskReward` inserts with `ON CONFLICT DO NOTHING` and adds the grant only when the row was inserted, inside the action's transaction: `setReePublished` (the transition to published), `holdQuestion` (after the holds; anonymous chat does not use it), `addReeComment` (only when the comment row is new, so a retried request pays nothing).
+- v5 retired `first_question` and `first_comment` (`task_first_question`, `task_first_comment`) for `first_post` and `first_helpful`. Nothing pays the retired tasks any more; their `task_reward` rows, ledger entries and labels stay, and the console's task table still counts them. An account paid `first_question` counts `first_post` as done (`TASK_PREDECESSOR`): it is not paid again, and the Activities page shows it done with what was paid. `first_comment` has no successor, so an account paid it can still be paid `first_helpful`. Their settings columns (`first_question_credits`, `first_comment_credits`) are no longer read; migration 0075 copied their values into `first_post_credits` and `first_helpful_credits`.
+- 有帮助 pays only when the vote is cast (taking it back and voting again pays nothing: the `task_reward` row stays), and only for someone else's content: not on the voter's own post, nor on any answer under it (private and anonymous posts included), nor on an answer of their own Ree. Those votes still count.
+- A public post pays `first_post` when review publishes it (`moderatePost`), never when refused. A post in the trash is not reviewed: trashed while pending, it stays pending and the sweep reviews it once restored.
+
+- `task_reward` (primary key `user_id, task`): one row per paid task. `grantTaskReward` inserts with `ON CONFLICT DO NOTHING` and adds the grant only when the row was inserted, inside the action's transaction: `setReePublished` (the transition to published), `publishPrivatePost` (after the holds; not a 试问), `moderatePost` (the transition of a public post to published), `setPostHelpful` and `setAnswerHelpful` (only when the vote row is new, so a retry or a vote taken back and cast again pays nothing).
 - Tasks count from release, for every account: earlier actions are not paid, the next qualifying one is. Deleting what earned a reward keeps the reward and does not pay again. With an amount of 0 no row is written, so the task stays open for when it is switched back on.
 - The Activities page lists registering plus each task that is on or already paid, each with its reward, its state and a link to where it is done.
 

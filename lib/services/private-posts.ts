@@ -234,8 +234,8 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
         if (balance < AI_ANSWER_FEE) throw new InsufficientCredits(AI_ANSWER_FEE, balance);
       }
       await holdAnswers(tx, userId, { postId: id, followupId: null }, entries, now);
-      /* 新手任务: a first question to a Ree pays once, after its holds, as a private question did (answer.ts). */
-      if (source !== 'test') await grantTaskReward(tx, userId, 'first_question', id);
+      /* 新手任务: a first post -- private counts as public does -- pays once, after its holds; a Ree owner's 试问 is not one. */
+      if (source !== 'test') await grantTaskReward(tx, userId, 'first_post', id);
       return { ok: true, id } as const;
     });
   } catch (error) {

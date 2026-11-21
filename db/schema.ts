@@ -490,6 +490,9 @@ export const CREDIT_ENTRY_REASONS = [
   'task_first_ree',
   'task_first_question',
   'task_first_comment',
+  /* v5's starter tasks in place of the two above (kept for history): a first post, a first 有帮助. */
+  'task_first_post',
+  'task_first_helpful',
   /* A daily check-in in the account's first months: gift credits, never withdrawable. */
   'check_in',
   /* v5: a public post past the day's free ones, held when published, to the platform once a Ree answers, given back otherwise. */
@@ -2081,8 +2084,11 @@ export const rewardSettings = pgTable('reward_settings', {
   withdrawableInvitesPerInviter: integer('withdrawable_invites_per_inviter').notNull(),
   inviteCredits: integer('invite_credits').notNull(),
   firstReeCredits: integer('first_ree_credits').notNull(),
-  firstQuestionCredits: integer('first_question_credits').notNull(),
-  firstCommentCredits: integer('first_comment_credits').notNull(),
+  /** Retired with their tasks (TASK_KINDS): read by nothing, defaulted so a save need not write them. Drop once no deployment reads them. */
+  firstQuestionCredits: integer('first_question_credits').notNull().default(1000),
+  firstCommentCredits: integer('first_comment_credits').notNull().default(1000),
+  firstPostCredits: integer('first_post_credits').notNull().default(1000),
+  firstHelpfulCredits: integer('first_helpful_credits').notNull().default(1000),
   checkInCredits: integer('check_in_credits').notNull(),
   checkInMaxDays: integer('check_in_max_days').notNull(),
   checkInWindowMonths: integer('check_in_window_months').notNull(),
@@ -2094,7 +2100,7 @@ export const rewardSettings = pgTable('reward_settings', {
   check('reward_settings_quota_check', sql`withdrawable_invites between 0 and 10000000 and withdrawable_invites_per_inviter between 0 and 1000000`),
   check(
     'reward_settings_credits_check',
-    sql`invite_credits between 0 and 100000000 and first_ree_credits between 0 and 100000000 and first_question_credits between 0 and 100000000 and first_comment_credits between 0 and 100000000 and check_in_credits between 0 and 100000000`,
+    sql`invite_credits between 0 and 100000000 and first_ree_credits between 0 and 100000000 and first_question_credits between 0 and 100000000 and first_comment_credits between 0 and 100000000 and first_post_credits between 0 and 100000000 and first_helpful_credits between 0 and 100000000 and check_in_credits between 0 and 100000000`,
   ),
   check('reward_settings_check_in_check', sql`check_in_max_days between 0 and 3650 and check_in_window_months between 1 and 120`),
 ]);
@@ -2164,7 +2170,8 @@ export const checkIn = pgTable(
 /**
  * A new-user task paid: at most one row per account and task, so a retry or
  * a race never pays twice. `ref_id` is what completed it (the Ree, the
- * question message, the comment); it is kept when that is later deleted.
+ * post, the post or answer marked helpful; for the retired tasks the
+ * question or the comment); it is kept when that is later deleted.
  */
 export const taskReward = pgTable(
   'task_reward',

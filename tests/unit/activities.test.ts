@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '@/i18n/client';
 import { messages } from '@/i18n';
-import { ACTIVITIES, activityState, newUserWindowEnd, openTasks, type ActivityFacts, type ActivityState } from '@/lib/domain/invites';
+import { ACTIVITIES, activityState, newUserWindowEnd, openTasks, paidTask, STARTER_TASKS, TASK_HREF, type ActivityFacts, type ActivityState } from '@/lib/domain/invites';
 import { INVITE_DEFAULTS } from '@/lib/constants';
 import type { Activities } from '@/lib/services/task-rewards';
 import type { CheckInStatus } from '@/lib/services/check-in';
@@ -16,8 +16,8 @@ vi.mock('next/navigation', () => ({
 const { ActivitiesView } = await import('@/components/activities/activities-view');
 
 const settings = { ...INVITE_DEFAULTS };
-const off = { ...settings, firstReeCredits: 0, firstQuestionCredits: 0, firstCommentCredits: 0 };
-const allPaid = ['first_ree', 'first_question', 'first_comment'];
+const off = { ...settings, firstReeCredits: 0, firstPostCredits: 0, firstHelpfulCredits: 0 };
+const allPaid = ['first_ree', 'first_post', 'first_helpful'];
 
 const createdAt = new Date('2026-08-16T04:00:00Z');
 const windowEndsAt = newUserWindowEnd(createdAt, settings);
@@ -45,8 +45,19 @@ describe('which activities an account can take part in', () => {
     }
     /* Everything off, then one reward turned back on: the page comes back by itself. */
     expect(state({ checkIn: 'off', settings: off })).toEqual(hidden);
-    expect(state({ checkIn: 'off', settings: { ...off, firstCommentCredits: 1 }, paidTasks: ['first_ree'] })).toEqual({ visible: true, claimable: true, dot: true });
-    expect(openTasks(settings, ['first_question'])).toEqual(['first_ree', 'first_comment']);
+    expect(state({ checkIn: 'off', settings: { ...off, firstHelpfulCredits: 1 }, paidTasks: ['first_ree'] })).toEqual({ visible: true, claimable: true, dot: true });
+    expect(openTasks(settings, ['first_post'])).toEqual(['first_ree', 'first_helpful']);
+  });
+
+  it('counts a retired first question as the first post done, but a retired first comment as nothing', () => {
+    expect(STARTER_TASKS).toEqual(['first_ree', 'first_post', 'first_helpful']);
+    expect(openTasks(settings, ['first_question'])).toEqual(['first_ree', 'first_helpful']);
+    expect(openTasks(settings, ['first_comment'])).toEqual(['first_ree', 'first_post', 'first_helpful']);
+    expect(state({ checkIn: 'done_today', paidTasks: ['first_ree', 'first_question', 'first_helpful'] })).toEqual({ visible: true, claimable: false, dot: false });
+    expect(state({ checkIn: 'done_today', paidTasks: ['first_ree', 'first_question', 'first_comment'] }).claimable).toBe(true);
+    expect(paidTask('first_post', [{ task: 'first_question', credits: 1_000 }])).toEqual({ task: 'first_question', credits: 1_000 });
+    expect(paidTask('first_helpful', [{ task: 'first_comment', credits: 1_000 }])).toBeUndefined();
+    expect(TASK_HREF).toEqual({ first_ree: '/rees/new', first_post: '/?compose=public', first_helpful: '/' });
   });
 
   it('keeps an old account\'s unpaid task available and claimable, but stops it raising the dot at the end of the check-in window', () => {
@@ -70,7 +81,7 @@ describe('the Activities page', () => {
       tasks: [
         { key: 'signup', done: true, credits: 10_000 },
         { key: 'first_ree', done: false, credits: 2_500 },
-        { key: 'first_question', done: true, credits: 1_000 },
+        { key: 'first_post', done: true, credits: 1_000 },
       ],
       checkIn: checkIn('available'),
       state: { visible: true, claimable: true, dot: true },
@@ -110,13 +121,27 @@ describe('the Activities page', () => {
     const html = render({
       tasks: [
         { key: 'signup', done: true, credits: 10_000 },
-        { key: 'first_comment', done: false, credits: 1_000 },
+        { key: 'first_helpful', done: false, credits: 1_000 },
       ],
       checkIn: checkIn('expired', 2),
       state: { visible: true, claimable: true, dot: false },
     });
-    for (const text of ['打卡期已结束', '第一次评论', '+1,000 credits', '去完成', '/explore"']) expect(html).toContain(text);
+    for (const text of ['打卡期已结束', '第一次点「有帮助」', '+1,000 credits', '去完成', 'href="/zh"'] /* the feed, in the page's language */) expect(html).toContain(text);
     expect(html).not.toContain('今天能领的奖励都已领完');
+  });
+
+  it('lists the post and helpful tasks, not the retired question and comment ones', () => {
+    const tasks: Activities['tasks'] = [
+      { key: 'signup', done: true, credits: 20_000 },
+      { key: 'first_ree', done: true, credits: 2_500 },
+      { key: 'first_post', done: false, credits: 1_000 },
+      { key: 'first_helpful', done: false, credits: 1_000 },
+    ];
+    const en = render({ tasks, checkIn: checkIn('done_today'), state: { visible: true, claimable: true, dot: true } }, 'en');
+    for (const text of ['Publish your first post', 'Mark something helpful', 'href="/en?compose=public"', 'href="/en"', '2 of 4 done']) expect(en).toContain(text);
+    for (const text of ['Ask your first question', 'Post your first comment', '/explore']) expect(en).not.toContain(text);
+    const zh = render({ tasks, checkIn: checkIn('done_today'), state: { visible: true, claimable: true, dot: true } });
+    for (const text of ['发布第一个帖子', '第一次点「有帮助」']) expect(zh).toContain(text);
   });
 
   it('shows the invite tab\'s own status when invitations pay gift credits or are paused', () => {

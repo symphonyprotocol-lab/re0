@@ -512,6 +512,13 @@
       "when": 1795267200000,
       "tag": "0074_rate_limit_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1795270800000,
+      "tag": "0075_starter_tasks_v5",
+      "breakpoints": true
     }
   ]
 }

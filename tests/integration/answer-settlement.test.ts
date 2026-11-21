@@ -404,12 +404,12 @@ describeWithDb('settling the stream (H3, M6)', () => {
 describeWithDb('starter task rewards and invite-funded fees through the real question flow', () => {
   /* Every other suite runs with these rewards off (setup.ts); here they are on, as in production. */
   async function rewardsOn(values: Partial<typeof schema.rewardSettings.$inferInsert> = {}) {
-    const row = { invitesEnabled: true, withdrawableInvites: 1_000, withdrawableInvitesPerInviter: 20, inviteCredits: 0, firstReeCredits: 2_500, firstQuestionCredits: 1_000, firstCommentCredits: 1_000, checkInCredits: 0, checkInMaxDays: 30, checkInWindowMonths: 3, revision: randomUUID(), updatedBy: null, ...values };
+    const row = { invitesEnabled: true, withdrawableInvites: 1_000, withdrawableInvitesPerInviter: 20, inviteCredits: 0, firstReeCredits: 2_500, firstPostCredits: 1_000, firstHelpfulCredits: 1_000, checkInCredits: 0, checkInMaxDays: 30, checkInWindowMonths: 3, revision: randomUUID(), updatedBy: null, ...values };
     await db().insert(schema.rewardSettings).values(row).onConflictDoUpdate({ target: schema.rewardSettings.id, set: row });
   }
   afterAll(resetRewardSettings);
 
-  it('pays the first question once, beside the holds and their settlement, and never for later ones', async () => {
+  it('pays the first post (a private question) once, beside the holds and their settlement, and never for later ones', async () => {
     await rewardsOn();
     const { ownerId, ree, askerId } = await setUp();
     const before = await balanceOf(db(), askerId);
@@ -419,12 +419,12 @@ describeWithDb('starter task rewards and invite-funded fees through the real que
     const second = await ask(askerId, ree, `${QUESTION} Again?`);
     expect(second.outcome).toMatchObject({ noAnswer: false, cost: QUERY_BASE_FEE + FEE });
     expect(await balanceOf(db(), askerId)).toBe(before - 2 * (QUERY_BASE_FEE + FEE) + 1_000);
-    const rewards = await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, askerId), eq(schema.creditEntry.reason, 'task_first_question')));
+    const rewards = await db().select().from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, askerId), eq(schema.creditEntry.reason, 'task_first_post')));
     expect(rewards.map((entry) => entry.delta)).toEqual([1_000]);
     /* Every hold of both questions settled; nothing left held. */
     const held = await db().select().from(schema.creditHold).where(and(eq(schema.creditHold.userId, askerId), eq(schema.creditHold.status, 'held')));
     expect(held).toHaveLength(0);
-    /* The owner's own Ree, published (unpublished first: `setUp` made it public to be asked), and a comment on it: each paid once. */
+    /* The owner's own Ree, published (unpublished first: `setUp` made it public to be asked): paid once. A comment on it pays nothing (its task is retired). */
     await db().update(schema.ree).set({ isPublic: true, isPublished: false }).where(eq(schema.ree.id, ree.id));
     await rees.setReePublished(ownerId, ree.id, true);
     const { addReeComment } = await import('@/lib/services/ree-comments');
@@ -432,11 +432,11 @@ describeWithDb('starter task rewards and invite-funded fees through the real que
     await addReeComment(ree.id, { id: askerId, name: 'Asker', avatarBlob: null }, { id: randomUUID(), content: 'Again' });
     const paid = await db().select({ userId: schema.creditEntry.userId, reason: schema.creditEntry.reason }).from(schema.creditEntry).where(inArray(schema.creditEntry.reason, ['task_first_ree', 'task_first_comment']));
     expect(paid.filter((row) => row.userId === ownerId).map((row) => row.reason)).toEqual(['task_first_ree']);
-    expect(paid.filter((row) => row.userId === askerId).map((row) => row.reason)).toEqual(['task_first_comment']);
+    expect(paid.filter((row) => row.userId === askerId)).toEqual([]);
   });
 
   it('a fee paid with invite-funded credits reaches the owner withdrawable after maturity, marked invite-funded', async () => {
-    await rewardsOn({ firstQuestionCredits: 0 });
+    await rewardsOn({ firstPostCredits: 0 });
     const { ownerId, ree, askerId } = await setUp();
     await emptyWelcome(askerId);
     await db().transaction((tx) => addGrant(tx, { userId: askerId, source: 'earned', amount: 50_000, reason: 'invite_reward', refId: randomUUID(), withdrawableAt: new Date(), inviteFunded: true }));
