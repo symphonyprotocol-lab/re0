@@ -22,5 +22,5 @@ export async function POST(request: NextRequest) {
   if (user instanceof Response) return user;
   const result = await convertEarned(user.id, await body(request));
   if (!result.ok) return fail(result.error, STATUS[result.error], result.available !== undefined ? { available: result.available } : undefined);
-  return json({ converted: result.converted, received: result.received });
+  return json({ converted: result.converted, received: result.received, offset: result.offset });
 }

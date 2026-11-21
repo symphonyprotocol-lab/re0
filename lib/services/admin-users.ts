@@ -13,7 +13,7 @@ import type { UserRole } from '@/lib/domain/roles';
 import { db, schema } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
 import { addGrant, grantsOf, moveGrants } from '@/lib/services/credits';
-import { planStateOf } from '@/lib/services/billing';
+import { debtsOf, planStateOf } from '@/lib/services/billing';
 import { notify } from '@/lib/services/notices';
 import { roleHistory, roleMetrics } from '@/lib/services/roles';
 import type { KycState } from '@/lib/domain/kyc';
@@ -129,10 +129,8 @@ export async function adminUser(id: string, now = new Date()) {
     .where(eq(schema.subscription.userId, id))
     .orderBy(desc(schema.subscription.updatedAt))
     .limit(1);
-  const [debt] = await database
-    .select({ remaining: sql<number>`coalesce(sum(${schema.creditDebt.remaining}), 0)::bigint` })
-    .from(schema.creditDebt)
-    .where(eq(schema.creditDebt.userId, id));
+  /* Split by kind (review S3): only what a refund or chargeback left holds back payouts. */
+  const debt = await debtsOf(database, id);
   const plan = await planStateOf(database, id, now);
   return {
     id: account.id,
@@ -153,7 +151,9 @@ export async function adminUser(id: string, now = new Date()) {
       earned: Number(balances?.earned ?? 0),
       welcome: Number(balances?.welcome ?? 0),
     },
-    debt: Number(debt?.remaining ?? 0),
+    debt: debt.refund + debt.usage,
+    refundDebt: debt.refund,
+    usageDebt: debt.usage,
     membership: balances?.membership ?? 'none',
     subscription: subscription ?? null,
     planActive: plan.active,

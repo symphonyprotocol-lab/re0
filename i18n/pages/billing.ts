@@ -28,11 +28,14 @@ export const zh = {
       laterMaturing: '之后还有 {k} 笔',
       locked: '不可提现（免费点数支付）',
       invite: '其中邀请奖励',
-      checkoutHeld: '付款占用中（未完成的结账，1 小时内未付自动释放）',
+      checkoutHeld: '付款占用中（未完成的结账，未付款的通常 1 小时内释放）',
       convert: '转换为可用点数',
     },
   },
-  debt: '待抵扣 {n} credits：退款时已经用掉的部分，会从下一次到账中先扣除。',
+  debt: {
+    refund: '待抵扣 {n} credits：退款或拒付时已经用掉的部分，会从之后的任何到账（包括收入 credits）中先扣除；还清前不能提现。',
+    usage: '用量欠款 {n} credits：处理、存储等费用余额不够支付的部分，会从之后到账的可消费 credits（Plan、Pack 与赠送）中先扣除，收入 credits 不用于偿还，也不影响提现。',
+  },
   convert: {
     title: '把收入转换为可用点数',
     amount: '转换数量（收入）',
@@ -47,6 +50,7 @@ export const zh = {
     confirm: '确认转换',
     working: '转换中…',
     done: '已转换 {earned} 收入，到账 {credits} 点',
+    doneOffset: '已转换 {earned} 收入，到账 {credits} 点，其中 {offset} 点用于偿还欠款',
     disabled: '收入转换暂未开放',
     errors: {
       invalid_amount: '请输入正整数',
@@ -243,11 +247,14 @@ export const en: Shape<typeof zh> = {
       laterMaturing: '{k} more after that',
       locked: 'Not withdrawable (paid with free credits)',
       invite: 'From invitations',
-      checkoutHeld: 'Held by an unfinished checkout (released if unpaid within an hour)',
+      checkoutHeld: 'Held by an unfinished checkout (usually released within an hour if unpaid)',
       convert: 'Convert to credits',
     },
   },
-  debt: '{n} credits owed: the part of a refund already spent, deducted first from your next credits.',
+  debt: {
+    refund: '{n} credits owed from a refund or chargeback: the part already spent, deducted first from any credits you receive next, earned credits included. Payouts wait until it is paid off.',
+    usage: '{n} credits of usage debt: processing or storage costs the balance could not cover, deducted first from the spendable credits (Plan, Pack and Gift) you receive next. Earned credits never repay it, and it does not hold back payouts.',
+  },
   convert: {
     title: 'Convert earned credits',
     amount: 'Earned credits to convert',
@@ -262,6 +269,7 @@ export const en: Shape<typeof zh> = {
     confirm: 'Convert',
     working: 'Converting…',
     done: 'Converted {earned} earned credits into {credits} credits',
+    doneOffset: 'Converted {earned} earned credits into {credits} credits, {offset} of which paid off what you owed',
     disabled: 'Converting earned credits is not available right now',
     errors: {
       invalid_amount: 'Enter a whole number',

@@ -39,6 +39,8 @@ export const zh = {
       earnedHint: '仅该部分可提现',
       earnedOfficial: '官方账号 · 不提供提现',
       debt: '待还 credits',
+      refundDebt: '退款 / 拒付待还 · 挡提现',
+      usageDebt: '用量欠款 · 不挡提现',
     },
     actions: { disable: '停用账号', restore: '恢复账号', adjust: '调整 Credits' },
     toggle: {
@@ -322,6 +324,8 @@ export const en: Shape<typeof zh> = {
       earnedHint: 'Only these may be withdrawn',
       earnedOfficial: 'Official account · No withdrawals',
       debt: 'Credits owed',
+      refundDebt: 'Owed from refunds / chargebacks · holds back payouts',
+      usageDebt: 'Usage debt · does not hold back payouts',
     },
     actions: { disable: 'Disable account', restore: 'Restore account', adjust: 'Adjust credits' },
     toggle: {

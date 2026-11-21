@@ -63,13 +63,14 @@ export function ConvertEarned({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ credits: amount, rateBp }),
       });
-      const body = (await response.json().catch(() => ({}))) as { error?: keyof typeof c.errors; converted?: number; received?: number };
+      const body = (await response.json().catch(() => ({}))) as { error?: keyof typeof c.errors; converted?: number; received?: number; offset?: number };
       if (!response.ok) {
         if (body.error === 'rate_changed') router.refresh();
         setError(body.error ? fill(c.errors[body.error] ?? t.common.errors.generic, { min: n(minimum) }) : t.common.errors.generic);
         return;
       }
-      toast(fill(c.done, { earned: n(body.converted ?? amount), credits: n(body.received ?? 0) }));
+      const offset = body.offset ?? 0;
+      toast(fill(offset > 0 ? c.doneOffset : c.done, { earned: n(body.converted ?? amount), credits: n(body.received ?? 0), offset: n(offset) }));
       setOpen(false);
       router.refresh();
     } catch {

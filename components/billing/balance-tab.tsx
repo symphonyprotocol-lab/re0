@@ -122,10 +122,16 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
           )}
         </ul>
       </section>
-      {summary.debt > 0 && (
+      {summary.refundDebt > 0 && (
         <div role="note" className="billing-debt">
           <I name="info" />
-          <span>{fill(b.debt, { n: n(summary.debt) })}</span>
+          <span>{fill(b.debt.refund, { n: n(summary.refundDebt) })}</span>
+        </div>
+      )}
+      {summary.usageDebt > 0 && (
+        <div role="note" className="billing-debt">
+          <I name="info" />
+          <span>{fill(b.debt.usage, { n: n(summary.usageDebt) })}</span>
         </div>
       )}
       <div className="billing-plans mt32">

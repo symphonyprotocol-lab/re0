@@ -102,7 +102,8 @@ export async function earnedBalance(executor: Executor, userId: string, now = ne
   /* Earnings matured on the same calendar day (UTC) show as one amount; an invitation reward is withdrawable when credited, so never here. */
   const pending = rows.filter((row) => row.withdrawableAt && row.withdrawableAt.getTime() > now.getTime());
   for (const row of pending) if (!out.nextMaturesAt || row.withdrawableAt!.getTime() < out.nextMaturesAt.getTime()) out.nextMaturesAt = row.withdrawableAt;
-  const day = (date: Date) => date.toISOString().slice(0, 10);
+  /* The calendar day in UTC+8, the one `formatDate` shows (Malaysia has no daylight saving: a fixed 8 hours). */
+  const day = (date: Date) => new Date(date.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
   for (const row of pending) {
     if (day(row.withdrawableAt!) === day(out.nextMaturesAt!)) out.nextMaturing += row.remaining;
     else out.laterMaturing += 1;
@@ -110,7 +111,7 @@ export async function earnedBalance(executor: Executor, userId: string, now = ne
   return out;
 }
 
-export type ConvertResult = { ok: true; converted: number; received: number; conversionId: string } | { ok: false; error: ConvertRefusal; available?: number };
+export type ConvertResult = { ok: true; converted: number; received: number; offset: number; conversionId: string } | { ok: false; error: ConvertRefusal; available?: number };
 
 /**
  * `POST /api/billing/earned/convert` `{credits, rateBp}`: converts `credits`
@@ -172,15 +173,18 @@ async function convertWithin(tx: Tx, userId: string, credits: number, rateBp: nu
     allocations,
     createdAt: now,
   });
+  /* What the new Pack credits paid of open debts first (addGrant), told to the user apart from what they can spend. */
+  let offset = 0;
   for (const [index, group] of parts.entries()) {
     const amount = split.paid[index]!;
     if (amount <= 0) continue;
-    await addGrant(
+    const granted = await addGrant(
       tx,
       { userId, source: 'pack', amount, reason: 'earned_converted', refId: conversionId, convertedPaid: true, fundingPurchaseId: group.fundingPurchaseId, inviteFunded: group.inviteFunded, voidUntil: group.voidUntil, note: group.inviteFunded ? 'converted from invitation earnings' : 'converted from withdrawable earnings' },
       now,
     );
+    offset += granted.offset;
   }
-  if (split.free > 0) await addGrant(tx, { userId, source: 'pack', amount: split.free, reason: 'earned_converted', refId: conversionId, converted: true, note: 'converted from earnings paid with free credits' }, now);
-  return { ok: true, converted: credits, received, conversionId };
+  if (split.free > 0) offset += (await addGrant(tx, { userId, source: 'pack', amount: split.free, reason: 'earned_converted', refId: conversionId, converted: true, note: 'converted from earnings paid with free credits' }, now)).offset;
+  return { ok: true, converted: credits, received, offset, conversionId };
 }

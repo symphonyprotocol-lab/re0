@@ -186,7 +186,7 @@ export function CheckoutPanel({
         }
         if (body.error === 'price_changed') { setConsent(false); router.refresh(); }
         /* The earned balance or the rules moved under the page: show the current ones (review S5). */
-        if (body.error === 'rate_changed' || body.error === 'insufficient_earned' || body.error?.startsWith('deduction_')) {
+        if (body.error === 'rate_changed' || body.error === 'insufficient_earned' || body.error === 'request_mismatch' || body.error?.startsWith('deduction_')) {
           setUseEarned(false);
           request.current = crypto.randomUUID();
           router.refresh();

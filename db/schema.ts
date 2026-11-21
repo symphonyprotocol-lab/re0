@@ -906,6 +906,10 @@ export const paddleCheckout = pgTable(
     earnedHoldId: uuid('earned_hold_id'),
     earnedCredits: bigint('earned_credits', { mode: 'number' }).notNull().default(0),
     earnedMinor: integer('earned_minor').notNull().default(0),
+    /** Failed cancellations of an earned checkout (Paddle refused or was down): the sweep backs off by them and alerts when Paddle says it was paid (review round 2). */
+    releaseAttempts: integer('release_attempts').notNull().default(0),
+    releaseTriedAt: timestampTz('release_tried_at'),
+    releaseError: text('release_error'),
     createdAt: createdAt(),
   },
   (t) => [index('paddle_checkout_earned_idx').on(t.createdAt).where(sql`earned_hold_id is not null and superseded_at is null`), index('paddle_checkout_user_idx').on(t.userId, t.kind, t.createdAt), check('paddle_checkout_kind_check', oneOf('kind', ['plan', 'pack']))],

@@ -554,6 +554,123 @@ describeWithDb('review of #192', () => {
   });
 });
 
+describeWithDb('review of #192, round 2', () => {
+  async function spendAll(userId: string) {
+    const all = await balanceOf(db(), userId, during);
+    if (all > 0) await db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount: all, refId: randomUUID() }, during));
+  }
+
+  it('a Plan checkout is not reused once the rate changed: the new one holds at the new rate', async () => {
+    const userId = await newUser();
+    await earn(userId, 100_000);
+    const paddle = fakePaddle();
+    const first = await billing.startCheckout(userId, { kind: 'plan', consent: true, earnedMinor: 300, deductCreditsPerCent: 100 }, paddle.deps);
+    expect(first.ok && first.transactionId).toBeTruthy();
+    expect(await earnedLeft(userId)).toBe(70_000);
+    /* Same rate, same request: the open checkout is reused. */
+    const again = await billing.startCheckout(userId, { kind: 'plan', consent: true, earnedMinor: 300, deductCreditsPerCent: 100 }, paddle.deps);
+    expect(again.ok && again.transactionId).toBe(first.ok && first.transactionId);
+    const before = await earnedService.earnedSettings();
+    const saved = await earnedService.saveEarnedSettings(await administrator(), { ...before, deductCreditsPerCent: 200, revision: before.revision });
+    try {
+      /* The old rate is refused even where the old checkout could be reused. */
+      expect(await billing.startCheckout(userId, { kind: 'plan', consent: true, earnedMinor: 300, deductCreditsPerCent: 100 }, paddle.deps)).toEqual({ ok: false, error: 'rate_changed' });
+      const renewed = await billing.startCheckout(userId, { kind: 'plan', consent: true, earnedMinor: 300, deductCreditsPerCent: 200 }, paddle.deps);
+      expect(renewed.ok && renewed.transactionId).not.toBe(first.ok && first.transactionId);
+      expect(paddle.cancelled).toEqual([first.ok && first.transactionId]);
+      expect(paddle.created).toHaveLength(2);
+      expect(await earnedLeft(userId)).toBe(40_000);
+      const [held] = await db().select().from(schema.paddleCheckout).where(eq(schema.paddleCheckout.paddleTransactionId, (renewed.ok && renewed.transactionId) || ''));
+      expect(held).toMatchObject({ earnedMinor: 300, earnedCredits: 60_000 });
+    } finally {
+      await earnedService.saveEarnedSettings(await administrator(), { ...saved, deductCreditsPerCent: 100, revision: saved.revision });
+    }
+    await expectLedgerTraceable(userId);
+  });
+
+  it('a checkout Paddle will not cancel keeps its hold, never blocks a new one, backs off, and alerts once Paddle calls it paid', async () => {
+    const userId = await newUser();
+    await subscribe(userId);
+    await earn(userId, 80_000);
+    const paddle = fakePaddle();
+    let status = 'ready';
+    let stuckId = '';
+    const deps = {
+      ...paddle.deps,
+      cancel: async (config: unknown, transactionId: string) => {
+        if (transactionId === stuckId) throw new Error('Paddle 500');
+        await paddle.deps.cancel(config, transactionId);
+      },
+      status: async () => status,
+    };
+    const stuck = await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 300, deductCreditsPerCent: 100 }, deps);
+    stuckId = (stuck.ok && stuck.transactionId) || '';
+    /* A new checkout goes on with other credits; the stuck one keeps what it holds (it may still be paid). */
+    const next = await billing.startCheckout(userId, { kind: 'pack', quantity: 2, consent: true, earnedMinor: 300, deductCreditsPerCent: 100 }, deps);
+    expect(next.ok && next.transactionId).toBeTruthy();
+    expect(await earnedLeft(userId)).toBe(20_000);
+    const row = async () => (await db().select().from(schema.paddleCheckout).where(eq(schema.paddleCheckout.paddleTransactionId, stuckId)))[0]!;
+    expect(await row()).toMatchObject({ supersededAt: null, releaseAttempts: 1 });
+    expect((await row()).releaseError).toContain('ready');
+    const alerts: string[] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => void alerts.push(args.map(String).join(' '));
+    try {
+      /* An hour later the sweep frees the other one; the stuck one fails again and waits. */
+      const sweep = (minutes: number) => billing.releaseStaleEarnedCheckouts(new Date(during.getTime() + minutes * 60_000), { config: CONFIG, cancel: deps.cancel, status: deps.status });
+      expect(await sweep(61)).toBeGreaterThanOrEqual(1);
+      expect(paddle.cancelled).toContain(next.ok && next.transactionId);
+      expect((await row()).releaseAttempts).toBe(2);
+      /* Backed off: tried at 61 minutes after its second failure, it waits 4 minutes. */
+      await sweep(62);
+      expect((await row()).releaseAttempts).toBe(2);
+      /* Paddle says it was paid and no webhook ever came: alert, keep the hold. */
+      status = 'completed';
+      await sweep(70);
+      expect((await row()).releaseAttempts).toBe(3);
+      expect(alerts.some((line) => line.includes('ALERT') && line.includes(stuckId))).toBe(true);
+    } finally {
+      console.error = error;
+    }
+    expect(await earnedLeft(userId)).toBe(50_000);
+    expect(billing.releaseBackoffMinutes(1)).toBe(2);
+    expect(billing.releaseBackoffMinutes(10)).toBe(60);
+  });
+
+  it('splits a refund debt from a usage debt, on the balance page and in the console', async () => {
+    const { takeOrOwe } = await import('@/lib/services/credits');
+    const { adminUser } = await import('@/lib/services/admin-users');
+    const userId = await newUser();
+    await spendAll(userId);
+    await db().transaction((tx) => takeOrOwe(tx, { userId, amount: 300, reason: 'storage_charge', refId: null }, during));
+    const [purchase] = await db().insert(schema.purchase).values({ userId, kind: 'pack', paddleTransactionId: id('txn'), amountMinor: 1_000, credits: 5_000 }).returning();
+    await db().insert(schema.creditDebt).values({ userId, amount: 2_000, remaining: 2_000, purchaseId: purchase!.id, createdAt: during });
+    expect(await billing.billingSummary(userId, during)).toMatchObject({ debt: 2_300, refundDebt: 2_000, usageDebt: 300 });
+    expect(await adminUser(userId, during)).toMatchObject({ debt: 2_300, refundDebt: 2_000, usageDebt: 300 });
+  });
+
+  it('a conversion tells what its credits paid of a debt first', async () => {
+    const { takeOrOwe } = await import('@/lib/services/credits');
+    const userId = await newUser();
+    await spendAll(userId);
+    await db().transaction((tx) => takeOrOwe(tx, { userId, amount: 300, reason: 'storage_charge', refId: null }, during));
+    await earn(userId, 1_000, 'maturing');
+    expect(await earnedService.convertEarned(userId, { credits: 1_000, rateBp: 10_000 }, during)).toMatchObject({ ok: true, converted: 1_000, received: 1_000, offset: 300 });
+    await expectLedgerTraceable(userId);
+  });
+
+  it('the same request id for a different order is refused, never answered with another order’s purchase', async () => {
+    const userId = await newUser();
+    await subscribe(userId);
+    await earn(userId, 300_000);
+    const requestId = randomUUID();
+    const order = { kind: 'pack', quantity: 1, consent: true, earnedMinor: 1_000, deductCreditsPerCent: 100, requestId };
+    expect((await billing.startCheckout(userId, order, fakePaddle().deps)).ok).toBe(true);
+    expect(await billing.startCheckout(userId, { ...order, quantity: 2, earnedMinor: 2_000 }, fakePaddle().deps)).toEqual({ ok: false, error: 'request_mismatch' });
+    expect(await earnedLeft(userId)).toBe(200_000);
+  });
+});
+
 describeWithDb('when maturing earnings become available', () => {
   it('names the soonest day and its amount, counts later ones, and files invitation rewards as withdrawable at once', async () => {
     const userId = await newUser();
@@ -574,5 +691,20 @@ describeWithDb('when maturing earnings become available', () => {
     expect(later).toMatchObject({ withdrawable: 6_200, maturing: 1_200, nextMaturing: 900, laterMaturing: 1 });
     /* Nothing maturing: nothing to name. */
     expect(await earnedService.earnedBalance(db(), userId, at(30))).toMatchObject({ maturing: 0, nextMaturesAt: null, nextMaturing: 0, laterMaturing: 0 });
+  });
+
+  it('groups by the day shown, in UTC+8, not the UTC day', async () => {
+    const userId = await newUser();
+    const add = (amount: number, withdrawableAt: Date) =>
+      db().transaction((tx) => addGrant(tx, { userId, source: 'earned', amount, reason: 'query_fee_earned', refId: randomUUID(), withdrawableAt, fundingPurchaseId: null, inviteFunded: false }, during));
+    /* One UTC day, two days in UTC+8 (20:00Z is 04:00 the next day). */
+    await add(1_000, new Date('2026-11-20T10:00:00Z'));
+    await add(2_000, new Date('2026-11-20T20:00:00Z'));
+    /* Two UTC days, one day in UTC+8 (the 26th). */
+    await add(400, new Date('2026-11-25T17:00:00Z'));
+    await add(600, new Date('2026-11-26T02:00:00Z'));
+    expect(await earnedService.earnedBalance(db(), userId, during)).toMatchObject({ nextMaturing: 1_000, laterMaturing: 3 });
+    expect(await earnedService.earnedBalance(db(), userId, new Date('2026-11-20T12:00:00Z'))).toMatchObject({ nextMaturing: 2_000, laterMaturing: 2 });
+    expect(await earnedService.earnedBalance(db(), userId, new Date('2026-11-21T12:00:00Z'))).toMatchObject({ nextMaturing: 1_000, laterMaturing: 0 });
   });
 });
