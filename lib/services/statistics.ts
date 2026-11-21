@@ -110,13 +110,21 @@ export async function answerCounts(reeIds: readonly string[], range: Range | nul
  * An answer still on file: one a Ree gave on a post (first round or
  * follow-up) to a real question -- `post` or `api`, not the owner's 试问 --
  * and not a copy (copied Q&A, a 转为公开 copy, a visitor's published
- * answer), hidden or not. Needs `post_answer` and `post`.
+ * answer), hidden or not. Only where anyone may read the question: a
+ * public, published post out of the trash, and a follow-up still published
+ * and not deleted -- a private post's question is its author's alone, even
+ * to the Ree's owner (as `visiblePost` and `shownFollowup` in the posts
+ * services). Needs `post_answer` and `post`.
  */
 const savedAnswers = (reeIds: readonly string[], range: Range | null) =>
   and(
     eq(schema.postAnswer.state, 'answered'),
     isNull(schema.postAnswer.legacyQaId),
     inArray(schema.post.source, ['post', 'api']),
+    eq(schema.post.visibility, 'public'),
+    eq(schema.post.status, 'published'),
+    isNull(schema.post.deletedAt),
+    sql`(${schema.postAnswer.followupId} is null or exists (select 1 from ${schema.postFollowup} sf where sf.id = ${schema.postAnswer.followupId} and sf.status = 'published' and sf.deleted_at is null))`,
     sql`not exists (select 1 from ${schema.post} cp where cp.published_copy_id = ${schema.post.id})`,
     inArray(schema.postAnswer.reeId, [...reeIds]),
     ...within(schema.postAnswer.answeredAt, range),

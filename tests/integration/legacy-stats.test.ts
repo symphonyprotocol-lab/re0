@@ -188,8 +188,8 @@ describeWithDb('legacy counters: the same figures before and after the conversat
       /* The windows are posts only: the conversations rolled out of them. Two private posts pulled the Ree in. */
       rank: { answersAll: old.answers + 3, asked30: 3, answered30: 3, up30: 1, down30: 1, pulls30: 2, asked7: 3 },
       usage: { questions: 2, spent: 2 * BASE },
-      /* On file: a's three answers and the owner's own question; never the 试问. */
-      saved: 4,
+      /* On file: none -- every one is a private post, whose question is its author's alone, even to the Ree's owner (B2); never the 试问. */
+      saved: 0,
     });
 
     /* PR B: migration 0070 drops the conversation tables. */
