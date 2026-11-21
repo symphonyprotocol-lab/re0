@@ -51,6 +51,7 @@ function row(r: Record<string, unknown>): ModelCallDetail {
     usageKnown: Boolean(r.usage_known), endpoint: r.endpoint as string | null, requestId: r.request_id as string | null, errorCode: r.error_code as string | null,
     costUsd: r.cost_usd as string | null, costBasis: r.cost_basis as ModelCallDetail['costBasis'], rate: r.rate as ModelCallDetail['rate'], priceRevision: r.price_revision as string | null,
     inputTokens: Number(r.input_tokens), outputTokens: Number(r.output_tokens), seconds: Number(r.seconds), createdAt: new Date(String(r.created_at)),
+    chainPosition: r.chain_position === null || r.chain_position === undefined ? null : Number(r.chain_position),
     userName: r.user_name as string | null, userEmail: r.user_email as string | null,
   };
 }

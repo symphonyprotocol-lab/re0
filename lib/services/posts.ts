@@ -479,7 +479,8 @@ export const groundedAnswer: AnswerOne = async ({ reeId, subject, lang, vector, 
       ? [{ role: 'user', content: context.question }, { role: 'assistant', content: context.answer }]
       : []);
     const asked = context && !context.answer ? `${subject}\n\n(${context.question})` : subject;
-    const { declined, text } = await streamGroundedAnswer({ generation, ree: target, lang, subject: asked, passages: found.passages, turns }, emit ?? (() => undefined));
+    const { declined, text, model: answered } = await streamGroundedAnswer({ generation, ree: target, lang, subject: asked, passages: found.passages, turns }, emit ?? (() => undefined));
+    model = answered;
     if (declined || !text.trim()) return { state: 'no_answer', model };
     return { state: 'answered', text: text.trim(), citations: citationSnapshots(text, found.passages), model };
   } catch (error) {

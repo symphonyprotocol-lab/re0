@@ -15,11 +15,9 @@ import { CI } from '@/components/admin/console-icon';
 import { ConfirmModal, Modal } from '@/components/admin/console-modal';
 import { PageHead, Tag } from '@/components/admin/list-kit';
 import { useToast } from '@/components/ui/toast';
+import { ChainBanners, ChainEvents, ChainPanel, type ChainBoard } from '@/components/admin/model-chain';
 
-interface Board {
-  configs: ModelConfigView[];
-  fallbacks: Record<ModelKind, { model: string; transport: string }>;
-}
+type Board = ChainBoard;
 
 /** The latest re-embed job as the page and `GET /api/admin/models/reembed` answer it (dates as strings). */
 export interface ReembedJobView {
@@ -97,8 +95,8 @@ interface Draft {
 }
 
 /**
- * `/admin/models` (2.5): a card per kind, any number of entries, one active
- * per generation audience (one per kind otherwise). Active entries cannot change model or endpoint; generation and
+ * `/admin/models` (2.5): a card per kind, any number of entries, and a list
+ * of a primary and backups per kind (per audience for generation; ChainPanel). Active entries cannot change model or endpoint; generation and
  * transcription switch on activation, embedding starts the full re-embed
  * job, whose progress is polled every two seconds while it runs; no other
  * embedding switch until it ends. Probes send a real request.
@@ -262,6 +260,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
         <CI name="info" />
         <span>{m.info}</span>
       </div>
+      <ChainBanners board={board} />
       {job && <JobCard job={job} />}
       <div className="model-kind-grid">
         {MODEL_KINDS.map((kind) => {
@@ -278,25 +277,16 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
                   <p>{m.kindNotes[kind]}</p>
                 </div>
               </div>
-              {kind === 'generation' && (
-                <div className="model-audiences">
-                  {AUDIENCES.map((audience) => {
-                    const current = configs.find((config) => audience === 'plan' ? config.enabledPlan : config.enabled);
-                    return (
-                      <div key={audience} className="info-strip mb16">
-                        <CI name={current ? 'check' : 'info'} />
-                        <span><strong>{m.audiences[audience]}</strong> · {current ? `${current.name} · ${current.model}` : fill(m.fallbackBody, { model: board.fallbacks[kind].model })}</span>
-                      </div>
-                    );
-                  })}
+              {(kind === 'generation' ? AUDIENCES : (['free'] as const)).map((audience) => (
+                <div key={audience} className="model-chain-block">
+                  <h3>{kind === 'generation' ? fill(m.chain.plan, { audience: m.audiences[audience] }) : m.chain.title}</h3>
+                  <ChainPanel kind={kind} audience={audience} board={board} onProbe={probe} probing={Object.fromEntries(Object.entries(probes).map(([id, state]) => [id, state.busy]))} />
                 </div>
-              )}
-              {kind !== 'generation' && !active && (
+              ))}
+              {kind === 'speech' && !active && (
                 <div className="info-strip mb16">
                   <CI name="info" />
-                  <span>
-                    {kind === 'speech' ? m.speechSetup : <><strong>{m.fallback}</strong> · {fill(m.fallbackBody, { model: board.fallbacks[kind].model })}</>}
-                  </span>
+                  <span>{m.speechSetup}</span>
                 </div>
               )}
               {configs.map((config) => {
@@ -307,7 +297,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
                   <article key={config.id} className={`model-config ${enabled ? 'enabled' : ''}`}>
                     <div className="between">
                       <strong>{config.name}</strong>
-                      <Tag tone={enabled ? 'green' : 'grey'}>{kind === 'generation' && enabled ? AUDIENCES.filter((audience) => audience === 'plan' ? config.enabledPlan : config.enabled).map((audience) => m.audiences[audience]).join(' · ') : enabled ? m.enabled : m.inactive}</Tag>
+                      <Tag tone={enabled ? 'green' : 'grey'}>{kind === 'generation' && enabled ? AUDIENCES.filter((audience) => audience === 'plan' ? config.enabledPlan : config.enabled).map((audience) => m.audiences[audience]).join(' · ') : enabled ? m.enabled : Object.values(board.chains).some((list) => list.some((entry) => entry.configId === config.id)) ? m.chain.backupTag : m.inactive}</Tag>
                     </div>
                     <code>{config.model}</code>
                     <p>
@@ -370,6 +360,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
           );
         })}
       </div>
+      <ChainEvents events={board.events} />
 
       <Modal
         open={Boolean(draft)}
