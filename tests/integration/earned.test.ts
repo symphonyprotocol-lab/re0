@@ -203,9 +203,11 @@ describeWithDb('converting earned credits', () => {
     const left = new Map((await grantsOf(userId)).map((grant) => [grant.id, grant.remaining]));
     expect([left.get(withdrawable), left.get(maturing), left.get(locked)]).toEqual([2_500, 0, 0]);
     const packs = (await grantsOf(userId)).filter((grant) => grant.source === 'pack');
-    expect(packs.map((grant) => [grant.amount, grant.convertedPaid]).sort()).toEqual([[1_500, true], [500, false]].sort());
+    /* One Pack per origin: the maturing part apart (it stays voidable until its payout date), the matured part, and the free part. */
+    expect(packs.map((grant) => [grant.amount, grant.convertedPaid, grant.voidUntil !== null]).sort()).toEqual([[1_000, true, true], [500, true, false], [500, false, false]].sort());
     const entries = (await entriesOf(userId)).filter((entry) => entry.reason === 'earned_convert' || entry.reason === 'earned_converted');
-    expect(entries.map((entry) => [entry.reason, entry.delta])).toEqual([['earned_convert', -2_000], ['earned_converted', 1_500], ['earned_converted', 500]]);
+    expect(entries.find((entry) => entry.reason === 'earned_convert')!.delta).toBe(-2_000);
+    expect(entries.filter((entry) => entry.reason === 'earned_converted').map((entry) => entry.delta).sort()).toEqual([1_000, 500, 500].sort());
     expect(await balanceOf(db(), userId, during)).toBe(WELCOME_CREDITS + 2_000);
     await expectLedgerTraceable(userId);
 
@@ -260,9 +262,9 @@ describeWithDb('paying for a Plan or Pack with earned credits', () => {
   it('holds part of the price with the checkout, discounts it in Paddle and pays it with the webhook', async () => {
     const userId = await newUser();
     await subscribe(userId);
-    const grantId = await earn(userId, 50_000, 'maturing');
+    const grantId = await earn(userId, 50_000, 'withdrawable');
     const paddle = fakePaddle();
-    const checkout = await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 300 }, paddle.deps);
+    const checkout = await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 300, deductCreditsPerCent: 100 }, paddle.deps);
     expect(checkout).toMatchObject({ ok: true, earnedMinor: 300 });
     expect(paddle.created).toEqual([{ kind: 'pack', earnedMinor: 300, id: expect.any(String) }]);
     const transactionId = (checkout.ok && checkout.transactionId) || '';
@@ -294,7 +296,7 @@ describeWithDb('paying for a Plan or Pack with earned credits', () => {
     await subscribe(userId);
     await earn(userId, 30_000);
     const paddle = fakePaddle();
-    const checkout = await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 300 }, paddle.deps);
+    const checkout = await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 300, deductCreditsPerCent: 100 }, paddle.deps);
     const transactionId = (checkout.ok && checkout.transactionId) || '';
     await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'pack', transactionId, total: '700' }) as never, PRICES, during);
     /* Everything spendable is spent. */
@@ -314,7 +316,7 @@ describeWithDb('paying for a Plan or Pack with earned credits', () => {
     await subscribe(userId);
     await earn(userId, 150_000);
     const paddle = fakePaddle();
-    const checkout = await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 1_000 }, paddle.deps);
+    const checkout = await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 1_000, deductCreditsPerCent: 100 }, paddle.deps);
     expect(checkout).toMatchObject({ ok: true, purchaseId: expect.any(String), earnedMinor: 1_000 });
     expect(paddle.created).toEqual([]);
     const [purchase] = await db().select().from(schema.purchase).where(eq(schema.purchase.id, (checkout.ok && checkout.purchaseId) || ''));
@@ -328,7 +330,7 @@ describeWithDb('paying for a Plan or Pack with earned credits', () => {
     const userId = await newUser();
     await earn(userId, 100_000);
     const paddle = fakePaddle();
-    const checkout = await billing.startCheckout(userId, { kind: 'plan', consent: true, earnedMinor: 1_000 }, paddle.deps);
+    const checkout = await billing.startCheckout(userId, { kind: 'plan', consent: true, earnedMinor: 1_000, deductCreditsPerCent: 100 }, paddle.deps);
     expect(checkout).toMatchObject({ ok: true, purchaseId: expect.any(String) });
     expect(paddle.created).toEqual([]);
     const plan = await billing.planStateOf(db(), userId, during);
@@ -351,10 +353,10 @@ describeWithDb('paying for a Plan or Pack with earned credits', () => {
     await earn(userId, 50_000, 'locked');
     const paddle = fakePaddle();
     /* 9.50 would leave 0.50, under the 1.00 minimum. */
-    expect(await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 950 }, paddle.deps)).toEqual({ ok: false, error: 'deduction_leaves_too_little' });
+    expect(await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 950, deductCreditsPerCent: 100 }, paddle.deps)).toEqual({ ok: false, error: 'deduction_leaves_too_little' });
     /* Earnings paid from free credits only convert: 95,000 is all that may pay. */
-    expect(await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 1_000 }, paddle.deps)).toEqual({ ok: false, error: 'insufficient_earned' });
-    expect(await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 1_001 }, paddle.deps)).toEqual({ ok: false, error: 'deduction_too_large' });
+    expect(await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 1_000, deductCreditsPerCent: 100 }, paddle.deps)).toEqual({ ok: false, error: 'insufficient_earned' });
+    expect(await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 1_001, deductCreditsPerCent: 100 }, paddle.deps)).toEqual({ ok: false, error: 'deduction_too_large' });
     expect(await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 'all' }, paddle.deps)).toEqual({ ok: false, error: 'invalid_deduction' });
     expect(paddle.created).toEqual([]);
     expect(await earnedLeft(userId)).toBe(145_000);
@@ -365,9 +367,9 @@ describeWithDb('paying for a Plan or Pack with earned credits', () => {
     await subscribe(userId);
     await earn(userId, 60_000);
     const paddle = fakePaddle();
-    const first = await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 500 }, paddle.deps);
+    const first = await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 500, deductCreditsPerCent: 100 }, paddle.deps);
     expect(await earnedLeft(userId)).toBe(10_000);
-    const second = await billing.startCheckout(userId, { kind: 'pack', quantity: 2, consent: true, earnedMinor: 500 }, paddle.deps);
+    const second = await billing.startCheckout(userId, { kind: 'pack', quantity: 2, consent: true, earnedMinor: 500, deductCreditsPerCent: 100 }, paddle.deps);
     expect(second.ok).toBe(true);
     expect(paddle.cancelled).toEqual([first.ok && first.transactionId]);
     expect(await earnedLeft(userId)).toBe(10_000);
@@ -391,8 +393,8 @@ describeWithDb('paying for a Plan or Pack with earned credits', () => {
     await earn(userId, 60_000);
     const paddle = fakePaddle();
     const results = await Promise.all([
-      billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 500 }, paddle.deps),
-      billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 500 }, paddle.deps),
+      billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 500, deductCreditsPerCent: 100 }, paddle.deps),
+      billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 500, deductCreditsPerCent: 100 }, paddle.deps),
       earnedService.convertEarned(userId, { credits: 20_000, rateBp: 10_000 }, during),
     ]);
     /* Never more out of earned than there was, and at most one checkout still holds any. */
@@ -407,5 +409,170 @@ describeWithDb('paying for a Plan or Pack with earned credits', () => {
     const converted = results[2] as Awaited<ReturnType<typeof earnedService.convertEarned>>;
     expect(left).toBe(60_000 - holding.length * 50_000 - (converted.ok ? 20_000 : 0));
     await expectLedgerTraceable(userId);
+  });
+});
+
+describeWithDb('review of #192', () => {
+  async function packFor(userId: string, credits: number) {
+    const [purchase] = await db()
+      .insert(schema.purchase)
+      .values({ userId, kind: 'pack', paddleTransactionId: id('txn'), amountMinor: 1_000, credits })
+      .returning();
+    await db().transaction((tx) => addGrant(tx, { userId, source: 'pack', amount: credits, reason: 'purchase', refId: purchase!.id, purchaseId: purchase!.id }, during));
+    return purchase!;
+  }
+
+  it('B1: earnings still maturing cannot pay for a purchase, only convert', async () => {
+    const userId = await newUser();
+    await subscribe(userId);
+    await earn(userId, 150_000, 'maturing');
+    const paddle = fakePaddle();
+    expect(await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 1_000, deductCreditsPerCent: 100 }, paddle.deps)).toEqual({ ok: false, error: 'insufficient_earned' });
+    expect((await earnedService.earnedBalance(db(), userId, during)).deductible).toBe(0);
+    expect(await earnedService.convertEarned(userId, { credits: 1_000, rateBp: 10_000 }, during)).toMatchObject({ ok: true });
+  });
+
+  it('S2: a refund that leaves a debt voids Pack credits converted from earnings it paid for while they were maturing', async () => {
+    const asker = await newUser();
+    const owner = await newUser();
+    const purchase = await packFor(asker, 10_000);
+    /* The owner's fee from that purchase, still maturing, converted at once. */
+    await db().transaction((tx) =>
+      addGrant(tx, { userId: owner, source: 'earned', amount: 8_000, reason: 'query_fee_earned', refId: randomUUID(), withdrawableAt: new Date(during.getTime() + 25 * DAY), fundingPurchaseId: purchase.id }, during),
+    );
+    expect(await earnedService.convertEarned(owner, { credits: 8_000, rateBp: 10_000 }, during)).toMatchObject({ ok: true });
+    const [converted] = (await grantsOf(owner)).filter((grant) => grant.source === 'pack');
+    expect(converted).toMatchObject({ convertedPaid: true, converted: true, fundingPurchaseId: purchase.id });
+    expect(converted!.voidUntil).not.toBeNull();
+    /* The asker spends everything, then is refunded in full: 10,000 owed, the owner's converted Pack voided. */
+    const all = await balanceOf(db(), asker, during);
+    await db().transaction((tx) => placeHold(tx, { userId: asker, kind: 'knowledge', amount: all, refId: randomUUID() }, during));
+    await billing.applyPaddleEvent(adjustmentEvent(purchase.paddleTransactionId!, '1000') as never, PRICES, during);
+    const [after] = (await grantsOf(owner)).filter((grant) => grant.id === converted!.id);
+    expect(after!.remaining).toBe(0);
+    const voids = (await entriesOf(owner)).filter((entry) => entry.reason === 'earned_void');
+    expect(voids.map((entry) => [entry.delta, entry.allocations[0]?.source])).toEqual([[-8_000, 'pack']]);
+    await expectLedgerTraceable(owner);
+  });
+
+  it('S3: a usage debt is never paid from earned credits and does not hold back a payout; a refund debt is and does', async () => {
+    const { takeOrOwe } = await import('@/lib/services/credits');
+    const payouts = await import('@/lib/services/payouts');
+    const userId = await newUser();
+    /* Spend the welcome credits, keep only earned ones. */
+    const all = await balanceOf(db(), userId, during);
+    if (all > 0) await db().transaction((tx) => placeHold(tx, { userId, kind: 'knowledge', amount: all, refId: randomUUID() }, during));
+    await earn(userId, 20_000);
+    const storage = await db().transaction((tx) => takeOrOwe(tx, { userId, amount: 300, reason: 'storage_charge', refId: null }, during));
+    expect(storage).toMatchObject({ taken: 0, owed: 300 });
+    expect(await earnedLeft(userId)).toBe(20_000);
+    expect(await payouts.openDebt(db(), userId)).toBe(0);
+    /* New earnings do not pay it; new spendable credits do. */
+    await earn(userId, 1_000);
+    expect(await earnedLeft(userId)).toBe(21_000);
+    await db().transaction((tx) => addGrant(tx, { userId, source: 'pack', amount: 500, reason: 'admin_adjust', refId: randomUUID() }, during));
+    const debts = await db().select().from(schema.creditDebt).where(eq(schema.creditDebt.userId, userId));
+    expect(debts.map((debt) => debt.remaining)).toEqual([0]);
+    await expectLedgerTraceable(userId);
+
+    /* A refund takes back from earned credits too (it recovers money); what it cannot is a refund debt, which holds back payouts and earned credits pay. */
+    const buyer = await newUser();
+    const mine = await balanceOf(db(), buyer, during);
+    if (mine > 0) await db().transaction((tx) => placeHold(tx, { userId: buyer, kind: 'knowledge', amount: mine, refId: randomUUID() }, during));
+    const purchase = await packFor(buyer, 5_000);
+    await db().transaction((tx) => placeHold(tx, { userId: buyer, kind: 'knowledge', amount: 5_000, refId: randomUUID() }, during));
+    await billing.applyPaddleEvent(adjustmentEvent(purchase.paddleTransactionId!, '1000') as never, PRICES, during);
+    expect(await payouts.openDebt(db(), buyer)).toBe(5_000);
+    await earn(buyer, 2_000);
+    expect(await payouts.openDebt(db(), buyer)).toBe(3_000);
+    expect(await earnedLeft(buyer)).toBe(0);
+    await expectLedgerTraceable(buyer);
+  });
+
+  it('S1: a won chargeback takes the earned credits back from the grants they came from, never from non-withdrawable ones', async () => {
+    const userId = await newUser();
+    await subscribe(userId);
+    const withdrawableGrant = await earn(userId, 30_000, 'withdrawable');
+    const lockedGrant = await earn(userId, 30_000, 'locked');
+    const paddle = fakePaddle();
+    const checkout = await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 300, deductCreditsPerCent: 100 }, paddle.deps);
+    const transactionId = (checkout.ok && checkout.transactionId) || '';
+    await billing.applyPaddleEvent(transactionEvent(userId, { kind: 'pack', transactionId, total: '700' }) as never, PRICES, during);
+    const left = async () => new Map((await grantsOf(userId)).map((grant) => [grant.id, grant.remaining]));
+    expect([(await left()).get(withdrawableGrant), (await left()).get(lockedGrant)]).toEqual([0, 30_000]);
+    await billing.applyPaddleEvent(adjustmentEvent(transactionId, '700', 'chargeback') as never, PRICES, during);
+    expect([(await left()).get(withdrawableGrant), (await left()).get(lockedGrant)]).toEqual([30_000, 30_000]);
+    await billing.applyPaddleEvent(adjustmentEvent(transactionId, '700', 'chargeback_reverse') as never, PRICES, during);
+    expect([(await left()).get(withdrawableGrant), (await left()).get(lockedGrant)]).toEqual([0, 30_000]);
+    expect((await earnedService.earnedBalance(db(), userId, during)).withdrawable).toBe(0);
+    await expectLedgerTraceable(userId);
+  });
+
+  it('S4: the same request paid in full with earned credits buys once', async () => {
+    const userId = await newUser();
+    await subscribe(userId);
+    await earn(userId, 300_000);
+    const paddle = fakePaddle();
+    const requestId = randomUUID();
+    const order = { kind: 'pack', quantity: 1, consent: true, earnedMinor: 1_000, deductCreditsPerCent: 100, requestId };
+    const [first, second] = await Promise.all([billing.startCheckout(userId, order, paddle.deps), billing.startCheckout(userId, order, paddle.deps)]);
+    expect(first.ok && second.ok && first.purchaseId && first.purchaseId === second.purchaseId).toBe(true);
+    expect(await earnedLeft(userId)).toBe(200_000);
+    const another = await billing.startCheckout(userId, { ...order, requestId: randomUUID() }, paddle.deps);
+    expect(another.ok && another.purchaseId !== (first.ok && first.purchaseId)).toBe(true);
+    expect(await earnedLeft(userId)).toBe(100_000);
+  });
+
+  it('S5: a deduction at a rate the page did not show is refused', async () => {
+    const userId = await newUser();
+    await subscribe(userId);
+    await earn(userId, 100_000);
+    const paddle = fakePaddle();
+    expect(await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 500 }, paddle.deps)).toEqual({ ok: false, error: 'rate_changed' });
+    expect(await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 500, deductCreditsPerCent: 200 }, paddle.deps)).toEqual({ ok: false, error: 'rate_changed' });
+    expect(await earnedService.convertEarned(userId, { credits: 500 }, during)).toEqual({ ok: false, error: 'rate_changed' });
+    expect(await earnedLeft(userId)).toBe(100_000);
+  });
+
+  it('S6: what an unpaid checkout holds shows, and is released after an hour', async () => {
+    const userId = await newUser();
+    await subscribe(userId);
+    await earn(userId, 80_000);
+    const paddle = fakePaddle();
+    await billing.startCheckout(userId, { kind: 'pack', quantity: 1, consent: true, earnedMinor: 300, deductCreditsPerCent: 100 }, paddle.deps);
+    expect(await earnedService.earnedBalance(db(), userId, during)).toMatchObject({ total: 50_000, checkoutHeld: 30_000 });
+    expect(await billing.releaseStaleEarnedCheckouts(new Date(during.getTime() + 30 * 60_000), { config: CONFIG, cancel: paddle.deps.cancel })).toBe(0);
+    expect(await billing.releaseStaleEarnedCheckouts(new Date(during.getTime() + 61 * 60_000), { config: CONFIG, cancel: paddle.deps.cancel })).toBeGreaterThanOrEqual(1);
+    expect(await earnedService.earnedBalance(db(), userId, during)).toMatchObject({ total: 80_000, checkoutHeld: 0 });
+  });
+
+  it('S7: a Plan paid with earned credits says so', async () => {
+    const userId = await newUser();
+    await earn(userId, 100_000);
+    await billing.startCheckout(userId, { kind: 'plan', consent: true, earnedMinor: 1_000, deductCreditsPerCent: 100 }, fakePaddle().deps);
+    expect((await billing.billingSummary(userId, during)).plan).toMatchObject({ active: true, source: 'redeemed', paidWithEarned: true });
+  });
+});
+
+describeWithDb('when maturing earnings become available', () => {
+  it('names the soonest day and its amount, counts later ones, and files invitation rewards as withdrawable at once', async () => {
+    const userId = await newUser();
+    const at = (days: number, hours = 0) => new Date(during.getTime() + days * DAY + hours * 3_600_000);
+    const add = (amount: number, withdrawableAt: Date | null, inviteFunded = false) =>
+      db().transaction((tx) => addGrant(tx, { userId, source: 'earned', amount, reason: inviteFunded ? 'invite_reward' : 'query_fee_earned', refId: randomUUID(), withdrawableAt, fundingPurchaseId: null, inviteFunded }, during));
+    /* An invitation reward is credited withdrawable at once (lib/services/invites.ts). */
+    await add(5_000, during, true);
+    await add(700, at(5));
+    await add(500, at(5, 3));
+    await add(900, at(12));
+    await add(300, at(20));
+    const balance = await earnedService.earnedBalance(db(), userId, during);
+    expect(balance).toMatchObject({ withdrawable: 5_000, maturing: 2_400, invite: 5_000, deductible: 5_000, nextMaturing: 1_200, laterMaturing: 2 });
+    expect(balance.nextMaturesAt?.toISOString()).toBe(at(5).toISOString());
+    /* Once the first day passes, the next one leads. */
+    const later = await earnedService.earnedBalance(db(), userId, at(6));
+    expect(later).toMatchObject({ withdrawable: 6_200, maturing: 1_200, nextMaturing: 900, laterMaturing: 1 });
+    /* Nothing maturing: nothing to name. */
+    expect(await earnedService.earnedBalance(db(), userId, at(30))).toMatchObject({ maturing: 0, nextMaturesAt: null, nextMaturing: 0, laterMaturing: 0 });
   });
 });

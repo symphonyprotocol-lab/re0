@@ -37,7 +37,7 @@ import {
 } from '@/lib/domain/billing';
 import { allocate, availableOf, InsufficientCredits, isDeductible, type Allocation } from '@/lib/domain/credits';
 import { planDeduction, returnedEarned, type Deduction, type DeductionRefusal } from '@/lib/domain/earned';
-import { clampPage, likePattern } from '@/lib/domain/list';
+import { clampPage, isUuid, likePattern } from '@/lib/domain/list';
 import { periodRange, reportingDate, type PeriodFilter } from '@/lib/domain/statistics';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import {
@@ -133,7 +133,7 @@ export async function redeemedPlansOf(executor: Executor, userId: string, now: D
     );
   return [
     ...rows.map((row) => ({ startsAt: row.startsAt!, endsAt: row.endsAt!, months: row.months!, credits: row.credits })),
-    ...earned.map((row) => ({ startsAt: row.startsAt!, endsAt: row.endsAt!, months: 1, credits: row.credits })),
+    ...earned.map((row) => ({ startsAt: row.startsAt!, endsAt: row.endsAt!, months: 1, credits: row.credits, earned: true })),
   ];
 }
 
@@ -162,6 +162,7 @@ export type CheckoutRefusal =
   | 'renewal_pending'
   | 'plan_redeemed_active'
   | 'price_changed'
+  | 'rate_changed'
   | DeductionRefusal;
 
 export interface CheckoutDeps {
@@ -194,7 +195,7 @@ export type CheckoutStarted =
  */
 export async function startCheckout(
   userId: string,
-  input: { kind?: unknown; quantity?: unknown; consent?: unknown; quoteKey?: unknown; earnedMinor?: unknown },
+  input: { kind?: unknown; quantity?: unknown; consent?: unknown; quoteKey?: unknown; earnedMinor?: unknown; deductCreditsPerCent?: unknown; requestId?: unknown },
   deps: CheckoutDeps = {},
 ): Promise<CheckoutStarted | { ok: false; error: CheckoutRefusal }> {
   const order = parseOrder(input);
@@ -217,7 +218,7 @@ export async function startCheckout(
 
 async function checkoutAttempt(
   userId: string,
-  input: { quoteKey?: unknown },
+  input: { quoteKey?: unknown; deductCreditsPerCent?: unknown; requestId?: unknown },
   order: CheckoutOrder,
   requested: number,
   now: Date,
@@ -227,6 +228,15 @@ async function checkoutAttempt(
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`checkout:${userId}`}))`);
     /* Conversions take the same user's earned credits; one at a time. */
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`earned:${userId}`}))`);
+    /* A purchase paid in full with earned credits is made by this request alone: the same request again (a retry, a double click) returns it (review S4). */
+    const requestId = typeof input.requestId === 'string' && isUuid(input.requestId) ? input.requestId : null;
+    if (requestId) {
+      const [made] = await tx
+        .select({ id: schema.purchase.id, kind: schema.purchase.kind, quantity: schema.purchase.quantity, earnedMinor: schema.purchase.earnedMinor })
+        .from(schema.purchase)
+        .where(and(eq(schema.purchase.userId, userId), eq(schema.purchase.requestId, requestId)));
+      if (made) return { ok: true as const, order: { kind: made.kind, quantity: made.quantity }, purchaseId: made.id, earnedMinor: made.earnedMinor };
+    }
     if (order.kind === 'pack' && !(await planStateOf(tx, userId, now)).active) return { ok: false as const, error: 'plan_required' as const };
     const config = deps.config ?? requirePaddle();
     const price = await checkoutPrice(tx, config, order.kind, now);
@@ -274,14 +284,16 @@ async function checkoutAttempt(
 
     const priceMinor = price.priceMinor * order.quantity;
     const settings = await earnedSettings(tx);
-    const deductible = requested > 0 ? (await grantsOf(tx, userId, true)).filter(isDeductible).reduce((sum, grant) => sum + grant.remaining, 0) : 0;
+    /* The rate the page showed: credits are never taken at one the buyer did not see (review S5). */
+    if (requested > 0 && input.deductCreditsPerCent !== settings.deductCreditsPerCent) return { ok: false as const, error: 'rate_changed' as const };
+    const deductible = requested > 0 ? (await grantsOf(tx, userId, true)).filter((grant) => isDeductible(grant, now)).reduce((sum, grant) => sum + grant.remaining, 0) : 0;
     const planned = planDeduction(requested, priceMinor, deductible, settings);
     if (!planned.ok) return planned;
     const deduction = planned.deduction;
     /* The purchase this checkout becomes, named now so the earned hold and the purchase share one id in the ledger. */
     const purchaseId = randomUUID();
     if (deduction.credits > 0 && deduction.payMinor === 0) {
-      await buyWithEarned(tx, userId, order, price, deduction, purchaseId, now);
+      await buyWithEarned(tx, userId, order, price, deduction, purchaseId, requestId, now);
       return { ok: true as const, order, purchaseId, earnedMinor: deduction.minor };
     }
     const holdId = deduction.credits > 0 ? await holdDeduction(tx, userId, order, deduction, purchaseId, now) : null;
@@ -318,6 +330,7 @@ async function buyWithEarned(
   price: { credits: number },
   deduction: Deduction,
   purchaseId: string,
+  requestId: string | null,
   now: Date,
 ): Promise<void> {
   const holdId = await holdDeduction(tx, userId, order, deduction, purchaseId, now);
@@ -339,6 +352,7 @@ async function buyWithEarned(
     earnedCredits: deduction.credits,
     earnedMinor: deduction.minor,
     earnedHoldId: holdId,
+    requestId,
     createdAt: now,
   });
   await addGrant(
@@ -685,7 +699,7 @@ async function payDeduction(tx: Tx, purchaseId: string, userId: string, checkout
     } catch (error) {
       if (!(error instanceof InsufficientCredits)) throw error;
       holdId = null;
-      await tx.insert(schema.creditDebt).values({ userId, amount: checkout.earnedCredits, remaining: checkout.earnedCredits, createdAt: now });
+      await tx.insert(schema.creditDebt).values({ userId, amount: checkout.earnedCredits, remaining: checkout.earnedCredits, purchaseId, createdAt: now });
       console.warn(`checkout ${checkout.paddleTransactionId}: ${checkout.earnedCredits} earned credits it held are gone; recorded as a debt`);
     }
   }
@@ -753,8 +767,9 @@ async function writeSubscription(tx: Tx, userId: string, existing: SubscriptionR
 /**
  * An approved refund or chargeback takes back the refunded share of the
  * purchase's credits (terms s5): first from what is left of the purchase's
- * own grant, then from the user's other spendable credits in the spending
- * order (current Plan → welcome → Pack → earned; within earned, what can
+ * own grant, then from the user's other credits (current Plan → welcome →
+ * Pack, then earned credits, which using the product never reaches but a
+ * take-back does; within earned, what can
  * never be withdrawn first and what is already withdrawable last), and what
  * nothing covers becomes a debt the next credits pay off first (2.3). The
  * balance never goes negative. Credits held for a payout or anything else
@@ -817,7 +832,7 @@ async function applyAdjustment(tx: Tx, adjustment: PaddleAdjustment, now: Date):
       due = Math.min(credits, Math.max(0, own.amount - expired - own.remaining - purchase.reversedCredits));
     }
     const unowed = credits - due;
-    /* The purchase's own grant first (an ended Plan's is not spendable, so it is skipped), then the rest in the spending order. */
+    /* The purchase's own grant first (an ended Plan's is not spendable, so it is skipped), then the rest: Plan → welcome → Pack → earned (a take-back reaches earned credits, using the product never does). */
     const { allocations, shortfall } = due > 0 ? takeBack(await grantsOf(tx, purchase.userId, true), own?.id ?? null, due, now) : { allocations: [], shortfall: 0 };
     await moveGrants(tx, allocations, -1);
     const taken = due - shortfall;
@@ -874,13 +889,17 @@ async function applyAdjustment(tx: Tx, adjustment: PaddleAdjustment, now: Date):
  */
 async function returnDeduction(tx: Tx, purchase: typeof schema.purchase.$inferSelect, amount: number, debtId: string | null, label: string, now: Date): Promise<void> {
   const [hold] = purchase.earnedHoldId ? await tx.select({ allocations: schema.creditHold.allocations }).from(schema.creditHold).where(eq(schema.creditHold.id, purchase.earnedHoldId)) : [];
+  /* Per grant: what the deduction took, less what was given back, plus what a chargeback reversal took again (`deduction_paid` with a negative delta). */
   const earlier = await tx
-    .select({ allocations: schema.creditEntry.allocations })
+    .select({ reason: schema.creditEntry.reason, delta: schema.creditEntry.delta, allocations: schema.creditEntry.allocations })
     .from(schema.creditEntry)
-    .where(and(eq(schema.creditEntry.refId, purchase.id), eq(schema.creditEntry.reason, 'deduction_return')));
+    .where(and(eq(schema.creditEntry.refId, purchase.id), inArray(schema.creditEntry.reason, ['deduction_return', 'deduction_paid'])));
   const outstanding = new Map<string, number>();
   for (const entry of hold?.allocations ?? []) outstanding.set(entry.grantId, (outstanding.get(entry.grantId) ?? 0) + entry.amount);
-  for (const row of earlier) for (const entry of row.allocations) outstanding.set(entry.grantId, (outstanding.get(entry.grantId) ?? 0) - entry.amount);
+  for (const row of earlier) {
+    const sign = row.reason === 'deduction_return' ? -1 : row.delta < 0 ? 1 : 0;
+    for (const entry of row.allocations) outstanding.set(entry.grantId, (outstanding.get(entry.grantId) ?? 0) + sign * entry.amount);
+  }
   const ids = [...outstanding].filter(([, left]) => left > 0).map(([grantId]) => grantId);
   const grants = ids.length ? await tx.select().from(schema.creditGrant).where(inArray(schema.creditGrant.id, ids)).for('update') : [];
   const allocations: Allocation[] = [];
@@ -909,9 +928,22 @@ async function returnDeduction(tx: Tx, purchase: typeof schema.purchase.$inferSe
   }
   const back = [...allocations];
   if (left > 0) {
+    /* Like the grant the deduction took first: the same payout terms and the same origin, never more withdrawable than it was (review S1). */
+    const firstId = hold?.allocations[0]?.grantId;
+    const [like] = firstId ? await tx.select().from(schema.creditGrant).where(eq(schema.creditGrant.id, firstId)) : [];
     const { grantId } = await addGrant(
       tx,
-      { userId: purchase.userId, source: 'earned', amount: left, reason: 'deduction_return', refId: purchase.id, note: `${label}: earned credits given back`, withdrawableAt: new Date(now.getTime() + EARNED_MATURITY_DAYS * 86_400_000), fundingPurchaseId: null },
+      {
+        userId: purchase.userId,
+        source: 'earned',
+        amount: left,
+        reason: 'deduction_return',
+        refId: purchase.id,
+        note: `${label}: earned credits given back`,
+        withdrawableAt: like ? like.withdrawableAt : new Date(now.getTime() + EARNED_MATURITY_DAYS * 86_400_000),
+        fundingPurchaseId: like?.fundingPurchaseId ?? null,
+        inviteFunded: like?.inviteFunded ?? false,
+      },
       now,
     );
     /* `addGrant` paid open debts from it already, the oldest first; what it has left is what may pay this one. */
@@ -956,8 +988,8 @@ async function voidFundedEarned(tx: Tx, purchaseId: string, wanted: number, labe
   const funded = await tx
     .select()
     .from(schema.creditGrant)
-    /* Earned grants only: a Pack converted from them keeps the purchase for tracing, but a refund never voids Pack credits. */
-    .where(and(eq(schema.creditGrant.fundingPurchaseId, purchaseId), eq(schema.creditGrant.source, 'earned')))
+    /* The earnings themselves, and Packs converted from them while they were still maturing (review S2), which stand in their place until then. */
+    .where(and(eq(schema.creditGrant.fundingPurchaseId, purchaseId), or(eq(schema.creditGrant.source, 'earned'), eq(schema.creditGrant.convertedPaid, true))))
     .orderBy(desc(schema.creditGrant.createdAt))
     .for('update');
   if (funded.length === 0) return { voided: 0, unrecovered: 0 };
@@ -965,14 +997,15 @@ async function voidFundedEarned(tx: Tx, purchaseId: string, wanted: number, labe
     .select({ total: sql<string>`coalesce(sum(-${schema.creditEntry.delta}), 0)` })
     .from(schema.creditEntry)
     .where(and(eq(schema.creditEntry.reason, 'earned_void'), eq(schema.creditEntry.refId, purchaseId)));
-  /* What these owners were paid from this purchase that is not voided yet: the most a refund could reach. */
-  const outstanding = Math.max(0, funded.reduce((sum, grant) => sum + grant.amount, 0) - Number(already?.total ?? 0));
+  /* What these owners were paid from this purchase that is not voided yet: the most a refund could reach. Converted Packs came out of those earnings, so they are not counted again. */
+  const outstanding = Math.max(0, funded.filter((grant) => grant.source === 'earned').reduce((sum, grant) => sum + grant.amount, 0) - Number(already?.total ?? 0));
   const target = Math.min(wanted, outstanding);
   let left = target;
   const byOwner = new Map<string, Allocation[]>();
   for (const grant of funded) {
     if (left === 0) break;
-    if (!grant.withdrawableAt || grant.withdrawableAt.getTime() <= now.getTime() || grant.remaining <= 0) continue;
+    const until = grant.source === 'earned' ? grant.withdrawableAt : grant.voidUntil;
+    if (!until || until.getTime() <= now.getTime() || grant.remaining <= 0) continue;
     const take = Math.min(left, grant.remaining);
     byOwner.set(grant.userId, [...(byOwner.get(grant.userId) ?? []), { grantId: grant.id, source: grant.source, amount: take }]);
     left -= take;
@@ -990,7 +1023,7 @@ async function voidFundedEarned(tx: Tx, purchaseId: string, wanted: number, labe
       delta: -amount,
       reason: 'earned_void',
       refId: purchaseId,
-      note: `${label}: the asker's purchase was refunded; ${amount} unmatured earned credits voided${left && userId === noted ? `, ${left} could not be recovered (matured, held or spent)` : ''}`,
+      note: `${label}: the asker's purchase was refunded; ${amount} unmatured earned credits (or Pack credits converted from them) voided${left && userId === noted ? `, ${left} could not be recovered (matured, held or spent)` : ''}`,
       allocations,
       createdAt: now,
     });
@@ -1063,9 +1096,37 @@ async function reverseChargeback(tx: Tx, purchase: typeof schema.purchase.$infer
   /* The earned credits the chargeback gave back are paid again, in the same share; what is no longer there is owed. */
   const retake = purchase.earnedReturned === 0 || purchase.reversedCredits === 0 ? 0 : restore === purchase.reversedCredits ? purchase.earnedReturned : Math.min(purchase.earnedReturned, Math.round((purchase.earnedReturned * restore) / purchase.reversedCredits));
   if (retake > 0) {
+    /*
+     * Symmetric to `returnDeduction` (review S1): from the grants the deduction
+     * took and the chargeback gave back, then from what a payout could draw
+     * on; never from earnings that cannot be withdrawn, or a reversal would
+     * turn them into withdrawable ones. What is no longer there is owed.
+     */
+    const [hold] = purchase.earnedHoldId ? await tx.select({ allocations: schema.creditHold.allocations }).from(schema.creditHold).where(eq(schema.creditHold.id, purchase.earnedHoldId)) : [];
     const grants = await grantsOf(tx, purchase.userId, true);
-    const taken = Math.min(retake, availableOf(grants, now, ['earned']));
-    const earnedAllocations = taken > 0 ? allocate(grants, taken, now, ['earned']) : [];
+    const earnedAllocations: Allocation[] = [];
+    let left = retake;
+    for (const entry of hold?.allocations ?? []) {
+      if (left === 0) break;
+      const grant = grants.find((row) => row.id === entry.grantId);
+      const already = earnedAllocations.filter((part) => part.grantId === entry.grantId).reduce((sum, part) => sum + part.amount, 0);
+      const take = grant ? Math.min(left, entry.amount - already, grant.remaining - already) : 0;
+      if (take <= 0) continue;
+      earnedAllocations.push({ grantId: entry.grantId, source: 'earned', amount: take });
+      left -= take;
+    }
+    if (left > 0) {
+      const used = new Map<string, number>();
+      for (const part of earnedAllocations) used.set(part.grantId, (used.get(part.grantId) ?? 0) + part.amount);
+      const withdrawableNow = grants
+        .filter((grant) => isDeductible(grant, now))
+        .map((grant) => ({ ...grant, remaining: grant.remaining - (used.get(grant.id) ?? 0) }))
+        .filter((grant) => grant.remaining > 0);
+      const more = Math.min(left, availableOf(withdrawableNow, now, ['earned']));
+      if (more > 0) earnedAllocations.push(...allocate(withdrawableNow, more, now, ['earned']));
+      left -= more;
+    }
+    const taken = retake - left;
     await moveGrants(tx, earnedAllocations, -1);
     await tx.insert(schema.creditEntry).values({
       userId: purchase.userId,
@@ -1076,7 +1137,8 @@ async function reverseChargeback(tx: Tx, purchase: typeof schema.purchase.$infer
       allocations: earnedAllocations,
       createdAt: now,
     });
-    if (retake > taken) await tx.insert(schema.creditDebt).values({ userId: purchase.userId, amount: retake - taken, remaining: retake - taken, createdAt: now });
+    /* Owed for this purchase: a refund-type debt, which earned credits may pay and which holds back payouts (review S3). */
+    if (retake > taken) await tx.insert(schema.creditDebt).values({ userId: purchase.userId, amount: retake - taken, remaining: retake - taken, purchaseId: purchase.id, createdAt: now });
   }
   await tx
     .update(schema.purchase)
@@ -1337,7 +1399,8 @@ export async function listEntries(
   const pattern = query.q ? likePattern(query.q) : null;
   const scope = and(
     eq(schema.creditEntry.userId, userId),
-    official ? notInArray(schema.creditEntry.reason, ACTIVITY_REASONS.income.filter((reason) => reason !== 'invite_reward' && reason !== 'invite_reward_gift')) : undefined,
+    /* Query income and payouts only: an official account's invitations, conversions and purchases still show. */
+    official ? notInArray(schema.creditEntry.reason, ['query_fee_earned', 'payout_hold', 'payout_release', 'payout_paid']) : undefined,
     range ? gte(schema.creditEntry.createdAt, new Date(range.start)) : undefined,
     range ? lt(schema.creditEntry.createdAt, new Date(range.end)) : undefined,
     pattern ? or(ilike(schema.creditEntry.note, pattern), ilike(schema.ree.name, pattern)) : undefined,

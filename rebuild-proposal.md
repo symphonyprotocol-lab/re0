@@ -51,7 +51,7 @@
 | Plan | 每月 10 美元，Paddle 订阅 | 每个计费周期到账 100,000 credits | **当期有效**，周期结束未用完的作废；取消后用到周期末 |
 | Pack | 10 美元一份，一次结账 1 到 10 份；**只有 Plan 订阅在有效期内的用户能买** | 每份 100,000 credits | **不过期**，Plan 取消或过期后已买的 Pack 仍可用 |
 
-扣费顺序：当期 Plan → 注册赠送 → Pack → 收入 credits（见下），退款按相反顺序退回。没有有效 Plan 的用户在 `/billing` 只看到订阅入口，Pack 按钮不可用；接口侧 `checkout` 收到 pack 而用户无有效订阅时拒绝。新用户注册送 100,000 credits 用来试（默认值，可改）。
+扣费顺序：当期 Plan → 注册赠送 → Pack，退款按相反顺序退回；收入 credits 不参与扣费，只能提现、转换为 Pack 或抵扣购买（2026-11 起，见 docs/design/earned-credits.md）。没有有效 Plan 的用户在 `/billing` 只看到订阅入口，Pack 按钮不可用；接口侧 `checkout` 收到 pack 而用户无有效订阅时拒绝。新用户注册送 100,000 credits 用来试（默认值，可改）。
 
 **消耗三类**：
 

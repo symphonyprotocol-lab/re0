@@ -381,8 +381,13 @@ async function payableCreator(reviewer: string, earned = 700_000): Promise<strin
   return userId;
 }
 
+/** A refund debt: it names the refunded purchase. A usage debt (no purchase) never holds back a payout (review S3). */
 async function owe(userId: string, amount: number) {
-  await db().insert(schema.creditDebt).values({ userId, amount, remaining: amount });
+  const [purchase] = await db()
+    .insert(schema.purchase)
+    .values({ userId, kind: 'pack', paddleTransactionId: `txn_${randomUUID().replace(/-/g, '')}`, amountMinor: 1_000, credits: amount, status: 'refunded', reversedCredits: amount })
+    .returning({ id: schema.purchase.id });
+  await db().insert(schema.creditDebt).values({ userId, amount, remaining: amount, purchaseId: purchase!.id });
 }
 
 describeWithDb('payouts wait for refund debts and stop for disabled accounts (M10)', () => {

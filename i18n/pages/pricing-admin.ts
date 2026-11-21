@@ -69,7 +69,7 @@ export const zh = {
   unavailable: '配置支付服务后即可保存 Plan 和 Pack 的价格。',
   earned: {
     title: '收入（Earned）转换与抵扣',
-    note: '收入不参与日常消耗。用户可以把收入按比例转换为 Pack 点数（不可提现、不可撤销），也可以在购买 Plan / Pack 时用可提现和成熟期中的收入抵扣。修改只影响之后的转换和结账。',
+    note: '收入不参与日常消耗。用户可以把收入按比例转换为 Pack 点数（不可提现、不可撤销），也可以在购买 Plan / Pack 时用已可提现的收入抵扣部分或全部价格。修改只影响之后的转换和结账。',
     convertEnabled: '允许转换',
     convertRate: '转换比例（1 收入换多少 Pack 点数，可填小数，如 1 或 0.5）',
     convertMin: '单次最少转换（收入）',
@@ -166,7 +166,7 @@ export const en: Shape<typeof zh> = {
   unavailable: 'Configure payments to save Plan and Pack pricing.',
   earned: {
     title: 'Earned conversion and deductions',
-    note: 'Earned credits are never spent automatically. Users may convert them into Pack credits at this rate (not withdrawable, not undoable), or pay part of a Plan or Pack with withdrawable and maturing earnings. Changes apply to later conversions and checkouts.',
+    note: 'Earned credits are never spent automatically. Users may convert them into Pack credits at this rate (not withdrawable, not undoable), or pay part or all of a Plan or Pack with withdrawable earnings. Changes apply to later conversions and checkouts.',
     convertEnabled: 'Allow conversion',
     convertRate: 'Conversion rate (Pack credits per earned credit, decimals allowed, e.g. 1 or 0.5)',
     convertMin: 'Smallest conversion (earned credits)',

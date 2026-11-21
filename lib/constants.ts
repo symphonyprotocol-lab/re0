@@ -85,8 +85,12 @@ export const EARNED_BOUNDS = {
   /* Paddle will not charge less than USD 0.70. */
   deductMinChargeMinor: { min: 70, max: 100_000 },
 } as const;
-/** A checkout holding earned credits that is still unpaid after this long is cancelled in Paddle and its hold released. */
-export const EARNED_CHECKOUT_HOLD_MS = 24 * 60 * 60 * 1000;
+/**
+ * A checkout holding earned credits that is still unpaid after this long is
+ * cancelled in Paddle and its hold released, by the every-minute billing cron
+ * (review S6): the same hour a Plan checkout is reused for (CHECKOUT_REUSE_MS).
+ */
+export const EARNED_CHECKOUT_HOLD_MS = 60 * 60 * 1000;
 
 /**
  * The grant sources that carry money someone paid (review H2). A query fee

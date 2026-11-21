@@ -53,7 +53,8 @@ describe('earned credits are not spent', () => {
       grant('never', 'earned', 10, { withdrawableAt: null }),
     ];
     expect(allocate(earned, 30, now, ['earned']).map((entry) => entry.grantId)).toEqual(['never', 'later', 'now']);
-    expect(earned.filter(isDeductible).map((entry) => entry.id)).toEqual(['now', 'later']);
+    /* Only what a payout could draw on pays for a purchase (review B1). */
+    expect(earned.filter((entry) => isDeductible(entry, now)).map((entry) => entry.id)).toEqual(['now']);
   });
 });
 
@@ -69,6 +70,8 @@ describe('conversion', () => {
   it('checks the switch, the amount, the minimum and the rate the dialog showed', () => {
     const settings = DEFAULT_EARNED_SETTINGS;
     expect(checkConversion(500, settings, 10_000)).toEqual({ ok: true, credits: 500 });
+    /* The rate is required (review S5). */
+    expect(checkConversion(500, settings, undefined)).toEqual({ ok: false, error: 'rate_changed' });
     expect(checkConversion(99, settings, 10_000)).toEqual({ ok: false, error: 'below_minimum' });
     expect(checkConversion(1.5, settings, 10_000)).toEqual({ ok: false, error: 'invalid_amount' });
     expect(checkConversion('500', settings, 10_000)).toEqual({ ok: false, error: 'invalid_amount' });

@@ -5,7 +5,7 @@
  * at all. Grants are locked `FOR UPDATE` so two holds cannot spend the same
  * credit.
  */
-import { and, asc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, lt, lte, sql } from 'drizzle-orm';
 import type { CreditEntryReason } from '@/db/schema';
 import { EARNED_MATURITY_DAYS, PAYING_GRANT_SOURCES, SPENDABLE_SOURCES, type GrantSource } from '@/lib/constants';
 import { offsetDebts } from '@/lib/domain/billing';
@@ -89,7 +89,11 @@ export async function grantWelcome(tx: Tx, userId: string, now = new Date()): Pr
 /**
  * Credits arriving: a grant and its entry, then any open debt (a refund that
  * found the credits already spent) paid off from it first, oldest debt
- * first, with a `debt_offset` entry against the new grant (2.3).
+ * first, with a `debt_offset` entry against the new grant (2.3). Earned
+ * credits pay only refund and chargeback debts (they name a purchase): a
+ * usage debt -- storage, a knowledge run's overrun, a late bill -- is paid
+ * from spendable credits, since using the product never spends earned
+ * credits (review S3).
  */
 export async function addGrant(
   tx: Tx,
@@ -116,10 +120,15 @@ export async function addGrant(
     inviteFunded?: boolean;
     /** Pack grants converted from withdrawable earned credits: they count as paid (`paidShare`), keeping `fundingPurchaseId` and `inviteFunded`. */
     convertedPaid?: boolean;
+    /** Any Pack grant converted from earned credits. */
+    converted?: boolean;
+    /** A paid conversion of earnings still maturing: a refund may void it until then (review S2). */
+    voidUntil?: Date | null;
   },
   now = new Date(),
 ): Promise<{ grantId: string; offset: number }> {
-  const converted = input.source === 'pack' && input.convertedPaid === true;
+  const convertedPaid = input.source === 'pack' && input.convertedPaid === true;
+  const converted = convertedPaid || (input.source === 'pack' && input.converted === true);
   const [grant] = await tx
     .insert(schema.creditGrant)
     .values({
@@ -133,9 +142,11 @@ export async function addGrant(
       redemptionId: input.redemptionId ?? null,
       redemptionPeriod: input.redemptionId ? (input.redemptionPeriod ?? 0) : null,
       withdrawableAt: input.source === 'earned' ? (input.withdrawableAt ?? null) : null,
-      fundingPurchaseId: input.source === 'earned' || converted ? (input.fundingPurchaseId ?? null) : null,
-      inviteFunded: ((input.source === 'earned' && Boolean(input.withdrawableAt)) || converted) && input.inviteFunded === true,
-      convertedPaid: converted,
+      fundingPurchaseId: input.source === 'earned' || convertedPaid ? (input.fundingPurchaseId ?? null) : null,
+      inviteFunded: ((input.source === 'earned' && Boolean(input.withdrawableAt)) || convertedPaid) && input.inviteFunded === true,
+      convertedPaid,
+      converted,
+      voidUntil: convertedPaid ? (input.voidUntil ?? null) : null,
       createdAt: now,
     })
     .returning({ id: schema.creditGrant.id });
@@ -153,7 +164,7 @@ export async function addGrant(
   const debts = await tx
     .select({ id: schema.creditDebt.id, remaining: schema.creditDebt.remaining, purchaseId: schema.creditDebt.purchaseId })
     .from(schema.creditDebt)
-    .where(and(eq(schema.creditDebt.userId, input.userId), gt(schema.creditDebt.remaining, 0)))
+    .where(and(eq(schema.creditDebt.userId, input.userId), gt(schema.creditDebt.remaining, 0), input.source === 'earned' ? isNotNull(schema.creditDebt.purchaseId) : undefined))
     .orderBy(asc(schema.creditDebt.createdAt))
     .for('update');
   const offsets = offsetDebts(debts, input.amount);
@@ -350,7 +361,7 @@ export interface HoldInput {
   sources?: readonly GrantSource[];
   /** Only withdrawable earned grants may pay: paid for and matured (a payout, review H2). */
   withdrawableOnly?: boolean;
-  /** Only earned grants paid for by askers, matured or not, may pay (a Plan or Pack deduction). */
+  /** Only earned grants a payout could draw on may pay (a Plan or Pack deduction, review B1). */
   deductibleOnly?: boolean;
 }
 
@@ -362,7 +373,7 @@ export interface HoldInput {
 export async function placeHold(tx: Tx, input: HoldInput, now = new Date()): Promise<string> {
   const sources = input.sources ?? SPENDABLE_SOURCES;
   const grants = (await grantsOf(tx, input.userId, true)).filter(
-    (grant) => (!input.withdrawableOnly || isWithdrawable(grant, now)) && (!input.deductibleOnly || isDeductible(grant)),
+    (grant) => (!input.withdrawableOnly || isWithdrawable(grant, now)) && (!input.deductibleOnly || isDeductible(grant, now)),
   );
   const allocations = allocate(grants, input.amount, now, sources);
   await moveGrants(tx, allocations, -1);

@@ -63,7 +63,8 @@ export type ConvertRefusal = 'convert_disabled' | 'invalid_amount' | 'below_mini
 export function checkConversion(credits: unknown, settings: EarnedSettings, quotedRateBp: unknown): { ok: true; credits: number } | { ok: false; error: ConvertRefusal } {
   if (!settings.convertEnabled) return { ok: false, error: 'convert_disabled' };
   if (typeof credits !== 'number' || !Number.isSafeInteger(credits) || credits <= 0) return { ok: false, error: 'invalid_amount' };
-  if (quotedRateBp !== undefined && quotedRateBp !== settings.convertRateBp) return { ok: false, error: 'rate_changed' };
+  /* The rate the dialog showed is required: nobody converts at a rate they did not see (review S5). */
+  if (quotedRateBp !== settings.convertRateBp) return { ok: false, error: 'rate_changed' };
   if (credits < settings.convertMinCredits) return { ok: false, error: 'below_minimum' };
   if (convertedCredits(credits, settings.convertRateBp) === 0) return { ok: false, error: 'below_minimum' };
   return { ok: true, credits };

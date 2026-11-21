@@ -51,7 +51,15 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
   /* Earned credits that may pay for this order (paid for by askers), and the console's rules for it; none for a reopened payment link. */
   const [balance, rules] = user && !pending ? await Promise.all([earnedBalance(db(), user.id), earnedSettings()]) : [null, null];
   const earned = balance && rules && rules.deductEnabled
-    ? { deductible: balance.deductible, creditsPerCent: rules.deductCreditsPerCent, maxPercent: rules.deductMaxPercent, minChargeMinor: rules.deductMinChargeMinor }
+    ? {
+        /* What this user's unpaid checkouts hold comes back when a new one uses earned credits (review S6). */
+        deductible: balance.deductible + balance.checkoutHeld,
+        creditsPerCent: rules.deductCreditsPerCent,
+        maxPercent: rules.deductMaxPercent,
+        minChargeMinor: rules.deductMinChargeMinor,
+        /* Maturing earnings cannot pay; the note points them to conversion. */
+        maturing: balance.maturing,
+      }
     : null;
   const config = paddleConfig();
   return (

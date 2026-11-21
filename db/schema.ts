@@ -431,11 +431,19 @@ export const creditGrant = pgTable(
      * so the payout funding review still traces them.
      */
     convertedPaid: boolean('converted_paid').notNull().default(false),
+    /** Any Pack grant converted from earned credits, paid for or not (the payout funding review tells free conversions from console grants). */
+    converted: boolean('converted').notNull().default(false),
+    /**
+     * A converted Pack from earnings still in their maturity period: until
+     * then a refund of `funding_purchase_id` may void it, as it would have
+     * voided the earnings (review S2). Null once matured or never voidable.
+     */
+    voidUntil: timestampTz('void_until'),
     createdAt: createdAt(),
   },
   (t) => [
     index('credit_grant_user_idx').on(t.userId),
-    check('credit_grant_converted_check', sql`not converted_paid or source = 'pack'`),
+    check('credit_grant_converted_check', sql`(not converted or source = 'pack') and (not converted_paid or converted) and (void_until is null or converted_paid)`),
     check('credit_grant_withdrawable_check', sql`withdrawable_at is null or source = 'earned'`),
     check('credit_grant_invite_funded_check', sql`not invite_funded or (source = 'earned' and withdrawable_at is not null) or (source = 'pack' and converted_paid)`),
     index('credit_grant_funding_idx').on(t.fundingPurchaseId).where(sql`funding_purchase_id is not null`),
@@ -825,10 +833,13 @@ export const purchase = pgTable(
     earnedHoldId: uuid('earned_hold_id'),
     /** Earned credits refunds and chargebacks have given back so far. */
     earnedReturned: bigint('earned_returned', { mode: 'number' }).notNull().default(0),
+    /** The checkout page's request id for a purchase paid in full with earned credits: a repeated request returns this purchase (review S4). */
+    requestId: uuid('request_id'),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('purchase_paddle_transaction_key').on(t.paddleTransactionId),
+    uniqueIndex('purchase_request_key').on(t.userId, t.requestId).where(sql`request_id is not null`),
     check('purchase_paid_check', sql`paddle_transaction_id is not null or earned_minor > 0`),
     check('purchase_earned_check', sql`earned_credits >= 0 and earned_minor >= 0 and earned_returned between 0 and earned_credits`),
     index('purchase_user_idx').on(t.userId, t.createdAt),

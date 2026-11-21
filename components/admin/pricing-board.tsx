@@ -8,6 +8,7 @@ import './pricing-board.css';
 import type { PricingView, PriceView, CreditAmountView } from '@/lib/domain/pricing';
 import type { InfraCostRatesView } from '@/lib/domain/infra-cost';
 import type { EarnedSettingsView } from '@/lib/services/earned';
+import { EARNED_BOUNDS } from '@/lib/constants';
 
 // datetime-local uses the explicitly labelled business timezone, regardless of the browser timezone.
 const localTime = (iso: string) => new Date(Date.parse(iso) + 8 * 3600_000).toISOString().slice(0, 16);
@@ -380,12 +381,13 @@ function EarnedForm({ initial }: { initial: EarnedSettingsView }) {
       setBusy(false);
     }
   }
+  /* The server's bounds (EARNED_BOUNDS), so the form refuses what the save would. */
   const fields = [
-    { key: 'convertRate', label: labels.convertRate, step: '0.0001', min: '0.0001' },
-    { key: 'convertMin', label: labels.convertMin, step: '1', min: '1' },
-    { key: 'deductPerCent', label: labels.deductPerCent, step: '1', min: '1' },
-    { key: 'deductMax', label: labels.deductMax, step: '1', min: '1' },
-    { key: 'deductMinCharge', label: labels.deductMinCharge, step: '1', min: '1' },
+    { key: 'convertRate', label: labels.convertRate, step: '0.0001', min: EARNED_BOUNDS.convertRateBp.min / 10_000, max: EARNED_BOUNDS.convertRateBp.max / 10_000 },
+    { key: 'convertMin', label: labels.convertMin, step: '1', ...EARNED_BOUNDS.convertMinCredits },
+    { key: 'deductPerCent', label: labels.deductPerCent, step: '1', ...EARNED_BOUNDS.deductCreditsPerCent },
+    { key: 'deductMax', label: labels.deductMax, step: '1', ...EARNED_BOUNDS.deductMaxPercent },
+    { key: 'deductMinCharge', label: labels.deductMinCharge, step: '1', ...EARNED_BOUNDS.deductMinChargeMinor },
   ] as const;
   return (
     <form className="card pricing-admin-card pricing-credit-card" onSubmit={save}>
@@ -412,6 +414,7 @@ function EarnedForm({ initial }: { initial: EarnedSettingsView }) {
               inputMode="decimal"
               required
               min={field.min}
+              max={field.max}
               step={field.step}
               value={values[field.key]}
               onChange={(e) => setValues({ ...values, [field.key]: e.target.value })}

@@ -46,7 +46,7 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
             <p className="label">
               {b.total.plan.label}
               <span className={`tag ${plan.active ? (plan.cancelAtPeriodEnd ? 'orange' : 'blue') : ''}`}>
-                {plan.active ? (redeemed ? b.total.plan.redeemed : plan.cancelAtPeriodEnd ? b.total.plan.ending : b.total.plan.monthly) : b.total.plan.inactive}
+                {plan.active ? (redeemed ? (plan.paidWithEarned ? b.total.plan.earned : b.total.plan.redeemed) : plan.cancelAtPeriodEnd ? b.total.plan.ending : b.total.plan.monthly) : b.total.plan.inactive}
               </span>
             </p>
             <p className="billing-bucket-number">{n(summary.buckets.plan)}</p>
@@ -80,6 +80,12 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
                     <>
                       <dt>{b.total.earned.maturing}</dt>
                       <dd>{n(earned.maturing)}</dd>
+                      {earned.nextMaturesAt && (
+                        <dt className="billing-earned-next">
+                          {fill(b.total.earned.nextMaturing, { n: n(earned.nextMaturing), date: formatDate(earned.nextMaturesAt, locale) })}
+                          {earned.laterMaturing > 0 && ` · ${fill(b.total.earned.laterMaturing, { k: n(earned.laterMaturing) })}`}
+                        </dt>
+                      )}
                     </>
                   )}
                   {earned.locked > 0 && (
@@ -94,6 +100,12 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
                       <dd>{n(earned.invite)}</dd>
                     </>
                   )}
+                </dl>
+              )}
+              {earned.checkoutHeld > 0 && (
+                <dl className="billing-earned-rows">
+                  <dt>{b.total.earned.checkoutHeld}</dt>
+                  <dd>{n(earned.checkoutHeld)}</dd>
                 </dl>
               )}
               <small>{b.total.earned.note}</small>
@@ -120,7 +132,7 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
         <section className="card plan-card primary">
           <div className="between">
             <h3>{b.plan.title}</h3>
-            <span className={`tag ${plan.active ? 'blue' : ''}`}>{plan.active ? (redeemed ? b.plan.redeemed : plan.cancelAtPeriodEnd ? b.plan.cancelling : b.plan.current) : b.plan.start}</span>
+            <span className={`tag ${plan.active ? 'blue' : ''}`}>{plan.active ? (redeemed ? (plan.paidWithEarned ? b.plan.earned : b.plan.redeemed) : plan.cancelAtPeriodEnd ? b.plan.cancelling : b.plan.current) : b.plan.start}</span>
           </div>
           {plan.active && <small>{b.plan.offerPrice}</small>}
           <p className="plan-price">
@@ -130,7 +142,7 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
           <p>{fill(b.plan.perCycle, { credits: n(prices.plan.credits) })}</p>
           <Features items={[b.plan.perk1, b.plan.perk2, b.plan.perk3]} />
           {plan.active && (
-            <p className="plan-renewal">{redeemed ? fill(b.plan.redeemedUntil, { date: redeemedUntil }) : fill(plan.cancelAtPeriodEnd ? b.plan.ends : b.plan.renews, { date: periodEnd })}</p>
+            <p className="plan-renewal">{redeemed ? fill(plan.paidWithEarned ? b.plan.earnedUntil : b.plan.redeemedUntil, { date: redeemedUntil }) : fill(plan.cancelAtPeriodEnd ? b.plan.ends : b.plan.renews, { date: periodEnd })}</p>
           )}
           {plan.redeemedNext && (
             <p className="plan-renewal">{fill(b.plan.redeemedNext, { date: formatDate(plan.redeemedNext, locale), until: redeemedUntil })}</p>
@@ -144,7 +156,7 @@ export async function BalanceTab({ userId, query }: { userId: string; query: Rec
             <RenewalControl cancelAtPeriodEnd={plan.cancelAtPeriodEnd} periodEndLabel={periodEnd} />
           ) : redeemedHeld ? (
             <button type="button" className="btn" disabled>
-              {b.plan.redeemedLater}
+              {plan.paidWithEarned ? b.plan.earnedLater : b.plan.redeemedLater}
             </button>
           ) : (
             <Link href="/checkout?kind=plan" className="btn">

@@ -61,7 +61,7 @@ export function CheckoutPanel({
   paddle: { clientToken: string; environment: 'sandbox' | 'production' } | null;
   pendingTransaction: string | null;
   /** Earned credits that may pay part or all of the order, and the console's rules; null when there are none to offer. */
-  earned?: { deductible: number; creditsPerCent: number; maxPercent: number; minChargeMinor: number } | null;
+  earned?: { deductible: number; creditsPerCent: number; maxPercent: number; minChargeMinor: number; maturing?: number } | null;
 }) {
   const { t, locale } = useI18n();
   const c = t.site.checkout;
@@ -72,6 +72,8 @@ export function CheckoutPanel({
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const transaction = useRef<string | null>(pendingTransaction);
+  /* One id per order as shown: a retry or a second click of a purchase paid with earned credits returns the first (review S4). */
+  const request = useRef<string>(crypto.randomUUID());
   const phaseRef = useRef<Phase>('idle');
   phaseRef.current = phase;
 
@@ -99,6 +101,7 @@ export function CheckoutPanel({
     setUseEarned(on);
     if (on) setEarnedInput((maxEarnedMinor / 100).toFixed(2));
     transaction.current = null;
+    request.current = crypto.randomUUID();
   };
 
   /* Paddle.Initialize may only run once per page, so its callback forwards to whatever this listener is now. */
@@ -157,14 +160,23 @@ export function CheckoutPanel({
       const response = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ kind, quantity, consent: true, quoteKey: price.quoteKey, ...(earnedMinor > 0 ? { earnedMinor } : {}) }),
+        body: JSON.stringify({
+          kind,
+          quantity,
+          consent: true,
+          quoteKey: price.quoteKey,
+          requestId: request.current,
+          ...(earnedMinor > 0 && earned ? { earnedMinor, deductCreditsPerCent: earned.creditsPerCent } : {}),
+        }),
       });
       const body = (await response.json().catch(() => ({}))) as { transactionId?: string; purchaseId?: string; error?: keyof typeof c.errors };
       if (response.ok && body.purchaseId) {
         /* Paid in full with earned credits: nothing for Paddle to do. */
         setPhase('completed');
-        router.push('/settings?tab=balance');
-        router.refresh();
+        window.setTimeout(() => {
+          router.push('/settings?tab=balance');
+          router.refresh();
+        }, 1_200);
         return;
       }
       if (!response.ok || !body.transactionId) {
@@ -173,6 +185,12 @@ export function CheckoutPanel({
           return;
         }
         if (body.error === 'price_changed') { setConsent(false); router.refresh(); }
+        /* The earned balance or the rules moved under the page: show the current ones (review S5). */
+        if (body.error === 'rate_changed' || body.error === 'insufficient_earned' || body.error?.startsWith('deduction_')) {
+          setUseEarned(false);
+          request.current = crypto.randomUUID();
+          router.refresh();
+        }
         setError((body.error && c.errors[body.error]) || t.common.errors.generic);
         setPhase('idle');
         return;
@@ -188,6 +206,7 @@ export function CheckoutPanel({
   const changeQuantity = (value: number) => {
     setQuantity(value);
     setUseEarned(false);
+    request.current = crypto.randomUUID();
     transaction.current = null;
     router.replace(`/checkout?kind=pack&quantity=${value}`, { scroll: false });
   };
@@ -227,13 +246,27 @@ export function CheckoutPanel({
           <dt className="text-muted">{c.subtotal}</dt>
           <dd className="font-mono font-semibold">{money(subtotal)}</dd>
         </div>
-        <div className="flex justify-between">
-          <dt className="text-muted">{c.taxes}</dt>
-          <dd className="text-muted">{c.taxesNote}</dd>
-        </div>
+        {!paidByEarned && (
+          <div className="flex justify-between">
+            <dt className="text-muted">{c.taxes}</dt>
+            <dd className="text-muted">{c.taxesNote}</dd>
+          </div>
+        )}
       </dl>
       {earned && signedIn && !locked && !alreadyPlan && (
         <div className="mt-4 rounded-xl border border-line bg-wash px-4 py-3 text-[12px]">
+          <p className="mb-2 text-muted">
+            {c.earned.maturedOnly}
+            {(earned.maturing ?? 0) > 0 && (
+              <>
+                {fill(c.earned.maturingConvert, { n: formatNumber(earned.maturing!, locale) })}{' '}
+                <Link href="/settings?tab=balance" className="text-link">
+                  {c.earned.convertLink}
+                </Link>
+              </>
+            )}
+            {!((earned.maturing ?? 0) > 0) && c.earned.maturedEnd}
+          </p>
           {maxEarnedMinor > 0 ? (
             <>
               <label className="flex items-center gap-2.5 font-semibold">
@@ -263,6 +296,7 @@ export function CheckoutPanel({
                     onChange={(event) => {
                       setEarnedInput(event.target.value.replace(/[^\d.]/g, ''));
                       transaction.current = null;
+                      request.current = crypto.randomUUID();
                     }}
                     onBlur={() => setEarnedInput((earnedMinor / 100).toFixed(2))}
                     className="rounded-lg border border-line bg-white px-3 py-2 font-mono text-[13px]"
@@ -329,7 +363,7 @@ export function CheckoutPanel({
           {phase === 'completed' ? (
             <p className="mt-4 flex items-center gap-2 text-[13px] font-semibold text-green" role="status">
               <Spinner />
-              {c.completed}
+              {paidByEarned ? c.earned.done : c.completed}
             </p>
           ) : phase === 'closed' && transaction.current ? (
             <button type="button" className="btn mt-4 min-h-12 w-full text-[14px]" onClick={() => open(transaction.current!)}>
@@ -340,7 +374,7 @@ export function CheckoutPanel({
             <button
               type="button"
               className="btn mt-4 min-h-12 w-full text-[14px]"
-              disabled={!signedIn || (!paidByEarned && (!paddle || !ready)) || phase === 'creating' || phase === 'open'}
+              disabled={!signedIn || !paddle || (!paidByEarned && !ready) || phase === 'creating' || phase === 'open'}
               onClick={confirm}
             >
               {phase === 'creating' || phase === 'open' || (!paidByEarned && signedIn && paddle && !ready) ? <Spinner /> : null}

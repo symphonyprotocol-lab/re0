@@ -1,5 +1,5 @@
 {
-  "id": "0bbf78eb-3c0a-46d2-9328-8d514d439297",
+  "id": "aaffbd61-57fe-47b6-af8a-53dee22d388c",
   "prevId": "72cbdf19-eb7c-4e6c-a611-d28d8c6cc0e8",
   "version": "7",
   "dialect": "postgresql",
@@ -1596,6 +1596,19 @@
           "notNull": true,
           "default": false
         },
+        "converted": {
+          "name": "converted",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "void_until": {
+          "name": "void_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1751,7 +1764,7 @@
       "checkConstraints": {
         "credit_grant_converted_check": {
           "name": "credit_grant_converted_check",
-          "value": "not converted_paid or source = 'pack'"
+          "value": "(not converted or source = 'pack') and (not converted_paid or converted) and (void_until is null or converted_paid)"
         },
         "credit_grant_withdrawable_check": {
           "name": "credit_grant_withdrawable_check",
@@ -6790,6 +6803,12 @@
           "notNull": true,
           "default": 0
         },
+        "request_id": {
+          "name": "request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -6810,6 +6829,28 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "purchase_request_key": {
+          "name": "purchase_request_key",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "request_id is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}

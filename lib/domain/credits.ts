@@ -71,12 +71,14 @@ export function availableOf(grants: readonly SpendableGrant[], now: Date, source
 }
 
 /**
- * Whether earned credits may pay for a Plan or Pack: paid for by the askers
- * (they will be, or already are, withdrawable), matured or not. Earnings
- * paid from free credits are never withdrawable, and only convert.
+ * Whether earned credits may pay for a Plan or Pack: exactly what a payout
+ * could draw on -- paid for by askers and past the maturity period. Earnings
+ * still maturing could yet be voided by a refund of what paid for them, so a
+ * purchase made with them would launder that risk (review B1); earnings paid
+ * from free credits are never withdrawable. Both only convert.
  */
-export function isDeductible(grant: Pick<SpendableGrant, 'source' | 'remaining' | 'withdrawableAt'>): boolean {
-  return grant.source === 'earned' && grant.remaining > 0 && grant.withdrawableAt != null;
+export function isDeductible(grant: Pick<SpendableGrant, 'source' | 'remaining' | 'withdrawableAt'>, now: Date): boolean {
+  return isWithdrawable(grant, now);
 }
 
 /** Whether a payout may draw on this grant now: earned, paid for, and past its maturity. */

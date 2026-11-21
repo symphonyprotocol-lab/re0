@@ -897,9 +897,10 @@
 }
 
 /*
- * 总余额: one card leading the balance tab -- the total on top, and under a
- * hairline each bucket once (Plan, welcome, Pack, earned). Earned is the dark
- * tile: the only credits that can be withdrawn.
+ * 可用余额: one card leading the balance tab -- the spendable total on top
+ * (Plan + welcome + Pack), and under a hairline each bucket once (Plan,
+ * welcome, Pack, earned). Earned is the dark tile: never spent automatically,
+ * the only credits that can be withdrawn, converted or used toward a purchase.
  */
 .settings-page .billing-total-card {
   margin-bottom: 18px;
@@ -997,6 +998,12 @@
   font-size: 10px;
   line-height: 1.5;
   color: #9aa9d1;
+}
+.settings-page .billing-earned-rows .billing-earned-next {
+  grid-column: 1 / -1;
+  padding-left: 8px;
+  font-size: 10px;
+  color: #7f8db8;
 }
 .settings-page .billing-earned-rows dd {
   margin: 0;

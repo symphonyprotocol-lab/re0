@@ -5,7 +5,7 @@ import { PaddleError, PaddleNotConfigured } from '@/lib/infra/paddle';
 import { checkoutState, startCheckout } from '@/lib/services/billing';
 
 /**
- * `POST /api/billing/checkout` `{kind: 'plan'|'pack', quantity, consent, earnedMinor?}`:
+ * `POST /api/billing/checkout` `{kind: 'plan'|'pack', quantity, consent, earnedMinor?, deductCreditsPerCent?, requestId?}`:
  * the Paddle transaction the checkout page's overlay opens, with
  * `earnedMinor` US cents paid by earned credits; when they pay it all, the
  * purchase itself (`purchaseId`) and no transaction. A Pack needs an
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   if (user instanceof Response) return user;
   try {
     const result = await startCheckout(user.id, await body(request));
-    if (!result.ok) return fail(result.error, ['plan_required', 'already_subscribed', 'renewal_pending', 'plan_redeemed_active', 'price_changed', 'insufficient_earned'].includes(result.error) ? 409 : 400);
+    if (!result.ok) return fail(result.error, ['plan_required', 'already_subscribed', 'renewal_pending', 'plan_redeemed_active', 'price_changed', 'rate_changed', 'insufficient_earned'].includes(result.error) ? 409 : 400);
     /* Paid in full with earned credits: no Paddle transaction, the purchase is already made. */
     if (result.purchaseId) return json({ purchaseId: result.purchaseId, kind: result.order.kind, quantity: result.order.quantity, earnedMinor: result.earnedMinor });
     return json({ transactionId: result.transactionId, kind: result.order.kind, quantity: result.order.quantity, earnedMinor: result.earnedMinor });

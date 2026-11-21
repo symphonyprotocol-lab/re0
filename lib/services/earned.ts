@@ -66,10 +66,16 @@ export interface EarnedBalance {
   maturing: number;
   /** Paid from free credits: never withdrawable, only convertible. */
   locked: number;
-  /** What a Plan or Pack may be paid with: withdrawable and maturing. */
+  /** What a Plan or Pack may be paid with: what is withdrawable now (review B1). */
   deductible: number;
   /** Of the total, what came from invitation rewards (and the earnings they paid for). */
   invite: number;
+  /** Held by checkouts not paid yet (not in `total`): released when another checkout uses earned credits, or after `EARNED_CHECKOUT_HOLD_MS`. */
+  checkoutHeld: number;
+  /** The soonest maturing earnings: when (UTC day of the first) and how much matures that day, and how many more maturing grants come later. */
+  nextMaturesAt: Date | null;
+  nextMaturing: number;
+  laterMaturing: number;
 }
 
 /** The earned credits not held for a payout or a checkout, by what they may do. */
@@ -78,15 +84,28 @@ export async function earnedBalance(executor: Executor, userId: string, now = ne
     .select({ remaining: schema.creditGrant.remaining, withdrawableAt: schema.creditGrant.withdrawableAt, inviteFunded: schema.creditGrant.inviteFunded })
     .from(schema.creditGrant)
     .where(and(eq(schema.creditGrant.userId, userId), eq(schema.creditGrant.source, 'earned'), gt(schema.creditGrant.remaining, 0)));
-  const out: EarnedBalance = { total: 0, withdrawable: 0, maturing: 0, locked: 0, deductible: 0, invite: 0 };
+  const out: EarnedBalance = { total: 0, withdrawable: 0, maturing: 0, locked: 0, deductible: 0, invite: 0, checkoutHeld: 0, nextMaturesAt: null, nextMaturing: 0, laterMaturing: 0 };
+  const [held] = await executor
+    .select({ amount: sql<string>`coalesce(sum(${schema.creditHold.amount}), 0)` })
+    .from(schema.creditHold)
+    .where(and(eq(schema.creditHold.userId, userId), eq(schema.creditHold.kind, 'deduction'), eq(schema.creditHold.status, 'held')));
+  out.checkoutHeld = Number(held?.amount ?? 0);
   for (const row of rows) {
     const grant = { source: 'earned' as const, remaining: row.remaining, withdrawableAt: row.withdrawableAt };
     out.total += row.remaining;
     if (isWithdrawable(grant, now)) out.withdrawable += row.remaining;
     else if (row.withdrawableAt) out.maturing += row.remaining;
     else out.locked += row.remaining;
-    if (isDeductible(grant)) out.deductible += row.remaining;
+    if (isDeductible(grant, now)) out.deductible += row.remaining;
     if (row.inviteFunded) out.invite += row.remaining;
+  }
+  /* Earnings matured on the same calendar day (UTC) show as one amount; an invitation reward is withdrawable when credited, so never here. */
+  const pending = rows.filter((row) => row.withdrawableAt && row.withdrawableAt.getTime() > now.getTime());
+  for (const row of pending) if (!out.nextMaturesAt || row.withdrawableAt!.getTime() < out.nextMaturesAt.getTime()) out.nextMaturesAt = row.withdrawableAt;
+  const day = (date: Date) => date.toISOString().slice(0, 10);
+  for (const row of pending) {
+    if (day(row.withdrawableAt!) === day(out.nextMaturesAt!)) out.nextMaturing += row.remaining;
+    else out.laterMaturing += 1;
   }
   return out;
 }
@@ -124,7 +143,7 @@ async function convertWithin(tx: Tx, userId: string, credits: number, rateBp: nu
     .select({ id: schema.creditGrant.id, withdrawableAt: schema.creditGrant.withdrawableAt, fundingPurchaseId: schema.creditGrant.fundingPurchaseId, inviteFunded: schema.creditGrant.inviteFunded })
     .from(schema.creditGrant)
     .where(inArray(schema.creditGrant.id, ids));
-  const groups = new Map<string, { fundingPurchaseId: string | null; inviteFunded: boolean; earned: number }>();
+  const groups = new Map<string, { fundingPurchaseId: string | null; inviteFunded: boolean; voidUntil: Date | null; earned: number }>();
   let freeEarned = 0;
   for (const entry of allocations) {
     const origin = origins.find((row) => row.id === entry.grantId);
@@ -132,8 +151,10 @@ async function convertWithin(tx: Tx, userId: string, credits: number, rateBp: nu
       freeEarned += entry.amount;
       continue;
     }
-    const key = `${origin.inviteFunded}:${origin.fundingPurchaseId ?? ''}`;
-    const group = groups.get(key) ?? { fundingPurchaseId: origin.fundingPurchaseId, inviteFunded: origin.inviteFunded, earned: 0 };
+    /* Still maturing: the Pack may be voided by a refund of what paid for it until the earnings would have matured (review S2). */
+    const voidUntil = origin.withdrawableAt.getTime() > now.getTime() ? origin.withdrawableAt : null;
+    const key = `${origin.inviteFunded}:${origin.fundingPurchaseId ?? ''}:${voidUntil?.toISOString() ?? ''}`;
+    const group = groups.get(key) ?? { fundingPurchaseId: origin.fundingPurchaseId, inviteFunded: origin.inviteFunded, voidUntil, earned: 0 };
     group.earned += entry.amount;
     groups.set(key, group);
   }
@@ -156,10 +177,10 @@ async function convertWithin(tx: Tx, userId: string, credits: number, rateBp: nu
     if (amount <= 0) continue;
     await addGrant(
       tx,
-      { userId, source: 'pack', amount, reason: 'earned_converted', refId: conversionId, convertedPaid: true, fundingPurchaseId: group.fundingPurchaseId, inviteFunded: group.inviteFunded, note: group.inviteFunded ? 'converted from invitation earnings' : 'converted from withdrawable earnings' },
+      { userId, source: 'pack', amount, reason: 'earned_converted', refId: conversionId, convertedPaid: true, fundingPurchaseId: group.fundingPurchaseId, inviteFunded: group.inviteFunded, voidUntil: group.voidUntil, note: group.inviteFunded ? 'converted from invitation earnings' : 'converted from withdrawable earnings' },
       now,
     );
   }
-  if (split.free > 0) await addGrant(tx, { userId, source: 'pack', amount: split.free, reason: 'earned_converted', refId: conversionId, note: 'converted from earnings paid with free credits' }, now);
+  if (split.free > 0) await addGrant(tx, { userId, source: 'pack', amount: split.free, reason: 'earned_converted', refId: conversionId, converted: true, note: 'converted from earnings paid with free credits' }, now);
   return { ok: true, converted: credits, received, conversionId };
 }

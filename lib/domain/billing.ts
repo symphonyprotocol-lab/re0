@@ -105,6 +105,8 @@ export interface RedeemedPlan {
   months: number;
   /** Credits per month, snapshotted when the code was redeemed. */
   credits?: number;
+  /** A month of Plan paid in full with earned credits, not a redeem code. */
+  earned?: boolean;
 }
 
 /**
@@ -121,6 +123,8 @@ export interface PlanState {
   periodEnd: Date | null;
   redeemedUntil: Date | null;
   redeemedNext: Date | null;
+  /** The Plan in force is a month paid in full with earned credits (`source` is still `redeemed`: no renewal). */
+  paidWithEarned?: boolean;
 }
 
 export function planStateFrom(subscription: PlanSubscription | null, redeemed: readonly RedeemedPlan[], now: Date): PlanState {
@@ -154,7 +158,7 @@ export function planStateFrom(subscription: PlanSubscription | null, redeemed: r
   const current = plans.find((plan) => redeemedPeriodIndexAt(plan, now) !== null);
   if (current) {
     const period = redeemedPeriod(current.startsAt, redeemedPeriodIndexAt(current, now)!);
-    return { active: true, source: 'redeemed', cancelAtPeriodEnd: false, periodStart: period.start, periodEnd: period.end, redeemedUntil: reach(now), redeemedNext: null };
+    return { active: true, source: 'redeemed', cancelAtPeriodEnd: false, periodStart: period.start, periodEnd: period.end, redeemedUntil: reach(now), redeemedNext: null, paidWithEarned: current.earned === true };
   }
   return {
     active: false,
@@ -176,6 +180,8 @@ export interface PlanUsage {
   /** How far redeemed Plans reach, and when one waiting behind a Paddle period begins. */
   redeemedUntil: string | null;
   redeemedNext: string | null;
+  /** The Plan in force was paid in full with earned credits. */
+  paidWithEarned?: boolean;
   allowance: number;
   used: number;
   remaining: number;
@@ -209,6 +215,7 @@ export function planUsage(
     cancelAtPeriodEnd: state.cancelAtPeriodEnd,
     periodEnd: state.periodEnd?.toISOString() ?? null,
     ...redeemed,
+    paidWithEarned: state.paidWithEarned === true,
     allowance,
     used,
     remaining,
@@ -239,8 +246,9 @@ export function reversalCredits(
 
 /**
  * Where a reversal comes from: the purchase's own grant first (what is left
- * of what was bought), then whatever else the user holds in the spending
- * order. What still cannot be covered is the shortfall -- recorded as a debt,
+ * of what was bought), then whatever else the user holds: Plan → welcome →
+ * Pack, then earned credits (a take-back recovers money, so it reaches
+ * them; using the product never does). What still cannot be covered is the shortfall -- recorded as a debt,
  * never as a negative balance (2.3).
  */
 export function takeBack(
@@ -315,5 +323,19 @@ export const ACTIVITY_REASONS: Record<Exclude<Activity, 'all'>, readonly CreditE
     'video_refund',
     'storage_charge',
   ],
-  income: ['query_fee_earned', 'invite_reward', 'invite_reward_gift', 'payout_hold', 'payout_release', 'payout_paid'],
+  income: [
+    'query_fee_earned',
+    'invite_reward',
+    'invite_reward_gift',
+    'payout_hold',
+    'payout_release',
+    'payout_paid',
+    /* Where earned credits went besides a payout (docs/design/earned-credits.md). */
+    'earned_convert',
+    'earned_converted',
+    'deduction_hold',
+    'deduction_paid',
+    'deduction_release',
+    'deduction_return',
+  ],
 };

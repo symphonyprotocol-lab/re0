@@ -37,7 +37,9 @@ export function ConvertEarned({
   const router = useRouter();
   const toast = useToast();
   const [open, setOpen] = useState(false);
-  const [raw, setRaw] = useState(String(earned));
+  /* What cannot be withdrawn now (paid with free credits, or still maturing) is offered first; withdrawable earnings only if the user types them in. */
+  const suggested = locked + maturing >= minimum ? String(locked + maturing) : '';
+  const [raw, setRaw] = useState(suggested);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const n = (value: number) => formatNumber(value, locale);
@@ -86,7 +88,7 @@ export function ConvertEarned({
         disabled={!enabled}
         title={enabled ? undefined : c.disabled}
         onClick={() => {
-          setRaw(String(earned));
+          setRaw(suggested);
           setError(null);
           setOpen(true);
         }}
@@ -127,7 +129,7 @@ export function ConvertEarned({
           </label>
           <dl className="earned-convert-calc">
             <dt>{c.rate}</dt>
-            <dd>{fill(c.rateValue, { n: formatNumber(rateBp / 10_000, locale) })}</dd>
+            <dd>{fill(c.rateValue, { n: String(rateBp / 10_000) })}</dd>
             <dt>{c.receive}</dt>
             <dd className="strong">+{n(convertedCredits(counted, rateBp))}</dd>
             <dt>{c.earnedLeft}</dt>
