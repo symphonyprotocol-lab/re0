@@ -1,0 +1,68 @@
+import type { Shape } from '@/i18n/format';
+
+/** The console's rate-limit page (lib/services/rate-limit-settings.ts). */
+export const zh = {
+  title: '请求限额',
+  lede: '每个账号（未登录时按访问地址）在每分钟和每小时内可调用各类接口的次数。超出后接口返回 429，并提示多久后重试。',
+  policy: '修改会在 30 秒内对所有服务器实例生效。未修改的限额使用代码默认值；恢复默认会删除已保存的值。',
+  limitsTitle: '限额',
+  limit: '限额', perMinute: '每分钟', perHour: '每小时', defaults: '默认 {minute} / 分钟 · {hour} / 小时',
+  custom: '已修改', default: '默认', save: '保存', reset: '恢复默认', saved: '已保存', resetDone: '已恢复默认',
+  names: {
+    ask: '提问（私有问题）',
+    comment: '评论',
+    publicQa: 'Ree 页面公开问答的“有帮助”和“举报”',
+    post: '发布公开帖子',
+    postAction: '帖子上的“有帮助”、“举报”、“收藏”、“继续问”和圆桌',
+    uploadToken: '上传凭证（头像、封面、文件）',
+    domainVerify: '域名验证',
+    browse: '浏览 Explore（不带问题）',
+  },
+  exemptTitle: '豁免账号',
+  exemptLede: '豁免账号不受以上任何限额约束，也不计数。仅用于官方账号等受信任的批量操作。',
+  exemptEmpty: '还没有豁免账号。',
+  email: '账号邮箱或账号 ID', emailHint: 'name@example.com', note: '备注（可选）', noteHint: '例如：官方 Ree 批量 QA',
+  add: '添加豁免', remove: '移除', added: '已添加豁免', removed: '已移除豁免', account: '账号', since: '添加时间',
+  removeTitle: '移除「{name}」的豁免？', removeBody: '移除后该账号的请求重新按以上限额计数。',
+  errors: {
+    invalid_rate_limit: '请输入 1–1,000,000 之间的整数，且每分钟不能大于每小时。',
+    not_found: '记录不存在，请刷新后重试。',
+    user_not_found: '找不到这个邮箱对应的账号。',
+    ambiguous_email: '有多个账号使用这个邮箱，请改用账号 ID。',
+    invalid_note: '备注最多 200 个字符。',
+    failed: '操作失败，请稍后重试。',
+  },
+};
+
+export const en: Shape<typeof zh> = {
+  title: 'Rate limits',
+  lede: 'How many requests each account (each client address when signed out) may make to each kind of route per minute and per hour. Beyond that the route answers 429 with a retry time.',
+  policy: 'Changes reach every server instance within 30 seconds. Limits you have not changed use the code defaults; resetting deletes the saved values.',
+  limitsTitle: 'Limits',
+  limit: 'Limit', perMinute: 'Per minute', perHour: 'Per hour', defaults: 'Default {minute} / min · {hour} / hour',
+  custom: 'Changed', default: 'Default', save: 'Save', reset: 'Reset to default', saved: 'Saved', resetDone: 'Reset to default',
+  names: {
+    ask: 'Asking (private questions)',
+    comment: 'Comments',
+    publicQa: '“Helpful” and “Report” on a Ree page’s public Q&A',
+    post: 'Publishing public posts',
+    postAction: '“Helpful”, “Report”, “Save”, “Ask more” and the round table on posts',
+    uploadToken: 'Upload tokens (avatars, covers, files)',
+    domainVerify: 'Domain verification',
+    browse: 'Browsing Explore (without a question)',
+  },
+  exemptTitle: 'Exempt accounts',
+  exemptLede: 'Exempt accounts pass every limit above and are not counted. Use only for trusted batch work such as the official accounts.',
+  exemptEmpty: 'No exempt accounts yet.',
+  email: 'Account email or ID', emailHint: 'name@example.com', note: 'Note (optional)', noteHint: 'For example: official Ree batch QA',
+  add: 'Add exemption', remove: 'Remove', added: 'Exemption added', removed: 'Exemption removed', account: 'Account', since: 'Added',
+  removeTitle: 'Remove the exemption for “{name}”?', removeBody: 'This account’s requests count against the limits above again.',
+  errors: {
+    invalid_rate_limit: 'Enter whole numbers from 1 to 1,000,000, with per minute no higher than per hour.',
+    not_found: 'The record no longer exists. Refresh and try again.',
+    user_not_found: 'No account uses this email.',
+    ambiguous_email: 'More than one account uses this email. Use the account ID instead.',
+    invalid_note: 'Notes are at most 200 characters.',
+    failed: 'Something went wrong. Try again later.',
+  },
+};

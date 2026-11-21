@@ -9,6 +9,7 @@ import * as knowledgeCosts from './pages/knowledge-costs';
 import * as pricingAdmin from './pages/pricing-admin';
 import * as admin from './pages/admin';
 import * as firecrawl from './pages/firecrawl';
+import * as rateLimits from './pages/rate-limits';
 import * as billing from './pages/billing';
 import * as chat from './pages/chat';
 import * as common from './pages/common';
@@ -57,7 +58,7 @@ const invitations = { invites };
 const v5 = { posts };
 /* Site-wide traffic sits in its own spread too. */
 const siteTraffic = { traffic };
-const pages = { servicePricing, modelCalls, knowledgeCosts, pricingAdmin, common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, firecrawl, discover, ...step5, ...step6, ...step7, ...sharing, ...mcp, ...redeem, ...confirmations, ...invitations, ...v5, ...siteTraffic };
+const pages = { servicePricing, modelCalls, knowledgeCosts, pricingAdmin, common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, firecrawl, rateLimits, discover, ...step5, ...step6, ...step7, ...sharing, ...mcp, ...redeem, ...confirmations, ...invitations, ...v5, ...siteTraffic };
 
 type Pages = typeof pages;
 export type Messages = { [K in keyof Pages]: Pages[K]['en'] };
