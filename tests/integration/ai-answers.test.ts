@@ -163,8 +163,8 @@ describeWithDb('AI 通用回答 when no Ree answers', () => {
     await signIn(null);
     expect(await (await getRoute(request(`/api/posts/${id}`), { params: Promise.resolve({ id }) })).text()).not.toContain('Water less often');
 
-    /* The posts sweep retries the review that could not run: passed, it is everyone's to read. */
-    await posts.processStalePosts({ judge: approve, match: noMatch, aiAnswer: aiStub() }, { now: sweepTime(), budgetMs: 0 });
+    /* The posts sweep retries the review that could not run (within its budget, checked before each review): passed, it is everyone's to read. */
+    await posts.processStalePosts({ judge: approve, match: noMatch, aiAnswer: aiStub() }, { now: sweepTime(), budgetMs: 60_000 });
     expect((await aiRows(id))[0]).toMatchObject({ review: 'passed', reviewAttempts: 2 });
     for (const viewer of [other, undefined]) {
       expect((await posts.getPost(id, viewer))!.aiAnswer).toMatchObject({ id: row!.id, state: 'answered', mine: false, review: 'passed', cost: 0, vote: null, retry: false, private: false, text: expect.stringContaining('Water less often') });
