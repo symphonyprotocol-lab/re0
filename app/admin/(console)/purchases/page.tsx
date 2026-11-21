@@ -199,6 +199,7 @@ export default async function PurchasesPage({ searchParams }: Props) {
                     {p.kinds[row.kind]}
                     {row.quantity > 1 && ` ${fill(p.quantity, { n: row.quantity })}`}
                   </Subline>
+                  {row.earnedMinor > 0 && <Subline>{fill(p.earned, { usd: formatCentsUsd(row.earnedMinor), credits: n(row.earnedCredits) })}</Subline>}
                 </Fragment>,
                 <Clip key="txn" value={row.paddleTransactionId} className="mono record-id" />,
                 <Fragment key="credits">

@@ -423,12 +423,29 @@ export const creditGrant = pgTable(
      * review only; it changes nothing about when the grant is withdrawable.
      */
     inviteFunded: boolean('invite_funded').notNull().default(false),
+    /**
+     * A Pack grant converted from earned credits that a payout could have
+     * drawn on (paid for by askers): it counts as paid, like a bought Pack,
+     * so the query fees it pays reach owners as withdrawable earnings. It
+     * keeps the earned credits' `funding_purchase_id` and `invite_funded`,
+     * so the payout funding review still traces them.
+     */
+    convertedPaid: boolean('converted_paid').notNull().default(false),
+    /** Any Pack grant converted from earned credits, paid for or not (the payout funding review tells free conversions from console grants). */
+    converted: boolean('converted').notNull().default(false),
+    /**
+     * A converted Pack from earnings still in their maturity period: until
+     * then a refund of `funding_purchase_id` may void it, as it would have
+     * voided the earnings (review S2). Null once matured or never voidable.
+     */
+    voidUntil: timestampTz('void_until'),
     createdAt: createdAt(),
   },
   (t) => [
     index('credit_grant_user_idx').on(t.userId),
+    check('credit_grant_converted_check', sql`(not converted or source = 'pack') and (not converted_paid or converted) and (void_until is null or converted_paid)`),
     check('credit_grant_withdrawable_check', sql`withdrawable_at is null or source = 'earned'`),
-    check('credit_grant_invite_funded_check', sql`not invite_funded or (source = 'earned' and withdrawable_at is not null)`),
+    check('credit_grant_invite_funded_check', sql`not invite_funded or (source = 'earned' and withdrawable_at is not null) or (source = 'pack' and converted_paid)`),
     index('credit_grant_funding_idx').on(t.fundingPurchaseId).where(sql`funding_purchase_id is not null`),
     uniqueIndex('credit_grant_purchase_key').on(t.purchaseId).where(sql`purchase_id is not null`),
     uniqueIndex('credit_grant_redemption_key').on(t.redemptionId, t.redemptionPeriod).where(sql`redemption_id is not null`),
@@ -503,6 +520,15 @@ export const CREDIT_ENTRY_REASONS = [
   'ai_answer_hold',
   'ai_answer_settle',
   'ai_answer_refund',
+  /* Earned credits turned into Pack credits at the console's rate: the earned side, then the Pack grant it became. */
+  'earned_convert',
+  'earned_converted',
+  /* Earned credits paying part or all of a Plan or Pack: held with the checkout, paid once the purchase is credited, released if it never is. */
+  'deduction_hold',
+  'deduction_paid',
+  'deduction_release',
+  /* A refund or chargeback of such a purchase gives the earned credits back in proportion. */
+  'deduction_return',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -538,7 +564,7 @@ export const creditHold = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => user.id),
-    kind: text('kind').$type<'chat' | 'knowledge' | 'video' | 'payout' | 'post'>().notNull(),
+    kind: text('kind').$type<'chat' | 'knowledge' | 'video' | 'payout' | 'post' | 'deduction'>().notNull(),
     amount: bigint('amount', { mode: 'number' }).notNull(),
     allocations: jsonb('allocations').$type<Allocation[]>().notNull(),
     status: text('status').$type<'held' | 'settled' | 'released'>().notNull().default('held'),
@@ -554,7 +580,7 @@ export const creditHold = pgTable(
     index('credit_hold_user_idx').on(t.userId, t.status),
     index('credit_hold_ref_idx').on(t.refId),
     index('credit_hold_open_idx').on(t.kind, t.createdAt).where(sql`status = 'held'`),
-    check('credit_hold_kind_check', oneOf('kind', ['chat', 'knowledge', 'video', 'payout', 'post'])),
+    check('credit_hold_kind_check', oneOf('kind', ['chat', 'knowledge', 'video', 'payout', 'post', 'deduction'])),
     check('credit_hold_status_check', oneOf('status', ['held', 'settled', 'released'])),
   ],
 );
@@ -783,7 +809,8 @@ export const purchase = pgTable(
       .references(() => user.id),
     kind: text('kind').$type<'plan' | 'pack'>().notNull(),
     quantity: integer('quantity').notNull().default(1),
-    paddleTransactionId: text('paddle_transaction_id').notNull(),
+    /** Null only for a purchase paid in full with earned credits, which never reaches Paddle. */
+    paddleTransactionId: text('paddle_transaction_id'),
     /** Beyond 4: the subscription a Plan payment belongs to. */
     paddleSubscriptionId: text('paddle_subscription_id'),
     status: text('status').$type<'paid' | 'refunded' | 'chargeback'>().notNull().default('paid'),
@@ -799,10 +826,22 @@ export const purchase = pgTable(
     /** Beyond 4: a Plan payment's billing period. */
     periodStart: timestampTz('period_start'),
     periodEnd: timestampTz('period_end'),
+    /** Earned credits that paid part (or all) of the price, worth `earned_minor` of it; `amount_minor` is what was paid besides. */
+    earnedCredits: bigint('earned_credits', { mode: 'number' }).notNull().default(0),
+    earnedMinor: bigint('earned_minor', { mode: 'number' }).notNull().default(0),
+    /** The `deduction` hold those earned credits were paid from, so a refund gives them back to the same grants. */
+    earnedHoldId: uuid('earned_hold_id'),
+    /** Earned credits refunds and chargebacks have given back so far. */
+    earnedReturned: bigint('earned_returned', { mode: 'number' }).notNull().default(0),
+    /** The checkout page's request id for a purchase paid in full with earned credits: a repeated request returns this purchase (review S4). */
+    requestId: uuid('request_id'),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('purchase_paddle_transaction_key').on(t.paddleTransactionId),
+    uniqueIndex('purchase_request_key').on(t.userId, t.requestId).where(sql`request_id is not null`),
+    check('purchase_paid_check', sql`paddle_transaction_id is not null or earned_minor > 0`),
+    check('purchase_earned_check', sql`earned_credits >= 0 and earned_minor >= 0 and earned_returned between 0 and earned_credits`),
     index('purchase_user_idx').on(t.userId, t.createdAt),
     check('purchase_kind_check', oneOf('kind', ['plan', 'pack'])),
     check('purchase_status_check', oneOf('status', ['paid', 'refunded', 'chargeback'])),
@@ -863,9 +902,13 @@ export const paddleCheckout = pgTable(
       .references(() => user.id),
     kind: text('kind').$type<'plan' | 'pack'>().notNull(),
     quantity: integer('quantity').notNull(),
+    /** Earned credits held to pay `earned_minor` of this checkout (a `deduction` hold); released if the checkout is replaced or left unpaid. */
+    earnedHoldId: uuid('earned_hold_id'),
+    earnedCredits: bigint('earned_credits', { mode: 'number' }).notNull().default(0),
+    earnedMinor: integer('earned_minor').notNull().default(0),
     createdAt: createdAt(),
   },
-  (t) => [index('paddle_checkout_user_idx').on(t.userId, t.kind, t.createdAt), check('paddle_checkout_kind_check', oneOf('kind', ['plan', 'pack']))],
+  (t) => [index('paddle_checkout_earned_idx').on(t.createdAt).where(sql`earned_hold_id is not null and superseded_at is null`), index('paddle_checkout_user_idx').on(t.userId, t.kind, t.createdAt), check('paddle_checkout_kind_check', oneOf('kind', ['plan', 'pack']))],
 );
 
 /**
@@ -2064,6 +2107,33 @@ export const payoutSettings = pgTable('payout_settings', {
 }, () => [
   check('payout_settings_singleton_check', sql`id = 1`),
   check('payout_settings_min_check', sql`min_credits between 1 and 100000000`),
+]);
+
+/**
+ * What earned credits may do besides a payout (docs/design/earned-credits.md),
+ * as an administrator sets it on the console's pricing page. No row means
+ * `EARNED_DEFAULTS`. Conversion turns earned credits into Pack credits at
+ * `convert_rate_bp` / 10,000; a deduction pays `deduct_credits_per_cent`
+ * earned credits for each US cent of a Plan or Pack, at most
+ * `deduct_max_percent` of the price, and leaves either nothing or at least
+ * `deduct_min_charge_minor` to pay through Paddle.
+ */
+export const earnedSettings = pgTable('earned_settings', {
+  id: integer('id').primaryKey().default(1),
+  convertEnabled: boolean('convert_enabled').notNull(),
+  convertRateBp: integer('convert_rate_bp').notNull(),
+  convertMinCredits: integer('convert_min_credits').notNull(),
+  deductEnabled: boolean('deduct_enabled').notNull(),
+  deductCreditsPerCent: integer('deduct_credits_per_cent').notNull(),
+  deductMaxPercent: integer('deduct_max_percent').notNull(),
+  deductMinChargeMinor: integer('deduct_min_charge_minor').notNull(),
+  revision: uuid('revision').notNull().defaultRandom(),
+  updatedBy: uuid('updated_by').references(() => administrator.id, { onDelete: 'set null' }),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [
+  check('earned_settings_singleton_check', sql`id = 1`),
+  check('earned_settings_convert_check', sql`convert_rate_bp between 1 and 100000 and convert_min_credits between 1 and 100000000`),
+  check('earned_settings_deduct_check', sql`deduct_credits_per_cent between 1 and 1000000 and deduct_max_percent between 1 and 100 and deduct_min_charge_minor between 70 and 100000`),
 ]);
 
 /* ------------------------------------------------------------ invitations */

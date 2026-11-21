@@ -48,20 +48,59 @@ export const INVITE_CODE_LENGTH = 8;
 export const INVITEES_SHOWN = 50;
 
 /**
- * The order credits are spent in; refunds walk it backwards (8.2, "扣费顺序").
- * `earned` arrives with step 4's query fees.
+ * Every grant source, in the order a refund's take-back walks them (8.2,
+ * "扣费顺序"). `earned` arrives with step 4's query fees and invitations.
  */
-export const GRANT_SPEND_ORDER = ['plan', 'welcome', 'pack', 'earned'] as const;
-export type GrantSource = (typeof GRANT_SPEND_ORDER)[number];
+export const GRANT_SOURCES = ['plan', 'welcome', 'pack', 'earned'] as const;
+export type GrantSource = (typeof GRANT_SOURCES)[number];
+/**
+ * What using the product spends, in this order (docs/design/earned-credits.md):
+ * earned credits are never spent on their own. They leave only through a
+ * payout, a conversion into Pack credits, or paying for a Plan or Pack.
+ */
+export const SPENDABLE_SOURCES = ['plan', 'welcome', 'pack'] as const satisfies readonly GrantSource[];
+
+/**
+ * What earned credits may do besides a payout, until the console's pricing
+ * page saves its own (`earned_settings`): convert 1:1 into Pack credits, at
+ * least 100 at a time; pay 100 earned credits per US cent (1 credit = USD
+ * 0.0001, the terms' face value) for up to all of a Plan or Pack, leaving
+ * nothing or at least USD 1.00 to pay through Paddle.
+ */
+export const EARNED_DEFAULTS = {
+  convertEnabled: true,
+  convertRateBp: 10_000,
+  convertMinCredits: 100,
+  deductEnabled: true,
+  deductCreditsPerCent: 100,
+  deductMaxPercent: 100,
+  deductMinChargeMinor: 100,
+} as const;
+/** The bounds the console may set them within (the table's checks). */
+export const EARNED_BOUNDS = {
+  convertRateBp: { min: 1, max: 100_000 },
+  convertMinCredits: { min: 1, max: 100_000_000 },
+  deductCreditsPerCent: { min: 1, max: 1_000_000 },
+  deductMaxPercent: { min: 1, max: 100 },
+  /* Paddle will not charge less than USD 0.70. */
+  deductMinChargeMinor: { min: 70, max: 100_000 },
+} as const;
+/**
+ * A checkout holding earned credits that is still unpaid after this long is
+ * cancelled in Paddle and its hold released, by the every-minute billing cron
+ * (review S6): the same hour a Plan checkout is reused for (CHECKOUT_REUSE_MS).
+ */
+export const EARNED_CHECKOUT_HOLD_MS = 60 * 60 * 1000;
 
 /**
  * The grant sources that carry money someone paid (review H2). A query fee
  * is credited to the owner as withdrawable earned credits only for the part
  * the asker paid from these; the rest (welcome credits, redeemed codes,
- * console grants) still reaches the owner as earned credits they can spend
- * but never withdraw. Within a source, only grants that are themselves
- * paid count: a Plan or Pack grant bought through Paddle (it has a
- * purchase), an earned grant that is withdrawable.
+ * console grants) still reaches the owner as earned credits they can
+ * convert but never withdraw. Within a source, only grants that are
+ * themselves paid count: a Plan or Pack grant bought (through Paddle or with
+ * earned credits: it has a purchase), a Pack converted from withdrawable
+ * earned credits, an earned grant that is withdrawable.
  */
 export const PAYING_GRANT_SOURCES = ['plan', 'pack', 'earned'] as const satisfies readonly GrantSource[];
 /**

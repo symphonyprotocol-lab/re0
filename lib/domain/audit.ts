@@ -14,6 +14,7 @@ export const AUDIT_ACTIONS = [
   'anonymous_chat.update',
   'rewards.update',
   'payout.minimum.update',
+  'earned.settings.update',
   'user.payout_minimum',
   'model.create',
   'model.update',

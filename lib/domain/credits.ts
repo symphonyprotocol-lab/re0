@@ -8,7 +8,7 @@
  * already gone from the balance; settling returns the unused part and
  * releasing returns all of it.
  */
-import { GRANT_SPEND_ORDER, type GrantSource } from '@/lib/constants';
+import { GRANT_SOURCES, SPENDABLE_SOURCES, type GrantSource } from '@/lib/constants';
 
 export interface Allocation {
   grantId: string;
@@ -40,12 +40,17 @@ function usable(grant: SpendableGrant, now: Date): boolean {
   return grant.remaining > 0 && (grant.expiresAt === null || grant.expiresAt.getTime() > now.getTime());
 }
 
-/** Spend order: current Plan → welcome → Pack → earned; within a source, soonest to expire, then oldest. */
-export function spendOrder(grants: readonly SpendableGrant[], now: Date): SpendableGrant[] {
+/**
+ * Spend order over `sources`: current Plan → welcome → Pack (→ earned, only
+ * when a caller names it: a payout, a conversion, a deduction, a refund's
+ * take-back); within a source, soonest to expire, then oldest. Earned
+ * credits are never in the default: using the product does not spend them.
+ */
+export function spendOrder(grants: readonly SpendableGrant[], now: Date, sources: readonly GrantSource[] = SPENDABLE_SOURCES): SpendableGrant[] {
   return grants
-    .filter((grant) => usable(grant, now))
+    .filter((grant) => usable(grant, now) && sources.includes(grant.source))
     .sort((a, b) => {
-      const bySource = GRANT_SPEND_ORDER.indexOf(a.source) - GRANT_SPEND_ORDER.indexOf(b.source);
+      const bySource = GRANT_SOURCES.indexOf(a.source) - GRANT_SOURCES.indexOf(b.source);
       if (bySource !== 0) return bySource;
       /* Earned: what can never be withdrawn goes first, then what matures last, so withdrawable credits stay. */
       if (a.source === 'earned') {
@@ -60,8 +65,20 @@ export function spendOrder(grants: readonly SpendableGrant[], now: Date): Spenda
     });
 }
 
-export function availableOf(grants: readonly SpendableGrant[], now: Date): number {
-  return grants.filter((grant) => usable(grant, now)).reduce((sum, grant) => sum + grant.remaining, 0);
+/** What `sources` hold that can be spent now; by default the spendable balance, earned credits left out. */
+export function availableOf(grants: readonly SpendableGrant[], now: Date, sources: readonly GrantSource[] = SPENDABLE_SOURCES): number {
+  return grants.filter((grant) => usable(grant, now) && sources.includes(grant.source)).reduce((sum, grant) => sum + grant.remaining, 0);
+}
+
+/**
+ * Whether earned credits may pay for a Plan or Pack: exactly what a payout
+ * could draw on -- paid for by askers and past the maturity period. Earnings
+ * still maturing could yet be voided by a refund of what paid for them, so a
+ * purchase made with them would launder that risk (review B1); earnings paid
+ * from free credits are never withdrawable. Both only convert.
+ */
+export function isDeductible(grant: Pick<SpendableGrant, 'source' | 'remaining' | 'withdrawableAt'>, now: Date): boolean {
+  return isWithdrawable(grant, now);
 }
 
 /** Whether a payout may draw on this grant now: earned, paid for, and past its maturity. */
@@ -69,14 +86,14 @@ export function isWithdrawable(grant: Pick<SpendableGrant, 'source' | 'remaining
   return grant.source === 'earned' && grant.remaining > 0 && grant.withdrawableAt != null && grant.withdrawableAt.getTime() <= now.getTime();
 }
 
-/** Which grants `amount` comes out of. Throws when the usable balance cannot cover it. */
-export function allocate(grants: readonly SpendableGrant[], amount: number, now: Date): Allocation[] {
+/** Which grants of `sources` (by default the spendable ones) `amount` comes out of. Throws when they cannot cover it. */
+export function allocate(grants: readonly SpendableGrant[], amount: number, now: Date, sources: readonly GrantSource[] = SPENDABLE_SOURCES): Allocation[] {
   if (!Number.isInteger(amount) || amount < 0) throw new Error(`invalid amount ${amount}`);
-  const available = availableOf(grants, now);
+  const available = availableOf(grants, now, sources);
   if (available < amount) throw new InsufficientCredits(amount, available);
   const allocations: Allocation[] = [];
   let left = amount;
-  for (const grant of spendOrder(grants, now)) {
+  for (const grant of spendOrder(grants, now, sources)) {
     if (left === 0) break;
     const take = Math.min(grant.remaining, left);
     allocations.push({ grantId: grant.id, source: grant.source, amount: take });
@@ -88,7 +105,7 @@ export function allocate(grants: readonly SpendableGrant[], amount: number, now:
 /**
  * The part of a hold handed back: refunds walk the spend order backwards, so
  * what stays charged is what was taken first (Plan before welcome before
- * Pack before earned).
+ * Pack).
  */
 export function releaseFrom(allocations: readonly Allocation[], amount: number): Allocation[] {
   const total = allocations.reduce((sum, entry) => sum + entry.amount, 0);

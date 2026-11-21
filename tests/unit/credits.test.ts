@@ -12,7 +12,7 @@ const grant = (id: string, source: SpendableGrant['source'], remaining: number, 
 });
 
 describe('allocate', () => {
-  it('spends current Plan, then welcome, then Pack, then earned', () => {
+  it('spends current Plan, then welcome, then Pack, never earned', () => {
     const grants = [grant('earned', 'earned', 50), grant('pack', 'pack', 50), grant('welcome', 'welcome', 50), grant('plan', 'plan', 50, new Date('2026-12-01'))];
     expect(allocate(grants, 120, now)).toEqual([
       { grantId: 'plan', source: 'plan', amount: 50 },

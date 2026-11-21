@@ -74,8 +74,10 @@ describe('Paddle price and discount construction', () => {
     });
     expect(payload).toMatchObject({
       items: [{ price_id: 'pri_new', quantity: 3 }],
-      discount: { type: 'flat_per_seat', amount: '701', currency_code: 'USD', recur: false },
+      discount: { type: 'flat_per_seat', amount: '701', recur: false },
     });
+    /* Paddle refuses a non-catalog discount that names a currency (sandbox, 2026-11-21): it takes the transaction's. */
+    expect('currency_code' in (payload.discount ?? {})).toBe(false);
     expect(
       checkoutTransactionBody(config, { kind: 'plan', quantity: 1 }, 'buyer', {
         priceId: 'pri_new',

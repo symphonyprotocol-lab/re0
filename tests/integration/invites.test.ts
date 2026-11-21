@@ -10,6 +10,7 @@ import { publicCopyValues } from '@/lib/services/public-copy';
 import { messages } from '@/i18n';
 import { fill } from '@/i18n/format';
 import { payoutFunding } from '@/lib/services/payout-funding';
+import { convertEarned } from '@/lib/services/earned';
 import * as callback from '@/app/api/auth/[provider]/callback/route';
 import { HANDSHAKE_COOKIE } from '@/lib/http/cookies';
 import { NextRequest } from 'next/server';
@@ -205,7 +206,8 @@ describeWithDb('invitations and starter tasks', () => {
     expect(await counts()).toEqual({ all: before.all + 8, withdrawable: before.withdrawable + 3 });
     expect(await entriesOf(inviter.userId, 'invite_reward')).toHaveLength(3);
     expect(await entriesOf(inviter.userId, 'invite_reward_gift')).toHaveLength(5);
-    expect(await balanceOf(db(), inviter.userId)).toBe(8 * 5_000);
+    /* The five gift rewards are spendable; the three withdrawable ones are earned credits, never spent on their own. */
+    expect(await balanceOf(db(), inviter.userId)).toBe(5 * 5_000);
     /* A payout can draw only on the three withdrawable ones. */
     expect(await withdrawable(db(), inviter.userId)).toBe(3 * 5_000);
     await expect(
@@ -340,7 +342,7 @@ describeWithDb('invitations and starter tasks', () => {
 
   it('marks invite-funded earnings across two hops of query fees, and never the gift part', async () => {
     await configure({});
-    /* Hop 1: A pays B 6,000 -- 1,000 from welcome credits, 2,000 from a bought Pack, 3,000 from an invitation reward (spend order). */
+    /* Hop 1: A pays B 6,000 -- 1,000 from welcome credits, 2,000 from a bought Pack, 3,000 from an invitation reward converted into Pack credits (spend order). */
     const a = (await signUp('hop-a')).userId;
     const b = (await signUp('hop-b')).userId;
     const c = (await signUp('hop-c')).userId;
@@ -353,6 +355,8 @@ describeWithDb('invitations and starter tasks', () => {
       await addGrant(tx, { userId: a, source: 'pack', amount: 2_000, reason: 'purchase', refId: purchase!.id, purchaseId: purchase!.id });
       await addGrant(tx, { userId: a, source: 'earned', amount: 3_000, reason: 'invite_reward', refId: randomUUID(), withdrawableAt: new Date(), inviteFunded: true });
     });
+    /* Earned credits are never spent on their own: converted, they keep their invitation mark. */
+    expect(await convertEarned(a, { credits: 3_000, rateBp: 10_000 })).toMatchObject({ ok: true, received: 3_000 });
     const hop = async (payer: string, owner: string, fee: number) => {
       const [ree] = await db().insert(schema.ree).values({ ownerId: owner, name: 'Hop', slug: uniqueName('hop2'), queryFee: fee, isPublic: true, isPublished: true }).returning();
       const holdId = await db().transaction((tx) => placeHold(tx, { userId: payer, kind: 'post', ledger: 'chat_fee', amount: fee, refId: randomUUID(), reeId: ree!.id }));
@@ -372,7 +376,8 @@ describeWithDb('invitations and starter tasks', () => {
     expect(first.find((grant) => grant.withdrawableAt !== null && !grant.inviteFunded)!.fundingPurchaseId).toBe(purchase!.id);
     for (const grant of first.filter((row) => row.withdrawableAt === null)) expect(grant.inviteFunded).toBe(false);
 
-    /* Hop 2: B pays C the same 6,000 out of those earnings: the parts carry over, the purchase traced, the gift never marked or withdrawable. */
+    /* Hop 2: B converts those earnings and pays C the same 6,000: the parts carry over, the purchase traced, the gift never marked or withdrawable. */
+    expect(await convertEarned(b, { credits: 6_000, rateBp: 10_000 })).toMatchObject({ ok: true, received: 6_000 });
     const second = await hop(b, c, 6_000);
     const parts = split(second);
     expect(parts).toEqual({ gift: 1_000, purchase: 2_000, invite: 3_000 });
@@ -458,6 +463,7 @@ describeWithDb('invitations and starter tasks', () => {
     const [ree] = await db().insert(schema.ree).values({ ownerId: owner.userId, name: 'Hop', slug: uniqueName('hop'), queryFee: 10_000, isPublic: true, isPublished: true }).returning();
     /* A conversation answer from before migration 0070: settled as the conversations did, traced as 0070 kept it. */
     const questionId = randomUUID();
+    expect(await convertEarned(spender.userId, { credits: 600_000, rateBp: 10_000 })).toMatchObject({ ok: true });
     const holdId = await db().transaction((tx) => placeHold(tx, { userId: spender.userId, kind: 'post', ledger: 'chat_fee', amount: 600_000, refId: questionId, reeId: ree!.id }));
     const replyId = randomUUID();
     await db().transaction(async (tx) => {

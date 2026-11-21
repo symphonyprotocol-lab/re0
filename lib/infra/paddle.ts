@@ -201,7 +201,7 @@ export function parsePaddleEvent(rawBody: string): PaddleEvent | null {
 /* ------------------------------------------------------------ custom data */
 
 /** Keys we write into a transaction's custom data; Paddle carries them onto the subscription. */
-export const CUSTOM = { userId: 're0_user_id', kind: 're0_kind' } as const;
+export const CUSTOM = { userId: 're0_user_id', kind: 're0_kind', earnedMinor: 're0_earned_minor' } as const;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -290,23 +290,33 @@ export interface CheckoutPrice {
   regularPriceMinor: number;
 }
 
-/** The body of `POST /transactions` for one checkout. Exported for its test. */
-export function checkoutTransactionBody(config: PaddleConfig, order: CheckoutOrder, userId: string, price?: CheckoutPrice) {
+/**
+ * The body of `POST /transactions` for one checkout. Exported for its test.
+ * A promotion and earned credits paying part of the price are one
+ * non-recurring discount on this transaction only: a Plan's renewals are
+ * charged in full. `earnedMinor` is in US cents, off the whole order. The
+ * amount is in the transaction's currency (`currency_code`): Paddle refuses
+ * a non-catalog discount that names its own currency (sandbox, 2026-11-21),
+ * and refuses a balance under USD 0.70 (hence `deductMinChargeMinor`).
+ */
+export function checkoutTransactionBody(config: PaddleConfig, order: CheckoutOrder, userId: string, price?: CheckoutPrice, earnedMinor = 0) {
+  const promotionPerSeat = price && price.priceMinor < price.regularPriceMinor ? price.regularPriceMinor - price.priceMinor : 0;
+  const discount =
+    earnedMinor > 0
+      ? {
+          description: promotionPerSeat > 0 ? 'RE0 limited-time promotion and Earned credits' : 'RE0 Earned credits',
+          type: 'flat',
+          amount: String(promotionPerSeat * order.quantity + earnedMinor),
+          recur: false,
+        }
+      : promotionPerSeat > 0
+        ? { description: 'RE0 limited-time promotion', type: 'flat_per_seat', amount: String(promotionPerSeat), recur: false }
+        : null;
   return {
     items: [{ price_id: price?.priceId ?? (order.kind === 'plan' ? config.planPriceId : config.packPriceId), quantity: order.quantity }],
-    ...(price ? { currency_code: 'USD' } : {}),
-    ...(price && price.priceMinor < price.regularPriceMinor
-      ? {
-          discount: {
-            description: 'RE0 limited-time promotion',
-            type: 'flat_per_seat',
-            amount: String(price.regularPriceMinor - price.priceMinor),
-            currency_code: 'USD',
-            recur: false,
-          },
-        }
-      : {}),
-    custom_data: { [CUSTOM.userId]: userId, [CUSTOM.kind]: order.kind },
+    ...(price || earnedMinor > 0 ? { currency_code: 'USD' } : {}),
+    ...(discount ? { discount } : {}),
+    custom_data: { [CUSTOM.userId]: userId, [CUSTOM.kind]: order.kind, ...(earnedMinor > 0 ? { [CUSTOM.earnedMinor]: earnedMinor } : {}) },
     checkout: { url: config.checkoutUrl },
   };
 }
@@ -337,8 +347,8 @@ export function checkoutBodyShape(body: ReturnType<typeof checkoutTransactionBod
   };
 }
 
-export async function createCheckoutTransaction(config: PaddleConfig, order: CheckoutOrder, userId: string, price?: CheckoutPrice): Promise<{ id: string }> {
-  const body = checkoutTransactionBody(config, order, userId, price);
+export async function createCheckoutTransaction(config: PaddleConfig, order: CheckoutOrder, userId: string, price?: CheckoutPrice, earnedMinor = 0): Promise<{ id: string }> {
+  const body = checkoutTransactionBody(config, order, userId, price, earnedMinor);
   try {
     const transaction = await call<{ id: string }>(config, 'POST', '/transactions', body);
     return { id: transaction.id };

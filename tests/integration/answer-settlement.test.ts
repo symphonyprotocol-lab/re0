@@ -440,6 +440,9 @@ describeWithDb('starter task rewards and invite-funded fees through the real que
     const { ownerId, ree, askerId } = await setUp();
     await emptyWelcome(askerId);
     await db().transaction((tx) => addGrant(tx, { userId: askerId, source: 'earned', amount: 50_000, reason: 'invite_reward', refId: randomUUID(), withdrawableAt: new Date(), inviteFunded: true }));
+    /* Earned credits are never spent on their own: converted into Pack credits, they keep their invitation mark. */
+    const { convertEarned } = await import('@/lib/services/earned');
+    expect(await convertEarned(askerId, { credits: 50_000, rateBp: 10_000 })).toMatchObject({ ok: true });
     const result = await ask(askerId, ree, QUESTION);
     expect(result.outcome).toMatchObject({ noAnswer: false, cost: QUERY_BASE_FEE + FEE });
     const [grant] = await db().select().from(schema.creditGrant).where(and(eq(schema.creditGrant.userId, ownerId), eq(schema.creditGrant.source, 'earned')));
