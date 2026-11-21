@@ -481,9 +481,22 @@
   }
 }
 
-/* Pages inside the centre column: its head is the sticky part. */
-.xcol .discovery-toolbar {
-  position: static;
+/*
+ * Rees' search and categories stick right under the column's head: the
+ * head's height is the header line (56px, 48 on a phone), not the old top
+ * bar's (`--discovery-sticky-top`, 74 / 62), which left a gap the cards
+ * scrolled through. Both are opaque while they stick, so nothing shows
+ * through either; the selector outweighs explore.css's whatever order the
+ * two stylesheets load in.
+ */
+.xcol .discovery-page .discovery-toolbar {
+  position: sticky;
+  top: var(--header-line);
+  background: #ffffff;
+}
+.xcol:has(.discovery-toolbar) > .xcol-head {
+  background: #ffffff;
+  backdrop-filter: none;
 }
 .xcol .discovery-feed-banner .knowledge-banner {
   margin-top: 20px;
