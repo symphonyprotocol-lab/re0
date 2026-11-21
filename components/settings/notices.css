@@ -1,0 +1,96 @@
+/*
+ * The notices list (/notifications, v5). It was a settings tab, styled under
+ * .settings-page; now on its own page it carries its own styles, scoped to
+ * the card (the rules below are settings.css's notice rules).
+ */
+.notices-card {
+  padding: 22px 24px;
+  line-height: 1.6;
+  background: #fff;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+}
+.notices-card .notices-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+.notices-card .notices-lede {
+  font-size: 10px;
+  margin-top: 6px;
+}
+.notices-card .notices-empty {
+  padding: 45px 10px 20px;
+}
+.notices-card .notice-list {
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+/* No line between notices (v6): space separates them, as in the feed. */
+.notices-card .notice-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 15px 0;
+}
+.notices-card .notice-row:last-child {
+  padding-bottom: 0;
+}
+.notices-card .notice-row .connection-icon {
+  position: relative;
+  flex: none;
+  color: var(--color-blue);
+}
+.notices-card .notice-row .connection-icon svg {
+  width: 17px;
+  height: 17px;
+}
+.notices-card .notice-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--color-red);
+}
+.notices-card .notice-row h3 {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.notices-card .notice-row.is-new h3 {
+  font-weight: 600;
+}
+.notices-card .notice-row p {
+  font-size: 11px;
+  color: #8595ad;
+  line-height: 1.8;
+  margin-top: 4px;
+}
+.notices-card .notice-row small {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: #a3aabd;
+}
+.notices-card .notice-row small .text-link {
+  font-size: 10px;
+}
+.notices-card .notice-row small .text-link svg {
+  width: 12px;
+  height: 12px;
+}
+.notices-card .notices-pager {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #edf0f7;
+}

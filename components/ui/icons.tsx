@@ -17,6 +17,7 @@ const GRID = '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" 
  */
 const GLYPHS = {
   ree: REE_MARK,
+  home: '<path d="M3 11 12 4l9 7"/><path d="M5 10v10h5v-6h4v6h5V10"/>',
   dashboard: LAYERS,
   layers: LAYERS,
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -81,6 +82,9 @@ const GLYPHS = {
   thumbUp: THUMB,
   thumbDown: `<g transform="translate(24 24) rotate(180)">${THUMB.replace(' transform="translate(0 -1) scale(.95)"', '')}</g>`,
   at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
+  /* 继续问 (a follow-up in the post) and 引用 (quote in a new post): drawn for the answer's action row. */
+  reply: '<path d="M9 15 4 10l5-5"/><path d="M4 10h10a6 6 0 0 1 6 6v3"/>',
+  quote: '<path d="M4 7a2 2 0 0 1 2-2h3v6H4Zm0 4c0 4 1 6 4 8m6-12a2 2 0 0 1 2-2h3v6h-5Zm0 4c0 4 1 6 4 8"/>',
   film: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18m10-18v18M3 8h4m-4 8h4m10-8h4m-4 8h4"/>',
   /* The video player's fullscreen toggle (prototype `fullscreen` / `minimize`). */
   expand: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
@@ -92,9 +96,18 @@ const GLYPHS = {
 
 export type IconName = keyof typeof GLYPHS;
 
+/**
+ * `className` replaces the default `size-4`: a caller that passes one sizes
+ * the icon itself, or its parent's CSS does (`.post-actions .icon-btn svg`).
+ * `data-icon` gives every icon a fallback of 1rem (globals.css, `@layer
+ * base`, zero specificity) so one that nothing sizes -- a class passed for
+ * something else, `flex-none` say -- never renders at the 300×150 default of
+ * an unsized svg. Width and height attributes, and any CSS rule, win over it.
+ */
 export function Icon({ name, className = 'size-4', ...rest }: { name: IconName } & SVGProps<SVGSVGElement>) {
   return (
     <svg
+      data-icon=""
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

@@ -2,7 +2,6 @@
  * The signed-in workspace frame, ported from the prototype with its class
  * names, breakpoints and resolved cascade: styles.css `.sidebar` / `.topbar`,
  * navigation.css (fixed bar, breadcrumbs, context row, collapse, drawer),
- * conversations.css / experience.css (`.sidebar-chat`, history),
  * settings.css (usage card, account link). Unlayered on purpose: these rules
  * win over the Tailwind layers on the same elements, as the prototype's did.
  *
@@ -16,18 +15,47 @@
   --context-bar-height: 44px;
 }
 
+/* ---- The frame -------------------------------------------------------- */
+
+/*
+ * v6 (docs/design/v6): the sidebar and the main column sit in one box at
+ * most 1280px wide, centred, with equal gaps either side -- 248px sidebar,
+ * 24px gap, then the main column (640 + 28 + 340 on the feed pages, or one
+ * 1008px column). The page is white; the only vertical line is the
+ * sidebar's right edge. From 1023px down the sidebar is its 68px icon rail;
+ * phones drop the box and open the sidebar as a drawer.
+ */
+body:has(.xshell) {
+  background: #ffffff;
+}
+.xshell {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  column-gap: 24px;
+  width: min(1280px, calc(100% - 32px));
+  min-height: 100vh;
+  margin-inline: auto;
+}
+.xshell > .sidebar {
+  grid-column: 1;
+}
+.xshell > .app-main {
+  grid-column: 2;
+}
+
 /* ---- Sidebar ---------------------------------------------------------- */
 
 .sidebar {
-  position: fixed;
-  inset: 0 auto 0 0;
+  position: sticky;
+  top: 0;
   z-index: 30;
   display: flex;
   flex-direction: column;
-  width: 252px;
+  height: 100vh;
+  height: 100dvh;
   padding: 24px 13px 15px;
   overflow-y: auto;
-  background: #fbfbff;
+  background: #ffffff;
   border-right: 1px solid var(--color-line);
 }
 .sidebar svg {
@@ -96,150 +124,6 @@
   background: #fff;
   font: 10px var(--font-mono);
   color: #9ba1b1;
-}
-
-/* 新建对话 and 搜索对话 (conversations.css `.chat-sidebar-tool`). */
-.chat-sidebar-tools {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 3px;
-  margin: 22px 0 2px;
-}
-.chat-sidebar-tool {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-  min-height: 38px;
-  padding: 10px;
-  border-radius: 7px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: #566986;
-  text-align: left;
-  transition:
-    background 0.15s,
-    color 0.15s;
-}
-.chat-sidebar-tool.is-primary {
-  font-weight: 550;
-  line-height: 1.4;
-}
-.chat-sidebar-tool:hover {
-  color: var(--color-blue);
-  background: #eaf0fc;
-}
-.chat-sidebar-tool.active {
-  color: #247dce;
-  background: #edf4ff;
-}
-.chat-sidebar-tool > svg {
-  width: 17px;
-  height: 17px;
-}
-.chat-sidebar-tool > kbd {
-  margin-left: auto;
-  padding: 2px 4px;
-  border: 1px solid #e6eaf2;
-  border-radius: 3px;
-  font: 8px var(--font-mono);
-  color: #a6b1c4;
-}
-
-/* The quick history (conversations.css `.chat-history-*`). */
-.chat-history-scroll {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  padding-top: 6px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: #dbe2ef transparent;
-}
-.chat-history-scroll > h3 {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 13px 10px 6px;
-  font-size: 10px;
-  font-weight: 450;
-  line-height: 1.3;
-  color: #9ba7bc;
-}
-.chat-history-count {
-  font: 9px var(--font-mono);
-  color: #a4b2c6;
-}
-.chat-history-date {
-  margin: 0;
-  padding: 9px 10px 4px;
-  font-size: 9px;
-  font-weight: 400;
-  color: #acb7c9;
-}
-.chat-history-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-height: 32px;
-  border-radius: 6px;
-}
-.chat-history-row:hover {
-  background: #eff2f9;
-}
-.chat-history-row.active {
-  background: #eaf0fc;
-}
-.chat-history-row > a {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 8px 10px;
-  font-size: 11px;
-  line-height: 1.7;
-  color: #6c7d98;
-}
-.chat-history-row.active > a {
-  color: #3d79be;
-}
-.chat-history-row > a > svg {
-  width: 11px;
-  height: 11px;
-  color: #8fa9cc;
-}
-.chat-history-row > a > .chat-history-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chat-history-row > .icon-btn {
-  flex: none;
-  width: 24px;
-  height: 26px;
-  margin-right: 4px;
-  color: #94a4be;
-  opacity: 0;
-}
-.chat-history-row > .icon-btn > svg {
-  width: 13px;
-  height: 13px;
-}
-.chat-history-row:hover > .icon-btn,
-.chat-history-row:focus-within > .icon-btn {
-  opacity: 1;
-}
-.chat-history-empty {
-  padding: 17px 10px;
-  font-size: 11px;
-  line-height: 1.9;
-  color: #a2afc4;
 }
 
 /* The usage card and the account row (settings.css). */
@@ -492,12 +376,11 @@
 
 .app-main {
   --color-bg: #ffffff;
-  --navigation-sidebar: 252px;
+  --navigation-sidebar: 0px;
   --navigation-base: var(--workspace-bar-height);
   --navigation-height: var(--navigation-base);
   min-width: 0;
   min-height: 100vh;
-  margin-left: 252px;
   background: var(--color-bg);
 }
 .app-main:has(.context-nav-row) {
@@ -509,14 +392,14 @@ html:has(.app-main) {
 html:has(.app-main .context-nav-row) {
   scroll-padding-top: calc(var(--workspace-bar-height) + var(--context-bar-height) + 16px);
 }
-/* The bar is fixed; this keeps the page below it. */
+/* The bar sticks to the top inside the box (v6); it takes its own place in the flow. */
 .topbar-spacer {
-  height: var(--navigation-height);
+  display: none;
 }
 
 .app-main .topbar {
-  position: fixed;
-  inset: 0 0 auto var(--navigation-sidebar);
+  position: sticky;
+  top: 0;
   z-index: 25;
   display: flex;
   flex-direction: column;
@@ -605,25 +488,6 @@ html:has(.app-main .context-nav-row) {
   width: 13px;
   height: 13px;
   color: #acb6c9;
-}
-
-/* 中 / EN and 返回官网 (app.js `shell`). */
-.topbar-right > .shell-language {
-  min-height: 32px;
-  gap: 8px;
-  padding: 5px;
-  font-size: 10px;
-}
-.topbar-right > .shell-language > svg {
-  width: 16px;
-  height: 16px;
-}
-.shell-site-link {
-  font-size: 11px;
-}
-.shell-site-link > svg {
-  width: 18px;
-  height: 18px;
 }
 
 /* The second row: a Ree's tabs, the settings tabs, the wizard's steps. */
@@ -728,24 +592,18 @@ html:has(.app-main .context-nav-row) {
 /* ---- Collapsed rail (≥ 761px) ----------------------------------------- */
 
 @media (min-width: 761px) {
-  .app-main {
-    transition: margin-left 0.2s ease;
-  }
-  .app-main .topbar {
-    transition: left 0.2s ease;
+  .xshell {
+    transition: grid-template-columns 0.2s ease;
   }
   .sidebar {
-    transition:
-      width 0.2s ease,
-      padding 0.2s ease;
+    transition: padding 0.2s ease;
   }
-  .app-main.sidebar-collapsed {
-    --navigation-sidebar: 68px;
-    margin-left: 68px;
+  /* Folded by the user, or 1023px and narrower (app-shell.tsx folds it there): the 68px icon rail. */
+  .xshell:has(> .sidebar.is-collapsed) {
+    grid-template-columns: 68px minmax(0, 1fr);
   }
   .sidebar.is-collapsed {
     align-items: stretch;
-    width: 68px;
     padding: 24px 10px 15px;
   }
   .sidebar.is-collapsed > .wordmark {
@@ -780,25 +638,11 @@ html:has(.app-main .context-nav-row) {
     right: 13px;
     margin: 0;
   }
-  .sidebar.is-collapsed .chat-sidebar-tools {
-    margin: 25px 0 12px;
-  }
-  .sidebar.is-collapsed .chat-sidebar-tool {
-    justify-content: center;
-    padding: 10px 0;
-  }
-  .sidebar.is-collapsed .chat-sidebar-tool > span,
-  .sidebar.is-collapsed .chat-sidebar-tool > kbd {
-    display: none;
-  }
-  .sidebar.is-collapsed .chat-history-scroll {
-    display: none;
-  }
   /* The label beside an icon on hover (navigation.css). */
-  .sidebar.is-collapsed :is(.nav a, .chat-sidebar-tool) {
+  .sidebar.is-collapsed .nav a {
     position: relative;
   }
-  .sidebar.is-collapsed :is(.nav a, .chat-sidebar-tool)::after {
+  .sidebar.is-collapsed .nav a::after {
     content: attr(aria-label);
     position: absolute;
     top: 50%;
@@ -818,7 +662,7 @@ html:has(.app-main .context-nav-row) {
       opacity 0.14s,
       transform 0.14s;
   }
-  .sidebar.is-collapsed :is(.nav a, .chat-sidebar-tool):is(:hover, :focus-visible)::after {
+  .sidebar.is-collapsed .nav a:is(:hover, :focus-visible)::after {
     opacity: 1;
     transform: translate(0, -50%);
   }
@@ -873,6 +717,19 @@ html:has(.app-main .context-nav-row) {
 
 /* ---- Breakpoints ------------------------------------------------------ */
 
+/* 761–1023px: the icon rail, set by the shell; the grid takes its width before the page hydrates, and the fold button has nothing to do here. */
+@media (min-width: 761px) and (max-width: 1023px) {
+  .xshell {
+    grid-template-columns: 68px minmax(0, 1fr);
+  }
+  .xshell > .sidebar {
+    overflow-x: hidden;
+  }
+  .sidebar-collapse {
+    display: none;
+  }
+}
+
 @media (max-width: 1180px) {
   .topbar-main {
     gap: 17px;
@@ -912,7 +769,18 @@ html:has(.app-main .context-nav-row) {
   :root {
     --workspace-bar-height: 62px;
   }
+  /* No box on a phone: the main column is the page, the sidebar a drawer over it. */
+  .xshell {
+    display: block;
+    width: 100%;
+  }
   .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    /* Over the phone's bottom bar and ask button (columns.css, 40/41). */
+    z-index: 50;
+    width: 252px;
+    height: auto;
     transform: translateX(-100%);
     transition: transform 0.25s;
   }
@@ -927,13 +795,6 @@ html:has(.app-main .context-nav-row) {
     display: inline-flex;
     width: 28px;
     height: 28px;
-  }
-  .chat-history-row > .icon-btn {
-    opacity: 1;
-  }
-  .app-main {
-    --navigation-sidebar: 0px;
-    margin-left: 0;
   }
   .topbar .mobile-menu {
     display: inline-flex;
@@ -958,11 +819,6 @@ html:has(.app-main .context-nav-row) {
     gap: 7px;
   }
 }
-@media (hover: none) {
-  .chat-history-row > .icon-btn {
-    opacity: 1;
-  }
-}
 @media (max-width: 600px) {
   .app-main .topbar .topbar-main {
     gap: 10px;
@@ -973,9 +829,6 @@ html:has(.app-main .context-nav-row) {
   }
   .app-main .topbar .header-breadcrumbs {
     font-size: 10px;
-  }
-  .app-main .topbar .shell-site-link {
-    display: none;
   }
 }
 @media (max-width: 560px) {
@@ -1043,7 +896,7 @@ html:has(.app-main .context-nav-row) {
   }
   .ree-workspace-shell .topbar-location > .mobile-menu,
   .ree-workspace-shell .header-breadcrumbs,
-  .ree-workspace-shell .topbar-right > :not(.shell-language) {
+  .ree-workspace-shell .topbar-right > * {
     display: none;
   }
   .ree-workspace-shell .ree-mobile-location {
@@ -1080,14 +933,6 @@ html:has(.app-main .context-nav-row) {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .ree-workspace-shell .topbar-main .topbar-right .shell-language {
-    display: inline-flex;
-    gap: 5px;
-    min-height: 40px;
-    padding: 8px 10px;
-    font-size: 11px;
-    white-space: nowrap;
-  }
   .ree-workspace-shell .context-nav-row {
     gap: 8px;
     padding-inline: 12px;
@@ -1121,13 +966,48 @@ html:has(.app-main .context-nav-row) {
   .sidebar,
   .app-main .topbar,
   .sidebar .nav a,
-  .chat-sidebar-tool,
   .header-tabs > a,
   .header-breadcrumbs > a,
   .user-settings-link,
   .sidebar-usage,
   .sidebar-usage-meter > i,
-  .sidebar.is-collapsed :is(.nav a, .chat-sidebar-tool)::after {
+  .sidebar.is-collapsed .nav a::after {
     transition: none;
+  }
+}
+
+/*
+ * One header line (v6): the sidebar's logo area, a feed column's title row
+ * and the top bar of the full-width pages are all 56px, a little taller than
+ * the logo, and their bottom lines are one line across the window (the line
+ * is the last pixel row of the 56). Tabs and a page's context row sit under
+ * it. The admin console keeps its own bar (console.css).
+ */
+html:has(.xshell) {
+  --workspace-bar-height: 56px;
+  --header-line: 56px;
+}
+.xshell .sidebar,
+.xshell .sidebar.is-collapsed {
+  padding-top: 0;
+}
+.xshell .sidebar > .wordmark {
+  flex: none;
+  box-sizing: border-box;
+  height: calc(var(--header-line) - 1px);
+}
+.xshell .sidebar .nav {
+  border-top-color: var(--color-line);
+}
+.xshell .topbar-main {
+  height: calc(var(--navigation-base) - 1px);
+}
+@media (max-width: 760px) {
+  /* Phones have no sidebar beside the column: a shorter title row. */
+  html:has(.xshell) {
+    --header-line: 48px;
+  }
+  .xshell .sidebar-close {
+    top: calc((var(--header-line) - 1px - 28px) / 2);
   }
 }

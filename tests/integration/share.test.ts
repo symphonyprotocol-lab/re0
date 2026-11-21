@@ -3,19 +3,19 @@
  * counts once per visitor every half hour -- concurrent beacons included --
  * never for the owner, and not before the browser holds the visitor
  * cookie; an IP is limited per Ree; a conversion needs the visitor's own
- * conversation that just took the Ree in, from a browser that visited, and
- * counts once; the statistics read both for a period.
+ * post that just asked the Ree, from a browser that visited, and counts
+ * once -- the conversations' conversions from before stay counted; the
+ * statistics read both for a period.
  */
 import { describe, expect, it } from 'vitest';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
 import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
 const { createSession } = await import('@/lib/services/auth');
 const rees = await import('@/lib/services/rees');
-const conversations = await import('@/lib/services/conversations');
 const share = await import('@/lib/services/share');
 const { reeStatistics, statisticsQuery } = await import('@/lib/services/statistics');
 const { db, schema } = await import('@/lib/infra/db');
@@ -90,54 +90,60 @@ describeWithDb('share page', () => {
     expect((await share.shareStatistics(ree.id, null)).visits).toBe(share.SHARE_IP_PER_REE_HOUR);
   });
 
-  it('counts a conversion only for a visitor’s own conversation that just took the Ree in, once', async () => {
+  it('still counts the conversions conversations made before the chat pages went', async () => {
+    const owner = await person();
+    const visitor = await person();
+    const ree = await reeOf(owner);
+    const browser = randomUUID();
+    expect(await visit(ree.slug, browser, { userId: visitor })).toBe('recorded');
+    /* As the conversations left them: no conversation to point at since migration 0070. */
+    await db().insert(schema.reeShareEvent).values([
+      { reeId: ree.id, kind: 'conversation', visitorId: browser, userId: visitor },
+      { reeId: ree.id, kind: 'conversation', visitorId: browser, userId: visitor },
+    ]);
+    expect(await share.shareStatistics(ree.id, null)).toEqual({ shareable: true, visits: 1, visitors: 1, conversations: 2, converted: 1, rate: 100, anonymousAnswers: 0 });
+    // The Ree's statistics page carries the same figures, scoped to its period.
+    const all = await reeStatistics(ree.id, statisticsQuery({ period: 'all' }), { withIncome: true });
+    expect(all.share).toMatchObject({ visits: 1, conversations: 2, rate: 100 });
+    const today = await reeStatistics(ree.id, statisticsQuery({ period: 'day' }), { withIncome: true });
+    expect(today.share).toMatchObject({ visits: 1, conversations: 2 });
+  });
+
+  it('counts a post published from the share page that asks the Ree, once (2026-11-20)', async () => {
     const owner = await person();
     const visitor = await person();
     const stranger = await person();
     const ree = await reeOf(owner);
     const other = await reeOf(owner);
     const browser = randomUUID();
-    const convert = (userId: string, conversationId: string, visitorId = browser, at?: Date) => share.recordShareConversion({ slug: ree.slug, visitorId, userId, conversationId }, at);
+    const convert = (userId: string, postId: string, visitorId = browser) => share.recordShareConversion({ slug: ree.slug, visitorId, userId, postId });
+    /* Posts as the composers leave them: a public one naming its Ree, a private one with its Rees' answer rows. */
+    const publicPost = async (userId: string, mentionReeId: string | null, createdAt = new Date()) => {
+      const [row] = await db().insert(schema.post).values({ userId, source: 'post', visibility: 'public', question: 'How do I file?', lang: 'en', mentionReeId, createdAt }).returning({ id: schema.post.id });
+      return row!.id;
+    };
+    const privatePost = async (userId: string, reeIds: string[]) => {
+      const [row] = await db().insert(schema.post).values({ userId, source: 'post', visibility: 'private', status: 'published', publishedAt: new Date(), question: 'Privately?', lang: 'en' }).returning({ id: schema.post.id });
+      for (const reeId of reeIds) await db().insert(schema.postAnswer).values({ postId: row!.id, reeId });
+      return row!.id;
+    };
 
-    const old = await conversations.createConversation(visitor, { reeIds: [ree.id] });
-    await db()
-      .update(schema.conversationRee)
-      .set({ addedAt: new Date(Date.now() - 2 * 60 * 60_000) })
-      .where(and(eq(schema.conversationRee.conversationId, old.id), eq(schema.conversationRee.reeId, ree.id)));
-    const withRee = await conversations.createConversation(visitor, { reeIds: [ree.id] });
-
-    // Without a visit from this browser, nothing is attributed.
-    expect(await convert(visitor, withRee.id)).toBe('unattributed');
+    const named = await publicPost(visitor, ree.id);
+    expect(await convert(visitor, named)).toBe('unattributed');
     expect(await visit(ree.slug, browser, { userId: visitor })).toBe('recorded');
 
-    const withoutRee = await conversations.createConversation(visitor, { reeIds: [other.id] });
-    const strangers = await conversations.createConversation(stranger, { reeIds: [ree.id] });
-    const owners = await conversations.createConversation(owner, { reeIds: [ree.id] });
+    expect(await convert(visitor, await publicPost(visitor, other.id))).toBe('not_found');
+    expect(await convert(visitor, await publicPost(visitor, null))).toBe('not_found');
+    expect(await convert(visitor, await privatePost(visitor, [other.id]))).toBe('not_found');
+    expect(await convert(visitor, await publicPost(stranger, ree.id))).toBe('not_found');
+    expect(await convert(owner, await publicPost(owner, ree.id))).toBe('owner');
+    expect(await convert(visitor, await publicPost(visitor, ree.id, new Date(Date.now() - 2 * 60 * 60_000)))).toBe('unattributed');
+    expect(await convert(visitor, named, randomUUID())).toBe('unattributed');
+    expect(await convert(visitor, named)).toBe('recorded');
+    expect(await convert(visitor, named)).toBe('repeat');
+    expect(await convert(visitor, await privatePost(visitor, [other.id, ree.id]))).toBe('recorded');
 
-    expect(await convert(visitor, withoutRee.id)).toBe('not_found');
-    expect(await convert(visitor, strangers.id)).toBe('not_found');
-    expect(await convert(visitor, 'not-a-uuid')).toBe('not_found');
-    expect(await convert(owner, owners.id)).toBe('owner');
-    // An old conversation cannot be claimed.
-    expect(await convert(visitor, old.id)).toBe('unattributed');
-    // Another browser, which never opened the share page, cannot claim either.
-    expect(await convert(visitor, withRee.id, randomUUID())).toBe('unattributed');
-    expect(await convert(visitor, withRee.id)).toBe('recorded');
-    expect(await convert(visitor, withRee.id)).toBe('repeat');
-
-    // Joining an existing conversation from the share page counts too.
-    await conversations.addParticipant(visitor, withoutRee.id, ree.id);
-    expect(await convert(visitor, withoutRee.id)).toBe('recorded');
-
-    // Two conversations from one visitor: one converted visitor, 100%.
     expect(await share.shareStatistics(ree.id, null)).toEqual({ shareable: true, visits: 1, visitors: 1, conversations: 2, converted: 1, rate: 100, anonymousAnswers: 0 });
-    expect(await share.shareStatistics(other.id, null)).toEqual({ shareable: true, visits: 0, visitors: 0, conversations: 0, converted: 0, rate: null, anonymousAnswers: 0 });
-
-    // The Ree's statistics page carries the same figures, scoped to its period.
-    const all = await reeStatistics(ree.id, statisticsQuery({ period: 'all' }), { withIncome: true });
-    expect(all.share).toMatchObject({ visits: 1, conversations: 2, rate: 100 });
-    const today = await reeStatistics(ree.id, statisticsQuery({ period: 'day' }), { withIncome: true });
-    expect(today.share).toMatchObject({ visits: 1, conversations: 2 });
   });
 
   it('does not count a conversion in the rate when the visit fell outside the period', async () => {
@@ -146,9 +152,9 @@ describeWithDb('share page', () => {
     const browser = randomUUID();
     // An hour ago is recent enough to attribute the conversion...
     expect(await visit(ree.slug, browser, { userId: visitor }, new Date(Date.now() - 60 * 60_000))).toBe('recorded');
-    const conversation = await conversations.createConversation(visitor, { reeIds: [ree.id] });
-    expect(await share.recordShareConversion({ slug: ree.slug, visitorId: browser, userId: visitor, conversationId: conversation.id })).toBe('recorded');
-    // ...but a period holding only the conversation has no visitor to convert.
+    const [asked] = await db().insert(schema.post).values({ userId: visitor, source: 'post', visibility: 'public', question: 'How do I file?', lang: 'en', mentionReeId: ree.id }).returning({ id: schema.post.id });
+    expect(await share.recordShareConversion({ slug: ree.slug, visitorId: browser, userId: visitor, postId: asked!.id })).toBe('recorded');
+    // ...but a period holding only the post has no visitor to convert.
     const day = 86_400_000;
     const tomorrow = Math.floor(Date.now() / day) * day + day;
     const range = { start: Date.now() - 30 * 60_000, end: tomorrow };

@@ -8,8 +8,7 @@
  * Keys are revoked, never deleted, so the questions they asked keep their
  * tag and the settings page can still show what each one spent.
  */
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/pg-core';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { API_KEY_LAST_USED_RESOLUTION_MS, API_KEY_MAX_ACTIVE, API_KEY_MAX_DAYS, API_KEY_NAME_MAX, API_KEY_PREFIX } from '@/lib/constants';
 import { db, schema } from '@/lib/infra/db';
 import { randomHex, sha256 } from '@/lib/infra/crypto/tokens';
@@ -86,21 +85,35 @@ export async function listApiKeys(userId: string): Promise<ApiKeyItem[]> {
   return rows.map((row) => ({ ...item(row), questions: usage.get(row.id)?.questions ?? 0, spent: usage.get(row.id)?.spent ?? 0 }));
 }
 
-/** Per key: the questions it asked, and the credits their answers were charged. */
+/**
+ * Per key: the questions it asked -- the private posts MCP made through it
+ * (`source = 'api'`) and the continuations asked on them -- and what their
+ * answers were charged: each answer's price once it answered (posts.ts
+ * `closeAnswer` settles exactly that; a hold given back cost nothing). Each
+ * adds what the key asked through MCP conversations before (`legacy_*`,
+ * frozen by migration 0067).
+ */
 export async function usageOf(keyIds: readonly string[]): Promise<Map<string, { questions: number; spent: number }>> {
   if (keyIds.length === 0) return new Map();
-  const reply = alias(schema.message, 'reply');
-  const rows = await db()
-    .select({
-      keyId: schema.message.apiKeyId,
-      questions: sql<number>`count(distinct ${schema.message.id})::int`,
-      spent: sql<number>`coalesce(sum(${reply.costCredits}), 0)::int`,
-    })
-    .from(schema.message)
-    .leftJoin(reply, and(eq(reply.requestId, schema.message.id), eq(reply.role, 'ree')))
-    .where(and(inArray(schema.message.apiKeyId, [...keyIds]), eq(schema.message.role, 'user')))
-    .groupBy(schema.message.apiKeyId);
-  return new Map(rows.map((row) => [row.keyId!, { questions: Number(row.questions), spent: Number(row.spent) }]));
+  const keys = sql.join(
+    keyIds.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+  const result = await db().execute<{ key_id: string; questions: number; spent: number }>(sql`
+    with asked as (
+      select p.api_key_id as key_id, p.id as post_id, null::uuid as followup_id
+      from ${schema.post} p where p.api_key_id in (${keys}) and p.source = 'api'
+      union all
+      select f.api_key_id, f.post_id, f.id
+      from ${schema.postFollowup} f where f.api_key_id in (${keys})
+    )
+    select k.id as key_id, (k.legacy_questions + count(q.post_id))::int as questions,
+      (k.legacy_spent + coalesce(sum((select coalesce(sum(a.price), 0) from ${schema.postAnswer} a
+        where a.post_id = q.post_id and a.followup_id is not distinct from q.followup_id and a.state = 'answered' and a.base_hold_id is not null)), 0))::int as spent
+    from ${schema.apiKey} k left join asked q on q.key_id = k.id
+    where k.id in (${keys})
+    group by k.id`);
+  return new Map(result.rows.map((row) => [row.key_id, { questions: Number(row.questions), spent: Number(row.spent) }]));
 }
 
 /** The owner revokes one of their keys; false for someone else's, an unknown id, or one already revoked. */

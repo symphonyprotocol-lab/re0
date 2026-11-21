@@ -3,9 +3,9 @@
  * ("Hono 怎么写中间件？") shares only the product's name with every passage,
  * so searched as asked it finds nothing close enough and is declined. Also
  * searched as a rewrite into English, it finds the middleware page and is
- * answered for the usual base fee; the rewrite is one logged call per
- * language per question, made only when the knowledge is in another
- * language, and its failure only leaves the question searched as asked.
+ * answered for the usual base fee; the rewrite is a logged call, made only
+ * when the knowledge is in another language, and its failure only leaves
+ * the question searched as asked.
  * In a Ree with knowledge in both languages, the question's own direct
  * matches still rank beside the rewrite's; a rewrite whose embedding fails
  * is still searched by its keywords. The keyword leg reads the passages
@@ -24,8 +24,15 @@ const { createSession } = await import('@/lib/services/auth');
 const { balanceOf } = await import('@/lib/services/credits');
 const knowledge = await import('@/lib/services/knowledge');
 const rees = await import('@/lib/services/rees');
-const chat = await import('@/lib/services/chat');
-const { answer } = await import('@/lib/services/answer');
+const retrieval = await import('@/lib/services/retrieval');
+const privatePosts = await import('@/lib/services/private-posts');
+/*
+ * These tests are about how a Ree's own answer settles. When no Ree answers,
+ * a private post now gets the asker an AI general answer at the base fee
+ * (ai-answers.ts, covered by tests/integration/ai-answers.test.ts); here it
+ * fails, so its hold is given back and every figure is the Ree's alone.
+ */
+const noAi = { aiAnswer: async () => { throw new Error('no AI in these tests'); } };
 const { questionRewriter } = await import('@/lib/services/question-rewrite');
 const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
@@ -77,13 +84,13 @@ async function reeWith(userId: string, name: string, pages: readonly string[]) {
   return ree;
 }
 
-async function consume(response: Response) {
-  const raw = await response.text();
-  const events = raw
-    .split('\n')
-    .filter((line) => line.startsWith('data: ') && line !== 'data: [DONE]')
-    .map((line) => JSON.parse(line.slice(6)) as { type: string; data?: Record<string, unknown> });
-  return events.filter((event) => event.type === 'data-outcome').map((event) => event.data as { reeId: string; noAnswer: boolean; reason: string | null; cost: number });
+/** Asks the user's own Ree privately and waits for its answer row. */
+async function ask(userId: string, reeId: string, question: string) {
+  const made = await privatePosts.publishPrivatePost(userId, { question, reeIds: [reeId], fees: { [reeId]: 20 }, lang: 'zh' });
+  if (!made.ok) throw new Error(made.error);
+  await privatePosts.processPrivatePost(made.id, noAi);
+  const [answer] = await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.postId, made.id));
+  return answer!;
 }
 
 const QUESTION = 'Hono 怎么写中间件？';
@@ -92,7 +99,7 @@ describeWithDb('cross-lingual retrieval', () => {
   it('searched as asked, a Chinese question misses the English page that answers it', async () => {
     const userId = await person();
     const ree = await reeWith(userId, 'Hono docs', [...OTHER_PAGES, MIDDLEWARE]);
-    const found = await chat.retrieve(ree.id, QUESTION);
+    const found = await retrieval.retrieve(ree.id, QUESTION);
     expect(found.evidence).toBe(false);
     expect(found.rewrite).toBeNull();
     expect(found.bestSimilarity!).toBeLessThan(0.3);
@@ -102,41 +109,21 @@ describeWithDb('cross-lingual retrieval', () => {
     const userId = await person();
     const ree = await reeWith(userId, 'Hono docs', [...OTHER_PAGES, MIDDLEWARE]);
     const calls = fake.rewrites.calls;
-    const found = await chat.retrieve(ree.id, QUESTION, undefined, { rewrite: questionRewriter(userId, QUESTION) });
+    const found = await retrieval.retrieve(ree.id, QUESTION, undefined, { rewrite: questionRewriter(userId, QUESTION) });
     expect(fake.rewrites.calls).toBe(calls + 1);
     expect(found.rewrite).toBe('Hono middleware');
     expect(found.evidence).toBe(true);
     expect(found.passages[0]!.content).toBe(MIDDLEWARE);
 
-    const conversation = await chat.testConversation(userId, ree.id);
     const before = await balanceOf(db(), userId);
-    const [outcome] = await consume(await answer({ userId, lang: 'zh', conversation, targets: [ree], question: QUESTION }));
-    expect(outcome).toMatchObject({ noAnswer: false, cost: 20 });
+    const answer = await ask(userId, ree.id, QUESTION);
+    expect(answer).toMatchObject({ state: 'answered' });
     expect(await balanceOf(db(), userId)).toBe(before - 20);
-    const stored = await chat.messagesOf(conversation.id);
-    expect(stored[1]!.citations[0]!.excerpt).toContain('createMiddleware');
-    /* The rewrite is metered as the asker's `retrieval` call, apart from the answer. */
+    expect(answer.citations[0]!.excerpt).toContain('createMiddleware');
+    /* A rewrite is metered as a `retrieval` call, apart from the answer: the asker's here, the platform's for a post's answer. */
     const logged = await db().select().from(schema.modelCall).where(and(eq(schema.modelCall.userId, userId), eq(schema.modelCall.purpose, 'retrieval')));
-    expect(logged.length).toBeGreaterThanOrEqual(2);
+    expect(logged.length).toBeGreaterThanOrEqual(1);
     expect(logged.every((call) => call.status === 'succeeded')).toBe(true);
-  });
-
-  it('rewrites once per language however many Rees are asked', async () => {
-    const userId = await person();
-    const first = await reeWith(userId, 'Hono docs A', [...OTHER_PAGES.slice(0, 6), MIDDLEWARE]);
-    const second = await reeWith(userId, 'Hono docs B', [...OTHER_PAGES.slice(6), MIDDLEWARE]);
-    const [conversation] = await db()
-      .insert(schema.conversation)
-      .values({ userId, kind: 'normal', title: 'Two Rees' })
-      .returning();
-    await db().insert(schema.conversationRee).values([
-      { conversationId: conversation!.id, reeId: first.id },
-      { conversationId: conversation!.id, reeId: second.id },
-    ]);
-    const calls = fake.rewrites.calls;
-    const outcomes = await consume(await answer({ userId, lang: 'zh', conversation: conversation!, targets: [first, second], question: QUESTION }));
-    expect(fake.rewrites.calls).toBe(calls + 1);
-    expect(outcomes.map((outcome) => outcome.noAnswer)).toEqual([false, false]);
   });
 
   it('leaves a question in the knowledge’s own language as it was', async () => {
@@ -145,10 +132,10 @@ describeWithDb('cross-lingual retrieval', () => {
     const chinese = await reeWith(userId, 'Hono 中文文档', ['Hono 的自定义中间件用 createMiddleware 来写，在中间件里调用 await next() 让后面的处理函数继续执行。', 'Hono 的路由用 app.get 注册处理函数，路径参数从上下文对象里读取。']);
     const calls = fake.rewrites.calls;
     const asked = 'How do I write custom middleware in Hono?';
-    const found = await chat.retrieve(english.id, asked, undefined, { rewrite: questionRewriter(userId, asked) });
+    const found = await retrieval.retrieve(english.id, asked, undefined, { rewrite: questionRewriter(userId, asked) });
     expect(found.rewrite).toBeNull();
     expect(found.passages[0]!.content).toBe(MIDDLEWARE);
-    const same = await chat.retrieve(chinese.id, QUESTION, undefined, { rewrite: questionRewriter(userId, QUESTION) });
+    const same = await retrieval.retrieve(chinese.id, QUESTION, undefined, { rewrite: questionRewriter(userId, QUESTION) });
     expect(same.rewrite).toBeNull();
     expect(same.passages[0]!.content).toContain('自定义中间件');
     expect(fake.rewrites.calls).toBe(calls);
@@ -157,12 +144,10 @@ describeWithDb('cross-lingual retrieval', () => {
   it('searches as asked when the rewrite fails, still charging nothing for no answer', async () => {
     const userId = await person();
     const ree = await reeWith(userId, 'Hono docs', [...OTHER_PAGES, MIDDLEWARE]);
-    const conversation = await chat.testConversation(userId, ree.id);
     const before = await balanceOf(db(), userId);
     fake.rewrites.fail = true;
     try {
-      const [outcome] = await consume(await answer({ userId, lang: 'zh', conversation, targets: [ree], question: QUESTION }));
-      expect(outcome).toMatchObject({ noAnswer: true, reason: 'out_of_scope', cost: 0 });
+      expect(await ask(userId, ree.id, QUESTION)).toMatchObject({ state: 'no_answer' });
     } finally {
       fake.rewrites.fail = false;
     }
@@ -175,7 +160,7 @@ describeWithDb('cross-lingual retrieval', () => {
     /* Shares only the product's name with the question: no direct match. */
     const generic = 'Hono 是一个小巧的框架，可以运行在很多平台上。';
     const ree = await reeWith(userId, 'Hono guides', [...OTHER_PAGES, MIDDLEWARE, direct, generic]);
-    const found = await chat.retrieve(ree.id, QUESTION, undefined, { rewrite: questionRewriter(userId, QUESTION) });
+    const found = await retrieval.retrieve(ree.id, QUESTION, undefined, { rewrite: questionRewriter(userId, QUESTION) });
     expect(found.rewrite).toBe('Hono middleware');
     expect(found.evidence).toBe(true);
     const contents = found.passages.map((passage) => passage.content);
@@ -188,11 +173,11 @@ describeWithDb('cross-lingual retrieval', () => {
   it('keeps the rewrite’s keywords when its embedding fails', async () => {
     const userId = await person();
     const ree = await reeWith(userId, 'Hono docs', [...OTHER_PAGES, MIDDLEWARE]);
-    const asked = await chat.embedQuestion(QUESTION);
+    const asked = await retrieval.embedQuestion(QUESTION);
     fake.embeddings.failModel = 'fake-embed';
     fake.embeddings.after = 0;
     try {
-      const found = await chat.retrieve(ree.id, QUESTION, asked, { rewrite: questionRewriter(userId, QUESTION) });
+      const found = await retrieval.retrieve(ree.id, QUESTION, asked, { rewrite: questionRewriter(userId, QUESTION) });
       expect(found.rewrite).toBe('Hono middleware');
       expect(found.evidence).toBe(true);
       expect(found.passages[0]!.content).toBe(MIDDLEWARE);
@@ -218,7 +203,7 @@ describeWithDb('cross-lingual retrieval', () => {
     /* More passages naming Hono than the leg reads, then the one page that also says middleware. */
     const filler = Array.from({ length: 230 }, (_, index) => `Hono note ${index}: release ${index} changed nothing worth reading here.`);
     const ree = await keywordOnly([...filler, MIDDLEWARE]);
-    const found = await chat.retrieve(ree.id, 'hono middleware');
+    const found = await retrieval.retrieve(ree.id, 'hono middleware');
     expect(found.passages[0]!.content).toBe(MIDDLEWARE);
   });
 
@@ -227,15 +212,15 @@ describeWithDb('cross-lingual retrieval', () => {
     const filler = Array.from({ length: 230 }, (_, index) => `Settings reset the configuration of release ${index}.`);
     const wanted = 'Use set to change one config value.';
     const ree = await keywordOnly([...filler, wanted]);
-    const found = await chat.retrieve(ree.id, 'set config');
+    const found = await retrieval.retrieve(ree.id, 'set config');
     expect(found.passages.map((passage) => passage.content)).toEqual([wanted]);
   });
 
   it('reads the same passages every time when they tie', async () => {
     /* "middleware" is nowhere: every passage ties on "hono" alone. */
     const ree = await keywordOnly(Array.from({ length: 230 }, (_, index) => `Hono note ${index}: release ${index} changed nothing worth reading here.`));
-    const first = await chat.retrieve(ree.id, 'hono middleware');
-    const again = await chat.retrieve(ree.id, 'hono middleware');
+    const first = await retrieval.retrieve(ree.id, 'hono middleware');
+    const again = await retrieval.retrieve(ree.id, 'hono middleware');
     const ids = (await db().select({ id: schema.chunk.id }).from(schema.chunk).where(eq(schema.chunk.reeId, ree.id))).map((row) => row.id).sort();
     expect(first.passages.map((passage) => passage.chunkId)).toEqual(ids.slice(0, 8));
     expect(again.passages.map((passage) => passage.chunkId)).toEqual(ids.slice(0, 8));

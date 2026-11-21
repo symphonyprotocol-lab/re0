@@ -1,0 +1,154 @@
+/**
+ * Public Q&A rules the browser and server share: what redaction removes
+ * from an asker's text, and how an answer's preview is cut.
+ */
+import { describe, expect, it } from 'vitest';
+import { previewOf, redact } from '@/lib/domain/public-qa';
+
+describe('redact', () => {
+  it('removes e-mail addresses, phone numbers and identity card numbers', () => {
+    expect(redact('Write to lin.mei+test@example.com today', 'en')).toBe('Write to [removed] today');
+    expect(redact('我的手机号是 138 1234 5678，请回电', 'zh')).toBe('我的手机号是 [已隐去]，请回电');
+    expect(redact('Call +65 6123-4567 please', 'en')).toBe('Call [removed] please');
+    expect(redact('身份证 11010519491231002X 丢了怎么办', 'zh')).toBe('身份证 [已隐去] 丢了怎么办');
+    expect(redact('card 4111 1111 1111 1111', 'en')).toBe('card [removed]');
+  });
+
+  it('removes what hides a number or address from the simple patterns (review, 2026-11-18)', () => {
+    const zh = (text: string) => redact(text, 'zh');
+    expect(zh('加我微信wx13800138000')).toBe('加我微信wx[已隐去]');
+    expect(zh('QQ12345678 联系')).toBe('QQ[已隐去] 联系');
+    expect(zh('tel13800138000')).toBe('tel[已隐去]');
+    expect(zh('护照E12345678丢了')).toBe('护照E[已隐去]丢了');
+    expect(zh('电话１３８００１３８０００，谢谢')).toBe('电话[已隐去]，谢谢');
+    expect(zh('邮箱 me＠qq．com')).toBe('邮箱 [已隐去]');
+    expect(zh('138/0013/8000')).toBe('[已隐去]');
+    expect(zh('138_0013_8000')).toBe('[已隐去]');
+    expect(zh('138 . 0013 . 8000')).toBe('[已隐去]');
+    expect(zh('打一三八零零一三八零零零')).toBe('打[已隐去]');
+    expect(zh('发到 me@qq 就行')).toBe('发到 [已隐去] 就行');
+    expect(redact('write me (at) gmail (dot) com', 'en')).toBe('write [removed]');
+  });
+
+  it('removes the second round of bypasses (review 2026-11-18, round 2)', () => {
+    const zh = (text: string) => redact(text, 'zh');
+    expect(zh('打138零零138零零零')).toBe('打[已隐去]');
+    expect(zh('１３８〇〇１３８〇〇〇')).toBe('[已隐去]');
+    expect(zh('壹叁捌零零壹叁捌零零零')).toBe('[已隐去]');
+    expect(zh('①③⑧⓪⓪①③⑧⓪⓪⓪')).toBe('[已隐去]');
+    expect(zh('138—0013—8000')).toBe('[已隐去]');
+    expect(zh('138~0013~8000')).toBe('[已隐去]');
+    expect(zh('138，0013，8000')).toBe('[已隐去]');
+    expect(zh('138、0013、8000')).toBe('[已隐去]');
+    expect(zh('138,0013,8000')).toBe('[已隐去]');
+    expect(redact('mail me at qq dot com please', 'en')).toBe('mail [removed] please');
+    expect(zh('me艾特qq点com')).toBe('[已隐去]');
+  });
+
+  it('removes the third round of bypasses (review 2026-11-19, round 3)', () => {
+    const zh = (text: string) => redact(text, 'zh');
+    /* Split by commas but not an 11-digit mobile: with a country code, landlines, cards, identity numbers. */
+    expect(zh('打 +86 138,0013,8000')).toBe('打 [已隐去]');
+    expect(zh('86，138，0013，8000')).toBe('[已隐去]');
+    expect(zh('座机 021，6123，4567')).toBe('座机 [已隐去]');
+    expect(zh('(021)6123、4567')).toBe('([已隐去]');
+    expect(zh('卡号 6222,0212,3456,7890')).toBe('卡号 [已隐去]');
+    expect(zh('110105,19491231,002X')).toBe('[已隐去]X');
+    /* Other separators, and long runs of spaces. */
+    for (const text of ['138｜0013｜8000', '138+0013+8000', '138*0013*8000', '138#0013#8000', '138:0013:8000', '138;0013;8000', '138→0013→8000', '138…0013…8000', '138    0013    8000']) {
+      expect(zh(text)).toBe('[已隐去]');
+    }
+    /* E-mail written out. */
+    expect(redact('mail me at gmail.com', 'en')).toBe('mail [removed]');
+    expect(zh('me @ qq . com')).toBe('[已隐去]');
+    expect(zh('me（at）qq（dot）com')).toBe('[已隐去]');
+    expect(zh('me圈qq点com')).toBe('[已隐去]');
+  });
+
+  it('keeps ordinary text that only looks like the bypasses (the trade-off)', () => {
+    const keep = (text: string) => expect(redact(text, 'zh')).toBe(text);
+    keep('预算 1200、1500、1800 三档，哪个合适？');
+    keep('价格在 1000~2000 之间');
+    keep('一共 1,200,000 元');
+    keep('三三两两地来了');
+    keep('二〇二六年十一月出发');
+    keep('第一、第二、第三条都要看');
+    keep('meet at noon tomorrow');
+    /* Round 3: lists of round prices, ranges, years, plain English "at", mentions, scores and times. */
+    keep('预算 1000、2000、3000、4000 四档');
+    keep('1200，1500，1800 哪个好');
+    keep('2000~3000 元之间');
+    keep('2024、2025、2026 三年的数据');
+    keep('We met at the station.');
+    keep('look at it.Then go');
+    keep('Ask @Brazil Guide first');
+    keep('比分 3:1，10:30 开始');
+  });
+
+  it('removes the fourth round of bypasses (review 2026-11-19, round 4)', () => {
+    const zh = (text: string) => redact(text, 'zh');
+    for (const text of ['138丨0013丨8000', '138=0013=8000', '138^0013^8000', '138%0013%8000', '138&0013&8000', '138\u200b0013\u200b8000', '138\ufeff0013\ufeff8000']) {
+      expect(zh(text)).toBe('[已隐去]');
+    }
+    expect(redact('write me {at} qq {dot} com', 'en')).toBe('write [removed]');
+    expect(zh('邮箱 me＃qq．com')).toBe('邮箱 [已隐去]');
+    expect(zh('邮箱 m e @ q q . c o m')).toBe('邮箱 [已隐去]');
+    expect(zh('邮箱 meＡＴqq.com')).toBe('邮箱 [已隐去]');
+    /* Hinted ids: after QQ / 微信 / wx / vx and the like only. */
+    expect(zh('QQ 654321')).toBe('QQ [已隐去]');
+    expect(zh('QQ号：654321')).toBe('QQ号：[已隐去]');
+    expect(zh('微信号：linmei')).toBe('微信号：[已隐去]');
+    expect(zh('加 vx: linmei')).toBe('加 vx: [已隐去]');
+    expect(zh('wx lin_mei_88')).toBe('wx [已隐去]');
+  });
+
+  it('keeps the round 4 false positives: scores, tiers, sizes, round amounts, ISBN, order numbers', () => {
+    const keep = (text: string) => expect(redact(text, 'zh')).toBe(text);
+    keep('四门成绩 98:95:100:87');
+    keep('三档价格 99/199/299/399');
+    keep('尺码 36 37 38 39 40 41 42 都有');
+    keep('预算 1000 2000 3000 4000');
+    keep('ISBN 978-7-111-12345-6');
+    keep('ISBN 9787111123456');
+    keep('订单号 202611190001 没到');
+    /* Without a colon, an all-letter id is a word: kept. */
+    keep('微信 linmei 是谁');
+    expect(redact('the WeChat official account', 'en')).toBe('the WeChat official account');
+    expect(redact('look at example.com first', 'en')).toBe('look at example.com first');
+    expect(redact('I work at Google dot com', 'en')).toBe('I work at Google dot com');
+  });
+
+  it('keeps the reader\'s own punctuation and dates', () => {
+    expect(redact('2026-11-18 和 2026/11/18 出发，行吗？', 'zh')).toBe('2026-11-18 和 2026/11/18 出发，行吗？');
+    expect(redact('Visit @Brazil Guide first', 'en')).toBe('Visit @Brazil Guide first');
+  });
+
+  it('keeps ordinary numbers: years, prices, short counts', () => {
+    const text = 'In 2026 the fee rose from 1,200 to 1,500 for 14 days';
+    expect(redact(text, 'en')).toBe(text);
+    expect(redact('试用期 26 周以内，提前 1 天通知', 'zh')).toBe('试用期 26 周以内，提前 1 天通知');
+  });
+
+  it('removes links from the question but keeps the answer\'s own links', () => {
+    expect(redact('see https://evil.example/x?id=1 and www.example.org/a', 'en')).toBe('see [removed] and [removed]');
+    expect(redact('Source: https://en.wikivoyage.org/wiki/Paraguay', 'en', { links: false })).toBe('Source: https://en.wikivoyage.org/wiki/Paraguay');
+  });
+});
+
+describe('previewOf', () => {
+  it('keeps a short answer whole', () => {
+    expect(previewOf('Refunds take 14 days [1].')).toEqual({ answer: 'Refunds take 14 days [1].', truncated: false });
+  });
+
+  it('cuts a long answer on a word and never inside a citation marker', () => {
+    const long = `${'word '.repeat(50)}tail [12] more text after it`;
+    const cut = previewOf(long, 258);
+    expect(cut.truncated).toBe(true);
+    expect(cut.answer.endsWith('…')).toBe(true);
+    expect(cut.answer).not.toMatch(/\[\d*…$/);
+    const marker = previewOf('Refunds go back to the card [1', 30);
+    expect(marker.answer).toBe('Refunds go back to the card [1');
+    const inside = previewOf('Refunds go back to the original card [12][3] fast', 42);
+    expect(inside.answer).not.toContain('[');
+  });
+});

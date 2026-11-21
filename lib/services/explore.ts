@@ -31,7 +31,6 @@ import {
   QUERY_BASE_FEE,
   type ReeCategory,
 } from '@/lib/constants';
-import type { SuggestedRee } from '@/lib/domain/chat-message';
 import {
   decodeExploreCursor,
   encodeExploreCursor,
@@ -50,12 +49,13 @@ import {
 import { isUuid } from '@/lib/domain/list';
 import { hasEvidence, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
 import { db, schema } from '@/lib/infra/db';
-import { embedQuestion, type QuestionVector } from '@/lib/services/chat';
+import { embedQuestion, type QuestionVector } from '@/lib/services/retrieval';
 import { BASE_SPACE, chunkVector, profileInSpace, spaceOf } from '@/lib/services/embedding-space';
 import { endpointFor } from '@/lib/infra/ai/models';
 import type { IntroProps } from '@/lib/domain/video';
 import { introsFor } from '@/lib/services/video';
 import { votesByOthers } from '@/lib/services/ree-feedback';
+import { answersByOthersOf } from '@/lib/services/ree-counts';
 import { hitRateBucket } from '@/lib/services/rate-limit';
 import { untimed, type Timing } from '@/lib/infra/timing';
 import { SEARCH_INDEXES } from '@/lib/infra/search-indexes';
@@ -72,12 +72,13 @@ export function publicRee(): SQL {
 export const readySources = sql<number>`(select count(*)::int from ${schema.knowledge} k where k.ree_id = ${reeId} and k.status = 'ready' and k.enabled and k.deleted_at is null)`;
 /**
  * Successful answers to other people, all time: the public count, the
- * "most answered" order and MCP's figure. Answers to signed-out visitors
+ * "most answered" order and MCP's figure -- the conversations' frozen count
+ * plus the posts' (ree-counts.ts). Answers to signed-out visitors
  * (anonymous-chat.ts) are left out -- anyone, the owner signed out
  * included, could ask for them -- so what is shown and what orders agree;
  * the owner's own statistics count them.
  */
-export const answersByOthers = sql<number>`(select count(*)::int from ${schema.message} m join ${schema.conversation} c on c.id = m.conversation_id where m.ree_id = ${reeId} and m.role = 'ree' and not m.no_answer and c.user_id <> ${reeOwner})`;
+export const answersByOthers = answersByOthersOf(reeId, reeOwner);
 
 export interface ReeCard {
   id: string;
@@ -105,6 +106,12 @@ export interface ReeCard {
   pinned: boolean;
   /** Introduction when requested by the caller and available. */
   video: IntroProps | null;
+  /** Other people's questions in the last 7 days (the hourly `ree.rank`). */
+  asked7: number;
+  /** The latest answer to someone else within those 7 days, ISO; null for none. */
+  lastAnsweredAt: string | null;
+  /** Answers shown on the Ree page's public Q&A (public-qa.ts). */
+  publicQa: number;
 }
 
 const cardColumns = {
@@ -127,6 +134,11 @@ const cardColumns = {
   down: votesByOthers('down'),
   createdAt: schema.ree.createdAt,
   pinned: sql<boolean>`${schema.ree.pinOrder} is not null`,
+  rank: schema.ree.rank,
+  /* The Ree page's public Q&A count, as public-qa.ts `shown()` reads it: answers this Ree gave on visible posts, the copied public Q&A among them while the owner's switch is on (posts.ts `shownAnswer`, `visiblePost`). */
+  publicQa: sql<number>`(select count(*)::int from ${schema.postAnswer} a join ${schema.post} p on p.id = a.post_id
+    where a.ree_id = ${schema.ree.id} and a.followup_id is null and a.state = 'answered' and a.hidden_by is null and (a.legacy_qa_id is null or ${schema.ree.publicQaEnabled})
+      and p.visibility = 'public' and p.status = 'published' and p.deleted_at is null)`,
 };
 
 /** Every card query starts here; callers add the filter, order and page. */
@@ -137,8 +149,8 @@ function cardQuery() {
 type CardRow = Awaited<ReturnType<typeof cardQuery>>[number];
 
 function toCard(row: CardRow, excerpt: string | null = null): ReeCard {
-  const { up, down, ...rest } = row;
-  return { ...rest, price: QUERY_BASE_FEE + row.queryFee, positiveRate: positiveRate(up, down), excerpt, video: null };
+  const { up, down, rank, ...rest } = row;
+  return { ...rest, price: QUERY_BASE_FEE + row.queryFee, positiveRate: positiveRate(up, down), excerpt, video: null, asked7: rank.asked7 ?? 0, lastAnsweredAt: rank.lastAnsweredAt ?? null };
 }
 
 /** Step 7: each card's introduction, if it has one. */
@@ -158,6 +170,17 @@ export async function reeCards(
   const byId = new Map(rows.map((row) => [row.id, row]));
   const cards = ids.map((id) => byId.get(id)).filter((row): row is CardRow => Boolean(row)).map((row) => toCard(row, excerpts.get(row.id) ?? null));
   return includeIntros ? withIntros(cards) : cards;
+}
+
+/** explore's "本周问得最多": the public Rees with the most questions from other people this week (the hourly `ree.rank`). */
+export async function weeklyMostAsked(limit = 3): Promise<Pick<ReeCard, 'id' | 'slug' | 'name' | 'avatarBlob' | 'color' | 'asked7'>[]> {
+  const asked = sql<number>`coalesce((${schema.ree.rank} ->> 'asked7')::int, 0)`;
+  return db()
+    .select({ id: schema.ree.id, slug: schema.ree.slug, name: schema.ree.name, avatarBlob: schema.ree.avatarBlob, color: schema.ree.color, asked7: asked })
+    .from(schema.ree)
+    .where(and(publicRee(), sql`${asked} > 0`))
+    .orderBy(desc(asked), schema.ree.id)
+    .limit(limit);
 }
 
 /* ------------------------------------------------------------- the search */
@@ -261,7 +284,7 @@ export function forgetSearchIndexCheck(): void {
  * index, the "indexed" statement would sort every candidate passage anyway,
  * slower than the exact scan.
  */
-async function nearestPassages(vector: QuestionVector, rees: readonly string[], limit: number): Promise<Passage[]> {
+export async function nearestPassages(vector: QuestionVector, rees: readonly string[], limit: number): Promise<Passage[]> {
   if (!rees.length || limit < 1) return [];
   const search = passageSearch(vector, rees, limit);
   const toPassages = (rows: Passage[]) =>
@@ -292,7 +315,7 @@ export function passageSearch(vector: QuestionVector, rees: readonly string[], l
   const literal = `[${vector.vector.join(',')}]`;
   const half = sql.raw(`halfvec(${EMBEDDING_DIMENSIONS})`);
   const inRees = sql`c.ree_id in (${sql.join(rees.map((id) => sql`${id}::uuid`), sql`, `)})`;
-  /* `answerable()` (chat.ts) under the alias `k`. */
+  /* `answerable()` (retrieval.ts) under the alias `k`. */
   const ready = sql`k.status = 'ready' and k.enabled and k.deleted_at is null`;
   const stored = chunkVector(vector.space, 'c');
   const columns = sql`c.ree_id as "reeId", c.content, k.title, 1 - (${stored} <=> ${literal}::vector) as similarity`;
@@ -456,22 +479,6 @@ async function searchVector(question: string, now = Date.now()): Promise<Questio
     searchVectors.delete(key);
   }
   return vector;
-}
-
-/** "这些公开 Ree 可能知道": the search's best public Rees, for a question nobody in the conversation could answer. */
-export async function suggestRees(input: { question: string; vector: QuestionVector; viewerId: string; exclude: readonly string[]; limit: number }): Promise<SuggestedRee[]> {
-  const hits = await searchRees({ question: input.question, vector: input.vector, exclude: input.exclude, limit: input.limit });
-  const cards = await reeCards(hits.map((hit) => hit.reeId));
-  return cards.map((card) => ({
-    id: card.id,
-    slug: card.slug,
-    name: card.name,
-    description: card.description,
-    avatarBlob: card.avatarBlob,
-    color: card.color,
-    role: card.role,
-    price: QUERY_BASE_FEE + (card.ownerId === input.viewerId ? 0 : card.queryFee),
-  }));
 }
 
 /* --------------------------------------------------------------- the page */

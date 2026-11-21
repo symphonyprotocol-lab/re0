@@ -1,5 +1,6 @@
 'use client';
 
+import './notices.css';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -89,13 +90,64 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
                 : l.payout;
       return { line, icon: 'sparkle', href: '/settings?tab=balance#payouts', action: o.billing, reason };
     }
+    case 'post_answered':
+      /* v5: Rees answered one of the reader's public posts. */
+      return {
+        line: fill(l.postAnswered, { question: String(p.question ?? ''), n: formatNumber(Number(p.answers) || 0, locale) }),
+        icon: 'chat',
+        href: notice.refId ? `/p/${notice.refId}` : null,
+        action: o.post,
+        reason: null,
+      };
+    case 'post_quoted':
+      /* Someone quoted one of the reader's public posts in a post of their own ("引用提问"). */
+      return { line: Number(p.count) > 1 ? fill(l.postQuotedMany, { question: String(p.question ?? ''), n: formatNumber(Number(p.count), locale) }) : fill(l.postQuoted, { question: String(p.question ?? '') }), icon: 'link', href: notice.refId ? `/p/${notice.refId}` : null, action: o.post, reason: null };
+    case 'post_paid_requests':
+      /* Paid Rees wait for the reader to agree before answering their post (2026-11-19), or their follow-up (追问, `followup` set). */
+      return {
+        line: fill(p.followup ? l.followupPaidRequests : l.postPaidRequests, { question: String(p.question ?? ''), n: formatNumber(Number(p.n) || 0, locale) }),
+        icon: 'chat',
+        href: notice.refId ? `/p/${notice.refId}${p.followup ? `#f-${String(p.followup)}` : ''}` : null,
+        action: o.post,
+        reason: null,
+      };
+    case 'post_followup':
+      /* Someone asked on under the reader's post (追问); folded per post within the hour. */
+      return {
+        line: Number(p.count) > 1 ? fill(l.postFollowupMany, { question: String(p.question ?? ''), n: formatNumber(Number(p.count), locale) }) : fill(l.postFollowup, { question: String(p.question ?? '') }),
+        icon: 'chat',
+        href: notice.refId ? `/p/${notice.refId}${p.followup ? `#f-${String(p.followup)}` : ''}` : null,
+        action: o.post,
+        reason: null,
+      };
+    case 'followup_answered':
+      /* Rees answered the reader's follow-up. */
+      return {
+        line: fill(l.followupAnswered, { question: String(p.question ?? ''), n: formatNumber(Number(p.answers) || 0, locale) }),
+        icon: 'chat',
+        href: notice.refId ? `/p/${notice.refId}${p.followup ? `#f-${String(p.followup)}` : ''}` : null,
+        action: o.post,
+        reason: null,
+      };
+    case 'post_ai_answer':
+      /* No Ree answered the reader's post (or their follow-up, `followup` set): the AI gave them a general answer only they see. */
+      return {
+        line: fill(p.followup ? l.followupAiAnswer : l.postAiAnswer, { question: String(p.question ?? '') }),
+        icon: 'sparkle',
+        href: notice.refId ? `/p/${notice.refId}${p.followup ? `#f-${String(p.followup)}` : '#ai-answer'}` : null,
+        action: o.post,
+        reason: null,
+      };
+    case 'chats_removal':
+      /* Once, by migration 0067: private conversations became private posts, and the old ones go a week later. */
+      return { line: l.chatsRemoval, icon: 'info', href: '/me/posts?tab=private', action: o.privatePosts, reason: null };
     default:
       return { line: l.other, icon: 'info', href: null, action: null, reason };
   }
 }
 
 /**
- * `/settings?tab=notices` (8.2 "通知"): newest first, 20 a page. Opening the
+ * `/notifications` (8.2 "通知"; a settings tab until v5): newest first, 20 a page. Opening the
  * tab marks everything read and refreshes the page so the sidebar dot
  * clears; the dots of this visit stay on the rows that were new.
  */
@@ -134,14 +186,12 @@ export function NoticesTab({ items, total, page, size, unread }: { items: Notice
 
   return (
     <section className="card settings-card notices-card">
-      <div className="between">
-        <div className="min-w-0">
-          <h2>{nt.title}</h2>
-          <p className="muted small notices-lede">{nt.lede}</p>
-        </div>
+      <div className="between notices-head">
+        {/* The page's own header already says 通知 (FeedColumns); only the lede here. */}
+        <p className="muted small notices-lede min-w-0">{nt.lede}</p>
         <button
           type="button"
-          className="btn secondary sm"
+          className="btn-secondary btn-sm"
           disabled={busy || (unread === 0 && fresh.size === 0)}
           onClick={() => {
             setFresh(new Set());
@@ -193,7 +243,7 @@ export function NoticesTab({ items, total, page, size, unread }: { items: Notice
       )}
       {total > size && (
         <div className="notices-pager">
-          <LinkPager t={t} locale={locale} page={page} size={size} total={total} href={(next) => `/settings?tab=notices&page=${next}`} />
+          <LinkPager t={t} locale={locale} page={page} size={size} total={total} href={(next) => `/notifications?page=${next}`} />
         </div>
       )}
     </section>

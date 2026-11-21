@@ -11,6 +11,9 @@
 import { readFileSync } from 'node:fs';
 import { REEMBED_BATCH, WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+/* A slow file (about 30s alone): under a parallel suite a few cases come near the default 5s, so it gets its own. */
+vi.setConfig({ testTimeout: 30_000 });
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { fakeEmbedding, startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
@@ -41,7 +44,7 @@ const { chunkOverheadBytes, defaultInfraCostRates } = await import('@/lib/domain
 const metered = await import('@/lib/services/metered-work');
 const { withProviderMeter, prepareProviderCall } = await import('@/lib/infra/ai/provider-meter');
 const { providerPrices } = await import('@/lib/services/provider-pricing');
-const chat = await import('@/lib/services/chat');
+const chat = await import('@/lib/services/retrieval');
 const { activeSpace, BASE_SPACE, chunkHasSpace, chunkVector } = await import('@/lib/services/embedding-space');
 
 let fake: FakeOpenAi;

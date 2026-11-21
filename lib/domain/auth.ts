@@ -14,8 +14,17 @@ export function isIdentityProvider(value: unknown): value is IdentityProvider {
 
 export const DEFAULT_RETURN_TO = '/rees';
 
-/** In-app destinations a sign-in may return to; an allow list cannot be talked into pointing elsewhere. */
-const RETURN_TO_PREFIXES = ['/dashboard', '/rees', '/activities', '/settings', '/chats', '/talk', '/explore', '/r', '/checkout', '/pricing', '/billing', '/videos', '/workspace'];
+/**
+ * In-app destinations a sign-in may return to; an allow list cannot be
+ * talked into pointing elsewhere. `/chats` and `/talk` only redirect since
+ * the chat pages went (2026-11-20); they stay so an old sign-in link still
+ * lands somewhere useful.
+ */
+const RETURN_TO_PREFIXES = [
+  '/dashboard', '/rees', '/activities', '/settings', '/chats', '/talk', '/explore', '/r', '/s', '/checkout', '/pricing', '/billing', '/videos', '/workspace',
+  /* v5's frame: 我的帖子, 通知, 收藏, 了解 RE0 and a post's page. */
+  '/me', '/notifications', '/saved', '/about', '/p',
+];
 
 function hasControlCharacter(value: string): boolean {
   for (const ch of value) {

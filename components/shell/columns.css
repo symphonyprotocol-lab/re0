@@ -1,0 +1,517 @@
+/*
+ * The three-column frame (docs/design/discover-posts.html, v5): the
+ * workspace sidebar as the left navigation, a centre column with a sticky
+ * head, a right column, and on phones a bottom bar with a floating ask
+ * button. Built from the workspace's own pieces (.sidebar, .app-main, .btn,
+ * .cl-tabs, .rail-card).
+ */
+
+.xshell .sidebar .nav {
+  margin-top: 0;
+  gap: 2px;
+}
+.xshell .sidebar .nav a {
+  font-size: 15px;
+  padding-block: 10px;
+}
+.xshell .sidebar .nav a svg {
+  width: 20px;
+  height: 20px;
+}
+.xshell .sidebar .xpost {
+  width: 100%;
+  margin-top: 16px;
+  min-height: 46px;
+  border-radius: 999px;
+  font-size: 15px;
+}
+.xshell .sidebar .xnav-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* The sidebar's last line, signed in or not (sidebar-links.tsx): 隐私 · 条款 · the language, one size, one grey, one baseline. */
+.xshell .sidebar .xnav-links {
+  display: flex;
+  flex-wrap: wrap;
+  /* Every item is one 16px line of 11px text, so centring them puts the words on one baseline (a button with a leading svg has no text baseline of its own). */
+  align-items: center;
+  gap: 4px 12px;
+  padding: 0 10px;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+.xshell .sidebar .xnav-links a:hover {
+  color: var(--color-ink);
+}
+.xshell .sidebar .xnav-language {
+  height: 16px;
+}
+.xshell .sidebar-account-footer .xnav-links {
+  padding: 10px 4px 0;
+}
+.xshell .sidebar .xnav-visitor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 6px;
+}
+.xshell .app-main {
+  --color-bg: #ffffff;
+}
+/* Inside the box (shell.css): the centre column and the right one, 640 + 28 + 340. No lines down the sides of the centre column (v6): the sidebar's is the only vertical line. */
+.xmain-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 640px) 340px;
+  gap: 28px;
+}
+.xcol {
+  min-width: 0;
+  min-height: 100vh;
+  background: #ffffff;
+}
+.xcol-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: rgb(255 255 255 / 0.92);
+  backdrop-filter: blur(12px);
+}
+.xcol-title > p {
+  font-size: 18px;
+  font-weight: 750;
+}
+/*
+ * The head's title row is the header line's height (shell.css, v6): its
+ * bottom line runs on from the one under the sidebar's logo. Tabs, where a
+ * page has them, are a second row under it with a line of their own.
+ */
+.xcol-title {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--header-line);
+  padding: 0 18px;
+  border-bottom: 1px solid var(--color-line);
+  font-size: 18px;
+  font-weight: 750;
+}
+.xcol-head:has(> .xcol-title + *) {
+  border-bottom: 1px solid var(--color-line);
+}
+.xcol-title .icon-btn {
+  margin-left: -6px;
+}
+.xcol-head .cl-tabs {
+  margin: 0;
+  padding: 0 18px;
+  border-bottom: 0;
+  gap: 26px;
+}
+.xcol-head .cl-tab {
+  font-size: 13px;
+  padding-block: 12px;
+}
+.xcol .discovery-page {
+  max-width: none;
+  margin: 0;
+  padding: 0 18px 40px;
+  background: transparent;
+}
+/*
+ * The composer's border-bottom is the one line between it and the feed: the
+ * feed and its first post draw no top line. Inside a padded page it reaches
+ * the column's edges; straight in the column it needs no negative margin.
+ */
+.xcol .post-composer {
+  margin: 0 -18px;
+  padding: 14px 18px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--color-line);
+  border-radius: 0;
+}
+.xcol > .post-composer {
+  margin: 0;
+}
+.xcol .post-composer textarea {
+  min-height: 48px;
+  font-size: 15px;
+}
+.xrail {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  /* The first block (a 38px search box, or a card's top) sits centred on the head's title row: (56 - 38) / 2. */
+  padding: 9px 0 40px;
+}
+.xrail .discovery-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  /*
+   * explore.css gives .discovery-page `margin: auto`: in this flex column
+   * that shrinks the card to its content and centres it (a post page's rail
+   * with only "还没有 Ree 回答" in it, once that stylesheet arrives, e.g.
+   * after a refresh). The rail is always its column's full width (#167).
+   */
+  margin: 0;
+  width: 100%;
+  align-self: stretch;
+  padding: 0;
+  max-width: none;
+  background: transparent;
+}
+.xrail .discovery-page .knowledge-banner {
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: 0;
+  padding: 18px;
+}
+.xrail .rail-card {
+  padding: 16px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+.xrail .rail-card h3 {
+  margin-bottom: 10px;
+  font-size: 14px;
+  font-weight: 750;
+}
+.xrail .rail-card li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.xrail .rail-card ol {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.xrail .rail-card strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+.xrail .rail-card small {
+  color: #606670;
+  font-size: 10px;
+}
+
+/* A visitor's welcome on 首页 (v6): one card in the feed's own gutter, one primary action. */
+.xwelcome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  margin: 14px 0 6px;
+  padding: 16px 18px;
+  border: 1px solid #d6e6fb;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f5f9ff 0%, #faf8ff 100%);
+}
+.xwelcome-text {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+.xwelcome h1 {
+  font-size: 17px;
+  font-weight: 750;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.xwelcome p {
+  margin-top: 3px;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.xwelcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* 首页's post search: in the right column; where that column folds away (under 1200px), at the top of the centre one. */
+.xcol-search {
+  display: none;
+}
+@media (max-width: 1199px) {
+  .xcol .xcol-search {
+    display: block;
+    padding: 12px 18px 0;
+  }
+}
+.xcol-search .search-box {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #dfe4ef;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #8a94ae;
+  font-size: 13px;
+}
+.xcol-search .search-box input {
+  color: var(--color-ink);
+}
+/* What a post search is showing, and the way back. */
+.xsearch-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 14px 18px 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* The visitor's bar at the bottom of the window. */
+.xsignup {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 12px 24px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--color-blue);
+  color: #ffffff;
+}
+.xsignup strong {
+  font-size: 15px;
+}
+.xsignup .xsignup-note {
+  font-size: 12px;
+  opacity: 0.85;
+}
+.xsignup .btn {
+  min-height: 34px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+.xsignup .btn.light {
+  background: #ffffff;
+  color: var(--color-blue);
+}
+.xsignup .btn.outline {
+  border-color: rgb(255 255 255 / 0.7);
+  background: transparent;
+  color: #ffffff;
+}
+
+/* Phones: no side columns; a top bar, a bottom bar and the floating 发帖 button. */
+.xtop {
+  display: none;
+}
+.xbottom,
+.xfab {
+  display: none;
+}
+/* Under 1280 the box loses its spare room: the right column narrows to 300, then from 1199px it folds away and the centre column stays on the left, by the sidebar. */
+@media (max-width: 1279px) {
+  .xmain-grid {
+    grid-template-columns: minmax(0, 640px) 300px;
+  }
+}
+@media (max-width: 1199px) {
+  .xmain-grid {
+    grid-template-columns: minmax(0, 640px);
+    justify-content: start;
+  }
+  .xrail {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  /* A visitor's sidebar has no drawer on a phone; signed in, it is the drawer the menu button opens (shell.css). */
+  .xshell.is-visitor .sidebar {
+    display: none;
+  }
+  .xmain-grid {
+    gap: 0;
+  }
+  .xcol {
+    border: 0;
+    padding-bottom: 64px;
+  }
+  .xtop {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px 0;
+  }
+  .xbottom {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--color-line);
+    background: rgb(255 255 255 / 0.96);
+    backdrop-filter: blur(12px);
+  }
+  .xbottom a {
+    position: relative;
+    display: grid;
+    place-items: center;
+    height: 42px;
+    color: #606670;
+  }
+  .xbottom a[aria-current='page'] {
+    color: var(--color-blue);
+  }
+  .xbottom svg {
+    width: 22px;
+    height: 22px;
+  }
+  .xbottom .nav-dot {
+    position: absolute;
+    top: 8px;
+    left: calc(50% + 6px);
+  }
+  .xfab {
+    position: fixed;
+    right: 18px;
+    bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+    z-index: 41;
+    display: grid;
+    place-items: center;
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: var(--color-blue);
+    color: #ffffff;
+    box-shadow: 0 8px 20px #0867c440;
+  }
+  .xfab svg {
+    width: 24px;
+    height: 24px;
+  }
+  .xsignup {
+    bottom: 0;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+/* A visitor's phone has no sidebar: the language is the head's globe, beside the way to Rees. */
+.xtop-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.xtop .xtop-language > span {
+  display: none;
+}
+.xtop .xtop-language > svg.language-menu-globe {
+  width: 20px;
+  height: 20px;
+}
+.xtop .wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 19px;
+  font-weight: 750;
+  letter-spacing: -0.6px;
+}
+.xtop .wordmark > svg {
+  width: 26px;
+  height: 26px;
+}
+@media (min-width: 761px) {
+  .xshell .sidebar.is-collapsed .xpost {
+    padding: 0;
+  }
+  .xshell .sidebar.is-collapsed .xpost > span,
+  .xshell .sidebar.is-collapsed .xnav-visitor {
+    display: none;
+  }
+  /* The icon rail keeps only the language: its globe, centred, the name in its tooltip and label. */
+  .xshell .sidebar.is-collapsed .xnav-links {
+    justify-content: center;
+    padding: 8px 0 0;
+  }
+  .xshell .sidebar.is-collapsed .xnav-links > a,
+  .xshell .sidebar.is-collapsed .xnav-language > span {
+    display: none;
+  }
+  .xshell .sidebar.is-collapsed .xnav-language {
+    justify-content: center;
+    width: 32px;
+    height: 28px;
+    border-radius: 8px;
+  }
+  .xshell .sidebar.is-collapsed .xnav-language:hover {
+    background: #edf3ff;
+  }
+  .xshell .sidebar.is-collapsed .xnav-language > svg.language-menu-globe {
+    width: 16px;
+    height: 16px;
+  }
+}
+/* The visitor's bar is the sign-in only where there is no left navigation (phones, v6); room for it there. */
+@media (min-width: 761px) {
+  .xshell.is-visitor .xsignup {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .xshell.is-visitor .app-main {
+    padding-bottom: 72px;
+  }
+}
+
+/* Pages inside the centre column: its head is the sticky part. */
+.xcol .discovery-toolbar {
+  position: static;
+}
+.xcol .discovery-feed-banner .knowledge-banner {
+  margin-top: 20px;
+}
+
+/* One wide column (v6): 价格, 了解 RE0, the legal pages and checkout use the centre and right columns' width together. */
+.xmain-grid.is-wide {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/*
+ * One single-line search box across the workspace (v6): 38px tall, the
+ * site's .input size, whatever page-specific box it is -- 我的 Ree and the
+ * video library (.search-small), statistics (.creator-detail-search, the
+ * ledger's filter), knowledge (.km-search) and 我的帖子 (.cl-search-input).
+ * The Rees and 首页 boxes are .search-box (explore.css).
+ */
+.xshell .app-main :is(.search-small, .creator-detail-search, .km-search, .cl-search-input) {
+  box-sizing: border-box;
+  height: 38px;
+  min-height: 38px;
+  padding-block: 0;
+}
+.xshell .app-main :is(.search-small, .creator-detail-search, .km-search, .cl-search-input) input {
+  padding-block: 0;
+  font-size: 13px;
+}
+.xshell .app-main input.input[type='search'] {
+  height: 38px;
+  padding-block: 0;
+}

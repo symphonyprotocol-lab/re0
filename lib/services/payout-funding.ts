@@ -5,16 +5,19 @@
  * The path, per payout and bounded by it: the payout's hold names the earned
  * grants it draws on; each was credited by a `query_fee_earned` entry of the
  * owner written in the same instant (found through the owner's
- * `(user_id, created_at)` index), whose `ref_id` is the reply; the reply's
- * `request_id` is the question, whose conversation names the asker; the
- * asker's `query_fee_paid` entries for that question and Ree name the grants
- * the fee was paid from, and so what it was paid from. Nothing scans the
- * whole ledger.
+ * `(user_id, created_at)` index), whose `ref_id` is what was answered. A
+ * post answer's fee (posts.ts `closeAnswer`) names the answer: its holds were
+ * placed against the answer, by the follow-up's author or else the post's.
+ * A conversation answer's fee, from before the conversations were dropped,
+ * names the reply, which `payout_trace_legacy` (migration 0070) maps to its
+ * question, Ree and asker. The asker's `query_fee_paid` entries for that
+ * question (or answer) and Ree name the grants the fee was paid from, and so
+ * what it was paid from. Nothing scans the whole ledger.
  *
  * Earned credits with no such entry (granted in the console, or an
- * invitation reward) and questions whose conversation was since deleted
- * (their messages go with it) cannot be traced; they count in `drawn` but
- * not in `traced`. `drawn_invite` is what the payout draws on invite-funded
+ * invitation reward) and conversation answers whose conversation was
+ * deleted before migration 0070 kept the trace cannot be traced; they count
+ * in `drawn` but not in `traced`. `drawn_invite` is what the payout draws on invite-funded
  * grants: invitation rewards themselves and earnings from fees paid with
  * them, over any number of hops (`credit_grant.invite_funded`).
  */
@@ -79,12 +82,19 @@ async function fundingOf(ids: readonly string[]): Promise<Map<string, PayoutFund
       join credit_grant g on g.id = d.grant_id
       left join purchase pf on pf.id = g.funding_purchase_id
     ), replies as (
-      select l.payout_id, l.owner_id, l.reply_id, sum(l.drawn) as drawn, m.request_id, m.ree_id, c.user_id as asker_id, q.created_at as asked_at
+      /* A conversation answer's fee (before migration 0070 dropped them): its reply, question, Ree, asker and time, as the migration kept them. */
+      select l.payout_id, l.owner_id, l.reply_id, sum(l.drawn) as drawn, t.request_id, t.ree_id, t.asker_id, t.asked_at
       from linked l
-      join message m on m.id = l.reply_id
-      join message q on q.id = m.request_id
-      join conversation c on c.id = q.conversation_id
-      group by l.payout_id, l.owner_id, l.reply_id, m.request_id, m.ree_id, c.user_id, q.created_at
+      join payout_trace_legacy t on t.reply_id = l.reply_id
+      group by l.payout_id, l.owner_id, l.reply_id, t.request_id, t.ree_id, t.asker_id, t.asked_at
+      union all
+      /* A post answer's fee: the answer is its own question (the asker's holds name it), asked by the follow-up's author or else the post's. */
+      select l.payout_id, l.owner_id, l.reply_id, sum(l.drawn) as drawn, a.id, a.ree_id, coalesce(f.user_id, p.user_id), a.created_at
+      from linked l
+      join post_answer a on a.id = l.reply_id
+      join post p on p.id = a.post_id
+      left join post_followup f on f.id = a.followup_id
+      group by l.payout_id, l.owner_id, l.reply_id, a.id, a.ree_id, f.user_id, p.user_id, a.created_at
     ), spend as (
       select r.payout_id, r.reply_id, g.source, g.purchase_id, g.redemption_id, g.withdrawable_at, g.funding_purchase_id, g.invite_funded,
         sum(case when f.delta < 0 then (a->>'amount')::bigint else -(a->>'amount')::bigint end) as amount

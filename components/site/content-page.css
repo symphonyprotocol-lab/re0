@@ -1,0 +1,534 @@
+/*
+ * The site's content pages inside the shell (v6): 价格, 了解 RE0, the legal
+ * pages and checkout, in one wide column. Cards, type and buttons are the
+ * workspace's: 14px corners, a 1px line, 15px card titles, 12-13px text.
+ */
+
+.xpage {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px 18px 40px;
+}
+.xpage-lede {
+  color: #3b4361;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.xpage-lede .tag {
+  margin-left: 6px;
+  font-family: var(--font-mono);
+}
+.xpage-headline {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.xpage-headline em {
+  color: var(--color-brand-blue, var(--color-blue));
+  font-style: normal;
+}
+.xp-card {
+  padding: 20px 22px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+.xp-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 12px;
+}
+.xp-head h2,
+.xp-card > h2 {
+  font-size: 15px;
+  font-weight: 750;
+  text-wrap: balance;
+}
+.xp-head p {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.xp-head .eyebrow {
+  flex-basis: 100%;
+}
+.xp-grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+/*
+ * Pricing: the three ways to pay. The cards share the grid's rows
+ * (subgrid): eyebrow, title, price, credits, note, button, list -- so each
+ * row lines up across the three whatever the words' length or language,
+ * and the buttons sit on one line. The recommended card's ribbon sits on
+ * its top border and takes no row.
+ */
+.xp-grid3:has(> .xp-tier) {
+  grid-template-rows: repeat(7, auto);
+}
+.xp-grid3 > .xp-tier {
+  display: grid;
+  grid-row: span 7;
+  grid-template-rows: subgrid;
+  row-gap: 10px;
+}
+.xp-tier {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+.xp-tier.is-recommended {
+  border-color: #9cc7f2;
+  box-shadow: 0 0 0 3px #127ee314;
+}
+.xp-tier h2 {
+  font-size: 15px;
+  font-weight: 750;
+}
+.xp-ribbon {
+  position: absolute;
+  top: 0;
+  left: 18px;
+  transform: translateY(-50%);
+  border: 1px solid #9cc7f2;
+  border-radius: 999px;
+  padding: 2px 9px;
+  background: #eef6fe;
+  color: var(--color-blue);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.xp-action {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.xp-price {
+  color: var(--color-ink);
+  font: 600 26px/1.1 var(--font-mono);
+}
+.xp-price small {
+  margin-left: 4px;
+  color: var(--color-muted);
+  font: 12px var(--font-sans);
+}
+.xp-credits {
+  color: var(--color-blue);
+  font-size: 13px;
+  font-weight: 600;
+}
+.xp-note {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.xp-tier ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: start;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid #edf0f7;
+  color: #3b4361;
+  font-size: 12px;
+}
+.xp-tier li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.xp-tier li svg {
+  width: 14px;
+  height: 14px;
+  color: var(--color-green);
+}
+.xp-tier :is(.btn, .btn-secondary) {
+  justify-content: center;
+  width: 100%;
+}
+.xp-locked {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+/* A table of costs: lines only between rows, the head on a wash. */
+.xp-table-wrap {
+  overflow-x: auto;
+}
+.xp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.xp-table th {
+  padding: 8px 10px;
+  background: var(--color-wash);
+  color: var(--color-muted);
+  font-weight: 600;
+  text-align: left;
+}
+.xp-table td {
+  padding: 10px;
+  border-top: 1px solid #edf0f7;
+  color: #3b4361;
+  vertical-align: top;
+}
+.xp-table td:first-child {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.xp-table td:nth-child(2) {
+  font-family: var(--font-mono);
+}
+
+/* The pricing estimator (estimator.tsx), as a card. */
+.xpage .pricing-estimator {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 28px;
+  align-items: center;
+  padding: 20px 22px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+.xpage .pricing-estimator h2 {
+  font-size: 15px;
+  font-weight: 750;
+}
+.xpage .pricing-estimator > div > p {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.xpage .pricing-estimator label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.xpage .pricing-estimator label strong {
+  color: var(--color-ink);
+  font: 12px var(--font-mono);
+}
+.xpage .pricing-estimator input[type='range'] {
+  width: 100%;
+  accent-color: var(--color-blue);
+}
+.xpage .pricing-estimator > div:last-child > p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.xpage .pricing-estimator .mono {
+  color: var(--color-ink);
+  font-size: 22px;
+}
+.xpage .pricing-estimator > div:last-child > p span {
+  margin-left: auto;
+  color: var(--color-muted);
+}
+.xpage .estimator-share {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+/* Questions and answers. */
+.xp-faq details + details {
+  border-top: 1px solid #edf0f7;
+}
+.xp-faq summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.xp-faq summary::-webkit-details-marker {
+  display: none;
+}
+.xp-faq summary svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--color-muted);
+  transition: transform 0.16s ease;
+}
+.xp-faq details[open] summary svg {
+  transform: rotate(45deg);
+}
+.xp-faq details p {
+  padding: 0 0 12px;
+  color: #3b4361;
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+/* 了解 RE0 */
+.xp-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr);
+  gap: 22px;
+  align-items: center;
+  padding: 26px;
+  border: 1px solid #d6e6fb;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #f5f9ff 0%, #faf8ff 100%);
+}
+.xp-hero h1 {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.xp-hero h1 em {
+  color: var(--color-brand-blue, var(--color-blue));
+  font-style: normal;
+}
+.xp-hero > div > p {
+  margin-top: 8px;
+  color: #3b4361;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.xp-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.xp-hero-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 10px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.xp-hero-checks span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.xp-hero-checks svg {
+  width: 13px;
+  height: 13px;
+  color: var(--color-green);
+}
+/* The answer demo keeps its own look (site.css), sized for the card. */
+.xp-hero .home-demo {
+  min-width: 0;
+  margin: 0;
+}
+.xp-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.xp-sources .tag {
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.xp-sources svg {
+  width: 14px;
+  height: 14px;
+}
+.xp-feature,
+.xp-step {
+  padding: 16px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: #ffffff;
+}
+.xp-feature b,
+.xp-step b {
+  display: block;
+  color: var(--color-muted);
+  font: 500 10px var(--font-mono);
+  letter-spacing: 0.12em;
+}
+.xp-feature h3,
+.xp-step h3 {
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.xp-feature p,
+.xp-step p {
+  margin-top: 4px;
+  color: #3b4361;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.xp-feature-art {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: #3b4361;
+  font-size: 11px;
+}
+.xp-feature-art .tag svg {
+  width: 12px;
+  height: 12px;
+}
+.xp-feature-quote {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--color-wash);
+  color: #3b4361;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.xp-feature-quote small {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+.xp-feature-quote small svg {
+  width: 12px;
+  height: 12px;
+}
+.xp-ree {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: #ffffff;
+}
+.xp-ree-top,
+.xp-ree-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.xp-ree h3 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.xp-ree p {
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.xp-ree-foot .mono {
+  font-size: 12px;
+}
+.xp-ree-foot small {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+.xp-plan {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+  gap: 18px;
+  align-items: center;
+}
+.xp-plan > div > p {
+  margin-top: 4px;
+  color: #3b4361;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.xp-plan .btn-secondary {
+  margin-top: 12px;
+}
+.xp-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 18px;
+  padding: 20px 22px;
+  border-radius: 14px;
+  background: var(--color-ink);
+  color: #ffffff;
+}
+.xp-cta h2 {
+  font-size: 17px;
+  font-weight: 750;
+}
+.xp-cta h2 em {
+  font-style: normal;
+}
+.xp-cta p {
+  margin-top: 2px;
+  color: #c4cce0;
+  font-size: 12px;
+}
+
+/* The site's small print, at the foot of these pages (it was the old site's footer). */
+.xp-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 18px 2px 0;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.xp-footer a:hover {
+  color: var(--color-blue);
+}
+
+@media (max-width: 760px) {
+  .xpage {
+    padding: 12px 16px 96px;
+  }
+  .xp-grid3,
+  .xp-hero,
+  .xp-plan,
+  .xpage .pricing-estimator {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .xp-hero {
+    padding: 18px;
+  }
+  .xp-hero h1 {
+    font-size: 22px;
+  }
+  .xp-card {
+    padding: 16px;
+  }
+}
+
+/* The answer demo inside the hero card draws no vertical rule of its own (v6: the sidebar's is the only one); its source panel sits on a wash instead. */
+.xp-hero .demo-source-panel {
+  border-right: 0;
+  background: var(--color-wash);
+}

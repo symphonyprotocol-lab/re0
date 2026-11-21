@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { parseExploreBatch, parseExploreQuery } from '@/lib/domain/explore';
-import { clientIp } from '@/lib/http/conversations';
+import { clientIp } from '@/lib/http/client-ip';
 import { fail, json } from '@/lib/http/respond';
 import { rateLimited } from '@/lib/http/rate-limit';
 import { currentUser } from '@/lib/http/session';

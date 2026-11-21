@@ -53,6 +53,73 @@ export function freezeDateAtWindowStart(windowSeconds = 60): Date {
 }
 
 /**
+ * Runs a migration's hand-written backfill again -- the SQL between
+ * `-- <name> begin` and `-- <name> end` -- so a test can freeze what it seeded
+ * in the conversation tables, as the release did: `legacy-stats` (0066,
+ * `ree_legacy_stats` / `user_legacy_stats`), `api-key-usage` and
+ * `chats-removal-notice` (0067). Each overwrites or skips what it wrote, so
+ * they may run any number of times.
+ */
+export async function runBackfill(name: 'legacy-stats' | 'api-key-usage' | 'chats-removal-notice'): Promise<void> {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const { db } = await import('@/lib/infra/db');
+  const { sql } = await import('drizzle-orm');
+  const dir = new URL('../../db/migrations/', import.meta.url);
+  for (const file of readdirSync(dir).filter((entry) => entry.endsWith('.sql'))) {
+    const text = readFileSync(new URL(file, dir), 'utf8');
+    const begin = text.indexOf(`-- ${name} backfill begin`);
+    if (begin < 0) continue;
+    const end = text.indexOf(`-- ${name} backfill end`, begin);
+    for (const statement of text.slice(begin, end).split('--> statement-breakpoint')) {
+      if (statement.replace(/--[^\n]*|\/\*[\s\S]*?\*\//g, '').trim()) await db().execute(sql.raw(statement));
+    }
+    return;
+  }
+  throw new Error(`no backfill named ${name}`);
+}
+
+/** A migration file's statements, as the deploy runs them: split on `--> statement-breakpoint`, comment-only pieces left out. */
+async function statementsOf(url: URL): Promise<string[]> {
+  const { readFileSync } = await import('node:fs');
+  return readFileSync(url, 'utf8')
+    .split('--> statement-breakpoint')
+    .filter((statement) => statement.replace(/--[^\n]*|\/\*[\s\S]*?\*\//g, '').trim());
+}
+
+async function conversationTablesExist(): Promise<boolean> {
+  const { db } = await import('@/lib/infra/db');
+  const { sql } = await import('drizzle-orm');
+  const result = await db().execute<{ present: boolean }>(sql`select to_regclass('public.conversation') is not null as present`);
+  return result.rows[0]!.present;
+}
+
+/**
+ * The conversation tables, and the columns that pointed at them, back as
+ * they were before migration 0070 dropped them (tests/fixtures/
+ * pre-0070-conversations.sql), so a test can seed old conversations. Empty;
+ * a no-op while they exist. `dropConversationTables` puts the database back.
+ */
+export async function restoreConversationTables(): Promise<void> {
+  if (await conversationTablesExist()) return;
+  const { db } = await import('@/lib/infra/db');
+  const { sql } = await import('drizzle-orm');
+  for (const statement of await statementsOf(new URL('../fixtures/pre-0070-conversations.sql', import.meta.url))) await db().execute(sql.raw(statement));
+}
+
+/** Migration 0070's statements in order, its own table's creation left out once that table exists (as it does after the suite's migrations). */
+export async function migration0070(): Promise<string[]> {
+  return (await statementsOf(new URL('../../db/migrations/0070_drop_conversations.sql', import.meta.url))).filter((statement) => !/create table "payout_trace_legacy"/i.test(statement));
+}
+
+/** Runs migration 0070 against what the test seeded: the guard, the payout snapshot, the purge and the drops. A no-op once the tables are gone. */
+export async function dropConversationTables(): Promise<void> {
+  if (!(await conversationTablesExist())) return;
+  const { db } = await import('@/lib/infra/db');
+  const { sql } = await import('drizzle-orm');
+  for (const statement of await migration0070()) await db().execute(sql.raw(statement));
+}
+
+/**
  * Every integration file starts with the invitation, starter task and
  * check-in rewards off (amounts 0, invitations on), so suites about other things see
  * the balances they always did. tests/integration/invites.test.ts turns

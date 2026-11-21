@@ -50,8 +50,12 @@
       "schedule": "50 3 * * *"
     },
     {
-      "path": "/api/cron/release-chat-holds",
+      "path": "/api/cron/posts",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/traffic",
+      "schedule": "20 16 * * *"
     }
   ]
 }

@@ -143,38 +143,10 @@ export const NO_ANSWER_REFUSAL_CHARS = 120;
  * inside the route's 300-second `maxDuration` (review H5).
  */
 export const ANSWER_STREAM_TIMEOUT_MAX_MS = 180_000;
-export const ANSWER_CHECK_TIMEOUT_MAX_MS = 90_000;
-/**
- * A chat hold still open after this long belongs to a stream that died (the
- * function was killed or redeployed); the reaper cron releases it.
- */
-export const CHAT_HOLD_STALE_MS = 10 * 60 * 1000;
-/** Chat holds the reaper releases per run. */
-export const CHAT_HOLD_REAP_BATCH = 200;
-/**
- * 回答核验: checking one Ree's answer against the passages it cited, per
- * answering Ree, all to the platform (ree-council-proposal.md 3.3). Held with
- * the question; given back when the Ree does not answer or the check fails.
- */
-export const VERIFY_FEE = 10;
-/** The rollout switch for answer checking; off, the toggle is gone and nothing is checked or held. */
-export const VERIFY_ENABLED = true;
-/** The longest reason a check gives for one sentence. */
-export const VERIFY_REASON_CHARS = 80;
-/** Sentences one check sends to the model at most; longer answers are checked from the start. */
-export const VERIFY_MAX_SENTENCES = 40;
-/**
- * Ree 圆桌: one synthesis of the answers several Rees gave to one question,
- * charged once, all to the platform -- the owners already earned their
- * query fees answering (ree-council-proposal.md 4.3).
- */
-export const SYNTHESIS_FEE = 30;
-/** The rollout switch for the synthesis and the explore entry that leads to it. */
+/** The rollout switch for "一起问前 3 个 Ree" on explore (once the entry to a conversation's round table). */
 export const SYNTHESIS_ENABLED = true;
-/** Answers a synthesis needs at least. */
+/** Rees explore needs at least to offer asking them together. */
 export const SYNTHESIS_MIN_ANSWERS = 2;
-/** A synthesis still marked running after this long is taken to have died and may be started again. */
-export const SYNTHESIS_STALE_MS = 10 * 60 * 1000;
 /** "一起问前 3 个 Ree" on explore. */
 export const ROUNDTABLE_REES = 3;
 /** The owner's query fee range (credits per answered question). */
@@ -396,47 +368,6 @@ export const OVERVIEW_TAIL_TOKENS = 250;
 export const CITATION_EXCERPT_CHARS = 600;
 /** Characters a question may have. */
 export const QUESTION_MAX_CHARS = 4_000;
-/** Earlier turns of this Ree sent along with a question. */
-export const HISTORY_TURNS = 6;
-
-/* ------------------------------------------- anonymous chat, beyond 4 */
-
-/**
- * Signed-out visitors may ask a public, published Ree whose query fee is 0
- * on its public page (lib/services/anonymous-chat.ts). A round is one
- * question the Ree answered; the day is the UTC date (anonymousDay).
- */
-export const ANONYMOUS_ROUNDS_PER_DAY = 10;
-/**
- * Per client address (IPv6 by /64) and day, by default: many visitors behind one address
- * (an office, a campus, carrier NAT), or one rotating fingerprint and cookie
- * -- the only key a script cannot make up.
- */
-export const ANONYMOUS_IP_ROUNDS_PER_DAY = 100;
-/** Per Ree and day, over all signed-out visitors. */
-export const ANONYMOUS_REE_ROUNDS_PER_DAY = 500;
-/** Over the whole platform and day: the circuit breaker on what anonymous answers may cost. */
-export const ANONYMOUS_PLATFORM_ROUNDS_PER_DAY = 5_000;
-/*
- * Every cap here, and the attempts factor below, is a default: an
- * administrator sets them in the console's pricing page
- * (anonymous-chat-settings.ts); servers pick a change up within
- * `ANONYMOUS_LIMITS_CACHE_MS`. The shared caps go from 1 to this.
- */
-export const ANONYMOUS_LIMIT_MAX = 10_000_000;
-/* A browser's own rounds per day and the attempts factor are set there too, within these. */
-export const ANONYMOUS_VISITOR_ROUNDS_MAX = 1_000;
-export const ANONYMOUS_ATTEMPTS_FACTOR_MAX = 10;
-export const ANONYMOUS_LIMITS_CACHE_MS = 30_000;
-/**
- * Every key also caps attempts at this multiple of its rounds: a question
- * that gets no answer gives its round back but never its attempt, so
- * refunds cannot be farmed.
- */
-export const ANONYMOUS_ATTEMPTS_FACTOR = 2;
-/** Earlier turns (questions and answers) the browser sends back with a question, and their combined length. */
-export const ANONYMOUS_HISTORY_TURNS = 4;
-export const ANONYMOUS_HISTORY_CHARS = 3_000;
 
 /* ------------------------------------------------------------- lists, 8.1 */
 
@@ -493,28 +424,7 @@ export const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 export const DISPLAY_NAME_MAX = 40;
 
-/* ------------------------------------------- conversations and explore, 2.4, 5 */
-
-/** Rees one conversation may hold (5). */
-export const CONVERSATION_MAX_REES = 5;
-/** A conversation title (8.2, "重命名 ≤ 120"). */
-export const CONVERSATION_TITLE_MAX = 120;
-/** A new conversation is named after its first question, cut to this. */
-export const CONVERSATION_AUTO_TITLE = 80;
-/** Trashed conversations are purged with their messages after this long (8.2). */
-export const CONVERSATION_TRASH_DAYS = 30;
-/** The `/chats` search page's "updated within" choices, in days. */
-export const CONVERSATION_PERIODS = [7, 30, 90] as const;
-/** Conversations one batch request may touch. */
-export const CONVERSATION_BATCH_MAX = 1_000;
-/** The sidebar's history: every pinned conversation, and this many of the most recent others. */
-export const SIDEBAR_HISTORY_MAX = 200;
-/** Days are grouped and "updated within" counted in UTC+8, as the rest of the product (prototype). */
-export const LOCAL_UTC_OFFSET_HOURS = 8;
-/** "这些公开 Ree 可能知道": public Rees suggested when every asked Ree had nothing. */
-export const NO_ANSWER_SUGGESTIONS = 3;
-/** Candidates the participant picker lists per search. */
-export const PICKER_RESULTS = 30;
+/* ------------------------------------------------------- explore, 2.4, 5 */
 
 /** A knowledge profile (2.4): one introduction vector, the example questions, centroids for the rest. */
 export const PROFILE_MAX_VECTORS = 16;
@@ -560,23 +470,29 @@ export const EXPLORE_RATE_LIMIT = { windowSeconds: 60, perIp: 30, perUser: 30 } 
 /**
  * Per-account request limits on the routes that cost us or move a public
  * signal (lib/http/rate-limit.ts): asking (an unanswered question is free but
- * still embeds and calls the model), new conversations (each one is a pull in
- * the explore ranking), comments, upload tokens (each up to 100 MB of Blob)
+ * still embeds and calls the model), comments, upload tokens (each up to 100 MB of Blob)
  * and domain checks (a DNS and an HTTPS request each). Every rule is a fixed
  * window within the hour `clearRateBuckets` keeps; a signed-out caller is
  * keyed by client address instead.
  */
 export const USER_RATE_LIMITS = {
   ask: [{ windowSeconds: 60, limit: 20 }, { windowSeconds: 3_600, limit: 300 }],
-  conversation: [{ windowSeconds: 60, limit: 10 }, { windowSeconds: 3_600, limit: 60 }],
-  /* Adding a Ree to a conversation is a pull too. */
-  participants: [{ windowSeconds: 60, limit: 30 }, { windowSeconds: 3_600, limit: 300 }],
   comment: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
+  /* "有帮助" and "举报" on the Ree page's public Q&A. */
+  publicQa: [{ windowSeconds: 60, limit: 30 }, { windowSeconds: 3_600, limit: 300 }],
+  /* Publishing a public post (v5): each one embeds, searches and calls up to five models; the daily ceiling is POST_DAILY_LIMIT. */
+  post: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
+  /* "有帮助", "举报", "收藏", "继续问" and the round table on posts. */
+  postAction: [{ windowSeconds: 60, limit: 30 }, { windowSeconds: 3_600, limit: 300 }],
   uploadToken: [{ windowSeconds: 60, limit: 30 }, { windowSeconds: 3_600, limit: 200 }],
   domainVerify: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
   /* `/api/explore` without a question; a question has its own EXPLORE_RATE_LIMIT. */
   browse: [{ windowSeconds: 60, limit: 120 }, { windowSeconds: 3_600, limit: 2_000 }],
 } as const satisfies Record<string, readonly { windowSeconds: number; limit: number }[]>;
+/** What a console exemption from `USER_RATE_LIMITS` covers unless the administrator picks otherwise: no model-cost routes. */
+export const RATE_LIMIT_EXEMPT_DEFAULT = ['uploadToken', 'browse'] as const satisfies readonly (keyof typeof USER_RATE_LIMITS)[];
+/** Limits whose routes call models and so cost money; the console flags them on exemptions. */
+export const RATE_LIMIT_MODEL_COST = ['ask', 'post', 'postAction'] as const satisfies readonly (keyof typeof USER_RATE_LIMITS)[];
 /** Quality signals look back this far (2.4). */
 export const QUALITY_WINDOW_DAYS = 30;
 /**

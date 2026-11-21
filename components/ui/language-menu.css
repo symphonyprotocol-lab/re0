@@ -32,3 +32,23 @@
 @media (prefers-reduced-motion: reduce) {
   .language-menu-trigger > svg.language-menu-caret { transition: none; }
 }
+
+/* Quiet: a footer link (the sidebar's 隐私 · 条款 · 中文, v6) -- its size, colour and baseline, a globe as tall as the text. */
+.language-menu-trigger.is-quiet {
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+.language-menu-trigger.is-quiet > svg.language-menu-globe {
+  width: 1em;
+  height: 1em;
+}
+.language-menu-trigger.is-quiet:hover,
+.language-menu-trigger.is-quiet[aria-expanded='true'] {
+  color: var(--color-ink);
+}

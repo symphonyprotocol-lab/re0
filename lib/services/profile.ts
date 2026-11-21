@@ -18,7 +18,7 @@ import { PROFILE_CENTROIDS, PROFILE_KMEANS_ITERATIONS, PROFILE_KMEANS_SAMPLE, PR
 import { embedTexts } from '@/lib/infra/ai/models';
 import { generationForUser } from '@/lib/services/generation';
 import { db, schema } from '@/lib/infra/db';
-import { answerable } from '@/lib/services/chat';
+import { answerable } from '@/lib/services/retrieval';
 import { chunkVector, spaceOf } from '@/lib/services/embedding-space';
 import { publicRee } from '@/lib/services/explore';
 import { meteredWork } from '@/lib/services/metered-work';

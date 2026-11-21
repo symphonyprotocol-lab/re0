@@ -9,6 +9,8 @@ import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { AuditTable } from '@/components/admin/audit-kit';
 import { ReeHeader, ReeOverviewTab, ReeSourcesTab, ReeTabsNav, reeBackLabel, reeBackPath, reeDetailHref, reeTab, sourceParams } from '@/components/admin/ree-detail';
 import { ReeStatisticsPage } from '@/components/admin/ree-statistics';
+import { ReePublicQaTab } from '@/components/admin/ree-public-qa';
+import { adminPublicQa } from '@/lib/services/public-qa';
 
 type Props = { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -72,6 +74,8 @@ export default async function ReeDetailPage({ params, searchParams }: Props) {
         sourcesHref={reeDetailHref(id, from, 'sources', sourceParams({ q: '', status: 'ready' }))}
       />
     );
+  } else if (tab === 'qa') {
+    body = <ReePublicQaTab reeId={id} rows={await adminPublicQa(id)} />;
   } else if (tab === 'audit') {
     const rows = await reeAudit(administrator, id);
     body = (

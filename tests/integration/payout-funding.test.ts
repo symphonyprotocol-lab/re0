@@ -5,10 +5,12 @@
  * signals -- one dominant payer, fresh accounts, askers who ask no one else,
  * a shared e-mail, fees at the maximum, refunded purchases. Read-only.
  *
- * Questions are settled here with the same calls, in the same order, as
- * `lib/services/answer.ts` settles an answered question's query fee (hold,
- * settle, `paidShare`, one earned grant per paying purchase plus one for the
- * free part, the reply row), without a model stream in front of it.
+ * Conversation answers (before migration 0070) are settled here with the
+ * same calls, in the same order, as the conversations settled an answered
+ * question's query fee (hold, settle, `paidShare`, one earned grant per
+ * paying purchase plus one for the free part), and traced as 0070 left them
+ * (`payout_trace_legacy`); private-post answers through posts.ts
+ * `closeAnswer` itself.
  */
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
@@ -30,7 +32,8 @@ const kyc = await import('@/lib/services/kyc');
 const payouts = await import('@/lib/services/payouts');
 const { payoutFunding, payoutFundingLines } = await import('@/lib/services/payout-funding');
 const { reportingDate } = await import('@/lib/domain/statistics');
-const { EARNED_MATURITY_DAYS, QUERY_FEE } = await import('@/lib/constants');
+const { EARNED_MATURITY_DAYS, QUERY_BASE_FEE, QUERY_FEE } = await import('@/lib/constants');
+const { closeAnswer } = await import('@/lib/services/posts');
 const { db, schema } = await import('@/lib/infra/db');
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -67,12 +70,16 @@ async function boughtPack(userId: string, credits: number) {
   return purchase!;
 }
 
-/** One answered question, its query fee settled the way `answer.ts` settles it. */
+/**
+ * One answered conversation question from before migration 0070, its query
+ * fee settled the way the conversations settled it, and its reply traced as
+ * 0070 kept it (`payout_trace_legacy`) once the messages were gone.
+ */
 async function ask(askerId: string, ree: { id: string; ownerId: string; name: string }, fee: number) {
-  const [conversation] = await db().insert(schema.conversation).values({ userId: askerId }).returning();
-  const [question] = await db().insert(schema.message).values({ conversationId: conversation!.id, role: 'user', content: 'question' }).returning();
-  const holdId = await db().transaction((tx) => placeHold(tx, { userId: askerId, kind: 'chat', amount: fee, refId: question!.id, reeId: ree.id, ledger: 'chat_fee' }));
+  const questionId = randomUUID();
   const replyId = randomUUID();
+  /* A `chat` hold then; nothing places one now, and the kind plays no part in the trace. */
+  const holdId = await db().transaction((tx) => placeHold(tx, { userId: askerId, kind: 'post', amount: fee, refId: questionId, reeId: ree.id, ledger: 'chat_fee' }));
   await db().transaction(async (tx) => {
     const paid = await settleHold(tx, holdId, fee, { reeId: ree.id, note: ree.name, ledger: 'chat_fee' });
     const share = await paidShare(tx, paid!.chargedAllocations);
@@ -81,8 +88,26 @@ async function ask(askerId: string, ree: { id: string; ownerId: string; name: st
       addGrant(tx, { userId: ree.ownerId, source: 'earned', amount, reason: 'query_fee_earned', refId: replyId, reeId: ree.id, note: ree.name, withdrawableAt, fundingPurchaseId });
     for (const [purchaseId, amount] of share.byPurchase) if (amount > 0) await credit(amount, matures, purchaseId);
     if (share.free > 0) await credit(share.free, null, null);
-    await tx.insert(schema.message).values({ id: replyId, conversationId: conversation!.id, role: 'ree', reeId: ree.id, content: 'answer', requestId: question!.id, costCredits: fee });
+    await tx.insert(schema.payoutTraceLegacy).values({ replyId, requestId: questionId, reeId: ree.id, askerId, askedAt: new Date() });
   });
+}
+
+/**
+ * One answered private-post question (private-posts.ts): the base fee and the
+ * query fee held against the answer row, then settled by posts.ts
+ * `closeAnswer`, which credits the owner with the answer as the reference.
+ */
+async function askPost(askerId: string, ree: { id: string; ownerId: string; name: string }, fee: number) {
+  const postId = randomUUID();
+  const answerId = randomUUID();
+  await db().transaction(async (tx) => {
+    await tx.insert(schema.post).values({ id: postId, userId: askerId, source: 'post', visibility: 'private', question: 'question', lang: 'en', status: 'published', publishedAt: new Date(), answerState: 'answering' });
+    await tx.insert(schema.postAnswer).values({ id: answerId, postId, reeId: ree.id, state: 'answering', mentioned: true });
+    const baseHoldId = await placeHold(tx, { userId: askerId, kind: 'post', ledger: 'post_answer', amount: QUERY_BASE_FEE, refId: answerId, reeId: ree.id, note: 'post answer' });
+    const feeHoldId = await placeHold(tx, { userId: askerId, kind: 'post', ledger: 'chat_fee', amount: fee, refId: answerId, reeId: ree.id, note: ree.name });
+    await tx.update(schema.postAnswer).set({ baseHoldId, feeHoldId, price: QUERY_BASE_FEE + fee }).where(eq(schema.postAnswer.id, answerId));
+  });
+  await closeAnswer(answerId, { state: 'answered', text: 'answer', citations: [], model: 'stub' }, new Date());
 }
 
 /** The asker asked a Ree of another owner once (its base fee entry), so they are active elsewhere. */
@@ -210,6 +235,37 @@ describeWithDb('the payout review page shows where the money came from (review H
     expect(summary.topShare).toBeCloseTo(0.1, 6);
     expect(summary.top3Share).toBeCloseTo(0.3, 6);
     /* A hundred settled questions: about five seconds on a laptop, at the default limit even before this change. */
+  }, 20_000);
+
+  it('traces earnings from private-post answers next to those from conversations, to whoever asked', async () => {
+    const administrator = await newAdministrator();
+    const owner = await verifiedOwner(administrator.id, `${uniqueName('posts')}@example.com`);
+    const ree = await newRee(owner.id, QUERY_FEE.max);
+    const other = await newRee((await newUser('elsewhere')).id, 100);
+    const old = new Date(Date.now() - 200 * DAY);
+    const chatter = await newUser('chatter', { createdAt: old });
+    const poster = await newUser('poster', { createdAt: old });
+    for (const user of [chatter, poster]) {
+      await askedElsewhere(user.id, other.id);
+      await boughtPack(user.id, 30 * (QUERY_FEE.max + QUERY_BASE_FEE));
+    }
+    for (let q = 0; q < 25; q += 1) await ask(chatter.id, ree, QUERY_FEE.max);
+    for (let q = 0; q < 25; q += 1) await askPost(poster.id, ree, QUERY_FEE.max);
+    await db()
+      .update(schema.creditGrant)
+      .set({ withdrawableAt: new Date(Date.now() - DAY) })
+      .where(and(eq(schema.creditGrant.userId, owner.id), eq(schema.creditGrant.source, 'earned'), isNotNull(schema.creditGrant.withdrawableAt)));
+    const drawn = 50 * QUERY_FEE.max;
+    const payout = await payouts.requestPayout(owner.id, drawn);
+    const { summary } = await payoutFunding(administrator, payout.id, owner.id);
+    expect(summary).toMatchObject({ drawn, traced: drawn, payers: 2, questions: 50 });
+    expect(summary.sources).toMatchObject({ paid: drawn });
+    expect(summary.ranked.map((payer) => [payer.userId, payer.credits, payer.questions, payer.maxFeeQuestions]).sort()).toEqual(
+      [
+        [chatter.id, 25 * QUERY_FEE.max, 25, 25],
+        [poster.id, 25 * QUERY_FEE.max, 25, 25],
+      ].sort(),
+    );
   }, 20_000);
 
   it('earned credits granted in the console count as drawn but not traced', async () => {

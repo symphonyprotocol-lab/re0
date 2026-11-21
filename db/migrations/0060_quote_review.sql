@@ -1,0 +1,2 @@
+ALTER TABLE "post" ADD COLUMN "quote_review_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "post_quote_review_idx" ON "post" USING btree ("quote_review_at") WHERE quote_review_at is not null;

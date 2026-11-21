@@ -1,0 +1,1607 @@
+/*
+ * Public posts (v5, docs/design/discover-posts.html): the feed, the
+ * composer and its window, and a post's page with up to five answers.
+ * Same tokens and values as explore.css, feed.css and answer-parts.css.
+ */
+
+/* ---------------------------------------------------------------- the home */
+
+.discovery-page .post-home-tabs {
+  margin: 4px 0 18px;
+}
+.discovery-page .post-home-tabs .cl-tab {
+  font-size: 13px;
+}
+.discovery-page .post-sorts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+/* The composer: the signed-in viewer's box; for a visitor, the same card asks them to sign in. */
+.post-composer {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+.post-composer textarea {
+  width: 100%;
+  min-height: 64px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.post-composer textarea::placeholder {
+  color: #a3a8b9;
+}
+.post-composer-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  /* No line inside the composer (v6): its one line is the bottom one, drawn where it meets the feed. */
+  margin-top: 10px;
+  color: #606670;
+  font-size: 11px;
+}
+.post-composer-foot .post-quota {
+  margin-left: auto;
+  font-family: var(--font-mono);
+}
+.post-composer-foot label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.post-composer-foot input {
+  accent-color: var(--color-blue);
+}
+.post-composer.is-visitor {
+  align-items: center;
+  background: var(--color-wash);
+}
+
+/*
+ * One post in the feed (v6): no line between posts -- 15px above and below
+ * each, so 30px between them -- and the whole post tinted while the pointer
+ * is on it (on a phone, while a finger presses it), as Rees are. Every list
+ * of posts uses this card: 首页, 我的帖子, 收藏, search, a Ree's answered
+ * posts, a post's quotes.
+ */
+.post-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  padding: 15px 2px;
+  isolation: isolate;
+}
+.post-card::before {
+  content: '';
+  position: absolute;
+  inset: 3px -12px;
+  z-index: -1;
+  border-radius: 16px;
+  background: #f8f9fa;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+  pointer-events: none;
+}
+.post-card:hover::before {
+  opacity: 1;
+}
+.post-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: #606670;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.post-head strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.post-question {
+  margin-top: 3px;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.55;
+}
+.post-question a::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.post-card:hover .post-question {
+  color: var(--color-blue);
+}
+.post-answers-preview {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f4f5fa;
+}
+/* On the tinted post the answer turns white, so the two greys never sit on each other. */
+.post-card:hover .post-answers-preview {
+  background: #ffffff;
+}
+.post-answerers {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #606670;
+  font-size: 11px;
+}
+.post-stack {
+  display: flex;
+}
+.post-stack > span {
+  margin-left: -6px;
+  border: 2px solid #f4f5fa;
+  border-radius: 50%;
+}
+.post-card:hover .post-stack > span {
+  border-color: #ffffff;
+}
+.post-stack > span:first-child {
+  margin-left: 0;
+}
+.post-top-answer {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+.post-top-answer > span:first-child {
+  border-radius: 50%;
+}
+.post-top-answer strong {
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+.post-top-answer p {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #3b4361;
+  font-size: 12px;
+  line-height: 1.65;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.post-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+.post-state.is-gathering {
+  border: 1px solid transparent;
+  background: var(--color-soft);
+  color: var(--color-blue);
+}
+.post-state.is-unmatched {
+  border: 1px solid transparent;
+  background: #eeedfa;
+  color: #3b4361;
+}
+.post-state.is-rejected {
+  border: 1px solid transparent;
+  background: #fdf3f2;
+  color: #b4372c;
+}
+.post-state a {
+  color: var(--color-blue);
+  font-weight: 550;
+}
+.post-actions {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 6px 0 0 -8px;
+}
+.post-actions .icon-btn {
+  width: auto;
+  min-width: 30px;
+  height: 30px;
+  gap: 4px;
+  padding: 0 7px;
+  color: #606670;
+  font: 500 11px var(--font-mono);
+}
+.post-actions .icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.post-actions .post-open {
+  margin-left: auto;
+  color: var(--color-blue);
+  font: 550 11px var(--font-sans);
+}
+.post-seed {
+  border-radius: 5px;
+  padding: 0 6px;
+  background: #f2edff;
+  color: #7255bd;
+  font-size: 10px;
+  font-weight: 550;
+}
+
+/* ------------------------------------------------------------ a post's page */
+
+.post-page-question {
+  margin-top: 10px;
+  color: var(--color-ink);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+.post-page-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  margin-top: 12px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.post-answer {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+.post-answer-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 11px;
+  color: #606670;
+}
+.post-answer-head strong {
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 650;
+}
+.post-answer-head .post-match {
+  margin-left: auto;
+  font-family: var(--font-mono);
+}
+.post-answer .answer-text {
+  margin-top: 10px;
+}
+.post-answer-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin: 10px 0 0 -8px;
+}
+.post-answer-foot .icon-btn {
+  width: auto;
+  min-width: 30px;
+  height: 28px;
+  gap: 4px;
+  padding: 0 8px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.post-answer-foot .icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.post-promo {
+  border-radius: 5px;
+  padding: 0 6px;
+  background: #fff7ea;
+  color: #a6651d;
+  font-size: 10px;
+  font-weight: 550;
+}
+.post-answer.is-streaming {
+  border-color: #d6e6fb;
+}
+.post-skipped {
+  margin-top: 14px;
+  color: var(--color-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.post-av-xs svg {
+  width: 15px;
+  height: 15px;
+}
+.discovery-page .post-sorts-divider {
+  align-self: center;
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: var(--color-line);
+}
+
+/* ------------------------------------------------------------ v5 additions */
+
+.post-feed {
+  padding: 0 18px;
+}
+.post-form {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.post-form textarea {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.post-form textarea.post-detail {
+  min-height: 56px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed #eef0f6;
+  font-size: 13px;
+}
+.post-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin-bottom: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--color-soft);
+  color: var(--color-blue);
+  font-size: 12px;
+}
+.post-hint {
+  margin-top: 6px;
+  color: #8a94ae;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.post-error {
+  margin-top: 4px;
+  color: #b4372c;
+  font-size: 12px;
+}
+.post-composer-foot .post-cost {
+  margin-right: auto;
+  color: #8a94ae;
+  font-size: 11px;
+}
+.post-composer-foot .icon-btn {
+  width: auto;
+  gap: 4px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+.post-composer-foot .btn {
+  margin-left: 4px;
+}
+.post-dialog {
+  width: min(600px, calc(100vw - 32px));
+  max-height: calc(100dvh - 64px);
+  margin: 8vh auto auto;
+  padding: 0;
+  border: 0;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgb(15 23 42 / 0.22);
+}
+.post-dialog::backdrop {
+  background: rgb(15 23 42 / 0.4);
+}
+.post-dialog-body {
+  padding: 4px 20px 16px;
+}
+.post-dialog-body > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.post-dialog-body > header .cl-tabs {
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+.post-dialog-body > header .cl-tab {
+  font-size: 13px;
+}
+.post-dialog-body > header .cl-tab.active {
+  border-bottom-color: var(--color-blue);
+  color: var(--color-ink);
+}
+/* 首页's box: the dialog's 公开帖子 / 私密提问 tabs above the question, a size smaller. */
+.post-composer .composer-tabs {
+  gap: 20px;
+  margin: -6px 0 6px;
+  border-bottom: 0;
+}
+.post-composer .composer-tabs .cl-tab {
+  padding: 4px 0 6px;
+  font-size: 12px;
+}
+.post-composer .composer-tabs .cl-tab.active {
+  border-bottom-color: var(--color-blue);
+  color: var(--color-ink);
+}
+.post-page {
+  padding: 16px 18px 48px;
+}
+.post-page-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.post-page-head > div > strong {
+  font-size: 14px;
+}
+.post-page-detail {
+  margin-top: 8px;
+  color: #3b4361;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.post-page .post-actions {
+  margin-top: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-line);
+}
+.post-page .post-actions .ml-auto {
+  margin-left: auto;
+}
+.post-followups {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-wash);
+  font-size: 12px;
+}
+.post-followups a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--color-blue);
+}
+.post-answers-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-top: 18px;
+  font-size: 14px;
+}
+.post-answers-head small {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.post-summary-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d6e6fb;
+  border-radius: 12px;
+  background: var(--color-soft);
+  font-size: 12px;
+}
+.post-summary {
+  border-color: #d6e6fb;
+}
+.post-answer-head a strong:hover {
+  color: var(--color-blue);
+}
+.post-state .spinner {
+  width: 12px;
+  height: 12px;
+}
+.xcol > .post-composer {
+  margin: 0;
+  border-radius: 0;
+  border-width: 0 0 1px;
+}
+@media (max-width: 760px) {
+  .post-dialog {
+    margin-top: 4vh;
+  }
+}
+.post-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 18px 4px;
+  padding: 10px 16px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: var(--color-wash);
+  color: #8a94ae;
+  font-size: 13px;
+}
+
+/* 我的帖子 */
+.my-posts {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 32px 40px;
+}
+@media (max-width: 760px) {
+  .my-posts {
+    padding: 16px 16px 32px;
+  }
+}
+.my-posts .my-posts-tabs {
+  margin-bottom: 14px;
+}
+.my-posts .cl-tab {
+  font-size: 13px;
+}
+.my-posts .cl-tab.active {
+  border-bottom-color: var(--color-blue);
+  color: var(--color-ink);
+}
+.my-posts .post-feed {
+  padding: 0;
+}
+/* Rows without lines between them (v6): a tint while the pointer is on one. */
+.my-posts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.my-posts-list a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 8px;
+  border-radius: 10px;
+}
+.my-posts-list a:hover {
+  background: #f8f9fa;
+}
+.my-posts-list a:hover strong {
+  color: var(--color-blue);
+}
+.my-posts-list strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.my-posts-list small {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.my-posts-list .tag.is-public {
+  background: var(--color-soft);
+  color: var(--color-blue);
+}
+
+/* "引用提问": the quoted post or answer, as a card inside a post (like a quoted tweet). */
+.post-quote-slot {
+  position: relative;
+  z-index: 2;
+  margin-top: 8px;
+}
+.post-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: #ffffff;
+  font-size: 12px;
+  transition: background 0.16s ease;
+}
+a.post-quote:hover {
+  background: var(--color-wash);
+}
+.post-quote.is-gone {
+  color: var(--color-muted);
+  background: var(--color-wash);
+}
+.post-quote-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #606670;
+  font-size: 11px;
+}
+.post-quote-head strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.post-quote-question {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.post-quote-answer {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  color: #3b4361;
+  line-height: 1.6;
+}
+.post-quote-answer strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.post-form-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.post-quotes {
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-line);
+}
+.post-quotes h3 {
+  font-size: 14px;
+  font-weight: 700;
+}
+.post-quotes .post-feed {
+  padding: 0;
+}
+
+/* Paid Rees waiting for the author to agree (2026-11-19): only the author sees them. */
+.post-paid {
+  margin-top: 18px;
+}
+.post-paid .post-answers-head small {
+  flex-basis: 100%;
+}
+.post-paid-request {
+  border-style: dashed;
+}
+.post-paid-request .post-answer-head {
+  flex-wrap: wrap;
+}
+.post-paid-request .post-answer-foot {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* A round-table summary's source markers ([A2]): chips with room around them, as the conversations' round table had them (2026-11-19). */
+.post-summary .synthesis-source {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  margin: 0 3px;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: rgb(232, 242, 255);
+  color: var(--color-blue);
+  font: 10px var(--font-mono);
+  vertical-align: middle;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.post-summary button.synthesis-source:hover {
+  background: var(--color-blue);
+  color: #fff;
+}
+.post-summary .synthesis-source.plain {
+  background: #eef0f6;
+  color: var(--color-muted);
+  cursor: default;
+}
+
+/* Phones have no hover: the tint shows while a finger presses the post, edge to edge, and nothing stays tinted after a tap. */
+@media (hover: none) {
+  .post-card:hover::before {
+    opacity: 0;
+  }
+  .post-card:hover .post-question {
+    color: var(--color-ink);
+  }
+  .post-card:hover .post-answers-preview {
+    background: #f4f5fa;
+  }
+  .post-card:active::before {
+    inset: 0 -18px;
+    border-radius: 0;
+    opacity: 1;
+    transition: none;
+  }
+}
+
+/*
+ * 追问 (follow-ups in a post, draft 1 approved 2026-11-20): the thread under
+ * the first round and the box at its end.
+ */
+/* The thread under the first round: one block per follow-up, a thin rail down its left. */
+.fu-thread {
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-line);
+}
+.fu-round {
+  position: relative;
+  margin-top: 16px;
+  padding-left: 18px;
+}
+.fu-round-rail {
+  position: absolute;
+  top: 40px;
+  bottom: 0;
+  left: 15px;
+  width: 2px;
+  border-radius: 2px;
+  background: #e6ecf6;
+}
+.fu-round-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: -18px;
+}
+.fu-round-head strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+}
+.fu-round-meta {
+  display: block;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.fu-round-tool {
+  width: auto;
+  height: 28px;
+  margin-left: auto;
+  gap: 4px;
+  padding: 0 8px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.fu-round-tool svg {
+  width: 14px;
+  height: 14px;
+}
+.fu-round-q {
+  margin: 8px 0 0 24px;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.fu-round-note {
+  margin: 4px 0 0 24px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.fu-round-answers {
+  margin-left: 24px;
+}
+.fu-round-answers > .post-state,
+.fu-round-answers > .post-paid {
+  margin-top: 12px;
+}
+.fu-answer {
+  margin-top: 12px;
+}
+.fu-at {
+  display: inline-flex;
+  margin-right: 4px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--color-soft);
+  color: var(--color-blue);
+  font-size: 13px;
+  font-weight: 600;
+}
+.fu-round.is-rejected .fu-round-q {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fdf3f2;
+  color: #b4372c;
+  font-size: 12px;
+  font-weight: 400;
+}
+.fu-round.is-hidden {
+  padding-left: 0;
+}
+.fu-hidden-note {
+  padding: 10px 12px;
+  border: 1px dashed var(--color-line);
+  border-radius: 12px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.fu-paid .post-answers-head strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.fu-paid .post-answers-head svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* The follow-up box at the end of the thread: the composer's look, one line until focused. */
+.fu-composer {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 22px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+.fu-composer.is-visitor {
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--color-wash);
+}
+.fu-composer.is-visitor strong {
+  font-size: 14px;
+}
+.fu-composer.is-visitor p {
+  margin-top: 4px;
+  color: #3b4361;
+  font-size: 12px;
+}
+.fu-form {
+  position: relative;
+  min-width: 0;
+}
+.fu-input {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding-top: 7px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.fu-input::placeholder {
+  color: #8a94ae;
+}
+.fu-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.fu-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 4px;
+  border: 1px solid #d6e6fb;
+  border-radius: 999px;
+  background: var(--color-soft);
+  color: var(--color-blue);
+  font-size: 12px;
+  font-weight: 550;
+}
+.fu-chip > span {
+  border-radius: 50% !important;
+}
+.fu-chip button {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+.fu-chip button svg {
+  width: 12px;
+  height: 12px;
+}
+.fu-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #edf0f7;
+}
+.fu-foot .post-cost {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.fu-at-btn svg {
+  width: 17px;
+  height: 17px;
+}
+/* The box is the last thing on the page: the list opens upward, over the thread. */
+.fu-picker {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  width: min(320px, 100%);
+  padding: 6px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 12px 32px #0911351a;
+}
+.fu-picker > p {
+  padding: 6px 8px 8px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.fu-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 8px;
+  text-align: left;
+}
+.fu-pick.is-active {
+  background: var(--color-soft);
+}
+.fu-pick strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+.fu-pick small {
+  display: block;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+/* A feed card's follow-up count, beside 查看全部回答. */
+.fu-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  margin-right: 10px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.fu-count svg {
+  width: 14px;
+  height: 14px;
+}
+.post-actions .fu-count + .post-open {
+  margin-left: 0;
+}
+.fu-count:hover {
+  color: var(--color-blue);
+}
+
+/* "展开另外 N 条追问" and "另外 N 个回答": a quiet line, like the answers' own actions. */
+.fu-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 12px 0 0 18px;
+  color: var(--color-blue);
+  font-size: 12px;
+}
+.fu-round-answers .fu-fold {
+  margin-left: 0;
+}
+.fu-fold svg {
+  width: 14px;
+  height: 14px;
+}
+.fu-round-head .ml-auto {
+  margin-left: auto;
+}
+
+@media (max-width: 760px) {
+  .fu-round-q,
+  .fu-round-note,
+  .fu-round-answers {
+    margin-left: 6px;
+  }
+  .fu-round {
+    padding-left: 12px;
+  }
+  .fu-round-head {
+    margin-left: -12px;
+  }
+  .fu-round-rail {
+    left: 9px;
+  }
+  .fu-composer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fu-composer > span:first-child {
+    display: none;
+  }
+  /* Two lines on a phone, so the hint is never cut; room below the thread for the floating post button. */
+  .fu-input {
+    min-height: 60px;
+  }
+  .fu-thread {
+    padding-bottom: 72px;
+  }
+}
+
+/*
+ * 私密提问 as a private post (design 稿 2, 2026-11-20). Purple marks what
+ * only its author sees; everything else is the public post's own styles.
+ */
+
+/* "私密 · 仅你可见": where a public post shows its category. */
+.private-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 6px;
+  border: 1px solid #e3dcf5;
+  border-radius: 999px;
+  background: #f6f3fd;
+  color: #6a4fb0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.private-badge svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* An answer's own cost, at the end of its action row: only its author sees it. */
+.answer-cost {
+  margin-left: auto;
+  padding-right: 8px;
+  color: #9aa1b6;
+  font: 11px var(--font-mono);
+}
+
+/* 转为公开 in the post's row. */
+.post-actions .is-make-public {
+  color: var(--color-blue);
+}
+
+/* 重命名 in place, and the 转为公开 confirmation, under the post's row. */
+.private-rename,
+.private-publish {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-wash);
+  font-size: 12px;
+}
+.private-rename input[type='text'] {
+  flex: 1 1 240px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 13px;
+}
+.private-publish p {
+  flex-basis: 100%;
+  color: var(--color-muted);
+  line-height: 1.6;
+}
+.private-publish strong {
+  flex-basis: 100%;
+  font-size: 13px;
+}
+.private-publish label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+}
+
+/* Small pill buttons in a composer: 选 Ree, 加 Ree. */
+.chip-btn {
+  width: auto;
+  height: 28px;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.chip-btn svg {
+  width: 13px;
+  height: 13px;
+}
+.fu-foot .chip-btn + .fu-at-btn {
+  margin-left: 2px;
+}
+
+/* The private composer's Rees: suggested from the question, removable, with their price. */
+.ree-pick {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.ree-pick .post-hint {
+  margin: 0 4px 0 0;
+}
+.fu-chip small {
+  color: #7c8bb0;
+  font: 10px var(--font-mono);
+}
+
+/* The Ree search of 选 Ree / 加 Ree: under the chips in the composer window, above the box in a thread. */
+.private-picker input {
+  width: 100%;
+  height: 32px;
+  margin-bottom: 4px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.private-picker .private-picker-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+.private-picker.is-inline {
+  position: static;
+  width: 100%;
+  margin-top: 4px;
+  box-shadow: none;
+}
+
+/* What private means, first in the right column. */
+.private-rail h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #6a4fb0;
+}
+.private-rail ul {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding-left: 16px;
+  color: #4b5370;
+  font-size: 12px;
+  line-height: 1.55;
+  list-style: disc;
+}
+
+/* 我的帖子 › 私密: the line above the cards, and 筛选 at the right of the tab row. */
+.private-list-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.private-list-note svg {
+  width: 14px;
+  height: 14px;
+  color: #6a4fb0;
+}
+.my-posts-bar {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.my-posts-bar .my-posts-tabs {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.my-posts-filter > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  margin-bottom: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.my-posts-filter > summary::-webkit-details-marker {
+  display: none;
+}
+.my-posts-filter[open] > summary,
+.my-posts-filter.is-active > summary {
+  border-color: #d6e6fb;
+  background: var(--color-soft);
+  color: var(--color-blue);
+}
+.my-posts-filter form {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 10px;
+  width: min(340px, 100%);
+  padding: 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 12px 32px #0911351a;
+  font-size: 12px;
+}
+.my-posts-filter input[type='search'],
+.my-posts-filter select {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 13px;
+}
+.my-posts-filter label {
+  display: grid;
+  gap: 4px;
+  color: var(--color-muted);
+}
+.my-posts-filter label.is-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-ink);
+}
+.my-posts-filter .my-posts-filter-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+}
+@media (max-width: 760px) {
+  .fu-foot .chip-btn {
+    padding: 0 6px;
+  }
+}
+
+/*
+ * 向 … 提问 (ree-ask.tsx): the box a share page and a Ree page end with, its
+ * Ree already named, and 公开帖子 / 私密提问 above the question.
+ */
+.post-ask {
+  margin-top: 18px;
+}
+.ask-vis {
+  display: inline-flex;
+  align-self: flex-start;
+  width: max-content;
+  gap: 2px;
+  margin-bottom: 8px;
+  padding: 2px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: var(--color-wash);
+}
+.ask-vis button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.ask-vis button[aria-checked='true'] {
+  background: #ffffff;
+  color: var(--color-ink);
+  box-shadow: 0 1px 2px rgb(9 17 53 / 0.08);
+}
+.ask-vis button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ask-vis svg {
+  width: 13px;
+  height: 13px;
+}
+.post-ask .ree-pick {
+  margin-top: 0;
+}
+.ask-chip {
+  padding: 3px 10px 3px 8px;
+}
+/* A share page's and a Ree page's answered posts: the cards run to the edges of their column. */
+.ree-post-feed .post-card {
+  padding-left: 0;
+  padding-right: 0;
+}
+.ree-post-owner {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: -6px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+/* AI 通用回答 when no Ree answers (design draft 1, 2026-11-20; components/posts/ai-answer.tsx). */
+
+/* The card: a dashed outline on a grey wash, no Ree avatar, a sparkle mark -- never mistaken for a Ree's answer. */
+.post-answer.ai-answer {
+  border: 1px dashed #c9cfdf;
+  background: #f7f8fc;
+}
+.ai-answer .post-answer-head {
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.ai-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: #eceff7;
+  color: #6b7390;
+}
+.ai-mark svg {
+  width: 17px;
+  height: 17px;
+}
+.ai-answer .post-answer-head strong {
+  color: #3b4361;
+}
+.ai-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eceff7;
+  color: #6b7390;
+  font-size: 11px;
+  line-height: 18px;
+}
+.ai-tag.is-private {
+  background: #f3effc;
+  color: #6a4fb0;
+}
+.ai-tag svg {
+  width: 11px;
+  height: 11px;
+}
+.ai-answer .answer-markdown {
+  color: #3b4361;
+}
+.ai-note {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #7a8199;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.ai-answer.is-compact {
+  margin-top: 10px;
+}
+
+/* What to do next: three ways to an answer with sources. */
+.ai-guide {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #d6e6fb;
+  border-radius: 12px;
+  background: #f4f9ff;
+}
+.ai-guide h4 {
+  color: #24324f;
+  font-size: 13px;
+  font-weight: 650;
+}
+.ai-guide-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.ai-guide-item {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e1ebf8;
+  border-radius: 10px;
+  background: #ffffff;
+}
+.ai-guide-item:hover {
+  border-color: #b9d4f5;
+}
+.ai-guide-item svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--color-blue);
+}
+.ai-guide-item strong {
+  display: block;
+  color: var(--color-blue);
+  font-size: 12px;
+  font-weight: 600;
+}
+.ai-guide-item small {
+  display: block;
+  color: #6b7390;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.ai-state strong {
+  font-weight: 650;
+}
+.ai-rail p {
+  margin-top: 6px;
+  color: #4b5370;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.ai-rail .btn-secondary {
+  margin-top: 10px;
+}
+.ai-round-note {
+  color: #6b7390;
+}
+
+/* The author's feed card: the AI answer's first lines, greyed, marked as not a Ree's. */
+.ai-preview {
+  border: 1px dashed #d3d8e6;
+  background: #f7f8fc;
+}
+.ai-preview .post-answerers span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ai-preview svg {
+  width: 13px;
+  height: 13px;
+}
+.ai-preview p {
+  color: #6b7390;
+}
+.ai-mark.is-small {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+}
+.ai-mark.is-small svg {
+  width: 14px;
+  height: 14px;
+}
+.ai-guide-item {
+  text-align: left;
+  font: inherit;
+}
+.ai-state .btn-secondary {
+  margin-left: auto;
+}
+/* A Ree has answered: the AI answer folds to one line under the Rees' answers. */
+.ai-folded {
+  margin-top: 10px;
+}
+.ai-folded svg {
+  color: #6b7390;
+}
+/* "请 Ree 回答": the Ree search opens inside the guidance. */
+.ai-guide .private-picker {
+  margin-top: 10px;
+}
+.ai-ask-only {
+  margin-top: 6px;
+}
+
+/* A post's waiting line (pending.tsx): three dots bouncing in turn before the words; still with reduced motion. */
+.pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.pending-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 12px;
+}
+.pending-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.3;
+  animation: pending-dot 1.1s ease-in-out infinite;
+}
+.pending-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.pending-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.post-answer .pending {
+  margin-top: 6px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+@keyframes pending-dot {
+  0%,
+  70%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pending-dots i {
+    animation: none;
+    opacity: 0.55;
+  }
+}

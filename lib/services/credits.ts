@@ -5,7 +5,7 @@
  * at all. Grants are locked `FOR UPDATE` so two holds cannot spend the same
  * credit.
  */
-import { and, asc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
 import type { CreditEntryReason } from '@/db/schema';
 import { EARNED_MATURITY_DAYS, PAYING_GRANT_SOURCES, type GrantSource } from '@/lib/constants';
 import { offsetDebts } from '@/lib/domain/billing';
@@ -21,25 +21,34 @@ import {
   type SpendableGrant,
 } from '@/lib/domain/credits';
 import { welcomeCredits } from '@/lib/services/signup-reward';
-import { schema, type Executor, type Tx } from '@/lib/infra/db';
+import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 
 export { InsufficientCredits } from '@/lib/domain/credits';
 
-type HoldKind = 'chat' | 'knowledge' | 'video' | 'payout';
+/* `chat` holds (the conversations' questions): nothing places one since migration 0070; `releaseLegacyChatHolds` gives back any the release left open. */
+type HoldKind = 'knowledge' | 'video' | 'payout' | 'post';
 
 /**
  * The reasons each hold kind writes when it is taken, settled and released.
- * A question to someone else's Ree holds the owner's query fee apart from
- * the base fee (`ledger: 'chat_fee'`), so the ledger shows the two as
- * `query_base` and `query_fee_paid` (2.3).
+ * An answer from someone else's Ree holds the owner's query fee apart from
+ * the base fee (`ledger: 'chat_fee'`, named after the conversations that
+ * first wrote it), so the ledger shows the two as `query_base` and
+ * `query_fee_paid` (2.3).
  */
-const REASONS: Record<'chat' | 'knowledge' | 'chat_fee' | 'chat_verify' | 'chat_synthesis' | 'payout' | VideoLedger, { hold: CreditEntryReason; settle: CreditEntryReason; release: CreditEntryReason }> = {
+const REASONS: Record<'knowledge' | 'chat' | 'chat_fee' | 'chat_verify' | 'chat_synthesis' | 'payout' | 'post' | 'post_summary' | 'post_answer' | 'ai_answer' | VideoLedger, { hold: CreditEntryReason; settle: CreditEntryReason; release: CreditEntryReason }> = {
+  /* The conversations' own holds: only ever released now, by `releaseLegacyChatHolds`. */
   chat: { hold: 'query_hold', settle: 'query_base', release: 'query_refund' },
-  chat_fee: { hold: 'query_fee_paid', settle: 'query_fee_paid', release: 'query_refund' },
-  /* 回答核验: the check fee of one answering Ree, held with the question, to the platform. */
   chat_verify: { hold: 'verify_hold', settle: 'verify_settle', release: 'verify_refund' },
-  /* Ree 圆桌: one synthesis of a question's answers, to the platform. */
   chat_synthesis: { hold: 'synthesis_hold', settle: 'synthesis_settle', release: 'synthesis_refund' },
+  chat_fee: { hold: 'query_fee_paid', settle: 'query_fee_paid', release: 'query_refund' },
+  /* v5: a public post past the day's free ones, to the platform once a Ree answers. */
+  post: { hold: 'post_hold', settle: 'post_settle', release: 'post_refund' },
+  /* A paid Ree's answer to a public post its author agreed to: the base fee written like a question's, so it counts as one (the query fee is `chat_fee`). */
+  post_answer: { hold: 'query_hold', settle: 'query_base', release: 'query_refund' },
+  /* v5: the round-table summary of a post's answers, to the platform (the reasons the conversations' round table wrote). */
+  post_summary: { hold: 'synthesis_hold', settle: 'synthesis_settle', release: 'synthesis_refund' },
+  /* AI 通用回答: the base fee for an asker's general answer when no Ree answered, to the platform -- its own reasons, never a question to a Ree (`query_base`), so no Ree's figures count it. */
+  ai_answer: { hold: 'ai_answer_hold', settle: 'ai_answer_settle', release: 'ai_answer_refund' },
   knowledge: { hold: 'knowledge_hold', settle: 'knowledge_settle', release: 'knowledge_refund' },
   /* Step 6: a payout request holds earned credits; payment settles the whole hold, rejection or failure releases it. */
   payout: { hold: 'payout_hold', settle: 'payout_paid', release: 'payout_release' },
@@ -51,7 +60,7 @@ const REASONS: Record<'chat' | 'knowledge' | 'chat_fee' | 'chat_verify' | 'chat_
 type Ledger = keyof typeof REASONS;
 /** Which ledger a `video` hold writes; every video hold, settlement and release names one. */
 type VideoLedger = 'video_script' | 'video_export';
-type SubLedger = 'chat_fee' | 'chat_verify' | 'chat_synthesis' | VideoLedger;
+type SubLedger = 'chat_fee' | 'post_summary' | 'post_answer' | 'ai_answer' | VideoLedger;
 
 function reasonsFor(kind: string, ledger?: SubLedger) {
   return REASONS[(ledger ?? kind) as Ledger];
@@ -323,12 +332,12 @@ export async function moveGrants(tx: Tx, allocations: readonly Allocation[], dir
 
 export interface HoldInput {
   userId: string;
-  kind: 'chat' | 'knowledge' | 'payout' | 'video';
+  kind: HoldKind;
   amount: number;
   refId: string;
   reeId?: string | null;
   note?: string | null;
-  /** `chat_fee`: the query-fee part of a question, written as `query_fee_paid`; `chat_verify`: its check fee; `chat_synthesis`: a synthesis of its answers; a video hold's script or export. */
+  /** `chat_fee`: the query-fee part of an answer, written as `query_fee_paid`; `post_summary` / `post_answer`: a post's summary or paid answer; a video hold's script or export. */
   ledger?: SubLedger;
   /** Only these grants may pay (a payout draws on earned credits alone, 2.3). */
   sources?: readonly GrantSource[];
@@ -612,6 +621,30 @@ function grantIsPaid(grant: { source: GrantSource; purchaseId: string | null; wi
 }
 
 /** The open hold for a reference (a knowledge row being processed), if any. */
+/**
+ * Chat holds the last release left open (review S4): migration 0070 refuses
+ * to run while one is held, but in the minutes between the migration and
+ * the new deployment taking traffic the old one may still place one, and
+ * nothing settles it any more. Released in full under its sub-ledger's
+ * reasons once older than `staleMs` (far past the old chat route's 300
+ * seconds). Run by the posts cron; keep it for one release cycle after
+ * 0070 is live, then delete it with its REASONS entries.
+ */
+export async function releaseLegacyChatHolds(now = new Date(), staleMs = 10 * 60_000, limit = 100): Promise<number> {
+  const stale = await db()
+    .select({ id: schema.creditHold.id })
+    .from(schema.creditHold)
+    .where(and(eq(schema.creditHold.kind, 'chat'), eq(schema.creditHold.status, 'held'), lt(schema.creditHold.createdAt, new Date(now.getTime() - staleMs))))
+    .orderBy(asc(schema.creditHold.createdAt))
+    .limit(limit);
+  let released = 0;
+  for (const hold of stale) {
+    const given = await db().transaction((tx) => releaseHold(tx, hold.id, { note: 'released: the answer never finished' }, now));
+    if (given !== null) released += 1;
+  }
+  return released;
+}
+
 export async function heldFor(executor: Executor, refId: string, kind: HoldKind): Promise<string | null> {
   const [hold] = await executor
     .select({ id: schema.creditHold.id })

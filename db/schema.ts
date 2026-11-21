@@ -20,6 +20,7 @@ import {
   numeric,
   pgTable,
   primaryKey,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -28,7 +29,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import type { ReeDraft } from '@/lib/domain/ree';
 import type { SocialContact } from '@/lib/domain/account';
-import type { CitationSnapshot, Locator, SentenceCheck } from '@/lib/domain/answer';
+import type { CitationSnapshot, Locator } from '@/lib/domain/answer';
 import type { SynthesisSource } from '@/lib/domain/synthesis';
 import type { Allocation } from '@/lib/domain/credits';
 import type { ProviderCharge, ProviderRate } from '@/lib/domain/provider-cost';
@@ -38,6 +39,29 @@ import type { RoleMetrics } from '@/lib/domain/roles';
 import type { ReeRank } from '@/lib/domain/explore';
 import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
 import { TASK_KINDS, type TaskKind } from '@/lib/domain/invites';
+import { PAGE_KINDS, type PageKind } from '@/lib/domain/traffic';
+import {
+  AI_ANSWER_STATES,
+  ANSWER_HIDERS,
+  ANSWER_STATES,
+  FOLLOWUP_STATUSES,
+  POST_ANSWER_STATES,
+  POST_DETAIL_MAX,
+  POST_SOURCES,
+  POST_STATUSES,
+  POST_TITLE_MAX,
+  POST_VISIBILITIES,
+  type AiAnswerReview,
+  type AiAnswerState,
+  type AnswerHider,
+  type AnswerState,
+  type FollowupStatus,
+  type PostAnswerState,
+  type PostSource,
+  type PostStatus,
+  type PostVisibility,
+} from '@/lib/domain/post';
+import { PUBLIC_QA_ANSWER_MAX_CHARS, PUBLIC_QA_HIDERS, PUBLIC_QA_SOURCES, PUBLIC_QA_STATUSES, type PublicQaHider, type PublicQaSource, type PublicQaStatus } from '@/lib/domain/public-qa';
 import { MODEL_KINDS, VIDEO_EXPORT_TEMPLATES, VIDEO_TEMPLATES, type ModelKind } from '@/lib/constants';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
@@ -132,6 +156,10 @@ export const ree = pgTable(
     rank: jsonb('rank').$type<ReeRank>().notNull().default({}),
     /** Beyond 4: three example questions the system wrote after the first ready source, shown only once the owner adopts them (8.2). */
     suggestedQuestions: jsonb('suggested_questions').$type<string[]>().notNull().default([]),
+    /** Beyond 4: the owner lets askers publish their questions and answers on the Ree page (问答). Off hides every published one; on shows them again. */
+    publicQaEnabled: boolean('public_qa_enabled').notNull().default(true),
+    /** Beyond 4 (v5): the owner's choice to answer public posts; null follows the default -- a free Ree answers, a paid one does not (P3). */
+    answersPosts: boolean('answers_posts'),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
@@ -336,98 +364,10 @@ export const chunk = pgTable(
   ],
 );
 
-export const conversation = pgTable(
-  'conversation',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => user.id),
-    /** `mcp`: questions asked through the MCP server (`/api/mcp`), one Ree each; never in the web lists. */
-    kind: text('kind').$type<'normal' | 'ree_test' | 'mcp'>().notNull().default('normal'),
-    reeId: uuid('ree_id').references(() => ree.id),
-    title: text('title').notNull().default(''),
-    pinned: boolean('pinned').notNull().default(false),
-    /** Archived since; a new question brings it back to Recent (8.2, "对话列表"). */
-    archivedAt: timestampTz('archived_at'),
-    /** In the trash since; purged with its messages 30 days later. */
-    deletedAt: timestampTz('deleted_at'),
-    createdAt: createdAt(),
-    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
-  },
-  (t) => [
-    index('conversation_user_idx').on(t.userId, t.updatedAt),
-    index('conversation_trash_idx').on(t.deletedAt).where(sql`deleted_at is not null`),
-    check('conversation_title_check', sql`char_length(title) <= 120`),
-    uniqueIndex('conversation_ree_test_key')
-      .on(t.userId, t.reeId)
-      .where(sql`kind = 'ree_test'`),
-    check('conversation_kind_check', oneOf('kind', ['normal', 'ree_test', 'mcp'])),
-    check('conversation_ree_test_check', sql`(kind = 'ree_test') = (ree_id is not null)`),
-  ],
-);
-
-export const conversationRee = pgTable(
-  'conversation_ree',
-  {
-    conversationId: uuid('conversation_id')
-      .notNull()
-      .references(() => conversation.id, { onDelete: 'cascade' }),
-    reeId: uuid('ree_id')
-      .notNull()
-      .references(() => ree.id),
-    addedAt: timestampTz('added_at').notNull().defaultNow(),
-  },
-  (t) => [primaryKey({ columns: [t.conversationId, t.reeId] })],
-);
-
-export const message = pgTable(
-  'message',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    conversationId: uuid('conversation_id')
-      .notNull()
-      .references(() => conversation.id, { onDelete: 'cascade' }),
-    role: text('role').$type<'user' | 'ree'>().notNull(),
-    reeId: uuid('ree_id').references(() => ree.id),
-    content: text('content').notNull(),
-    citations: jsonb('citations').$type<CitationSnapshot[]>().notNull().default([]),
-    noAnswer: boolean('no_answer').notNull().default(false),
-    noAnswerReason: text('no_answer_reason').$type<'no_sources' | 'out_of_scope'>(),
-    requestId: uuid('request_id'),
-    costCredits: integer('cost_credits').notNull().default(0),
-    /** Beyond 4, on a question every asked Ree left unanswered: the public Rees suggested under it ("这些公开 Ree 可能知道"). */
-    suggestedReeIds: jsonb('suggested_ree_ids').$type<string[]>().notNull().default([]),
-    /** 回答核验, on an answer the asker had checked: one entry per sentence, where it sits and whether its passages back it. */
-    checks: jsonb('checks').$type<SentenceCheck[]>().notNull().default([]),
-    /** Null when no check was asked for; `failed` when it broke off and its fee went back. */
-    checkState: text('check_state').$type<'done' | 'failed'>(),
-    /** What the check was charged, apart from the answer's `cost_credits`. */
-    checkCredits: integer('check_credits').notNull().default(0),
-    /** On a question asked through the MCP server: the API key that asked it, for per-key usage. */
-    apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
-    /** On a question from the web: the id the client gave this ask, so a replayed request places no second hold. */
-    clientRequestId: uuid('client_request_id'),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    index('message_conversation_idx').on(t.conversationId, t.createdAt),
-    uniqueIndex('message_client_request_key').on(t.conversationId, t.clientRequestId).where(sql`client_request_id is not null`),
-    index('message_api_key_idx').on(t.apiKeyId, t.createdAt).where(sql`api_key_id is not null`),
-    index('message_ree_idx').on(t.reeId, t.createdAt).where(sql`role = 'ree'`),
-    check('message_role_check', oneOf('role', ['user', 'ree'])),
-    check(
-      'message_no_answer_reason_check',
-      sql`no_answer_reason is null or no_answer_reason in ('no_sources', 'out_of_scope')`,
-    ),
-    check('message_check_state_check', sql`check_state is null or check_state in ('done', 'failed')`),
-  ],
-);
-
 /**
  * 回答核验 tallies, one per completed check: what the owner's statistics
- * count. Kept apart from the reply so that clearing a test conversation,
- * which deletes its messages, leaves the figures as the answer counts are.
+ * count. Kept apart from the reply, so the figures outlived the
+ * conversations the checks were made in (dropped by migration 0069).
  */
 export const answerCheck = pgTable(
   'answer_check',
@@ -436,7 +376,6 @@ export const answerCheck = pgTable(
     reeId: uuid('ree_id')
       .notNull()
       .references(() => ree.id, { onDelete: 'cascade' }),
-    messageId: uuid('message_id').references(() => message.id, { onDelete: 'set null' }),
     cited: integer('cited').notNull().default(0),
     unsupported: integer('unsupported').notNull().default(0),
     partial: integer('partial').notNull().default(0),
@@ -553,6 +492,14 @@ export const CREDIT_ENTRY_REASONS = [
   'task_first_comment',
   /* A daily check-in in the account's first months: gift credits, never withdrawable. */
   'check_in',
+  /* v5: a public post past the day's free ones, held when published, to the platform once a Ree answers, given back otherwise. */
+  'post_hold',
+  'post_settle',
+  'post_refund',
+  /* AI 通用回答: the base fee for the general answer an asker gets when no Ree answered, to the platform once written, given back otherwise. */
+  'ai_answer_hold',
+  'ai_answer_settle',
+  'ai_answer_refund',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -588,7 +535,7 @@ export const creditHold = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => user.id),
-    kind: text('kind').$type<'chat' | 'knowledge' | 'video' | 'payout'>().notNull(),
+    kind: text('kind').$type<'chat' | 'knowledge' | 'video' | 'payout' | 'post'>().notNull(),
     amount: bigint('amount', { mode: 'number' }).notNull(),
     allocations: jsonb('allocations').$type<Allocation[]>().notNull(),
     status: text('status').$type<'held' | 'settled' | 'released'>().notNull().default('held'),
@@ -604,10 +551,26 @@ export const creditHold = pgTable(
     index('credit_hold_user_idx').on(t.userId, t.status),
     index('credit_hold_ref_idx').on(t.refId),
     index('credit_hold_open_idx').on(t.kind, t.createdAt).where(sql`status = 'held'`),
-    check('credit_hold_kind_check', oneOf('kind', ['chat', 'knowledge', 'video', 'payout'])),
+    check('credit_hold_kind_check', oneOf('kind', ['chat', 'knowledge', 'video', 'payout', 'post'])),
     check('credit_hold_status_check', oneOf('status', ['held', 'settled', 'released'])),
   ],
 );
+
+/**
+ * Payout tracing for the conversation answers' earnings (payout-funding.ts),
+ * frozen by migration 0069 before it dropped the conversation tables: one
+ * row per reply a `query_fee_earned` entry names (`credit_entry.ref_id`),
+ * with what the trace read from the reply -- its question, which the
+ * asker's `query_fee_paid` entries name, the Ree, who asked and when. No
+ * foreign keys: like the ledger it outlives the rows it names.
+ */
+export const payoutTraceLegacy = pgTable('payout_trace_legacy', {
+  replyId: uuid('reply_id').primaryKey(),
+  requestId: uuid('request_id').notNull(),
+  reeId: uuid('ree_id'),
+  askerId: uuid('asker_id').notNull(),
+  askedAt: timestampTz('asked_at').notNull(),
+});
 
 /** One durable snapshot per knowledge reservation, including retries. No source FK:
  * deleting extracted content must not delete its supplier receipts or billing history. */
@@ -1083,77 +1046,7 @@ export const storageAccrual = pgTable('storage_accrual', {
   updatedAt: timestampTz('updated_at').notNull().defaultNow(),
 });
 
-/* ------------------------------------------------- step 4: conversations, explore */
-
-/** "有用 / 没用" on one Ree answer (2.4), one vote per user; voting the same way again takes it back. */
-export const reeFeedback = pgTable(
-  'ree_feedback',
-  {
-    messageId: uuid('message_id')
-      .notNull()
-      .references(() => message.id, { onDelete: 'cascade' }),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => user.id, { onDelete: 'cascade' }),
-    vote: text('vote').$type<'up' | 'down'>().notNull(),
-    createdAt: createdAt(),
-  },
-  (t) => [primaryKey({ columns: [t.messageId, t.userId] }), check('ree_feedback_vote_check', oneOf('vote', ['up', 'down']))],
-);
-
-/**
- * Ree 圆桌 (ree-council-proposal.md 4.3): one synthesis per question, kept
- * apart from `message` so every count of Ree answers, answer rates and
- * income stays as it is, and so no Ree ever sees it in its history.
- * `request_id` is the question; clearing the conversation removes it. A
- * `running` row is a synthesis being written (or one that died, once it is
- * older than SYNTHESIS_STALE_MS); a failed one is deleted.
- */
-export const synthesis = pgTable(
-  'synthesis',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    conversationId: uuid('conversation_id')
-      .notNull()
-      .references(() => conversation.id, { onDelete: 'cascade' }),
-    requestId: uuid('request_id')
-      .notNull()
-      .references(() => message.id, { onDelete: 'cascade' }),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => user.id),
-    status: text('status').$type<'running' | 'done'>().notNull().default('running'),
-    content: text('content').notNull().default(''),
-    /** The Rees whose answers went in, lettered A, B, C in this order. */
-    reeIds: jsonb('ree_ids').$type<string[]>().notNull().default([]),
-    /** The kept markers, mapped back to the answers and citation snapshots. */
-    sources: jsonb('sources').$type<SynthesisSource[]>().notNull().default([]),
-    costCredits: integer('cost_credits').notNull().default(0),
-    model: text('model'),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    uniqueIndex('synthesis_request_key').on(t.requestId),
-    index('synthesis_conversation_idx').on(t.conversationId),
-    check('synthesis_status_check', oneOf('status', ['running', 'done'])),
-  ],
-);
-
-/** "有用 / 没用" on a synthesis; never counted toward any Ree's rating. */
-export const synthesisFeedback = pgTable(
-  'synthesis_feedback',
-  {
-    synthesisId: uuid('synthesis_id')
-      .notNull()
-      .references(() => synthesis.id, { onDelete: 'cascade' }),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => user.id, { onDelete: 'cascade' }),
-    vote: text('vote').$type<'up' | 'down'>().notNull(),
-    createdAt: createdAt(),
-  },
-  (t) => [primaryKey({ columns: [t.synthesisId, t.userId] }), check('synthesis_feedback_vote_check', oneOf('vote', ['up', 'down']))],
-);
+/* --------------------------------------------------------- step 4: explore */
 
 /**
  * A public Ree's knowledge profile (2.4): at most 16 vectors -- its
@@ -1190,6 +1083,36 @@ export const rateBucket = pgTable(
   },
   (t) => [primaryKey({ columns: [t.key, t.windowStart] })],
 );
+
+/**
+ * The console's overrides of `USER_RATE_LIMITS` (lib/services/rate-limit-settings.ts):
+ * one row per limit name an administrator changed; a name without a row
+ * keeps its code default. Names are not constrained here, so a limit
+ * removed from code leaves a harmless row behind.
+ */
+export const rateLimitSetting = pgTable('rate_limit_setting', {
+  name: text('name').primaryKey(),
+  perMinute: integer('per_minute').notNull(),
+  perHour: integer('per_hour').notNull(),
+  updatedBy: uuid('updated_by').references(() => administrator.id, { onDelete: 'set null' }),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [
+  check('rate_limit_setting_minute_check', sql`per_minute between 1 and 1000000`),
+  check('rate_limit_setting_hour_check', sql`per_hour between 1 and 1000000`),
+]);
+
+/**
+ * Accounts the user-route limiter lets straight through (official batch
+ * work), for the limit names in `limits` only, so an exemption from upload
+ * tokens does not also open the model-cost routes.
+ */
+export const rateLimitExemption = pgTable('rate_limit_exemption', {
+  userId: uuid('user_id').primaryKey().references(() => user.id, { onDelete: 'cascade' }),
+  limits: text('limits').array().notNull().default(sql`'{uploadToken,browse}'::text[]`),
+  note: text('note'),
+  createdBy: uuid('created_by').references(() => administrator.id, { onDelete: 'set null' }),
+  createdAt: timestampTz('created_at').notNull().defaultNow(),
+}, () => [check('rate_limit_exemption_limits_check', sql`cardinality(limits) > 0`)]);
 
 /**
  * Beyond 4: anonymous chat with free Rees (query fee 0) on the public and
@@ -1238,6 +1161,454 @@ export const anonymousAnswer = pgTable(
   (t) => [index('anonymous_answer_ree_idx').on(t.reeId, t.createdAt), index('anonymous_answer_share_idx').on(t.reeId, t.createdAt).where(sql`share_visitor_id is not null`)],
 );
 
+/**
+ * Beyond 4: the Ree page's public Q&A. One row per question an asker chose
+ * to publish ("回答后公开"), a redacted snapshot of the question and the
+ * answer, single-turn only. A row is shown while it is `published` and its
+ * Ree is public with public Q&A on. Nothing adds rows any more: an asker's
+ * conversation is gone (migration 0069 kept the rows it had published), and
+ * every published row is also a post (public-qa-sync.ts).
+ */
+export const reePublicQa = pgTable(
+  'ree_public_qa',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id').notNull().references(() => ree.id, { onDelete: 'cascade' }),
+    source: text('source').$type<PublicQaSource>().notNull(),
+    /** The signed-in asker, never shown; deleting the account deletes the row. */
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
+    question: text('question').notNull(),
+    answer: text('answer').notNull(),
+    citations: jsonb('citations').$type<CitationSnapshot[]>().notNull().default([]),
+    lang: text('lang').$type<'zh' | 'en'>().notNull(),
+    status: text('status').$type<PublicQaStatus>().notNull().default('pending'),
+    moderationAttempts: integer('moderation_attempts').notNull().default(0),
+    hiddenBy: text('hidden_by').$type<PublicQaHider>(),
+    helpfulCount: integer('helpful_count').notNull().default(0),
+    reportCount: integer('report_count').notNull().default(0),
+    /** Pinned by the owner: first in the stream and the share page; one per Ree. */
+    pinnedAt: timestampTz('pinned_at'),
+    createdAt: createdAt(),
+    publishedAt: timestampTz('published_at'),
+  },
+  (t) => [
+    index('ree_public_qa_feed_idx').on(t.reeId, t.publishedAt.desc(), t.id.desc()).where(sql`status = 'published'`),
+    index('ree_public_qa_pending_idx').on(t.createdAt).where(sql`status = 'pending'`),
+    uniqueIndex('ree_public_qa_pinned_key').on(t.reeId).where(sql`pinned_at is not null`),
+    index('ree_public_qa_user_idx').on(t.userId).where(sql`user_id is not null`),
+    check('ree_public_qa_source_check', oneOf('source', [...PUBLIC_QA_SOURCES])),
+    check('ree_public_qa_status_check', oneOf('status', [...PUBLIC_QA_STATUSES])),
+    check('ree_public_qa_hidden_by_check', sql`hidden_by is null or hidden_by in (${sql.raw(PUBLIC_QA_HIDERS.map((value) => `'${value}'`).join(', '))})`),
+    check('ree_public_qa_lang_check', oneOf('lang', ['zh', 'en'])),
+    check('ree_public_qa_question_check', sql`char_length(question) between 1 and 4000`),
+    check('ree_public_qa_answer_check', sql`char_length(answer) between 1 and ${sql.raw(String(PUBLIC_QA_ANSWER_MAX_CHARS))}`),
+    check('ree_public_qa_published_check', sql`(status = 'published') <= (published_at is not null)`),
+  ],
+);
+
+/** "有帮助" on a public answer: one per signed-in user. */
+export const reePublicQaVote = pgTable(
+  'ree_public_qa_vote',
+  {
+    qaId: uuid('qa_id').notNull().references(() => reePublicQa.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.qaId, t.userId] }), index('ree_public_qa_vote_user_idx').on(t.userId)],
+);
+
+/** "举报" on a public answer: one per reporter, the account or an HMAC of the anonymous id. */
+export const reePublicQaReport = pgTable(
+  'ree_public_qa_report',
+  {
+    qaId: uuid('qa_id').notNull().references(() => reePublicQa.id, { onDelete: 'cascade' }),
+    reporterKey: text('reporter_key').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.qaId, t.reporterKey] })],
+);
+
+/* ---------------------------------------------------------------- v5 posts */
+
+/**
+ * Beyond 4 (v5): a public post -- a question for everyone that up to five
+ * relevant Rees answer on their own (lib/services/posts.ts). Also the home
+ * of the Ree page's public Q&A: every published `ree_public_qa` row is
+ * copied in as a post with one answer (`legacy_qa_id`, `syncPublicQa`),
+ * which can run again at any time without copying twice.
+ */
+export const post = pgTable(
+  'post',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** The author; null for a visitor's published answer and RE0's examples. Deleting the account deletes their posts. */
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
+    source: text('source').$type<PostSource>().notNull(),
+    /**
+     * `private` (私密提问): only the author ever sees it (`visiblePost` is public
+     * only); it skips review and goes straight to `published`.
+     */
+    visibility: text('visibility').$type<PostVisibility>().notNull().default('public'),
+    /** A private post's owner actions: 置顶, 归档, and 重命名 (null shows the question). */
+    pinnedAt: timestampTz('pinned_at'),
+    archivedAt: timestampTz('archived_at'),
+    title: text('title'),
+    /** The public post 转为公开 copied this private one into: one copy per private post. */
+    publishedCopyId: uuid('published_copy_id').references((): AnyPgColumn => post.id, { onDelete: 'set null' }),
+    /** The API key an MCP ask (`source = 'api'`) came through, for the key's usage; null once the key is deleted. */
+    apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
+    /** The public Q&A row this post was copied from. */
+    legacyQaId: uuid('legacy_qa_id').references(() => reePublicQa.id, { onDelete: 'set null' }),
+    /** The author chose "匿名发布": the page shows "一位用户". */
+    anonymous: boolean('anonymous').notNull().default(false),
+    question: text('question').notNull(),
+    detail: text('detail').notNull().default(''),
+    lang: text('lang').$type<'zh' | 'en'>().notNull(),
+    /** The first answering Ree's category, for the feed's tag. */
+    category: text('category'),
+    /** The Ree the author named ("发帖问它"): it answers whatever the threshold says, while it takes posts. */
+    mentionReeId: uuid('mention_ree_id').references(() => ree.id, { onDelete: 'set null' }),
+    /** "引用提问": this post quotes a post, or one answer of it (`quote_kind`); the ids go when what they point at is purged, the kind stays so the card says it is gone. */
+    quoteKind: text('quote_kind').$type<'post' | 'answer'>(),
+    quotePostId: uuid('quote_post_id').references((): AnyPgColumn => post.id, { onDelete: 'set null' }),
+    quoteAnswerId: uuid('quote_answer_id').references((): AnyPgColumn => postAnswer.id, { onDelete: 'set null' }),
+    /** Set when the post it quotes is taken down: its answers may restate the quoted text, so an administrator reviews them (`/admin/posts?view=quotes`); cleared when they do. */
+    quoteReviewAt: timestampTz('quote_review_at'),
+    status: text('status').$type<PostStatus>().notNull().default('pending'),
+    /** Who took a published post down: an administrator, or `POST_REPORT_THRESHOLD` distinct reporters (until an administrator restores it). */
+    hiddenBy: text('hidden_by').$type<'admin' | 'reports'>(),
+    reportCount: integer('report_count').notNull().default(0),
+    /** The composer's token for one post: the same token, or the same text within a minute, publishes (and holds) once. */
+    clientToken: uuid('client_token'),
+    moderationAttempts: integer('moderation_attempts').notNull().default(0),
+    answerState: text('answer_state').$type<PostAnswerState>().notNull().default('waiting'),
+    candidates: integer('candidates').notNull().default(0),
+    skipped: integer('skipped').notNull().default(0),
+    answerCount: integer('answer_count').notNull().default(0),
+    /** "有帮助" on the post itself (`post_vote`); the cards show it added to its first-round answers' votes. */
+    helpfulCount: integer('helpful_count').notNull().default(0),
+    /** Published follow-ups (追问) shown under it, for the cards; kept as they are published, hidden, restored and deleted. */
+    followupCount: integer('followup_count').notNull().default(0),
+    summaryState: text('summary_state').$type<'running' | 'done'>(),
+    summaryContent: text('summary_content'),
+    summarySources: jsonb('summary_sources').$type<SynthesisSource[]>(),
+    summaryHoldId: uuid('summary_hold_id'),
+    /** The answers the summary was written from; it is not shown once any of them is no longer shown. */
+    summaryAnswers: jsonb('summary_answers').$type<string[]>(),
+    /** Free rewrites of a stale summary so far; capped at `POST_SUMMARY_FREE_REWRITES`. */
+    summaryRewrites: integer('summary_rewrites').notNull().default(0),
+    summaryAt: timestampTz('summary_at'),
+    /** In the author's trash since: hidden from everyone else at once. */
+    deletedAt: timestampTz('deleted_at'),
+    createdAt: createdAt(),
+    publishedAt: timestampTz('published_at'),
+    /** When a run claimed it (`answer_state` 'answering'): how long that run has had, for the sweep (null before 0073: read as `published_at`). */
+    answeringAt: timestampTz('answering_at'),
+    answeredAt: timestampTz('answered_at'),
+  },
+  (t) => [
+    index('post_feed_idx').on(t.publishedAt.desc(), t.id.desc()).where(sql`status = 'published' and deleted_at is null and visibility = 'public'`),
+    index('post_user_idx').on(t.userId, t.createdAt.desc()).where(sql`user_id is not null`),
+    index('post_pending_idx').on(t.createdAt).where(sql`status = 'pending' or answer_state <> 'done'`),
+    uniqueIndex('post_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
+    /* The counts leave out a 转为公开 copy (its answers were counted on the private post): looked up per answer. */
+    index('post_published_copy_idx').on(t.publishedCopyId).where(sql`published_copy_id is not null`),
+    index('post_quote_idx').on(t.quotePostId).where(sql`quote_post_id is not null`),
+    index('post_quote_review_idx').on(t.quoteReviewAt).where(sql`quote_review_at is not null`),
+    check('post_quote_kind_check', sql`quote_kind is null or quote_kind in ('post', 'answer')`),
+    uniqueIndex('post_client_token_key').on(t.userId, t.clientToken).where(sql`client_token is not null`),
+    /* 发现 → 帖子 searches question and detail with ILIKE; trigrams let that use an index (pg_trgm, migration 0057). */
+    index('post_search_idx').using('gin', sql`(question || ' ' || detail) gin_trgm_ops`),
+    check('post_source_check', oneOf('source', [...POST_SOURCES])),
+    check('post_status_check', oneOf('status', [...POST_STATUSES])),
+    check('post_answer_state_check', oneOf('answer_state', [...POST_ANSWER_STATES])),
+    check('post_hidden_by_check', sql`hidden_by is null or hidden_by in ('admin', 'reports')`),
+    check('post_summary_state_check', sql`summary_state is null or summary_state in ('running', 'done')`),
+    check('post_lang_check', oneOf('lang', ['zh', 'en'])),
+    check('post_question_check', sql`char_length(question) between 1 and 4000`),
+    check('post_detail_check', sql`char_length(detail) <= ${sql.raw(String(POST_DETAIL_MAX))}`),
+    check('post_published_check', sql`(status = 'published') <= (published_at is not null)`),
+    check('post_visibility_check', oneOf('visibility', [...POST_VISIBILITIES])),
+    check('post_title_check', sql`title is null or char_length(title) between 1 and ${sql.raw(String(POST_TITLE_MAX))}`),
+    /* 试问 and MCP asks are private by nature. */
+    check('post_private_source_check', sql`source not in ('test', 'api') or visibility = 'private'`),
+  ],
+);
+
+/**
+ * A follow-up (追问) under a public post: a signed-in reader asks on, and
+ * only Rees that answered the post's first round answer it -- those it
+ * @-mentions, or else the relevant ones (lib/services/post-followups.ts).
+ * Reviewed like a post before any Ree is asked; its answers are
+ * `post_answer` rows pointing back at it, charged to whoever asked.
+ */
+export const postFollowup = pgTable(
+  'post_followup',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    question: text('question').notNull(),
+    lang: text('lang').$type<'zh' | 'en'>().notNull(),
+    /** The Rees it @-mentions: at most every first-round answerer, checked when asked. */
+    mentionReeIds: uuid('mention_ree_ids').array().notNull().default(sql`'{}'::uuid[]`),
+    status: text('status').$type<FollowupStatus>().notNull().default('pending'),
+    hiddenBy: text('hidden_by').$type<'admin' | 'reports'>(),
+    reportCount: integer('report_count').notNull().default(0),
+    moderationAttempts: integer('moderation_attempts').notNull().default(0),
+    answerState: text('answer_state').$type<PostAnswerState>().notNull().default('waiting'),
+    candidates: integer('candidates').notNull().default(0),
+    skipped: integer('skipped').notNull().default(0),
+    /**
+     * Asked under the AI answer of a public post no Ree answered (继续问
+     * AI): answered by the AI only, at the asker's cost; reviewed, public
+     * and counted like any follow-up since 0072 (ai-answers.ts).
+     */
+    aiOnly: boolean('ai_only').notNull().default(false),
+    /** The composer's token: the same token, or the same text under the same post within a minute, asks once. */
+    clientToken: uuid('client_token'),
+    /** The API key an MCP continuation of a private post came through (`post.api_key_id` for its first question). */
+    apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
+    deletedAt: timestampTz('deleted_at'),
+    createdAt: createdAt(),
+    publishedAt: timestampTz('published_at'),
+    /** When a run claimed it (`answer_state` 'answering'): how long that run has had, for the sweep (null before 0073: read as `published_at`). */
+    answeringAt: timestampTz('answering_at'),
+    answeredAt: timestampTz('answered_at'),
+  },
+  (t) => [
+    index('post_followup_thread_idx').on(t.postId, t.createdAt),
+    index('post_followup_user_idx').on(t.userId, t.createdAt.desc()),
+    index('post_followup_pending_idx').on(t.createdAt).where(sql`status = 'pending' or answer_state <> 'done'`),
+    uniqueIndex('post_followup_client_token_key').on(t.userId, t.clientToken).where(sql`client_token is not null`),
+    check('post_followup_status_check', oneOf('status', [...FOLLOWUP_STATUSES])),
+    check('post_followup_answer_state_check', oneOf('answer_state', [...POST_ANSWER_STATES])),
+    check('post_followup_hidden_by_check', sql`hidden_by is null or hidden_by in ('admin', 'reports')`),
+    check('post_followup_lang_check', oneOf('lang', ['zh', 'en'])),
+    check('post_followup_question_check', sql`char_length(question) between 1 and 2000`),
+    check('post_followup_mentions_check', sql`cardinality(mention_ree_ids) <= 5`),
+    check('post_followup_published_check', sql`(status = 'published') <= (published_at is not null)`),
+  ],
+);
+
+/** "举报" on a follow-up: one per reporter, the account or an HMAC of the visitor's network. */
+export const postFollowupReport = pgTable(
+  'post_followup_report',
+  {
+    followupId: uuid('followup_id').notNull().references(() => postFollowup.id, { onDelete: 'cascade' }),
+    reporterKey: text('reporter_key').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.followupId, t.reporterKey] })],
+);
+
+/** One Ree's answer to a post. */
+export const postAnswer = pgTable(
+  'post_answer',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    /** Null for the post's first round; a follow-up's answers point at it (追问). */
+    followupId: uuid('followup_id').references((): AnyPgColumn => postFollowup.id, { onDelete: 'cascade' }),
+    reeId: uuid('ree_id').notNull().references(() => ree.id, { onDelete: 'cascade' }),
+    legacyQaId: uuid('legacy_qa_id').references(() => reePublicQa.id, { onDelete: 'set null' }),
+    /** The best passage's similarity when the search picked it; null for a mention or a copied Q&A. */
+    similarity: real('similarity'),
+    mentioned: boolean('mentioned').notNull().default(false),
+    state: text('state').$type<AnswerState>().notNull().default('queued'),
+    text: text('text').notNull().default(''),
+    citations: jsonb('citations').$type<CitationSnapshot[]>().notNull().default([]),
+    model: text('model'),
+    hiddenBy: text('hidden_by').$type<AnswerHider>(),
+    helpfulCount: integer('helpful_count').notNull().default(0),
+    reportCount: integer('report_count').notNull().default(0),
+    /** Pinned by the Ree's owner: first on the Ree page and the share page; one per Ree. */
+    pinnedAt: timestampTz('pinned_at'),
+    /** A paid Ree's answer: what its author agreed to pay (base fee plus query fee), and the two holds. */
+    price: integer('price'),
+    baseHoldId: uuid('base_hold_id'),
+    feeHoldId: uuid('fee_hold_id'),
+    /** When the author agreed or declined. */
+    decidedAt: timestampTz('decided_at'),
+    /** How many times the author agreed to this request: at most `POST_PAID_AGREE_MAX`. */
+    agreements: integer('agreements').notNull().default(0),
+    createdAt: createdAt(),
+    answeredAt: timestampTz('answered_at'),
+  },
+  (t) => [
+    index('post_answer_awaiting_idx').on(t.postId).where(sql`state in ('awaiting', 'answering')`),
+    /* One answer per Ree in the first round, and one per Ree in each follow-up. */
+    uniqueIndex('post_answer_post_ree_key').on(t.postId, t.reeId).where(sql`followup_id is null`),
+    uniqueIndex('post_answer_followup_ree_key').on(t.followupId, t.reeId).where(sql`followup_id is not null`),
+    index('post_answer_ree_idx').on(t.reeId, t.answeredAt.desc(), t.id.desc()).where(sql`state = 'answered' and hidden_by is null`),
+    uniqueIndex('post_answer_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
+    uniqueIndex('post_answer_pinned_key').on(t.reeId).where(sql`pinned_at is not null`),
+    check('post_answer_state_check', oneOf('state', [...ANSWER_STATES])),
+    check('post_answer_hidden_by_check', sql`hidden_by is null or hidden_by in (${sql.raw(ANSWER_HIDERS.map((value) => `'${value}'`).join(', '))})`),
+    check('post_answer_text_check', sql`char_length(text) <= ${sql.raw(String(PUBLIC_QA_ANSWER_MAX_CHARS))}`),
+  ],
+);
+
+/** "有帮助" on an answer: one per signed-in user. */
+export const postAnswerVote = pgTable(
+  'post_answer_vote',
+  {
+    answerId: uuid('answer_id').notNull().references(() => postAnswer.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.answerId, t.userId] }), index('post_answer_vote_user_idx').on(t.userId)],
+);
+
+/** "没帮助" on a private post's answer: its author only (public answers have no 👎). */
+export const postAnswerFeedback = pgTable(
+  'post_answer_feedback',
+  {
+    answerId: uuid('answer_id').notNull().references(() => postAnswer.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.answerId, t.userId] })],
+);
+
+/**
+ * What the conversations counted before private posts replaced them,
+ * frozen by migration 0066 so the figures stay when the conversation tables
+ * go (PR B): each Ree's answers to other people (explore `answersByOthers`,
+ * rank `answers_all`), other people's 有用 / 没用 (`votesByOthers`), and
+ * other people's questions, answered or not (roles `external_questions`).
+ * Readers add the same figures counted from posts.
+ */
+export const reeLegacyStats = pgTable('ree_legacy_stats', {
+  reeId: uuid('ree_id')
+    .primaryKey()
+    .references(() => ree.id, { onDelete: 'cascade' }),
+  answersByOthers: integer('answers_by_others').notNull().default(0),
+  helpful: integer('helpful').notNull().default(0),
+  unhelpful: integer('unhelpful').notNull().default(0),
+  answersAll: integer('answers_all').notNull().default(0),
+  questionsByOthers: integer('questions_by_others').notNull().default(0),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+});
+
+/** The role threshold's conversation figures per user (roles.ts `roleMetrics`), frozen like `ree_legacy_stats`. */
+export const userLegacyStats = pgTable('user_legacy_stats', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  externalQuestions: integer('external_questions').notNull().default(0),
+  helpful: integer('helpful').notNull().default(0),
+  unhelpful: integer('unhelpful').notNull().default(0),
+});
+
+/** "有帮助" on a post itself: one per signed-in user. */
+export const postVote = pgTable(
+  'post_vote',
+  {
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.postId, t.userId] }), index('post_vote_user_idx').on(t.userId)],
+);
+
+/** "举报" on an answer: one per reporter, the account or an HMAC of the anonymous id. */
+export const postAnswerReport = pgTable(
+  'post_answer_report',
+  {
+    answerId: uuid('answer_id').notNull().references(() => postAnswer.id, { onDelete: 'cascade' }),
+    reporterKey: text('reporter_key').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.answerId, t.reporterKey] })],
+);
+
+/** "举报" on a post's question: one per reporter, the account or an HMAC of the visitor's network. */
+export const postReport = pgTable(
+  'post_report',
+  {
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    reporterKey: text('reporter_key').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.postId, t.reporterKey] })],
+);
+
+/** "收藏" on a post. */
+export const postSave = pgTable(
+  'post_save',
+  {
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.postId] }), index('post_save_recent_idx').on(t.userId, t.createdAt.desc(), t.postId.desc())],
+);
+
+/**
+ * AI 通用回答: the general answer an asker gets when no Ree answered a round
+ * (lib/services/ai-answers.ts) -- the first round of a post (`followup_id`
+ * null) or one follow-up -- one per round. Apart from `post_answer` on
+ * purpose: it is no Ree's answer, so no count, rank, feed, summary or Ree
+ * page ever reads it. Only `user_id`, who asked the round and pays for it,
+ * ever sees it. `vote` is their 有帮助 / 没帮助, for its quality only.
+ */
+export const postAiAnswer = pgTable(
+  'post_ai_answer',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    followupId: uuid('followup_id').references((): AnyPgColumn => postFollowup.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    state: text('state').$type<AiAnswerState>().notNull().default('running'),
+    text: text('text').notNull().default(''),
+    model: text('model'),
+    /** The base fee held while it is written: settled once answered, released otherwise. */
+    holdId: uuid('hold_id'),
+    /** What it was charged (the fee once answered); 0 until then. */
+    price: integer('price').notNull().default(0),
+    vote: text('vote').$type<'helpful' | 'unhelpful'>(),
+    /**
+     * On a public post, the review it needs before anyone but its asker reads
+     * it: `pending` once written, then `passed` or `rejected`. Null on a
+     * private post (only its author ever reads it) and while not written.
+     */
+    review: text('review').$type<AiAnswerReview>(),
+    reviewAttempts: integer('review_attempts').notNull().default(0),
+    /** Distinct reporters (`post_ai_answer_report`); at `PUBLIC_QA_REPORT_THRESHOLD` it is refused (`review` 'rejected', `hidden_by` 'reports'). */
+    reportCount: integer('report_count').notNull().default(0),
+    /** Taken down after it passed review -- by reports or an administrator -- with `review` set to 'rejected'; an administrator may restore it. */
+    hiddenBy: text('hidden_by').$type<'reports' | 'admin'>(),
+    /** When it started running (again, after a by-hand retry): what the sweep times it by. */
+    startedAt: timestampTz('started_at'),
+    createdAt: createdAt(),
+    answeredAt: timestampTz('answered_at'),
+  },
+  (t) => [
+    uniqueIndex('post_ai_answer_post_key').on(t.postId).where(sql`followup_id is null`),
+    uniqueIndex('post_ai_answer_followup_key').on(t.followupId).where(sql`followup_id is not null`),
+    index('post_ai_answer_running_idx').on(t.startedAt).where(sql`state = 'running'`),
+    index('post_ai_answer_user_idx').on(t.userId),
+    index('post_ai_answer_review_idx').on(t.answeredAt).where(sql`review = 'pending'`),
+    check('post_ai_answer_state_check', oneOf('state', [...AI_ANSWER_STATES])),
+    check('post_ai_answer_vote_check', sql`vote is null or vote in ('helpful', 'unhelpful')`),
+    check('post_ai_answer_review_check', sql`review is null or review in ('pending', 'passed', 'rejected')`),
+    check('post_ai_answer_text_check', sql`char_length(text) <= ${sql.raw(String(PUBLIC_QA_ANSWER_MAX_CHARS))}`),
+    check('post_ai_answer_hidden_by_check', sql`hidden_by is null or hidden_by in ('reports', 'admin')`),
+  ],
+);
+
+/** "举报" on an AI answer anyone may read: one per reporter, the account or an HMAC of the visitor's network (as `post_answer_report`). */
+export const postAiAnswerReport = pgTable(
+  'post_ai_answer_report',
+  {
+    aiAnswerId: uuid('ai_answer_id').notNull().references(() => postAiAnswer.id, { onDelete: 'cascade' }),
+    reporterKey: text('reporter_key').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.aiAnswerId, t.reporterKey] })],
+);
+
 /* ------------------------------------------------------------- step 5 */
 
 /**
@@ -1273,7 +1644,7 @@ export const verificationRequest = pgTable(
   ],
 );
 
-export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification'] as const;
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal', 'post_ai_answer'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**
@@ -1655,10 +2026,10 @@ export const videoExportPricing = pgTable('video_export_pricing', {
 ]);
 
 /**
- * Beyond 4: anonymous chat's daily caps, set in the console's pricing page
- * (lib/services/anonymous-chat-settings.ts): per browser, per Ree, over the
- * platform, per client address, and the attempts factor. No row means the
- * defaults in lib/constants.ts.
+ * Beyond 4: anonymous chat's daily caps, once set in the console's pricing
+ * page: per browser, per Ree, over the platform, per client address, and
+ * the attempts factor. Nothing reads or writes it since anonymous chat and
+ * its form went (2026-11); kept as it was.
  */
 export const anonymousChatSettings = pgTable('anonymous_chat_settings', {
   id: integer('id').primaryKey().default(1),
@@ -1814,12 +2185,14 @@ export const taskReward = pgTable(
 );
 
 /**
- * Beyond 4: the share page `/s/[slug]` -- a visit, or a conversation the
- * visitor started or joined from it. `visitor_id` is the random id of the
+ * Beyond 4: the share page `/s/[slug]` -- a visit, or a conversion: what
+ * the visitor asked from it. `visitor_id` is the random id of the
  * `re0_visitor` cookie (no IP, no user agent); the owner's own visits are
  * not recorded. A visit holds its half-hour `visit_slot`, so one visitor
- * counts once per slot even when two tabs open at once; one conversion per
- * conversation and Ree.
+ * counts once per slot even when two tabs open at once. Since the chat
+ * pages went (2026-11-20) a conversion is a post published from the share
+ * page (`kind = 'post'`, one per post and Ree); the `conversation` ones stay
+ * as they were counted, without the conversation (dropped by migration 0069).
  */
 export const reeShareEvent = pgTable(
   'ree_share_event',
@@ -1828,10 +2201,11 @@ export const reeShareEvent = pgTable(
     reeId: uuid('ree_id')
       .notNull()
       .references(() => ree.id, { onDelete: 'cascade' }),
-    kind: text('kind').$type<'visit' | 'conversation'>().notNull(),
+    kind: text('kind').$type<'visit' | 'conversation' | 'post'>().notNull(),
     visitorId: text('visitor_id').notNull(),
     userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
-    conversationId: uuid('conversation_id').references(() => conversation.id, { onDelete: 'set null' }),
+    /** `post` conversions (2026-11-20): the post published from the share page, which asked this Ree. */
+    postId: uuid('post_id').references((): AnyPgColumn => post.id, { onDelete: 'set null' }),
     /** Visits only: `floor(epoch seconds / 1800)`. */
     visitSlot: integer('visit_slot'),
     createdAt: createdAt(),
@@ -1839,12 +2213,86 @@ export const reeShareEvent = pgTable(
   (t) => [
     index('ree_share_event_ree_idx').on(t.reeId, t.kind, t.createdAt),
     index('ree_share_event_visitor_idx').on(t.visitorId, t.reeId, t.createdAt),
-    uniqueIndex('ree_share_event_conversation_key').on(t.conversationId, t.reeId).where(sql`kind = 'conversation'`),
+    uniqueIndex('ree_share_event_post_key').on(t.postId, t.reeId).where(sql`kind = 'post'`),
     uniqueIndex('ree_share_event_visit_key').on(t.visitorId, t.reeId, t.visitSlot).where(sql`kind = 'visit'`),
-    check('ree_share_event_kind_check', oneOf('kind', ['visit', 'conversation'])),
+    check('ree_share_event_kind_check', oneOf('kind', ['visit', 'conversation', 'post'])),
     check('ree_share_event_visit_slot_check', sql`(kind = 'visit') = (visit_slot is not null)`),
   ],
 );
+
+/* -------------------------------------------------------------- Traffic */
+
+/**
+ * Site-wide traffic (console 「流量」, lib/services/traffic.ts): one row per
+ * page view the root layout's beacon reports, kept `TRAFFIC_RETENTION_DAYS`.
+ * A visitor is the share page's `re0_visitor` cookie id; no IP and no user
+ * agent is stored, and of the referrer only its host. `source` is the
+ * visit's, decided on its landing view and copied onto later ones; `path`
+ * has no query and no language prefix (lib/domain/traffic.ts).
+ */
+export const siteView = pgTable(
+  'site_view',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    visitorId: text('visitor_id').notNull(),
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
+    path: text('path').notNull(),
+    pageKind: text('page_kind').$type<PageKind>().notNull(),
+    landing: boolean('landing').notNull(),
+    source: text('source').notNull(),
+    referrerHost: text('referrer_host'),
+    utmSource: text('utm_source'),
+    utmMedium: text('utm_medium'),
+    utmCampaign: text('utm_campaign'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('site_view_visitor_idx').on(t.visitorId, t.createdAt),
+    index('site_view_created_idx').on(t.createdAt),
+    check('site_view_page_kind_check', oneOf('page_kind', PAGE_KINDS)),
+    check('site_view_path_check', sql`char_length(path) between 1 and 300`),
+    check('site_view_source_check', sql`char_length(source) between 1 and 100`),
+  ],
+);
+
+/**
+ * Finished days of `site_view`, rolled up by the daily cron
+ * (`/api/cron/traffic`) and kept for good. Each day has a row per grouping
+ * set: `source` and `page_kind` are `''` where the row covers all of them,
+ * so `('', '')` is the day's exact total and visitors are exact per row
+ * (never summed over sources or kinds). `visits` counts landing views.
+ */
+export const siteTrafficDay = pgTable(
+  'site_traffic_day',
+  {
+    day: date('day', { mode: 'string' }).notNull(),
+    source: text('source').notNull(),
+    pageKind: text('page_kind').notNull(),
+    views: integer('views').notNull(),
+    visitors: integer('visitors').notNull(),
+    visits: integer('visits').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.source, t.pageKind] })],
+);
+
+/** Landing views per finished day, source and page, for 「落地页」. */
+export const siteTrafficLanding = pgTable(
+  'site_traffic_landing',
+  {
+    day: date('day', { mode: 'string' }).notNull(),
+    source: text('source').notNull(),
+    path: text('path').notNull(),
+    pageKind: text('page_kind').notNull(),
+    visits: integer('visits').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.source, t.path] })],
+);
+
+/** The days the rollup has finished: their figures come from the two tables above, not from `site_view`. */
+export const siteTrafficRollup = pgTable('site_traffic_rollup', {
+  day: date('day', { mode: 'string' }).primaryKey(),
+  rolledAt: timestampTz('rolled_at').notNull().defaultNow(),
+});
 
 /* ------------------------------------------------------------------ MCP */
 
@@ -1867,6 +2315,13 @@ export const apiKey = pgTable(
     lastUsedAt: timestampTz('last_used_at'),
     expiresAt: timestampTz('expires_at'),
     revokedAt: timestampTz('revoked_at'),
+    /**
+     * What the key asked and spent through MCP conversations, frozen by
+     * migration 0067 before PR B deletes them; its usage adds the private
+     * posts asked through it (api-keys.ts `usageOf`).
+     */
+    legacyQuestions: integer('legacy_questions').notNull().default(0),
+    legacySpent: integer('legacy_spent').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [

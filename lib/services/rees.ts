@@ -23,11 +23,18 @@ import {
 } from '@/lib/domain/ree';
 import { blobSize } from '@/lib/infra/blob';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
-import { detachRee } from '@/lib/services/conversations';
 import { votesByOthers } from '@/lib/services/ree-feedback';
 import { grantTaskReward } from '@/lib/services/task-rewards';
 
 export type Ree = typeof schema.ree.$inferSelect;
+
+/** A Ree this user may ask: their own, or public and not taken down; never a deleted one (3). */
+export function usableBy(userId: string): SQL {
+  return and(
+    isNull(schema.ree.deletedAt),
+    or(eq(schema.ree.ownerId, userId), and(eq(schema.ree.isPublic, true), eq(schema.ree.isPublished, true), isNull(schema.ree.moderatedAt))),
+  )!;
+}
 
 export const REE_VISIBILITIES = ['all', 'public', 'private', 'published', 'unpublished'] as const;
 export const REE_SORTS = [
@@ -70,7 +77,7 @@ export interface ReeListItem {
  * `query_base` settlement in the ledger, one per answering Ree per question,
  * or an `anonymous_answer` row --
  * the same sources as the statistics (statistics.ts `answerCounts`), so
- * clearing a test conversation keeps the count. The outer column is written
+ * the count outlives whatever the answer was written in. The outer column is written
  * out qualified: drizzle renders a column inside a select list unqualified,
  * and a bare "id" would bind to the subquery's own table.
  */
@@ -302,7 +309,7 @@ export async function createReeFromDraft(ownerId: string): Promise<{ ree: Ree }>
 export async function updateRee(
   ownerId: string,
   id: string,
-  fields: ReeFields & { isPublic: boolean; color: unknown; avatarBlob: string | null; coverBlob?: string | null },
+  fields: ReeFields & { isPublic: boolean; color: unknown; avatarBlob: string | null; coverBlob?: string | null; publicQaEnabled?: boolean; answersPosts?: boolean | null },
 ): Promise<Ree | null> {
   const invalid = validateReeFields(fields, 3);
   if (invalid) throw new ReeInputError(invalid.error, invalid.step);
@@ -319,11 +326,11 @@ export async function updateRee(
     const [row] = await tx
       .update(schema.ree)
       /* A Ree an administrator took down stays private until it is restored (2.5). */
-      .set({ ...reeValues(fields), isPublic: sql`(${fields.isPublic} and "ree"."moderated_at" is null)`, isPublished: sql`(${fields.isPublic} and "ree"."is_published" and "ree"."moderated_at" is null)`, avatarBlob, coverBlob, updatedAt: new Date() })
+      .set({ ...reeValues(fields), isPublic: sql`(${fields.isPublic} and "ree"."moderated_at" is null)`, isPublished: sql`(${fields.isPublic} and "ree"."is_published" and "ree"."moderated_at" is null)`, avatarBlob, coverBlob, ...(fields.publicQaEnabled === undefined ? {} : { publicQaEnabled: fields.publicQaEnabled }), ...(typeof fields.answersPosts === 'boolean' ? { answersPosts: fields.answersPosts } : {}), updatedAt: new Date() })
       .where(and(eq(schema.ree.id, id), ownedLive(ownerId)))
       .returning();
-    /* Private now: out of other people's conversations and out of discovery (8.2); the history stays. */
-    if (row && !row.isPublished) await hide(tx, row.id, { includeOwner: false });
+    /* Private now: out of discovery (8.2). */
+    if (row && !row.isPublished) await hide(tx, row.id);
     return row ?? null;
   });
 }
@@ -333,9 +340,8 @@ export async function updateRee(
  * `batchVisibility`): the owner's live Rees are locked and planned again,
  * those already at the target are left alone and a taken-down Ree is
  * skipped when going public -- the same rule as `updateRee`. Going private
- * leaves other people's conversations and discovery exactly as the single
- * update does. Only visibility changes; knowledge, videos, conversations,
- * billing and statistics stay.
+ * leaves discovery exactly as the single update does. Only visibility
+ * changes; knowledge, videos, posts, billing and statistics stay.
  */
 export async function setReesVisibility(ownerId: string, ids: readonly string[], isPublic: boolean): Promise<VisibilityPlan> {
   return db().transaction(async (tx) => {
@@ -355,7 +361,7 @@ export async function setReesVisibility(ownerId: string, ids: readonly string[],
         .update(schema.ree)
         .set({ isPublic: sql`(${isPublic} and "ree"."moderated_at" is null)`, isPublished: sql`(${isPublic} and "ree"."is_published" and "ree"."moderated_at" is null)`, updatedAt: new Date() })
         .where(inArray(schema.ree.id, plan.changes));
-      if (!isPublic) for (const id of plan.changes) await hide(tx, id, { includeOwner: false });
+      if (!isPublic) for (const id of plan.changes) await hide(tx, id);
     }
     return plan;
   });
@@ -378,19 +384,19 @@ export async function setReePublished(ownerId: string, id: string, isPublished: 
     if (isPublished && !current.isPublic) throw new ReePublicationError('not_public');
     if (current.isPublished === isPublished) return current;
     const [ree] = await tx.update(schema.ree).set({ isPublished, updatedAt: new Date() }).where(eq(schema.ree.id, id)).returning();
-    if (!isPublished) await hide(tx, id, { includeOwner: false });
+    if (!isPublished) await hide(tx, id);
     /* 新手任务: the owner's first Ree published pays once (task-rewards.ts). */
     else await grantTaskReward(tx, ownerId, 'first_ree', id);
     return ree!;
   });
 }
 
-async function hide(tx: Tx, reeId: string, options: { includeOwner: boolean }): Promise<void> {
-  await detachRee(tx, reeId, options);
+/** Out of discovery: a Ree that stops being public has no profile vectors (only public Rees have them). */
+async function hide(tx: Tx, reeId: string): Promise<void> {
   await tx.delete(schema.reeProfileVector).where(eq(schema.reeProfileVector.reeId, reeId));
 }
 
-/** Soft: the row stays so past conversations still show the name (8.2, "Ree 删除"). */
+/** Soft: the row stays so past answers and the ledger still show the name (8.2, "Ree 删除"). */
 export async function deleteRee(ownerId: string, id: string): Promise<boolean> {
   return db().transaction(async (tx) => {
     const rows = await tx
@@ -398,7 +404,7 @@ export async function deleteRee(ownerId: string, id: string): Promise<boolean> {
       .set({ deletedAt: new Date(), isPublic: false, isPublished: false })
       .where(and(eq(schema.ree.id, id), ownedLive(ownerId)))
       .returning({ id: schema.ree.id });
-    if (rows.length) await hide(tx, id, { includeOwner: true });
+    if (rows.length) await hide(tx, id);
     return rows.length > 0;
   });
 }

@@ -114,7 +114,7 @@ export const zh = {
     label: '分页',
   },
   explanation:
-    '成功回答按每个问题计一次，未作答不计入；清空测试对话后，其使用记录仍计入统计。下方仅展示仍留存正文的回答。收入按流水归属统计，不以回答次数乘查询费估算。',
+    '成功回答按每个问题计一次，未作答不计入；清空试问后，其使用记录仍计入统计。下方仅展示仍留存正文的回答。收入按流水归属统计，不以回答次数乘查询费估算。',
   explanationPeriod: '知识来源为当前快照，不随时段变化。',
   explanationOfficial: '官方账号的查询费收入仅在管理后台查看。',
   workspace: {
@@ -158,7 +158,7 @@ export const zh = {
       openRee: '打开 Ree',
       empty: '没有符合筛选条件的记录',
       emptyBody: '试试其他关键词、Ree 或时段。',
-      explanation: '成功回答按每个问题计一次，未作答不计入；只有仍留存正文的回答可逐条查看，清空测试对话后其使用记录仍计入汇总。',
+      explanation: '成功回答按每个问题计一次，未作答不计入；只有仍留存正文的回答可逐条查看，清空试问后其使用记录仍计入汇总。',
     },
   },
   dashboard: {
@@ -307,7 +307,7 @@ export const en: Shape<typeof zh> = {
     label: 'Pagination',
   },
   explanation:
-    'Each answered question counts once and unanswered questions are excluded; usage stays in the totals after a test conversation is cleared. Only answers whose text is still saved appear below. Income is attributed from ledger entries, never estimated from answer counts.',
+    'Each answered question counts once and unanswered questions are excluded; usage stays in the totals after test questions are cleared. Only answers whose text is still saved appear below. Income is attributed from ledger entries, never estimated from answer counts.',
   explanationPeriod: 'Sources show the current snapshot and do not change with the period.',
   explanationOfficial: 'Official account income is available only in the admin console.',
   workspace: {
@@ -352,7 +352,7 @@ export const en: Shape<typeof zh> = {
       empty: 'No matching records',
       emptyBody: 'Try another query, Ree or period.',
       explanation:
-        'Each answered question counts once and unanswered questions are excluded; only answers whose text is still saved can be opened, and usage stays in the totals after a test conversation is cleared.',
+        'Each answered question counts once and unanswered questions are excluded; only answers whose text is still saved can be opened, and usage stays in the totals after test questions are cleared.',
     },
   },
   dashboard: {

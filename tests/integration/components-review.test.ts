@@ -1,8 +1,8 @@
 /**
- * Server halves of the components review fixes (rebuild review section 七):
- * a page knows when its latest question is still being answered, so it
- * waits instead of inviting a second paid ask (C3); and a Paddle payment
- * link is opened only for the viewer's own transaction (C12).
+ * Server half of a components review fix (rebuild review section 七): a
+ * Paddle payment link is opened only for the viewer's own transaction (C12).
+ * (C3, a conversation page waiting for its latest answer, went with the
+ * conversations.)
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -12,8 +12,6 @@ import type { PaddleConfig, PaddleTransaction } from '@/lib/infra/paddle';
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
 const { createSession } = await import('@/lib/services/auth');
-const { placeHold, releaseHold } = await import('@/lib/services/credits');
-const { answeringQuestion, ANSWER_PENDING_MS } = await import('@/lib/services/chat');
 const { ownsPaddleTransaction } = await import('@/lib/services/pricing');
 const { db, schema } = await import('@/lib/infra/db');
 
@@ -22,29 +20,6 @@ async function user() {
   const { userId } = await createSession({ provider: 'github', subject, handle: subject, email: `${subject}@example.test`, displayName: subject, avatarUrl: null }, 'zh', '/');
   return userId;
 }
-
-describeWithDb('a question still being answered (C3)', () => {
-  it('is answering while one of its chat holds is open, and not once it closes or goes stale', async () => {
-    const userId = await user();
-    const [conversation] = await db().insert(schema.conversation).values({ userId, kind: 'normal' }).returning();
-    const [asked] = await db().insert(schema.message).values({ conversationId: conversation!.id, role: 'user', content: 'Can I get a refund?' }).returning();
-    const rows = [{ id: asked!.id, role: 'user' as const }];
-    expect(await answeringQuestion(userId, rows)).toBe(false);
-
-    const holdId = await db().transaction((tx) => placeHold(tx, { userId, kind: 'chat', amount: 20, refId: asked!.id, reeId: null, note: 'test' }));
-    expect(await answeringQuestion(userId, rows)).toBe(true);
-    /* Another user's view of the same ids never sees it. */
-    expect(await answeringQuestion(await user(), rows)).toBe(false);
-    /* A hold older than any answer can run belongs to a killed function: nothing more will come. */
-    expect(await answeringQuestion(userId, rows, new Date(Date.now() + ANSWER_PENDING_MS + 1_000))).toBe(false);
-    /* An earlier question's open hold does not count once a newer question was asked. */
-    const [later] = await db().insert(schema.message).values({ conversationId: conversation!.id, role: 'user', content: 'And after 30 days?' }).returning();
-    expect(await answeringQuestion(userId, [...rows, { id: later!.id, role: 'user' }])).toBe(false);
-
-    await db().transaction((tx) => releaseHold(tx, holdId, { reeId: null, note: 'test' }));
-    expect(await answeringQuestion(userId, rows)).toBe(false);
-  });
-});
 
 describeWithDb('payment link owner (C12)', () => {
   afterEach(() => vi.unstubAllEnvs());

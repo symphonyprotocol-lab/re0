@@ -12,7 +12,7 @@
 import { WELCOME_CREDITS } from '@/lib/constants';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { dropConversationTables, pointModelsAt, restoreConversationTables, runBackfill, TEST_DATABASE_URL, uniqueName } from './setup';
 import { consoleAdministrator } from '../fixtures/console-administrator';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 
@@ -50,7 +50,10 @@ beforeAll(async () => {
   pointModelsAt(fake.baseUrl);
   forgetModelCache();
 });
-afterAll(() => fake?.close());
+afterAll(async () => {
+  await dropConversationTables();
+  await fake?.close();
+});
 
 async function newUser(name = 'Owner', createdAt = new Date()): Promise<string> {
   const subject = uniqueName('s5');
@@ -84,31 +87,34 @@ async function publicRee(ownerId: string, options: { ready?: number; isPublic?: 
   return ree!;
 }
 
-/** `count` questions from `askerId` to the Ree, each answered, with feedback `up`/`down` on the first ones. */
+/**
+ * `count` questions from `askerId` to the Ree in a conversation, each
+ * answered, with feedback `up`/`down` on the first ones -- in the
+ * conversation tables, put back for this (migration 0070 dropped them; raw
+ * SQL, as the schema no longer has them) and frozen by the release's
+ * backfill, as the figures read them (legacy-stats.test.ts).
+ */
 async function questions(askerId: string, reeId: string, count: number, votes: { up: number; down: number } = { up: 0, down: 0 }, at = new Date()) {
-  const [conversation] = await db().insert(schema.conversation).values({ userId: askerId, title: 'q' }).returning({ id: schema.conversation.id });
-  await db().insert(schema.conversationRee).values({ conversationId: conversation!.id, reeId });
+  await restoreConversationTables();
+  const conversationId = crypto.randomUUID();
+  await db().execute(sql`insert into conversation (id, user_id, title) values (${conversationId}, ${askerId}, 'q')`);
+  await db().execute(sql`insert into conversation_ree (conversation_id, ree_id) values (${conversationId}, ${reeId})`);
   const ids: string[] = [];
   for (let index = 0; index < count; index += 1) {
-    const [asked] = await db().insert(schema.message).values({ conversationId: conversation!.id, role: 'user', content: `question ${index}`, createdAt: at }).returning({ id: schema.message.id });
-    const [reply] = await db()
-      .insert(schema.message)
-      .values({ conversationId: conversation!.id, role: 'ree', reeId, content: `answer ${index}`, requestId: asked!.id, createdAt: at })
-      .returning({ id: schema.message.id });
-    ids.push(reply!.id);
+    const askedId = crypto.randomUUID();
+    const replyId = crypto.randomUUID();
+    await db().execute(sql`insert into message (id, conversation_id, role, content, created_at) values (${askedId}, ${conversationId}, 'user', ${`question ${index}`}, ${at.toISOString()})`);
+    await db().execute(sql`insert into message (id, conversation_id, role, ree_id, content, request_id, created_at) values (${replyId}, ${conversationId}, 'ree', ${reeId}, ${`answer ${index}`}, ${askedId}, ${at.toISOString()})`);
+    ids.push(replyId);
   }
   for (let index = 0; index < votes.up + votes.down; index += 1) {
     await db().execute(sql`insert into ree_feedback (message_id, user_id, vote) values (${ids[index]!}, ${askerId}, ${index < votes.up ? 'up' : 'down'})`);
   }
-  return { conversationId: conversation!.id, replies: ids };
+  await runBackfill('legacy-stats');
+  return { conversationId, replies: ids };
 }
 
 describeWithDb('roles', () => {
-  beforeAll(async () => {
-    /* Step 4's table; created only when running without its migration. */
-    await db().execute(sql`create table if not exists ree_feedback (message_id uuid not null, user_id uuid not null, vote text not null, created_at timestamptz not null default now())`);
-  });
-
   it('shows what is missing and refuses a forged application', async () => {
     const userId = await newUser('New', new Date(Date.now() - 3 * DAY));
     const overview = await roles.verificationOverview(userId);
@@ -290,12 +296,10 @@ async function profileVectors(reeId: string): Promise<number> {
 }
 
 describeWithDb('Ree takedown', () => {
-  it('turns the Ree private, keeps the owner from republishing, leaves others’ conversations, notifies, and restores', async () => {
+  it('turns the Ree private, keeps the owner from republishing, notifies, and restores', async () => {
     const reviewer = await newAdministrator();
     const owner = await newUser();
-    const other = await newUser();
     const ree = await publicRee(owner, { ready: 1 });
-    const { conversationId } = await questions(other, ree.id, 1);
     await profile.refreshProfile(ree.id);
     expect(await profileVectors(ree.id)).toBeGreaterThan(0);
     await expect(adminRees.takeDownRee(reviewer, ree.id, 'no')).rejects.toMatchObject({ code: 'reason' });
@@ -304,8 +308,6 @@ describeWithDb('Ree takedown', () => {
     expect(await profileVectors(ree.id)).toBe(0);
     const [down] = await db().select().from(schema.ree).where(eq(schema.ree.id, ree.id));
     expect(down).toMatchObject({ isPublic: false, moderatedReason: 'Copyrighted material' });
-    expect(await db().select().from(schema.conversationRee).where(eq(schema.conversationRee.conversationId, conversationId))).toHaveLength(0);
-    expect(await db().select().from(schema.message).where(eq(schema.message.conversationId, conversationId))).toHaveLength(2);
 
     await reesService.updateRee(owner, ree.id, { name: down!.name, description: '', category: 'technology', tags: [], systemPrompt: '', sampleQuestions: [], queryFee: 0, isPublic: true, color: 'default', avatarBlob: null });
     const [still] = await db().select({ isPublic: schema.ree.isPublic }).from(schema.ree).where(eq(schema.ree.id, ree.id));

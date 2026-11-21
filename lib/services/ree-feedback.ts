@@ -1,6 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { schema } from '@/lib/infra/db';
+import { votesByOthersOf } from '@/lib/services/ree-counts';
 
-/** Card feedback excludes the owner's own votes in both discovery and My Rees. */
-export const votesByOthers = (vote: 'up' | 'down') =>
-  sql<number>`(select count(*)::int from ${schema.reeFeedback} f join ${schema.message} m on m.id = f.message_id where m.ree_id = "ree"."id" and f.vote = ${vote} and f.user_id <> "ree"."owner_id")`;
+/** Card feedback excludes the owner's own votes in both discovery and My Rees: the conversations' frozen votes plus the posts' (ree-counts.ts). */
+export const votesByOthers = (vote: 'up' | 'down') => votesByOthersOf(sql.raw('"ree"."id"'), sql.raw('"ree"."owner_id"'), vote);

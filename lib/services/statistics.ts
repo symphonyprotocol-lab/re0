@@ -6,8 +6,8 @@
  * - a successful answer is a `query_base` settlement in the ledger, one per
  *   answering Ree per question -- so clearing a test conversation keeps the
  *   usage, as in the prototype;
- * - a saved record is an answer message still on file (question, answer,
- *   first citation);
+ * - a saved record is a post answer still on file (question, answer,
+ *   first citation; `savedAnswers`);
  * - query income is a `query_fee_earned` entry attributed to the Ree, never
  *   answers times the fee;
  * - sources are the current snapshot, not a figure of the period.
@@ -69,7 +69,7 @@ export function statisticsQuery(params: Params, now = new Date()) {
 }
 export type StatisticsQuery = ReturnType<typeof statisticsQuery>;
 
-function within(column: typeof schema.creditEntry.createdAt | typeof schema.message.createdAt | typeof schema.answerCheck.createdAt | typeof schema.anonymousAnswer.createdAt, range: Range | null): SQL[] {
+function within(column: typeof schema.creditEntry.createdAt | typeof schema.postAnswer.answeredAt | typeof schema.answerCheck.createdAt | typeof schema.anonymousAnswer.createdAt, range: Range | null): SQL[] {
   return range ? [gte(column, new Date(range.start)), lt(column, new Date(range.end))] : [];
 }
 
@@ -106,18 +106,40 @@ export async function answerCounts(reeIds: readonly string[], range: Range | nul
   return counts;
 }
 
+/**
+ * An answer still on file: one a Ree gave on a post (first round or
+ * follow-up) to a real question -- `post` or `api`, not the owner's 试问 --
+ * and not a copy (copied Q&A, a 转为公开 copy, a visitor's published
+ * answer), hidden or not. Only where anyone may read the question: a
+ * public, published post out of the trash, and a follow-up still published
+ * and not deleted -- a private post's question is its author's alone, even
+ * to the Ree's owner (as `visiblePost` and `shownFollowup` in the posts
+ * services). Needs `post_answer` and `post`.
+ */
 const savedAnswers = (reeIds: readonly string[], range: Range | null) =>
-  and(eq(schema.message.role, 'ree'), eq(schema.message.noAnswer, false), inArray(schema.message.reeId, [...reeIds]), ...within(schema.message.createdAt, range));
+  and(
+    eq(schema.postAnswer.state, 'answered'),
+    isNull(schema.postAnswer.legacyQaId),
+    inArray(schema.post.source, ['post', 'api']),
+    eq(schema.post.visibility, 'public'),
+    eq(schema.post.status, 'published'),
+    isNull(schema.post.deletedAt),
+    sql`(${schema.postAnswer.followupId} is null or exists (select 1 from ${schema.postFollowup} sf where sf.id = ${schema.postAnswer.followupId} and sf.status = 'published' and sf.deleted_at is null))`,
+    sql`not exists (select 1 from ${schema.post} cp where cp.published_copy_id = ${schema.post.id})`,
+    inArray(schema.postAnswer.reeId, [...reeIds]),
+    ...within(schema.postAnswer.answeredAt, range),
+  );
 
 /** Saved answers per Ree in a period. */
 export async function savedCounts(reeIds: readonly string[], range: Range | null): Promise<Map<string, number>> {
   if (!reeIds.length) return new Map();
   const rows = await db()
-    .select({ reeId: schema.message.reeId, n: sql<number>`count(*)::int` })
-    .from(schema.message)
+    .select({ reeId: schema.postAnswer.reeId, n: sql<number>`count(*)::int` })
+    .from(schema.postAnswer)
+    .innerJoin(schema.post, eq(schema.post.id, schema.postAnswer.postId))
     .where(savedAnswers(reeIds, range))
-    .groupBy(schema.message.reeId);
-  return new Map(rows.map((row) => [row.reeId!, row.n]));
+    .groupBy(schema.postAnswer.reeId);
+  return new Map(rows.map((row) => [row.reeId, row.n]));
 }
 
 export interface AnswerRecord {
@@ -130,44 +152,47 @@ export interface AnswerRecord {
   createdAt: Date;
 }
 
-const question = sql<string>`coalesce((select q.content from ${schema.message} q where q.id = "message"."request_id"), '')`;
+/** What the answer answered: its follow-up's question, else the post's. */
+const question = sql<string>`coalesce((select f.question from ${schema.postFollowup} f where f.id = ${schema.postAnswer.followupId}), ${schema.post.question})`;
 
 export async function answerRecords(reeIds: readonly string[], range: Range | null, q: string, size: number, page: number): Promise<ListResult<AnswerRecord>> {
   if (!reeIds.length) return { items: [], total: 0, page: 1, size };
   const conditions = [savedAnswers(reeIds, range)!];
   if (q) {
     const pattern = likePattern(q);
-    conditions.push(or(ilike(schema.message.content, pattern), sql`${question} ilike ${pattern}`, ilike(schema.ree.name, pattern))!);
+    conditions.push(or(ilike(schema.postAnswer.text, pattern), sql`${question} ilike ${pattern}`, ilike(schema.ree.name, pattern))!);
   }
   const where = and(...conditions);
   const database = db();
   const [counted] = await database
     .select({ total: sql<number>`count(*)::int` })
-    .from(schema.message)
-    .innerJoin(schema.ree, eq(schema.ree.id, schema.message.reeId))
+    .from(schema.postAnswer)
+    .innerJoin(schema.post, eq(schema.post.id, schema.postAnswer.postId))
+    .innerJoin(schema.ree, eq(schema.ree.id, schema.postAnswer.reeId))
     .where(where);
   const total = counted?.total ?? 0;
   const current = clampPage(page, total, size);
   const rows = await database
     .select({
-      id: schema.message.id,
-      reeId: schema.message.reeId,
+      id: schema.postAnswer.id,
+      reeId: schema.postAnswer.reeId,
       reeName: schema.ree.name,
-      answer: schema.message.content,
-      citations: schema.message.citations,
-      createdAt: schema.message.createdAt,
+      answer: schema.postAnswer.text,
+      citations: schema.postAnswer.citations,
+      createdAt: sql<Date>`coalesce(${schema.postAnswer.answeredAt}, ${schema.postAnswer.createdAt})`.mapWith(schema.postAnswer.createdAt),
       question,
     })
-    .from(schema.message)
-    .innerJoin(schema.ree, eq(schema.ree.id, schema.message.reeId))
+    .from(schema.postAnswer)
+    .innerJoin(schema.post, eq(schema.post.id, schema.postAnswer.postId))
+    .innerJoin(schema.ree, eq(schema.ree.id, schema.postAnswer.reeId))
     .where(where)
-    .orderBy(desc(schema.message.createdAt), desc(schema.message.id))
+    .orderBy(desc(schema.postAnswer.answeredAt), desc(schema.postAnswer.id))
     .limit(size)
     .offset((current - 1) * size);
   return {
     items: rows.map((row) => ({
       id: row.id,
-      reeId: row.reeId!,
+      reeId: row.reeId,
       reeName: row.reeName,
       question: row.question,
       answer: row.answer,

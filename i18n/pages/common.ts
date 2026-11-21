@@ -3,6 +3,7 @@ import type { Shape } from '@/i18n/format';
 /** The shell every signed-in page shares: sidebar, top bar, account footer, shared words. */
 export const zh = {
   brand: 'RE0',
+  notFound: { title: '找不到这个页面', body: '链接可能有误，或者这个页面已经不在了。', back: '回到首页' },
   nav: {
     dashboard: '工作台',
     rees: '我的 Ree',
@@ -16,7 +17,14 @@ export const zh = {
     home: 'RE0 首页',
     workspace: '空间导航',
     breadcrumb: '页面路径',
-    conversationActions: '对话操作',
+    homeFeed: '首页',
+    discover: 'Rees',
+    notifications: '通知',
+    myPosts: '我的帖子',
+    saved: '收藏',
+    ask: '发帖',
+    about: '了解 RE0',
+    pricing: '价格',
   },
   account: {
     balance: '可用余额',
@@ -42,7 +50,6 @@ export const zh = {
     signOut: '退出登录',
   },
   language: { label: '界面语言', current: '界面语言：{name}', switchTo: 'English' },
-  website: '返回官网',
   actions: {
     save: '保存',
     cancel: '取消',
@@ -95,6 +102,7 @@ export const zh = {
 
 export const en: Shape<typeof zh> = {
   brand: 'RE0',
+  notFound: { title: 'Page not found', body: 'The link may be wrong, or the page is gone.', back: 'Back to Home' },
   nav: {
     dashboard: 'Dashboard',
     rees: 'My Rees',
@@ -108,7 +116,14 @@ export const en: Shape<typeof zh> = {
     home: 'RE0 home',
     workspace: 'Workspace navigation',
     breadcrumb: 'Breadcrumb',
-    conversationActions: 'Conversation actions',
+    homeFeed: 'Home',
+    discover: 'Rees',
+    notifications: 'Notifications',
+    myPosts: 'My posts',
+    saved: 'Saved',
+    ask: 'Post',
+    about: 'About RE0',
+    pricing: 'Pricing',
   },
   account: {
     balance: 'Available balance',
@@ -134,7 +149,6 @@ export const en: Shape<typeof zh> = {
     signOut: 'Sign out',
   },
   language: { label: 'Interface language', current: 'Interface language: {name}', switchTo: '简体中文' },
-  website: 'Website',
   actions: {
     save: 'Save',
     cancel: 'Cancel',

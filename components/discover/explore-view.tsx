@@ -2,14 +2,15 @@
 
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
-import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
 import { EXPLORE_RESULTS, REE_CATEGORIES, ROUNDTABLE_REES, SYNTHESIS_ENABLED, SYNTHESIS_MIN_ANSWERS } from '@/lib/constants';
 import { explorePath, type ExploreQuery, type ExploreSort } from '@/lib/domain/explore';
 import type { ExploreResult, ReeCard } from '@/lib/services/explore';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
-import { ReeCardView } from '@/components/discover/ree-card';
+import { FeedRee } from '@/components/discover/feed-ree';
+import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RoundtableEntry } from '@/components/discover/roundtable-entry';
 import { takePublicReturn } from '@/components/discover/public-visit';
 import '@/components/site/site.css';
@@ -37,13 +38,26 @@ let kept: (Loaded & { path: string; scrollY: number }) | null = null;
  * loads more as it scrolls. Styled by explore.css with the prototype's
  * class names.
  */
-export function ExploreView({ query, result, limited, signedIn, favoriteIds, viewerId }: {
+/** A Ree in the right column's 我收藏的 Ree card (ree-favorites.ts listFavoriteRees). */
+export interface RailRee {
+  id: string;
+  slug: string;
+  name: string;
+  avatarBlob: string | null;
+  color: string;
+  ownerName: string;
+}
+
+export function ExploreView({ query, result, limited, signedIn, favoriteIds, viewerId, renderedAt, variant = 'explore' }: {
   query: ExploreQuery;
   result: ExploreResult;
   limited: boolean;
   signedIn: boolean;
   favoriteIds?: string[];
   viewerId?: string;
+  renderedAt: number;
+  /** `home`: 首页's list of Rees under its introduction -- no search, categories or result line. */
+  variant?: 'explore' | 'home';
 }) {
   const { t, locale } = useI18n();
   const e = t.discover.explore;
@@ -202,18 +216,23 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
   };
 
   const favorites = new Set(loaded.favorites);
+  const banner = (
+    <div className="knowledge-banner">
+      <div>
+        <h3>{e.banner}</h3>
+        <p>{e.bannerBody}</p>
+      </div>
+      <Link href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn secondary">
+        <Icon name="plus" />
+        {e.create}
+      </Link>
+    </div>
+  );
   const [resultsBefore, resultsAfter] = e.results.split('{n}');
 
   return (
     <div ref={page} className="discovery-page">
-      <header className="discovery-page-head">
-        <div>
-          <p className="eyebrow">{e.eyebrow}</p>
-          <h1>{e.title}</h1>
-          <p>{e.body}</p>
-        </div>
-      </header>
-
+      {variant === 'explore' && (
       <section ref={toolbar} className="discovery-toolbar" aria-label={e.label}>
         <div className="discovery-search-row">
           <form
@@ -274,9 +293,11 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
           ))}
         </div>
       </section>
+      )}
 
       {limited && <p className="mt-4 rounded-lg border border-[#f1d4d4] bg-[#fff3f3] px-3 py-2 text-[12px] text-red">{e.limited}</p>}
 
+      {variant === 'explore' && (
       <div ref={resultsHead} className="discovery-results-head">
         <p role="status" aria-live="polite">
           {searching && (
@@ -293,72 +314,127 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
           <span className="discovery-results-note">{result.mode === 'search' ? fill(e.searchNote, { n: EXPLORE_RESULTS }) : e.browseNote}</span>
         </p>
       </div>
+      )}
 
       {SYNTHESIS_ENABLED && result.mode === 'search' && result.items.length >= SYNTHESIS_MIN_ANSWERS && (
-        <RoundtableEntry question={query.q} rees={result.items.slice(0, ROUNDTABLE_REES)} signedIn={signedIn} returnTo={current} />
+        <RoundtableEntry question={query.q} rees={result.items.slice(0, ROUNDTABLE_REES)} signedIn={signedIn} />
       )}
 
       {loaded.items.length > 0 ? (
-        <>
-          <div id="explore-results" className="dot-grid" data-stale={pending || undefined} aria-label={e.list} aria-busy={loading || pending} onClickCapture={keep}>
-            {loaded.items.map((ree) => (
-              <ReeCardView
-                key={ree.id}
-                ree={ree}
-                from={current}
-                favorite={favorites.has(ree.id)}
-                viewerId={viewerId}
-                pinned={ree.pinned && result.mode === 'browse' && query.sort === 'active'}
-              />
-            ))}
-          </div>
-          <div ref={sentinel} className="discovery-results-footer">
-            {loaded.nextCursor ? (
-              failed ? (
-                <p role="alert">
-                  {e.loadFailed}
-                  <button type="button" className="btn secondary" onClick={() => void loadMore()}>
-                    {e.retry}
-                  </button>
-                </p>
-              ) : loading ? (
-                <p role="status">
-                  <span className="discovery-spinner" aria-hidden="true" />
-                  {e.loading}
-                </p>
-              ) : (
-                !observing && (
-                  <button type="button" className="btn secondary" onClick={() => void loadMore()}>
-                    {e.loadMore}
-                  </button>
+          <div>
+            <div id="explore-results" className="discovery-feed" data-stale={pending || undefined} aria-label={e.list} aria-busy={loading || pending} onClickCapture={keep}>
+              {loaded.items.map((ree) => (
+                <FeedRee
+                  key={ree.id}
+                  ree={ree}
+                  from={current}
+                  favorite={favorites.has(ree.id)}
+                  viewerId={viewerId}
+                  pinned={ree.pinned && result.mode === 'browse' && query.sort === 'active'}
+                  now={renderedAt}
+                />
+              ))}
+            </div>
+            <div ref={sentinel} className="discovery-results-footer">
+              {loaded.nextCursor ? (
+                failed ? (
+                  <p role="alert">
+                    {e.loadFailed}
+                    <button type="button" className="btn secondary" onClick={() => void loadMore()}>
+                      {e.retry}
+                    </button>
+                  </p>
+                ) : loading ? (
+                  <p role="status">
+                    <span className="discovery-spinner" aria-hidden="true" />
+                    {e.loading}
+                  </p>
+                ) : (
+                  !observing && (
+                    <button type="button" className="btn secondary" onClick={() => void loadMore()}>
+                      {e.loadMore}
+                    </button>
+                  )
                 )
-              )
-            ) : (
-              result.mode === 'browse' && <p>{fill(e.end, { n: n(result.total) })}</p>
-            )}
+              ) : (
+                result.mode === 'browse' && <p>{fill(e.end, { n: n(result.total) })}</p>
+              )}
+            </div>
+            {/* Below 1100px the right column is hidden (columns.css); the banner stays at the end of the list. */}
+            <div className="discovery-feed-banner">{banner}</div>
           </div>
-        </>
       ) : (
-        <div className="card empty" data-stale={pending || undefined} aria-busy={pending}>
-          <Icon name="search" />
-          <h2>{e.emptyTitle}</h2>
-          <p>{e.emptyBody}</p>
-          <button type="button" className="btn secondary" onClick={() => go({ q: '', category: null, sort: 'active' })}>
-            {e.reset}
-          </button>
+        <>
+          <div className="card empty" data-stale={pending || undefined} aria-busy={pending}>
+            <Icon name="search" />
+            <h2>{e.emptyTitle}</h2>
+            <p>{e.emptyBody}</p>
+            <button type="button" className="btn secondary" onClick={() => go({ q: '', category: null, sort: 'active' })}>
+              {e.reset}
+            </button>
+          </div>
+          {banner}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 首页's and Rees' right column (v6): one search box where the page has none
+ * of its own (首页 searches posts), the signed-in user's saved Rees on Rees,
+ * the create-a-Ree card -- the one place a visitor is asked to create one --
+ * and the small links. Below 1200px the column folds away; 首页 then shows
+ * its search at the top of the centre column (RailSearch `inline`).
+ */
+export function SiteRail({ search, saved, signedIn }: { search?: { action: string; label: string; defaultValue?: string }; saved?: RailRee[]; signedIn: boolean }) {
+  const { t } = useI18n();
+  const e = t.discover.explore;
+  return (
+    <div className="discovery-page">
+      {search && <RailSearch action={search.action} label={search.label} defaultValue={search.defaultValue} />}
+      {saved && saved.length > 0 && (
+        <div className="rail-card">
+          <h3>{e.railSaved}</h3>
+          <ol>
+            {saved.map((ree) => (
+              <li key={ree.id}>
+                <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="sm" />
+                <Link href={`/r/${ree.slug}`} className="min-w-0 hover:text-blue">
+                  <strong>{ree.name}</strong>
+                  <small>{ree.ownerName}</small>
+                </Link>
+              </li>
+            ))}
+          </ol>
+          <Link href="/saved" className="text-link mt-3 inline-flex text-[12px]">
+            {e.railSavedAll} →
+          </Link>
         </div>
       )}
-
       <div className="knowledge-banner">
         <div>
           <h3>{e.banner}</h3>
           <p>{e.bannerBody}</p>
         </div>
-        <Link href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn secondary">
-          <Icon name="plus" />
+        <Link href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn-secondary btn-sm">
+          <Icon name="plus" className="size-4" />
           {e.create}
         </Link>
       </div>
+      <p className="px-2 text-[11px] text-muted">
+        <Link href="/pricing" className="hover:text-blue">{t.common.nav.pricing}</Link> · <Link href="/about" className="hover:text-blue">{t.common.nav.about}</Link> · <Link href="/legal/privacy" className="hover:text-blue">{t.site.visitor.privacy}</Link> · <Link href="/legal/terms" className="hover:text-blue">{t.site.visitor.terms}</Link>
+      </p>
     </div>
+  );
+}
+
+/** One single-line search box (38px, explore.css); `defaultValue` keeps the words of the search being shown. */
+export function RailSearch({ action, label, defaultValue = '', className = 'search-box' }: { action: string; label: string; defaultValue?: string; className?: string }) {
+  return (
+    <form action={action} role="search" className={className} aria-label={label}>
+      <Icon name="search" className="size-4" />
+      <input name="q" defaultValue={defaultValue} placeholder={label} aria-label={label} className="min-w-0 flex-1 bg-transparent outline-none" />
+    </form>
   );
 }

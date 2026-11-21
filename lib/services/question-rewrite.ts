@@ -12,7 +12,7 @@
 import { generateText, Output } from 'ai';
 import { REWRITE_OUTPUT_TOKENS, REWRITE_TIMEOUT_MS } from '@/lib/constants';
 import { REWRITE_SCHEMA, rewriteInstructions, rewriteOf, rewritePrompt, rewriteTerms, type Script } from '@/lib/domain/cross-lingual';
-import { embedQuestion, type QuestionVector } from '@/lib/services/chat';
+import { embedQuestion, type QuestionVector } from '@/lib/services/retrieval';
 import { generationForUser } from '@/lib/services/generation';
 
 export interface QuestionRewrite {
@@ -50,8 +50,7 @@ async function rewriteQuestion(userId: string | null, question: string, target: 
       prompt: rewritePrompt(question),
       maxOutputTokens: REWRITE_OUTPUT_TOKENS,
       temperature: 0,
-      /* A translation needs no deliberation; providers without the setting ignore it. */
-      reasoning: 'minimal',
+      /* No `reasoning` setting: on agnes-3.0-flash `minimal` turned thinking on rather than off (2026-11-19). */
       maxRetries: 0,
       abortSignal: AbortSignal.timeout(Math.min(generation.endpoint.timeoutMs, REWRITE_TIMEOUT_MS)),
     });

@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { body, fail, json } from '@/lib/http/respond';
 import { setAdminCookie } from '@/lib/http/admin';
-import { clientIp } from '@/lib/http/conversations';
+import { clientIp } from '@/lib/http/client-ip';
 import { sameOrigin } from '@/lib/http/session';
 import { AdminInputError, AdminRateLimitError, signInAdministrator } from '@/lib/services/admin';
 

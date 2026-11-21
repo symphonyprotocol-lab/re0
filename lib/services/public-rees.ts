@@ -12,6 +12,7 @@ import type { SocialContact } from '@/lib/domain/account';
 import { isUuid } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
 import { answersByOthers, publicRee, readySources, reeCards, type ReeCard } from '@/lib/services/explore';
+import { votesByOthers } from '@/lib/services/ree-feedback';
 
 export interface PublicRee {
   id: string;
@@ -33,15 +34,16 @@ export interface PublicRee {
   ownerSocialContacts: SocialContact[];
   role: 'normal' | 'verified' | 'official';
   queryFee: number;
+  /** v5: it answers public posts (the owner's choice, or free by default), so 发帖问它 can name it. */
+  takesPosts: boolean;
+  /** The owner lets askers publish answers on the page (问答); off, the page offers no "回答后公开". */
+  publicQaEnabled: boolean;
   price: number;
   sources: number;
   answers: number;
   positiveRate: number | null;
   updatedAt: Date;
 }
-
-const reeId = sql.raw('"ree"."id"');
-const reeOwner = sql.raw('"ree"."owner_id"');
 
 export async function publicReeBySlug(slug: string): Promise<PublicRee | null> {
   if (!validSlug(slug)) return null;
@@ -87,10 +89,12 @@ async function reeDetails(where: SQL): Promise<PublicRee | null> {
       ownerSocialContacts: schema.user.socialContacts,
       role: schema.user.role,
       queryFee: schema.ree.queryFee,
+      takesPosts: sql<boolean>`coalesce(${schema.ree.answersPosts}, ${schema.ree.queryFee} = 0)`,
+      publicQaEnabled: schema.ree.publicQaEnabled,
       sources: readySources,
       answers: answersByOthers,
-      up: sql<number>`(select count(*)::int from ${schema.reeFeedback} f join ${schema.message} m on m.id = f.message_id where m.ree_id = ${reeId} and f.vote = 'up' and f.user_id <> ${reeOwner})`,
-      down: sql<number>`(select count(*)::int from ${schema.reeFeedback} f join ${schema.message} m on m.id = f.message_id where m.ree_id = ${reeId} and f.vote = 'down' and f.user_id <> ${reeOwner})`,
+      up: votesByOthers('up'),
+      down: votesByOthers('down'),
       updatedAt: schema.ree.updatedAt,
     })
     .from(schema.ree)

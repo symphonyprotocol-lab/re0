@@ -80,7 +80,7 @@ export const zh = {
     enableBody: '已就绪的来源将重新参与回答；尚未就绪的会在完成后生效。',
     confirm: '确认',
     trashTitle: '将 {n} 个来源移到回收站？',
-    trashBody: '这些知识将不再参与新回答，历史对话保留。你可以在回收站恢复；30 天后连同检索片段永久清除。已有处理费用不会退回。',
+    trashBody: '这些知识将不再参与新回答，已有回答保留。你可以在回收站恢复；30 天后连同检索片段永久清除。已有处理费用不会退回。',
     trashConfirm: '移到回收站',
     reprocessTitle: '重新处理 {n} 个来源？',
     reprocessEstimate: '本次预留费用',

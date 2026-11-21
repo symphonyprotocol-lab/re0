@@ -87,7 +87,8 @@ const TAG_MAX = 4096;
  * DROPPED elements removed (unclosed ones to the end), a `<` that does not
  * start a tag escaped, no `<` inside a tag, tags capped at TAG_MAX, and
  * PAIRED elements balanced — a stray close dropped, an unclosed open closed
- * where its parent closes, a `<p>` closing the `<p>` it interrupts.
+ * where its parent closes, a `<p>` closing the `<p>` it interrupts — and
+ * NUL characters dropped.
  */
 /* The last two inputs: a page and its head slice (title, robots). */
 const recent: { input: string; output: string }[] = [];
@@ -102,7 +103,9 @@ export function normalizeMarkup(html: string): string {
   return output;
 }
 
-function normalizeOnce(html: string): string {
+function normalizeOnce(raw: string): string {
+  /* A NUL is never text a page means, Postgres refuses it in text and jsonb, and htmlToMarkdown's code markers use it. */
+  const html = raw.replace(/\u0000/g, '');
   const lower = html.toLowerCase();
   const out: string[] = [];
   const open: string[] = [];
@@ -171,6 +174,11 @@ function mainOf(html: string): string {
   return /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(body)?.[1] ?? body;
 }
 
+/** Where a lifted `<pre>` was; NULs are stripped from the page first (normalizeOnce), so only these markers carry one. */
+const CODE_MARK = /\u0000CODE(\d+)\u0000/g;
+/** Blocks a list item or quote can wrap: their boundaries become line breaks. */
+const NESTED_BLOCK = /<\/?(p|li|h[1-6]|tr|blockquote|dt|dd|figcaption|caption)\b[^>]*>/gi;
+
 export function htmlToMarkdown(html: string): string {
   const body = mainOf(normalizeMarkup(html));
   const blocks: string[] = [];
@@ -180,32 +188,48 @@ export function htmlToMarkdown(html: string): string {
     codes.push(decodeEntities(inner.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '')).replace(/\s+$/, ''));
     return `<p>\u0000CODE${codes.length - 1}\u0000</p>`;
   });
+  const fenced = (n: string) => `\`\`\`\n${codes[Number(n)] ?? ''}\n\`\`\``;
   const pattern = /<(h[1-6]|p|li|tr|blockquote|dt|dd|figcaption|caption)\b[^>]*>([\s\S]*?)<\/\1>/gi;
   for (const match of marked.matchAll(pattern)) {
     const tag = match[1]!.toLowerCase();
     const inner = match[2] ?? '';
-    const code = /^\s*\u0000CODE(\d+)\u0000\s*$/.exec(inner);
-    if (code) {
-      blocks.push(`\`\`\`\n${codes[Number(code[1])] ?? ''}\n\`\`\``);
-      continue;
-    }
     if (tag === 'tr') {
-      const cells = [...inner.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => inline(cell[1] ?? '').replace(/\n/g, ' '));
+      /* A code block in a cell stays in its row, on one line. */
+      const cells = [...inner.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) =>
+        inline(cell[1] ?? '')
+          .replace(CODE_MARK, (_, n: string) => ` \`${(codes[Number(n)] ?? '').replace(/\s*\n\s*/g, ' ').trim()}\` `)
+          .replace(/\s+/g, ' ')
+          .trim(),
+      );
       if (cells.some(Boolean)) blocks.push(`| ${cells.join(' | ')} |`);
       continue;
     }
-    /* A list item or quote that wraps paragraphs is reached through them instead. */
-    if ((tag === 'li' || tag === 'blockquote') && /<(p|li|pre|h[1-6])\b/i.test(inner)) continue;
-    const text = inline(inner);
-    if (!text) continue;
-    if (tag[0] === 'h' && tag.length === 2) blocks.push(`${'#'.repeat(Number(tag[1]))} ${text.replace(/\n/g, ' ')}`);
-    else if (tag === 'li') blocks.push(`- ${text}`);
-    else if (tag === 'blockquote') blocks.push(text.split('\n').map((line) => `> ${line}`).join('\n'));
-    else blocks.push(text);
+    /*
+     * A `<pre>` inside a paragraph, a definition (`<dd>`), a list item or a
+     * quote, with text around it: the text before and after are blocks of
+     * this kind and the code a fenced block between them, in order.
+     */
+    const parts = inner.split(CODE_MARK);
+    for (let at = 0; at < parts.length; at++) {
+      const part = parts[at] ?? '';
+      if (at % 2 === 1) {
+        blocks.push(fenced(part));
+        continue;
+      }
+      /* A list item or quote that wraps paragraphs: each one a line of it. The walk does not re-enter a match, so they are not reached otherwise. */
+      const nested = (tag === 'li' || tag === 'blockquote') && /<(p|li|h[1-6])\b/i.test(part);
+      const text = nested ? inline(part.replace(NESTED_BLOCK, '\n')).replace(/\n{2,}/g, '\n') : inline(part);
+      if (!text) continue;
+      const first = at === 0;
+      if (tag[0] === 'h' && tag.length === 2) blocks.push(`${'#'.repeat(Number(tag[1]))} ${text.replace(/\n/g, ' ')}`);
+      else if (tag === 'li') blocks.push(first ? `- ${text}` : text);
+      else if (tag === 'blockquote') blocks.push(text.split('\n').map((line) => `> ${line}`).join('\n'));
+      else blocks.push(text);
+    }
   }
   /* A page built from bare <div>s: fall back to its text, line by line. */
   if (blocks.join('').length < 80) {
-    const text = inline(marked.replace(/<\/(div|section|td|span)>/gi, '\n').replace(/\u0000CODE(\d+)\u0000/g, (_, n: string) => codes[Number(n)] ?? ''));
+    const text = inline(marked.replace(/<\/(div|section|td|span)>/gi, '\n').replace(CODE_MARK, (_, n: string) => codes[Number(n)] ?? ''));
     return text.replace(/\n{3,}/g, '\n\n');
   }
   return blocks.join('\n\n');

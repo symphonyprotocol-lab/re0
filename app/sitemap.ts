@@ -4,6 +4,7 @@ import { LOCALES } from '@/i18n/locale';
 import { localeAlternates, PUBLIC_PAGES } from '@/i18n/paths';
 import { db, schema } from '@/lib/infra/db';
 import { publicRee } from '@/lib/services/explore';
+import { indexablePosts } from '@/lib/services/posts';
 import { absoluteUrl, localeUrl } from '@/lib/seo';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,8 @@ type Entry = MetadataRoute.Sitemap[number];
  * the other as its hreflang alternate (i18n/paths.ts). Only `publicRee()`
  * Rees: public, published, not taken down, not deleted. The share pages
  * `/s/*` are left out; they point at `/r/*` as canonical. Explore changes
- * whenever a public Ree does.
+ * whenever a public Ree does. v5: public posts a Ree answered (`/p/*`), in
+ * both languages like a Ree's page.
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const rees = await db()
@@ -26,10 +28,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     .orderBy(desc(schema.ree.updatedAt))
     .limit(10_000);
   const latest = rees[0]?.updatedAt;
+  const posts = await indexablePosts();
   const page = (path: string, entry: Omit<Entry, 'url' | 'alternates'>): Entry[] =>
     LOCALES.map((locale) => ({ url: localeUrl(locale, path), alternates: { languages: localeAlternates(path, absoluteUrl) }, ...entry }));
   return [
     ...PUBLIC_PAGES.flatMap(({ path, changeFrequency, priority }) => page(path, { lastModified: path === '/explore' ? latest : undefined, changeFrequency, priority })),
     ...rees.flatMap((ree) => page(`/r/${ree.slug}`, { lastModified: ree.updatedAt, changeFrequency: 'weekly', priority: 0.8 })),
+    ...posts.flatMap((post) => page(`/p/${post.id}`, { lastModified: post.at, changeFrequency: 'weekly', priority: 0.6 })),
   ];
 }
