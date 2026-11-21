@@ -1,6 +1,7 @@
 /**
  * New-user tasks (docs/design/invitations.md): publishing a first Ree,
- * asking a first question, posting a first comment. Each pays its amount
+ * a first post (public or private; a Ree owner's 试问 is not one), a first
+ * 有帮助 on someone else's post or answer. Each pays its amount
  * from the console's settings once per account, as gift credits in the
  * welcome bucket -- spendable, never withdrawable -- inside the transaction
  * of the action itself. The `task_reward` primary key (user, task) is what
@@ -13,17 +14,30 @@
  * earned it is later deleted.
  */
 import { and, eq, sql } from 'drizzle-orm';
-import { activityState, checkInDay, checkInState, newUserWindowEnd, TASK_KINDS, TASK_REASON, TASK_SETTING, type ActivityState, type TaskKind } from '@/lib/domain/invites';
+import { activityState, checkInDay, checkInState, newUserWindowEnd, paidTask, STARTER_TASKS, TASK_PREDECESSOR, TASK_REASON, TASK_SETTING, type ActivityState, type StarterTask } from '@/lib/domain/invites';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { addGrant } from '@/lib/services/credits';
 import { DEFAULT_REWARD_SETTINGS, rewardSettings } from '@/lib/services/invites';
 import { checkInStatus, type CheckInStatus } from '@/lib/services/check-in';
 
-/** Pays `task` to `userId` if it is on and not yet paid; answers the credits paid (0 for none). */
-export async function grantTaskReward(tx: Tx, userId: string, task: TaskKind, refId: string, now = new Date()): Promise<number> {
+/**
+ * Pays `task` to `userId` if it is on and not yet paid -- nor its retired
+ * predecessor (`TASK_PREDECESSOR`), which no action writes any more, so
+ * reading it needs no lock; answers the credits paid (0 for none).
+ */
+export async function grantTaskReward(tx: Tx, userId: string, task: StarterTask, refId: string, now = new Date()): Promise<number> {
   const settings = await rewardSettings(tx);
   const credits = settings[TASK_SETTING[task]];
   if (credits <= 0) return 0;
+  const predecessor = TASK_PREDECESSOR[task];
+  if (predecessor) {
+    const [done] = await tx
+      .select({ task: schema.taskReward.task })
+      .from(schema.taskReward)
+      .where(and(eq(schema.taskReward.userId, userId), eq(schema.taskReward.task, predecessor)))
+      .limit(1);
+    if (done) return 0;
+  }
   const [claimed] = await tx
     .insert(schema.taskReward)
     .values({ userId, task, credits, refId, createdAt: now })
@@ -35,7 +49,7 @@ export async function grantTaskReward(tx: Tx, userId: string, task: TaskKind, re
 }
 
 export interface ActivityTask {
-  key: 'signup' | TaskKind;
+  key: 'signup' | StarterTask;
   done: boolean;
   /** Paid, for a done task; what it pays now, for an open one (null: the gift was off at sign-up). */
   credits: number | null;
@@ -64,8 +78,8 @@ export async function activities(userId: string, now = new Date()): Promise<Acti
     checkInStatus(userId, now),
   ]);
   const tasks: ActivityTask[] = [{ key: 'signup', done: true, credits: welcome?.delta ?? null }];
-  for (const task of TASK_KINDS) {
-    const row = paid.find((entry) => entry.task === task);
+  for (const task of STARTER_TASKS) {
+    const row = paidTask(task, paid);
     if (row) tasks.push({ key: task, done: true, credits: row.credits });
     else if (settings[TASK_SETTING[task]] > 0) tasks.push({ key: task, done: false, credits: settings[TASK_SETTING[task]] });
   }
@@ -88,8 +102,8 @@ export async function activitiesIndicator(userId: string, now = new Date()): Pro
       today: sql<boolean>`exists (select 1 from ${schema.checkIn} where ${schema.checkIn.userId} = ${schema.user.id} and ${schema.checkIn.day} = ${day})`,
       paid: sql<string[]>`coalesce((select array_agg(${schema.taskReward.task}::text) from ${schema.taskReward} where ${schema.taskReward.userId} = ${schema.user.id}), '{}'::text[])`,
       firstReeCredits: schema.rewardSettings.firstReeCredits,
-      firstQuestionCredits: schema.rewardSettings.firstQuestionCredits,
-      firstCommentCredits: schema.rewardSettings.firstCommentCredits,
+      firstPostCredits: schema.rewardSettings.firstPostCredits,
+      firstHelpfulCredits: schema.rewardSettings.firstHelpfulCredits,
       inviteCredits: schema.rewardSettings.inviteCredits,
       checkInCredits: schema.rewardSettings.checkInCredits,
       checkInMaxDays: schema.rewardSettings.checkInMaxDays,
@@ -103,8 +117,8 @@ export async function activitiesIndicator(userId: string, now = new Date()): Pro
   const defaults = DEFAULT_REWARD_SETTINGS;
   const settings = {
     firstReeCredits: row.firstReeCredits ?? defaults.firstReeCredits,
-    firstQuestionCredits: row.firstQuestionCredits ?? defaults.firstQuestionCredits,
-    firstCommentCredits: row.firstCommentCredits ?? defaults.firstCommentCredits,
+    firstPostCredits: row.firstPostCredits ?? defaults.firstPostCredits,
+    firstHelpfulCredits: row.firstHelpfulCredits ?? defaults.firstHelpfulCredits,
     inviteCredits: row.inviteCredits ?? defaults.inviteCredits,
     checkInCredits: row.checkInCredits ?? defaults.checkInCredits,
   };

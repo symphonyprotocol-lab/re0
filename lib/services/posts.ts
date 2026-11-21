@@ -85,6 +85,7 @@ import { generationForUser } from '@/lib/services/generation';
 import { audit } from '@/lib/services/admin';
 import { adminAiAnswers, aiAnswersFor, aiRoundKey, answerWithAi, type AdminAiAnswer, type AiAnswerer } from '@/lib/services/ai-answers';
 import { notify } from '@/lib/services/notices';
+import { grantTaskReward } from '@/lib/services/task-rewards';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
 import { questionRewriter } from '@/lib/services/question-rewrite';
 
@@ -387,8 +388,10 @@ export async function moderatePost(id: string, judge: Judge = modelJudge, now = 
         .update(post)
         .set({ status: 'published', publishedAt: now })
         .where(and(eq(post.id, id), eq(post.status, 'pending')))
-        .returning({ userId: post.userId, question: post.question, quotePostId: post.quotePostId });
+        .returning({ userId: post.userId, source: post.source, question: post.question, quotePostId: post.quotePostId });
       await tellQuoted(tx, id, published);
+      /* 新手任务: a first post pays once it is public (a refused one never does); a private post made public counts too, once, whichever came first. */
+      if (published?.userId && published.source !== 'test') await grantTaskReward(tx, published.userId, 'first_post', id, now);
     });
     return 'published';
   }
@@ -1225,11 +1228,16 @@ async function lockShown(tx: Parameters<Parameters<ReturnType<typeof db>['transa
   return row ?? null;
 }
 
-/** "有帮助", once per signed-in user; the new count, or null when the answer is not shown. */
-export async function setAnswerHelpful(userId: string, id: string, on: boolean, reeId?: string): Promise<{ helpful: number; voted: boolean } | null> {
+/**
+ * "有帮助", once per signed-in user; the new count, or null when the answer
+ * is not shown. `taskReward`: the first-helpful starter task this paid (0
+ * for none) -- not for an answer of the voter's own Ree.
+ */
+export async function setAnswerHelpful(userId: string, id: string, on: boolean, reeId?: string): Promise<{ helpful: number; voted: boolean; taskReward: number } | null> {
   if (!isUuid(id)) return null;
   return db().transaction(async (tx) => {
-    if (!(await lockShown(tx, id, reeId, userId))) return null;
+    const shown = await lockShown(tx, id, reeId, userId);
+    if (!shown) return null;
     /* 有帮助 and 没帮助 (a private post's answers only) exclude each other. */
     if (on) await tx.delete(feedback).where(and(eq(feedback.answerId, id), eq(feedback.userId, userId)));
     const changed = on
@@ -1238,7 +1246,8 @@ export async function setAnswerHelpful(userId: string, id: string, on: boolean, 
     const [row] = changed.length
       ? await tx.update(answer).set({ helpfulCount: sql`greatest(${answer.helpfulCount} + ${on ? 1 : -1}, 0)` }).where(eq(answer.id, id)).returning({ helpful: answer.helpfulCount })
       : await tx.select({ helpful: answer.helpfulCount }).from(answer).where(eq(answer.id, id));
-    return { helpful: row!.helpful, voted: on };
+    const taskReward = on && changed.length && shown.ownerId !== userId ? await grantTaskReward(tx, userId, 'first_helpful', id) : 0;
+    return { helpful: row!.helpful, voted: on, taskReward };
   });
 }
 
@@ -1246,12 +1255,13 @@ export async function setAnswerHelpful(userId: string, id: string, on: boolean, 
  * "有帮助" on a post itself, once per signed-in user, its author included
  * (as on answers); only while anyone can see it. Answers what the cards
  * show -- the post's own votes added to its first-round answers' shown ones
- * -- or null when the post is not shown.
+ * -- or null when the post is not shown; `taskReward` as `setAnswerHelpful`,
+ * not for the voter's own post.
  */
-export async function setPostHelpful(userId: string, id: string, on: boolean): Promise<{ helpful: number; voted: boolean } | null> {
+export async function setPostHelpful(userId: string, id: string, on: boolean): Promise<{ helpful: number; voted: boolean; taskReward: number } | null> {
   if (!isUuid(id)) return null;
   return db().transaction(async (tx) => {
-    const [target] = await tx.select({ id: post.id }).from(post).where(and(eq(post.id, id), visiblePost())).for('update');
+    const [target] = await tx.select({ id: post.id, userId: post.userId }).from(post).where(and(eq(post.id, id), visiblePost())).for('update');
     if (!target) return null;
     const changed = on
       ? await tx.insert(postVote).values({ postId: id, userId }).onConflictDoNothing().returning({ id: postVote.postId })
@@ -1264,7 +1274,8 @@ export async function setPostHelpful(userId: string, id: string, on: boolean): P
       .from(answer)
       .innerJoin(ree, eq(ree.id, answer.reeId))
       .where(and(eq(answer.postId, id), firstRound(), shownAnswer()));
-    return { helpful: row!.own + (answers?.n ?? 0), voted: on };
+    const taskReward = on && changed.length && target.userId !== userId ? await grantTaskReward(tx, userId, 'first_helpful', id) : 0;
+    return { helpful: row!.own + (answers?.n ?? 0), voted: on, taskReward };
   });
 }
 

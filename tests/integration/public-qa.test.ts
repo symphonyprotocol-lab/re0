@@ -161,10 +161,10 @@ describeWithDb('public Q&A', () => {
     expect((await qa.publicQaPicks(reeId, 1)).items[0]?.id).toBe(older.id);
 
     const voter = await user('qa-voter');
-    expect(await qa.setHelpful(voter, reeId, older.id, true)).toEqual({ helpful: 1, voted: true });
-    expect(await qa.setHelpful(voter, reeId, older.id, true)).toEqual({ helpful: 1, voted: true });
+    expect(await qa.setHelpful(voter, reeId, older.id, true)).toMatchObject({ helpful: 1, voted: true });
+    expect(await qa.setHelpful(voter, reeId, older.id, true)).toMatchObject({ helpful: 1, voted: true });
     expect((await qa.listPublicQa(reeId, { viewerId: voter }))!.items[0]?.voted).toBe(true);
-    expect(await qa.setHelpful(voter, reeId, older.id, false)).toEqual({ helpful: 0, voted: false });
+    expect(await qa.setHelpful(voter, reeId, older.id, false)).toMatchObject({ helpful: 0, voted: false });
 
     await db().update(schema.ree).set({ publicQaEnabled: false }).where(eq(schema.ree.id, reeId));
     expect((await qa.listPublicQa(reeId))!.total).toBe(0);
