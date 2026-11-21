@@ -489,6 +489,10 @@ export const USER_RATE_LIMITS = {
   /* `/api/explore` without a question; a question has its own EXPLORE_RATE_LIMIT. */
   browse: [{ windowSeconds: 60, limit: 120 }, { windowSeconds: 3_600, limit: 2_000 }],
 } as const satisfies Record<string, readonly { windowSeconds: number; limit: number }[]>;
+/** What a console exemption from `USER_RATE_LIMITS` covers unless the administrator picks otherwise: no model-cost routes. */
+export const RATE_LIMIT_EXEMPT_DEFAULT = ['uploadToken', 'browse'] as const satisfies readonly (keyof typeof USER_RATE_LIMITS)[];
+/** Limits whose routes call models and so cost money; the console flags them on exemptions. */
+export const RATE_LIMIT_MODEL_COST = ['ask', 'post', 'postAction'] as const satisfies readonly (keyof typeof USER_RATE_LIMITS)[];
 /** Quality signals look back this far (2.4). */
 export const QUALITY_WINDOW_DAYS = 30;
 /**
