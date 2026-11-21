@@ -1,6 +1,6 @@
 {
-  "id": "aaffbd61-57fe-47b6-af8a-53dee22d388c",
-  "prevId": "72cbdf19-eb7c-4e6c-a611-d28d8c6cc0e8",
+  "id": "6bdf9016-2237-4d32-a9a5-c99ca5618828",
+  "prevId": "686b81c1-86fd-4014-8cc8-cac85dca7d22",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1500,7 +1500,7 @@
       "checkConstraints": {
         "credit_entry_reason_check": {
           "name": "credit_entry_reason_check",
-          "value": "reason in ('welcome', 'knowledge_hold', 'knowledge_settle', 'knowledge_refund', 'query_hold', 'query_base', 'query_refund', 'query_fee_paid', 'query_fee_earned', 'purchase', 'refund', 'chargeback', 'debt_offset', 'expire', 'payout_hold', 'payout_release', 'payout_paid', 'video_script', 'video_export', 'admin_adjust', 'video_refund', 'verify_hold', 'verify_settle', 'verify_refund', 'synthesis_hold', 'synthesis_settle', 'synthesis_refund', 'storage_charge', 'redeem', 'chargeback_reverse', 'earned_void', 'earned_restore', 'invite_reward', 'invite_reward_gift', 'task_first_ree', 'task_first_question', 'task_first_comment', 'check_in', 'post_hold', 'post_settle', 'post_refund', 'ai_answer_hold', 'ai_answer_settle', 'ai_answer_refund', 'earned_convert', 'earned_converted', 'deduction_hold', 'deduction_paid', 'deduction_release', 'deduction_return')"
+          "value": "reason in ('welcome', 'knowledge_hold', 'knowledge_settle', 'knowledge_refund', 'query_hold', 'query_base', 'query_refund', 'query_fee_paid', 'query_fee_earned', 'purchase', 'refund', 'chargeback', 'debt_offset', 'expire', 'payout_hold', 'payout_release', 'payout_paid', 'video_script', 'video_export', 'admin_adjust', 'video_refund', 'verify_hold', 'verify_settle', 'verify_refund', 'synthesis_hold', 'synthesis_settle', 'synthesis_refund', 'storage_charge', 'redeem', 'chargeback_reverse', 'earned_void', 'earned_restore', 'invite_reward', 'invite_reward_gift', 'task_first_ree', 'task_first_question', 'task_first_comment', 'task_first_post', 'task_first_helpful', 'check_in', 'post_hold', 'post_settle', 'post_refund', 'ai_answer_hold', 'ai_answer_settle', 'ai_answer_refund', 'earned_convert', 'earned_converted', 'deduction_hold', 'deduction_paid', 'deduction_release', 'deduction_return')"
         }
       },
       "isRLSEnabled": false
@@ -9391,13 +9391,29 @@
           "name": "first_question_credits",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": 1000
         },
         "first_comment_credits": {
           "name": "first_comment_credits",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": 1000
+        },
+        "first_post_credits": {
+          "name": "first_post_credits",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1000
+        },
+        "first_helpful_credits": {
+          "name": "first_helpful_credits",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1000
         },
         "check_in_credits": {
           "name": "check_in_credits",
@@ -9468,7 +9484,7 @@
         },
         "reward_settings_credits_check": {
           "name": "reward_settings_credits_check",
-          "value": "invite_credits between 0 and 100000000 and first_ree_credits between 0 and 100000000 and first_question_credits between 0 and 100000000 and first_comment_credits between 0 and 100000000 and check_in_credits between 0 and 100000000"
+          "value": "invite_credits between 0 and 100000000 and first_ree_credits between 0 and 100000000 and first_question_credits between 0 and 100000000 and first_comment_credits between 0 and 100000000 and first_post_credits between 0 and 100000000 and first_helpful_credits between 0 and 100000000 and check_in_credits between 0 and 100000000"
         },
         "reward_settings_check_in_check": {
           "name": "reward_settings_check_in_check",
@@ -10153,7 +10169,7 @@
       "checkConstraints": {
         "task_reward_task_check": {
           "name": "task_reward_task_check",
-          "value": "task in ('first_ree', 'first_question', 'first_comment')"
+          "value": "task in ('first_ree', 'first_post', 'first_helpful', 'first_question', 'first_comment')"
         },
         "task_reward_credits_check": {
           "name": "task_reward_credits_check",
