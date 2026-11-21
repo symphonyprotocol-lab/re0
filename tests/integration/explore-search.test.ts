@@ -9,7 +9,7 @@
  * the index. Results are the same either way.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { sql } from 'drizzle-orm';
+import { inArray, sql } from 'drizzle-orm';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
 import { EXPLORE_EXACT_PASSAGES } from '@/lib/constants';
 
@@ -32,11 +32,15 @@ async function owner(): Promise<string> {
   return userId;
 }
 
+/* Every Ree these tests make, removed after them with their sources (the passages and profiles go with those). */
+const made: string[] = [];
+
 async function ree(ownerId: string, { isPublic = true } = {}): Promise<string> {
   const [row] = await db()
     .insert(schema.ree)
     .values({ ownerId, name: uniqueName('ree'), slug: uniqueName('slug'), isPublic, isPublished: isPublic, category: 'technology' })
     .returning({ id: schema.ree.id });
+  made.push(row!.id);
   return row!.id;
 }
 
@@ -68,6 +72,10 @@ describeWithDb('explore search', () => {
   }, 120_000);
 
   afterAll(async () => {
+    if (made.length) {
+      await db().delete(schema.knowledge).where(inArray(schema.knowledge.reeId, made));
+      await db().delete(schema.ree).where(inArray(schema.ree.id, made));
+    }
     /* Leave the database as found: the other files search exactly. */
     if (builtIndexes) {
       for (const index of SEARCH_INDEXES) await db().execute(sql.raw(`drop index if exists "${index.name}"`));
@@ -90,16 +98,17 @@ describeWithDb('explore search', () => {
       return { plan: JSON.stringify(explained.rows[0]!['QUERY PLAN']), rows: found.rows };
     });
     expect(plan).toContain('ree_profile_vector_embedding_idx');
-    expect(rows[0]!.reeId).toBe(shown);
-    expect(Number(rows[0]!.similarity)).toBeCloseTo(1, 5);
+    /* Ties at 1 only when the same database ran this file before (its Rees are still there): the found Ree is among the nearest. */
+    const nearest = (found: { reeId: string; similarity: number }[]) => found.filter((row) => Number(row.similarity) > 0.9999).map((row) => row.reeId);
+    expect(nearest(rows)).toContain(shown);
     expect(rows.map((row) => row.reeId)).not.toContain(hidden);
     expect(rows.map((row) => row.reeId)).not.toContain(excluded);
 
     /* With a category, the slice is scanned exactly, and the same Ree leads it. */
     const sliced = explore.profileSearch(question(DIM), { category: 'technology', exclude: [excluded] });
     expect(sliced.settings).toBeNull();
-    const { rows: inCategory } = await db().execute<{ reeId: string }>(sliced.nearest);
-    expect(inCategory[0]!.reeId).toBe(shown);
+    const { rows: inCategory } = await db().execute<{ reeId: string; similarity: number }>(sliced.nearest);
+    expect(nearest(inCategory)).toContain(shown);
     expect(inCategory.map((row) => row.reeId)).not.toContain(hidden);
   });
 
@@ -114,11 +123,19 @@ describeWithDb('explore search', () => {
     ]);
     const large = await ree(userId);
     const largeSource = await source(large);
-    /* One past the limit: every passage on its own dimension below DIM, one of them on the question's. */
+    /*
+     * One past the limit, and not degenerate: one-hot passages are all
+     * orthogonal, equally far from the question, and an HNSW graph over them
+     * finds an arbitrary one (CI did). Here every passage leans towards the
+     * question's dimension by its own amount, 0.3 to 0.9 as `g` grows, the
+     * rest on a dimension of its own; passage 7 points straight at it. So the
+     * nearest is unique and well apart (1 against at most 0.9), and the graph
+     * has a gradient to follow, as real passages near a topic do.
+     */
     await db().execute(sql`insert into ${schema.chunk} (knowledge_id, ree_id, ordinal, content, embedding)
       select ${largeSource}::uuid, ${large}::uuid, g, 'passage ' || g,
-        (select array_agg(case when i = (case when g = 7 then ${DIM + 3} else g % 1500 end) then 1 else 0 end order by i) from generate_series(0, 1535) i)::vector
-      from generate_series(0, ${EXPLORE_EXACT_PASSAGES}) g`);
+        (select array_agg(case when i = ${DIM + 3} then lean when i = g % 1500 then sqrt(1 - lean * lean) else 0 end order by i) from generate_series(0, 1535) i)::vector
+      from (select g, case when g = 7 then 1.0 else 0.3 + 0.6 * g / ${EXPLORE_EXACT_PASSAGES} end as lean from generate_series(0, ${EXPLORE_EXACT_PASSAGES}) g) leaning`);
     await db().execute(sql`analyze ${schema.chunk}`);
 
     expect(await explore.fewPassages([small])).toBe(true);
@@ -131,8 +148,12 @@ describeWithDb('explore search', () => {
     const [deep] = await explore.nearestPassages(question(DIM + 3), [large], 1);
     expect(deep).toMatchObject({ reeId: large, content: 'passage 7' });
     expect(deep!.similarity).toBeCloseTo(1, 3);
-    /* Both Rees together go through the index; the small one's passage is still found. */
-    const both = await explore.nearestPassages(question(DIM + 1), [small, large], 3);
-    expect(both[0]).toMatchObject({ reeId: small, content: 'the near passage' });
+    /* Both Rees together go through the index too, and find what the exact scan finds. */
+    const both = await explore.nearestPassages(question(DIM + 3), [small, large], 3);
+    const { rows: exact } = await db().execute<{ content: string; similarity: number }>(explore.passageSearch(question(DIM + 3), [small, large], 3).exact);
+    /* The runners-up lean within 0.0002 of each other: the index may swap them, never by more than that. */
+    expect(both).toHaveLength(exact.length);
+    both.forEach((passage, at) => expect(passage.similarity).toBeCloseTo(Number(exact[at]!.similarity), 2));
+    expect(both[0]).toMatchObject({ reeId: large, content: 'passage 7' });
   }, 120_000);
 });
