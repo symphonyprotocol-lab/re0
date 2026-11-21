@@ -17,6 +17,7 @@ import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import {
   EMBEDDING_DIMENSIONS,
   EXPLORE_EF_SEARCH,
+  EXPLORE_EXACT_PASSAGES,
   EXPLORE_INDEX_CHECK_MS,
   EXPLORE_NAME_REES,
   EXPLORE_PASSAGE_EF_SEARCH,
@@ -283,6 +284,12 @@ export function forgetSearchIndexCheck(): void {
  * index is missing or invalid (not built yet, or being built): without the
  * index, the "indexed" statement would sort every candidate passage anyway,
  * slower than the exact scan.
+ *
+ * Rees with at most EXPLORE_EXACT_PASSAGES passages between them skip the
+ * index altogether (`fewPassages`): the index holds every Ree's passages,
+ * so for one Ree's (a named Ree, a follow-up's Rees) the iterative scan read
+ * its EXPLORE_PASSAGE_SCAN_MAX entries, found none and fell back to the
+ * exact scan anyway -- seconds on a cold cache, ten in production.
  */
 export async function nearestPassages(vector: QuestionVector, rees: readonly string[], limit: number): Promise<Passage[]> {
   if (!rees.length || limit < 1) return [];
@@ -292,7 +299,7 @@ export async function nearestPassages(vector: QuestionVector, rees: readonly str
       .map((row) => ({ ...row, similarity: Number(row.similarity) }))
       .sort((x, y) => y.similarity - x.similarity)
       .slice(0, limit);
-  const indexed = (await searchIndexesReady())
+  const indexed = (await searchIndexesReady()) && !(await fewPassages(rees))
     ? await db()
         .transaction(async (tx) => {
           await tx.execute(search.settings);
@@ -308,6 +315,15 @@ export async function nearestPassages(vector: QuestionVector, rees: readonly str
   if (indexed.length >= limit) return indexed;
   const { rows } = await db().execute<Passage>(search.exact);
   return toPassages(rows);
+}
+
+/** Whether `rees` hold at most EXPLORE_EXACT_PASSAGES passages in all; counts no further than one past it (`chunk_ree_idx`). */
+export async function fewPassages(rees: readonly string[]): Promise<boolean> {
+  const { rows } = await db().execute<{ n: number }>(
+    sql`select count(*)::int as n from (select 1 from ${schema.chunk} c
+      where c.ree_id in (${sql.join(rees.map((id) => sql`${id}::uuid`), sql`, `)}) limit ${EXPLORE_EXACT_PASSAGES + 1}) few`,
+  );
+  return Number(rows[0]?.n ?? 0) <= EXPLORE_EXACT_PASSAGES;
 }
 
 /** `nearestPassages`' statements: the transaction's settings, the index search (one leg per slot), and the exact scan. Exported for the plan test. */
@@ -342,10 +358,11 @@ export function passageSearch(vector: QuestionVector, rees: readonly string[], l
 }
 
 /**
- * The two levels. With a category or Rees to leave out, the first level
- * scans that slice of the profile table exactly (`+ 0` keeps the planner off
- * the global index, which filters after it searches); otherwise the HNSW
- * index answers, with a candidate list long enough for 20 Rees × 16 vectors.
+ * The two levels. With a category, the first level scans that slice of the
+ * profile table exactly (`+ 0` keeps the planner off the global index, which
+ * filters after it searches); otherwise the HNSW index answers
+ * (`profileSearch`), with a candidate list long enough for 20 Rees × 16
+ * vectors, the Rees to leave out among them.
  * Both levels read only vectors in the question's embedding space; right
  * after a model switch, profiles not yet rebuilt in the new space drop out
  * of the first level until `rebuildProfiles` reaches them (reembed.ts).
@@ -372,36 +389,14 @@ export async function searchRees(input: {
 }): Promise<SearchHit[]> {
   const database = db();
   const timing = input.timing ?? untimed;
-  const literal = `[${input.vector.vector.join(',')}]`;
   const exclude = (input.exclude ?? []).filter((id) => isUuid(id));
-  /* A category can leave too few rows behind an index search; up to five excluded Rees only need a longer list (ef_search covers 25 × 16). */
-  const filtered = Boolean(input.category);
-  const distance = sql`${schema.reeProfileVector.embedding} <=> ${literal}::vector`;
   const [firstLevel, named] = await Promise.all([
     timing.measure('profiles', () =>
       database.transaction(async (tx) => {
-        if (!filtered) await tx.execute(sql.raw(`set local hnsw.ef_search = ${EXPLORE_EF_SEARCH}`));
-        const nearest = tx
-          .select({ reeId: schema.reeProfileVector.reeId, distance: sql<number>`${distance}`.as('distance') })
-          .from(schema.reeProfileVector)
-          .innerJoin(schema.ree, eq(schema.ree.id, schema.reeProfileVector.reeId))
-          .where(
-            and(
-              publicRee(),
-              profileInSpace(input.vector.space),
-              input.category ? eq(schema.ree.category, input.category) : undefined,
-              exclude.length ? sql`${schema.ree.id} not in (${sql.join(exclude.map((id) => sql`${id}::uuid`), sql`, `)})` : undefined,
-            ),
-          )
-          .orderBy(filtered ? sql`(${distance}) + 0` : distance)
-          .limit((EXPLORE_PROFILE_REES + exclude.length) * PROFILE_MAX_VECTORS)
-          .as('nearest');
-        return tx
-          .select({ reeId: nearest.reeId, similarity: sql<number>`max(1 - ${nearest.distance})` })
-          .from(nearest)
-          .groupBy(nearest.reeId)
-          .orderBy(desc(sql`max(1 - ${nearest.distance})`))
-          .limit(EXPLORE_PROFILE_REES);
+        const search = profileSearch(input.vector, { category: input.category ?? null, exclude });
+        if (search.settings) await tx.execute(search.settings);
+        const { rows } = await tx.execute<{ reeId: string; similarity: number }>(search.nearest);
+        return rows.map((row) => ({ reeId: row.reeId, similarity: Number(row.similarity) }));
       }),
     ),
     input.named ?? timing.measure('names', () => namedRees(input.question, { category: input.category, exclude })),
@@ -451,6 +446,53 @@ export async function searchRees(input: {
     hits.push({ reeId: row.id, similarity: found.similarity, quality: row.rank.quality ?? NEUTRAL_QUALITY, role: row.role, excerpt: excerptOf(found.content, terms), title: found.title, boost });
   }
   return rankHits(hits, input.limit ?? EXPLORE_RESULTS);
+}
+
+/**
+ * The first level's statement: the EXPLORE_PROFILE_REES public Rees whose
+ * profile is nearest, each with its best similarity. Exported for the plan
+ * test.
+ *
+ * Without a category, through the HNSW index: the profile table alone,
+ * nearest first, in a subquery, and only then joined to the Rees to keep
+ * the public ones (only public Rees have profiles, so few drop out). With
+ * the join inside, the planner never took the index; nor does it on the
+ * table alone unless told (`enable_seqscan` off): each vector is stored out
+ * of line, so a sequential scan looks like a few hundred pages and reads
+ * every profile's -- some 50,000 pages per search, a second in production.
+ * The iterative scan fills the list when profiles of another embedding
+ * space (right after a model switch) are filtered out.
+ */
+export function profileSearch(vector: QuestionVector, filter: { category: ReeCategory | null; exclude: readonly string[] }): { settings: SQL | null; nearest: SQL } {
+  const literal = `[${vector.vector.join(',')}]`;
+  const p = schema.reeProfileVector;
+  const distance = sql`${p.embedding} <=> ${literal}::vector`;
+  const notExcluded = filter.exclude.length ? sql`and ${schema.ree.id} not in (${sql.join(filter.exclude.map((id) => sql`${id}::uuid`), sql`, `)})` : sql``;
+  /* A category can leave too few rows behind an index search, so its slice is scanned exactly; up to five excluded Rees only need a longer list (ef_search covers 25 × 16). */
+  const take = (EXPLORE_PROFILE_REES + filter.exclude.length) * PROFILE_MAX_VECTORS;
+  if (filter.category) {
+    return {
+      settings: null,
+      nearest: sql`select n.ree_id as "reeId", max(1 - n.distance) as similarity from (
+          select ${p.reeId} as ree_id, ${distance} as distance from ${p} join ${schema.ree} on ${schema.ree.id} = ${p.reeId}
+          where ${publicRee()} and ${profileInSpace(vector.space)} and ${schema.ree.category} = ${filter.category} ${notExcluded}
+          order by (${distance}) + 0 limit ${take}) n
+        group by n.ree_id order by similarity desc limit ${EXPLORE_PROFILE_REES}`,
+    };
+  }
+  return {
+    settings: sql`select
+      set_config('hnsw.ef_search', ${String(EXPLORE_EF_SEARCH)}, true),
+      set_config('hnsw.iterative_scan', 'strict_order', true),
+      set_config('enable_seqscan', 'off', true)`,
+    nearest: sql`select n.ree_id as "reeId", max(1 - n.distance) as similarity from (
+        select ${p.reeId} as ree_id, ${distance} as distance from ${p}
+        where ${profileInSpace(vector.space)}
+        order by ${distance} limit ${take}) n
+      join ${schema.ree} on ${schema.ree.id} = n.ree_id
+      where ${publicRee()} ${notExcluded}
+      group by n.ree_id order by similarity desc limit ${EXPLORE_PROFILE_REES}`,
+  };
 }
 
 /*
