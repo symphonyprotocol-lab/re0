@@ -540,6 +540,13 @@
       "when": 1795281600000,
       "tag": "0078_model_chain",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1795285200000,
+      "tag": "0079_chunk_bit",
+      "breakpoints": true
     }
   ]
 }

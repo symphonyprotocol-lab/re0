@@ -21,6 +21,7 @@ import {
   EXPLORE_EXACT_PASSAGES,
   EXPLORE_INDEX_CHECK_MS,
   EXPLORE_NAME_REES,
+  EXPLORE_OWN_BIT_CANDIDATES,
   EXPLORE_PASSAGE_CANDIDATES,
   EXPLORE_PASSAGE_EF_SEARCH,
   EXPLORE_PASSAGE_SCAN_MAX,
@@ -276,9 +277,29 @@ export async function searchIndexesReady(now = Date.now()): Promise<boolean> {
   return (await searchIndexes(now)).passages !== null;
 }
 
-/** Forgets the last index check (tests, and right after building the indexes in-process). */
+/* The same for the chunk_bit backfill's mark. */
+let bitsCheck: { at: number; ready: Promise<boolean> } | null = null;
+
+/**
+ * Whether every chunk vector slot has its binary copy in `chunk_bit`: the
+ * mark `db:cutover -- chunk-bits` sets once it has filled the rows stored
+ * before 0079 (lib/infra/chunk-bits.ts); the trigger keeps every later
+ * write's. False while unmarked and when the check fails.
+ */
+export async function chunkBitsReady(now = Date.now()): Promise<boolean> {
+  if (bitsCheck && now - bitsCheck.at < EXPLORE_INDEX_CHECK_MS) return bitsCheck.ready;
+  const ready = db()
+    .execute<{ done: boolean }>(sql`select completed_at is not null as done from ${schema.chunkBitBackfill}`)
+    .then(({ rows }) => rows[0]?.done === true)
+    .catch(() => false);
+  bitsCheck = { at: now, ready };
+  return ready;
+}
+
+/** Forgets the last index and chunk_bit checks (tests, and right after building the indexes in-process). */
 export function forgetSearchIndexCheck(): void {
   indexCheck = null;
+  bitsCheck = null;
 }
 
 /**
@@ -393,6 +414,43 @@ export function passageSearch(
 }
 
 /**
+ * One Ree's nearest answerable passage to the question (none when it has
+ * none in the question's space), once `chunkBitsReady`: its passages'
+ * binary copies are ranked by bits that differ and only the nearest
+ * EXPLORE_OWN_BIT_CANDIDATES have their stored vectors read, the nearest of
+ * those kept. An exact scan reads every passage's 6 KB vector, out of line,
+ * one random read each on a cold cache -- 2 to 4 s in production for a Ree
+ * of one to three thousand passages; this reads the Ree's rows of
+ * `chunk_bit` (some 30 to a page) and 100 vectors.
+ */
+export async function nearestOwnPassage(vector: QuestionVector, ree: string): Promise<Passage[]> {
+  const { rows } = await db().execute<Passage>(ownPassageSearch(vector, ree));
+  return rows.map((row) => ({ ...row, similarity: Number(row.similarity) }));
+}
+
+/**
+ * `nearestOwnPassage`'s statement, exported for the plan test. The
+ * candidates are a materialized CTE, so nothing from `chunk` -- above all
+ * its vectors -- is read before the cut; only answerable sources' passages
+ * (`k`, as `answerable()` in retrieval.ts) are ranked.
+ */
+export function ownPassageSearch(vector: QuestionVector, ree: string): SQL {
+  const literal = `[${vector.vector.join(',')}]`;
+  const bits = sql.raw(`bit(${EMBEDDING_DIMENSIONS})`);
+  const stored = chunkVector(vector.space, 'c');
+  return sql`with near as materialized (
+      select b.chunk_id from ${schema.chunkBit} b join ${schema.knowledge} k on k.id = b.knowledge_id
+      where b.ree_id = ${ree}::uuid and b.space = ${vector.space}::uuid and k.status = 'ready' and k.enabled and k.deleted_at is null
+      order by b.bits <~> binary_quantize(${literal}::vector)::${bits}
+      limit ${EXPLORE_OWN_BIT_CANDIDATES})
+    select c.ree_id as "reeId", c.content, k.title, 1 - (${stored} <=> ${literal}::vector) as similarity
+    from near n join ${schema.chunk} c on c.id = n.chunk_id join ${schema.knowledge} k on k.id = c.knowledge_id
+    where ${stored} is not null
+    order by (${stored} <=> ${literal}::vector) + 0
+    limit 1`;
+}
+
+/**
  * The two levels. With a category, the first level scans that slice of the
  * profile table exactly (`+ 0` keeps the planner off the global index, which
  * filters after it searches); otherwise an HNSW index answers, read a
@@ -403,7 +461,8 @@ export function passageSearch(
  *
  * A query that names a Ree (`namedRees`) brings it into the candidates
  * whatever its profile's distance, scores it with its nearest passage even
- * when that passage is not among the 50, and adds the name boost: a bare
+ * when that passage is not among the 50 (`nearestOwnPassage` once
+ * `chunk_bit` is filled, `nearestPassages` before), and adds the name boost: a bare
  * product name puts that product's Ree first, while a question that only
  * mentions one keeps ranking mostly by its passages.
  *
@@ -427,12 +486,22 @@ export async function searchRees(input: {
   const namesLookup = input.named ?? timing.measure('names', () => namedRees(input.question, { category: input.category, exclude }));
   /*
    * Each named Ree's nearest passage needs only the vector and the names, so
-   * through the indexes it starts now, beside the profile search, instead of
-   * after it. With exact scans only (indexes not built yet), it waits for the
-   * 50 below and runs only for the named Rees still missing.
+   * by its binary copies (or through the indexes) it starts now, beside the
+   * profile search, instead of after it. With exact scans only (neither
+   * ready yet), it waits for the 50 below and runs only for the named Rees
+   * still missing. A failed binary ranking answers the old way.
    */
-  const ownNearestOf = (ids: string[]) => timing.measure('named-passages', () => Promise.all(ids.map((id) => nearestPassages(input.vector, [id], 1))));
-  const early = Promise.all([searchIndexesReady(), namesLookup]).then(([indexed, named]) => (indexed ? ownNearestOf([...named.keys()]) : null));
+  const ownNearest1 = (id: string, bits: boolean) =>
+    bits
+      ? nearestOwnPassage(input.vector, id).catch((error: unknown) => {
+          console.error(`explore: chunk_bit ranking failed, searching the old way (${error instanceof Error ? error.message : String(error)})`);
+          return nearestPassages(input.vector, [id], 1);
+        })
+      : nearestPassages(input.vector, [id], 1);
+  const ownNearestOf = (ids: string[], bits: boolean) => timing.measure('named-passages', () => Promise.all(ids.map((id) => ownNearest1(id, bits))));
+  const early = Promise.all([searchIndexesReady(), chunkBitsReady(), namesLookup]).then(([indexed, bits, named]) =>
+    indexed || bits ? ownNearestOf([...named.keys()], bits) : null,
+  );
   /* Awaited below unless the profile search fails first; its own failure must not go unhandled then. */
   early.catch(() => {});
   const [firstLevel, named] = await Promise.all([
@@ -444,7 +513,7 @@ export async function searchRees(input: {
 
   /* The 50, and each named Ree's nearest passage, for a named Ree none of whose passages makes the 50. */
   const [passages, started] = await Promise.all([timing.measure('passages', () => nearestPassages(input.vector, candidates, EXPLORE_PASSAGES)), early]);
-  const ownNearest = started ?? (await ownNearestOf([...named.keys()].filter((id) => !passages.some((passage) => passage.reeId === id))));
+  const ownNearest = started ?? (await ownNearestOf([...named.keys()].filter((id) => !passages.some((passage) => passage.reeId === id)), false));
 
   const terms = searchTerms(input.question);
   const best = new Map<string, { similarity: number; coverage: number; content: string; title: string }>();
