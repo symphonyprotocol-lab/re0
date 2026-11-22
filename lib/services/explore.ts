@@ -244,9 +244,9 @@ const SLOTS = [
 
 type Passage = { reeId: string; content: string; title: string; similarity: number };
 
-/** Which of Discover's indexes the search can read (lib/infra/search-indexes.ts): the passages' binary or half-precision pair, or none; the profiles' binary one, or their own. */
+/** Which of Discover's indexes the search can read (lib/infra/search-indexes.ts): the passages' binary pair, or none; the profiles' binary one, or their own. */
 export interface SearchIndexes {
-  passages: 'bit' | 'half' | null;
+  passages: 'bit' | null;
   profiles: 'bit' | null;
 }
 
@@ -265,7 +265,7 @@ export async function searchIndexes(now = Date.now()): Promise<SearchIndexes> {
     .then(({ rows }): SearchIndexes => {
       const valid = new Set(rows.map((row) => row.name));
       const all = (group: SearchIndexGroup) => SEARCH_INDEXES.filter((index) => index.group === group).every((index) => valid.has(index.name));
-      return { passages: all('passage-bit') ? 'bit' : all('passage-half') ? 'half' : null, profiles: all('profile-bit') ? 'bit' : null };
+      return { passages: all('passage-bit') ? 'bit' : null, profiles: all('profile-bit') ? 'bit' : null };
     })
     .catch((): SearchIndexes => ({ passages: null, profiles: null }));
   indexCheck = { at: now, ready };
@@ -307,13 +307,12 @@ export function forgetSearchIndexCheck(): void {
  * at most `limit`.
  *
  * First through each vector slot's HNSW index (lib/infra/search-indexes.ts),
- * on binary-quantized copies (half-precision ones until those are built),
- * with an iterative scan so the filter still fills the list; the
- * similarity is then computed again on the stored vectors of the rows
- * found, and the nearest `limit` of them kept. Each leg reads more rows
- * than it keeps: a relaxed-order scan's first rows are only roughly its
- * nearest, and a binary copy's distance (bits that differ) only roughly
- * the stored vectors' -- twice `limit` (at least
+ * on binary-quantized copies, with an iterative scan so the filter still
+ * fills the list; the similarity is then computed again on the stored
+ * vectors of the rows found, and the nearest `limit` of them kept. Each leg
+ * reads more rows than it keeps: a relaxed-order scan's first rows are only
+ * roughly its nearest, and a binary copy's distance (bits that differ) only
+ * roughly the stored vectors' -- twice `limit` (at least
  * EXPLORE_PASSAGE_CANDIDATES), which on production vectors found the same
  * 50 passages as an exact scan. Only those rows' vectors and texts are
  * read -- not, as an exact scan does, every passage of every candidate
@@ -321,29 +320,32 @@ export function forgetSearchIndexCheck(): void {
  * passages the space tag keeps, so it is told to skip the sort-everything
  * plan (`enable_sort`, `jit` off for the statement).
  *
- * An index scan gives up after EXPLORE_PASSAGE_SCAN_MAX entries; when that
- * leaves the list short, `rees` hold few passages near the question, and an
- * exact scan of them (all they have) is cheap. The exact scan is also the
- * answer when the index search fails, and the only search while either
- * index is missing or invalid (not built yet, or being built): without the
- * index, the "indexed" statement would sort every candidate passage anyway,
- * slower than the exact scan.
- *
  * Rees with at most EXPLORE_EXACT_PASSAGES passages between them skip the
  * index altogether (`fewPassages`): the index holds every Ree's passages,
  * so for one Ree's (a named Ree, a follow-up's Rees) the iterative scan read
  * its EXPLORE_PASSAGE_SCAN_MAX entries, found none and fell back to the
- * exact scan anyway -- seconds on a cold cache, ten in production.
+ * exact scan anyway -- seconds on a cold cache, ten in production. So does
+ * the search while either index is missing or invalid (not built yet, or
+ * being built): without the index, the "indexed" statement would sort every
+ * candidate passage anyway. And an index scan gives up after
+ * EXPLORE_PASSAGE_SCAN_MAX entries; when that leaves the list short, `rees`
+ * hold few passages near the question, and the search answers as for few
+ * passages. Likewise when the index search fails.
+ *
+ * Without the index, once `chunkBitsReady`, the passages are ranked by their
+ * `chunk_bit` rows (`bitPassageSearch`), and only the nearest few have
+ * their stored vectors read; the exact scan, which reads every candidate
+ * passage's vector, answers only until then, or when that ranking fails.
+ * There is no other index to fall back on: the half-precision pair before
+ * the binary one is retired (RETIRED_SEARCH_INDEXES), and the `chunk_bit`
+ * ranking or the exact scan is what the search did while the binary pair
+ * was being built.
  */
 export async function nearestPassages(vector: QuestionVector, rees: readonly string[], limit: number): Promise<Passage[]> {
   if (!rees.length || limit < 1) return [];
-  const index = (await searchIndexes()).passages;
-  const search = passageSearch(vector, rees, limit, index ?? 'bit');
-  const toPassages = (rows: Passage[]) =>
-    rows
-      .map((row) => ({ ...row, similarity: Number(row.similarity) }))
-      .sort((x, y) => y.similarity - x.similarity)
-      .slice(0, limit);
+  const [index, bits] = await Promise.all([searchIndexes().then((indexes) => indexes.passages), chunkBitsReady()]);
+  const search = passageSearch(vector, rees, limit);
+  const toPassages = (rows: Passage[]) => nearestFirst(rows, limit);
   const indexed = index && !(await fewPassages(rees))
     ? await db()
         .transaction(async (tx) => {
@@ -352,14 +354,37 @@ export async function nearestPassages(vector: QuestionVector, rees: readonly str
           return toPassages(rows);
         })
         .catch((error: unknown) => {
-          /* Say, but answer: the exact scan below is the search before the indexes. */
-          console.error(`explore: index search failed, scanning exactly (${error instanceof Error ? error.message : String(error)})`);
+          /* Say, but answer: the search below is the one before the indexes. */
+          console.error(`explore: index search failed, searching without it (${error instanceof Error ? error.message : String(error)})`);
           return [];
         })
     : [];
   if (indexed.length >= limit) return indexed;
-  const { rows } = await db().execute<Passage>(search.exact);
-  return toPassages(rows);
+  if (bits) {
+    const ranked = await db()
+      .execute<Passage>(bitPassageSearch(vector, rees, limit))
+      .then(({ rows }) => toPassages(rows))
+      .catch((error: unknown) => {
+        console.error(`explore: chunk_bit ranking failed, scanning exactly (${error instanceof Error ? error.message : String(error)})`);
+        return null;
+      });
+    if (ranked) return ranked;
+  }
+  return exactPassages(vector, rees, limit);
+}
+
+function nearestFirst(rows: Passage[], limit: number): Passage[] {
+  return rows
+    .map((row) => ({ ...row, similarity: Number(row.similarity) }))
+    .sort((x, y) => y.similarity - x.similarity)
+    .slice(0, limit);
+}
+
+/** `nearestPassages`' exact scan alone: every candidate passage's stored vector. */
+export async function exactPassages(vector: QuestionVector, rees: readonly string[], limit: number): Promise<Passage[]> {
+  if (!rees.length || limit < 1) return [];
+  const { rows } = await db().execute<Passage>(passageSearch(vector, rees, limit).exact);
+  return nearestFirst(rows, limit);
 }
 
 /** Whether `rees` hold at most EXPLORE_EXACT_PASSAGES passages in all; counts no further than one past it (`chunk_ree_idx`). */
@@ -371,21 +396,12 @@ export async function fewPassages(rees: readonly string[]): Promise<boolean> {
   return Number(rows[0]?.n ?? 0) <= EXPLORE_EXACT_PASSAGES;
 }
 
-/** `nearestPassages`' statements: the transaction's settings, the search through one pair of indexes (one leg per slot), and the exact scan. Exported for the plan test. */
-export function passageSearch(
-  vector: QuestionVector,
-  rees: readonly string[],
-  limit: number,
-  index: 'bit' | 'half' = 'bit',
-): { settings: SQL; indexed: SQL; exact: SQL } {
+/** `nearestPassages`' statements: the transaction's settings, the search through the binary pair of indexes (one leg per slot), and the exact scan. Exported for the plan test. */
+export function passageSearch(vector: QuestionVector, rees: readonly string[], limit: number): { settings: SQL; indexed: SQL; exact: SQL } {
   const literal = `[${vector.vector.join(',')}]`;
-  const half = sql.raw(`halfvec(${EMBEDDING_DIMENSIONS})`);
   const bits = sql.raw(`bit(${EMBEDDING_DIMENSIONS})`);
-  const order = (column: SQL) =>
-    index === 'bit'
-      ? sql`binary_quantize(${column})::${bits} <~> binary_quantize(${literal}::vector)::${bits}`
-      : sql`${column}::${half} <=> ${literal}::${half}`;
-  const take = index === 'bit' ? Math.max(2 * limit, EXPLORE_PASSAGE_CANDIDATES) : Math.max(limit, EXPLORE_PASSAGE_CANDIDATES);
+  const order = (column: SQL) => sql`binary_quantize(${column})::${bits} <~> binary_quantize(${literal}::vector)::${bits}`;
+  const take = Math.max(2 * limit, EXPLORE_PASSAGE_CANDIDATES);
   const inRees = sql`c.ree_id in (${sql.join(rees.map((id) => sql`${id}::uuid`), sql`, `)})`;
   /* `answerable()` (retrieval.ts) under the alias `k`. */
   const ready = sql`k.status = 'ready' and k.enabled and k.deleted_at is null`;
@@ -428,26 +444,41 @@ export async function nearestOwnPassage(vector: QuestionVector, ree: string): Pr
   return rows.map((row) => ({ ...row, similarity: Number(row.similarity) }));
 }
 
-/**
- * `nearestOwnPassage`'s statement, exported for the plan test. The
- * candidates are a materialized CTE, so nothing from `chunk` -- above all
- * its vectors -- is read before the cut; only answerable sources' passages
- * (`k`, as `answerable()` in retrieval.ts) are ranked.
- */
+/** `nearestOwnPassage`'s statement (`bitPassageSearch` for one Ree's one passage), exported for the plan test. */
 export function ownPassageSearch(vector: QuestionVector, ree: string): SQL {
+  return bitPassageSearch(vector, [ree], 1);
+}
+
+/**
+ * The nearest `limit` answerable passages of `rees` by their `chunk_bit`
+ * rows: the rows in the question's space of answerable sources (`k`, as
+ * `answerable()` in retrieval.ts) ranked by bits that differ, and the
+ * nearest few re-ranked by their stored vectors. The candidates are a
+ * materialized CTE, so nothing from `chunk` -- above all its vectors, read
+ * out of line, one random read each on a cold cache -- is read before the
+ * cut. As many candidates as the index legs read for `limit`
+ * (`passageSearch`, twice it), and at least EXPLORE_OWN_BIT_CANDIDATES,
+ * which on production kept a named Ree's exact nearest passage for 434
+ * questions of 435; these are ranked by every candidate's bits, not by an
+ * HNSW graph's relaxed order, so no fewer of the nearest are among them.
+ * Exported for the plan test.
+ */
+export function bitPassageSearch(vector: QuestionVector, rees: readonly string[], limit: number): SQL {
   const literal = `[${vector.vector.join(',')}]`;
   const bits = sql.raw(`bit(${EMBEDDING_DIMENSIONS})`);
   const stored = chunkVector(vector.space, 'c');
+  const inRees = rees.length === 1 ? sql`b.ree_id = ${rees[0]}::uuid` : sql`b.ree_id in (${sql.join(rees.map((id) => sql`${id}::uuid`), sql`, `)})`;
+  /* A passage with both slots in one space (never written so, but not ruled out) would be a candidate twice: once is enough. */
   return sql`with near as materialized (
       select b.chunk_id from ${schema.chunkBit} b join ${schema.knowledge} k on k.id = b.knowledge_id
-      where b.ree_id = ${ree}::uuid and b.space = ${vector.space}::uuid and k.status = 'ready' and k.enabled and k.deleted_at is null
+      where ${inRees} and b.space = ${vector.space}::uuid and k.status = 'ready' and k.enabled and k.deleted_at is null
       order by b.bits <~> binary_quantize(${literal}::vector)::${bits}
-      limit ${EXPLORE_OWN_BIT_CANDIDATES})
+      limit ${Math.max(2 * limit, EXPLORE_OWN_BIT_CANDIDATES)})
     select c.ree_id as "reeId", c.content, k.title, 1 - (${stored} <=> ${literal}::vector) as similarity
-    from near n join ${schema.chunk} c on c.id = n.chunk_id join ${schema.knowledge} k on k.id = c.knowledge_id
+    from (select distinct chunk_id from near) n join ${schema.chunk} c on c.id = n.chunk_id join ${schema.knowledge} k on k.id = c.knowledge_id
     where ${stored} is not null
     order by (${stored} <=> ${literal}::vector) + 0
-    limit 1`;
+    limit ${limit}`;
 }
 
 /**
@@ -494,8 +525,8 @@ export async function searchRees(input: {
   const ownNearest1 = (id: string, bits: boolean) =>
     bits
       ? nearestOwnPassage(input.vector, id).catch((error: unknown) => {
-          console.error(`explore: chunk_bit ranking failed, searching the old way (${error instanceof Error ? error.message : String(error)})`);
-          return nearestPassages(input.vector, [id], 1);
+          console.error(`explore: chunk_bit ranking failed, scanning exactly (${error instanceof Error ? error.message : String(error)})`);
+          return exactPassages(input.vector, [id], 1);
         })
       : nearestPassages(input.vector, [id], 1);
   const ownNearestOf = (ids: string[], bits: boolean) => timing.measure('named-passages', () => Promise.all(ids.map((id) => ownNearest1(id, bits))));
