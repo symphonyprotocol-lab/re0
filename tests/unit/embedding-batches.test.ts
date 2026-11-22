@@ -28,6 +28,7 @@ function fakeModel(options: { maxEmbeddingsPerCall?: number; fail?: (values: str
         return {
           embeddings: values.map((value) => [Number(value.split('-')[1])]),
           usage: { tokens: values.length * 10 },
+          providerMetadata: { fake: { first: values[0]! } },
           warnings: [],
         };
       } finally {
@@ -105,11 +106,19 @@ describe('embedInBatches', () => {
     expect(peak()).toBeLessThanOrEqual(3);
   });
 
+  it('returns every batch\'s provider metadata', async () => {
+    const { model } = fakeModel({ maxEmbeddingsPerCall: 25 });
+    const { metadata } = await embedInBatches(model, texts(60, 10), { timeoutMs: 5_000 });
+    expect(metadata).toHaveLength(model.doEmbedCalls.length);
+    expect(metadata.map((entry) => (entry as { fake: { first: string } }).fake.first).sort()).toEqual(model.doEmbedCalls.map((call) => call.values[0]).sort());
+  });
+
   it('keeps one request for a small input', async () => {
     const { model } = fakeModel();
-    const { embeddings } = await embedInBatches(model, ['text-7'], { timeoutMs: 5_000 });
+    const { embeddings, metadata } = await embedInBatches(model, ['text-7'], { timeoutMs: 5_000 });
     expect(embeddings).toEqual([[7]]);
     expect(model.doEmbedCalls).toHaveLength(1);
+    expect(metadata).toEqual([{ fake: { first: 'text-7' } }]);
   });
 
   it('rejects with the provider error and stops the remaining batches', async () => {
