@@ -160,3 +160,20 @@ export function reportedGatewayCost(metadata: unknown): string | null {
     return exactUsd(amount.units, amount.scale);
   } catch { throw new ProviderCostUnavailable('usage_unavailable'); }
 }
+
+const gatewayRouting = z.object({ gateway: z.object({ routing: z.object({ modelAttempts: z.array(z.object({
+  providerAttempts: z.array(z.object({ startTime: z.number(), endTime: z.number() })).optional(),
+})) }) }) });
+
+/**
+ * How long AI Gateway says its providers took for one call (ms): the sum of
+ * every provider attempt's span, so a retry inside the Gateway counts. The
+ * rest of the call's time is ours to the Gateway, the Gateway itself and the
+ * way back. Null when the call did not go through the Gateway.
+ */
+export function gatewayProviderMs(metadata: unknown): number | null {
+  const parsed = gatewayRouting.safeParse(metadata);
+  if (!parsed.success) return null;
+  const spans = parsed.data.gateway.routing.modelAttempts.flatMap((model) => model.providerAttempts ?? []).map((attempt) => attempt.endTime - attempt.startTime);
+  return spans.length > 0 && spans.every((span) => span >= 0) ? spans.reduce((sum, span) => sum + span, 0) : null;
+}

@@ -61,7 +61,7 @@ import { introsFor } from '@/lib/services/video';
 import { votesByOthers } from '@/lib/services/ree-feedback';
 import { answersByOthersOf } from '@/lib/services/ree-counts';
 import { hitRateBucket } from '@/lib/services/rate-limit';
-import { untimed, type Timing } from '@/lib/infra/timing';
+import { untimed, type StepTimer, type Timing } from '@/lib/infra/timing';
 import { SEARCH_INDEXES, type SearchIndexGroup } from '@/lib/infra/search-indexes';
 
 const reeId = sql.raw('"ree"."id"');
@@ -698,13 +698,14 @@ export function profileSearch(
  */
 const searchVectors = new Map<string, { at: number; vector: Promise<QuestionVector> }>();
 
-async function searchVector(question: string, now = Date.now()): Promise<QuestionVector> {
+/* `timing` gets the embedding's parts when this request makes the call (not on a kept vector). */
+async function searchVector(question: string, timing: StepTimer = untimed, now = Date.now()): Promise<QuestionVector> {
   const kept = searchVectors.get(question);
   if (kept && now - kept.at < EXPLORE_VECTOR_CACHE_MS) {
     const [vector, endpoint] = await Promise.all([kept.vector, endpointFor('embedding')]);
     if (vector.model === endpoint.model && vector.space === spaceOf(endpoint)) return vector;
   }
-  const vector = embedQuestion(question);
+  const vector = embedQuestion(question, { timing });
   searchVectors.delete(question);
   searchVectors.set(question, { at: now, vector });
   vector.catch(() => {
@@ -780,7 +781,7 @@ function afterKey(sort: ExploreSort, key: ExploreKey): SQL {
 export async function explore(
   query: ExploreQuery,
   batch: ExploreBatch,
-  { includeIntros = true, timing = untimed }: { includeIntros?: boolean; timing?: Pick<Timing, 'measure'> } = {},
+  { includeIntros = true, timing = untimed }: { includeIntros?: boolean; timing?: StepTimer } = {},
 ): Promise<ExploreResult> {
   if (query.q) {
     if (batch.cursor) return { mode: 'search', items: [], total: 0, nextCursor: null };
@@ -788,7 +789,7 @@ export async function explore(
     const named = timing.measure('names', () => namedRees(query.q, { category: query.category, exclude: [] }));
     /* Awaited inside searchRees; if the embedding fails first, its own failure must not go unhandled. */
     named.catch(() => {});
-    const vector = await timing.measure('embed', () => searchVector(query.q));
+    const vector = await timing.measure('embed', () => searchVector(query.q, timing));
     const hits = await searchRees({ question: query.q, vector, category: query.category, named, timing });
     let cards = await timing.measure('cards', () => reeCards(
       hits.map((hit) => hit.reeId),

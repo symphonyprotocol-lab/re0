@@ -10,6 +10,7 @@ import { rewriteTarget, scriptOf } from '@/lib/domain/cross-lingual';
 import { fuse, hasEvidence, isLibraryQuestion, isWordTerm, keywordCoverage, overviewText, searchTerms, wordPattern, type Ranked } from '@/lib/domain/retrieval';
 import { embedTexts } from '@/lib/infra/ai/models';
 import { db, schema } from '@/lib/infra/db';
+import type { StepTimer } from '@/lib/infra/timing';
 import { chunkVector, spaceOf } from '@/lib/services/embedding-space';
 import type { Rewriter } from '@/lib/services/question-rewrite';
 
@@ -247,8 +248,8 @@ export interface QuestionVector {
 }
 
 /** One embedding per question, shared by every asked Ree and by the suggestions. */
-export async function embedQuestion(question: string): Promise<QuestionVector> {
-  const { vectors, endpoint } = await embedTexts([question]);
+export async function embedQuestion(question: string, options: { timing?: StepTimer } = {}): Promise<QuestionVector> {
+  const { vectors, endpoint } = await embedTexts([question], undefined, options);
   return { vector: vectors[0]!, model: endpoint.model, space: spaceOf(endpoint) };
 }
 

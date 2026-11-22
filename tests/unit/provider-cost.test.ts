@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { providerRateSchema, providerRatesSchema, providerTotal, rateCost, reportedGatewayCost, type ProviderCharge } from '@/lib/domain/provider-cost';
+import { gatewayProviderMs, providerRateSchema, providerRatesSchema, providerTotal, rateCost, reportedGatewayCost, type ProviderCharge } from '@/lib/domain/provider-cost';
+import { Timing, untimed } from '@/lib/infra/timing';
 
 const rate = (override: Record<string, unknown> = {}) => providerRateSchema.parse({ service: 'embedding', endpoint: 'https://models.example/v1', model: 'embed-a', unit: 'tokens', usdPerUnit: '0.00000002', source: 'Provider contract', ...override });
 const charge = (costUsd: string | null): ProviderCharge => ({ service: 'embedding', endpoint: 'https://models.example/v1', model: 'embed-a', id: crypto.randomUUID(), runId: 'run', at: new Date().toISOString(), usage: {}, costUsd, basis: 'configured_rate' });
@@ -54,5 +55,35 @@ describe('third-party cost billing', () => {
     expect(reportedGatewayCost({ gateway: { cost: '4.420000076293945e-4' } })).toBe(actual);
     expect(providerTotal([charge('0.0000999999999999999'), charge('0.0000000000000000001')])).toEqual({ costUsd: '0.000100000000', credits: 1 });
     expect(rateCost(rate({ service: 'transcription', unit: 'seconds', usdPerUnit: '0.000000000001' }), { seconds: 0.000001 })).toBe('0.000000000000000001');
+  });
+});
+
+describe('AI Gateway provider time', () => {
+  /* The shape the Gateway returned for openai/text-embedding-3-small (2026-11-22), costs left out. */
+  const routing = (providerAttempts: unknown[], more: unknown[] = []) => ({
+    gateway: { routing: { originalModelId: 'openai/text-embedding-3-small', finalProvider: 'openai', modelAttempts: [{ canonicalSlug: 'openai/text-embedding-3-small', success: true, providerAttempts }, ...more] }, generationId: 'gen_x' },
+  });
+
+  it('sums every provider attempt, retries and fallbacks included', () => {
+    expect(gatewayProviderMs(routing([{ provider: 'openai', success: true, startTime: 1795360285645, endTime: 1795360286021, statusCode: 200 }]))).toBe(376);
+    expect(gatewayProviderMs(routing(
+      [{ provider: 'openai', success: false, startTime: 1000, endTime: 1100 }],
+      [{ canonicalSlug: 'x', providerAttempts: [{ provider: 'azure', success: true, startTime: 1100, endTime: 1350 }] }],
+    ))).toBe(350);
+  });
+
+  it('is null off the Gateway or without usable spans', () => {
+    expect(gatewayProviderMs(undefined)).toBeNull();
+    expect(gatewayProviderMs({ openai: { foo: 1 } })).toBeNull();
+    expect(gatewayProviderMs(routing([]))).toBeNull();
+    expect(gatewayProviderMs(routing([{ startTime: 2000, endTime: 1000 }]))).toBeNull();
+  });
+
+  it('lands in Server-Timing as a recorded step; untimed ignores it', () => {
+    const timing = new Timing();
+    timing.record('embed-provider', 376);
+    timing.record('broken', Number.NaN);
+    expect(timing.header()).toBe('embed-provider;dur=376.0');
+    expect(() => untimed.record('embed-provider', 1)).not.toThrow();
   });
 });
