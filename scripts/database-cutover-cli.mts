@@ -6,6 +6,8 @@
  *   npm run db:cutover -- status                        what the database holds; changes nothing
  *   npm run db:cutover -- search-indexes --confirm=<target> [--budget-minutes=120]
  *                                                       build Discover's passage indexes by hand
+ *   npm run db:cutover -- chunk-bits --confirm=<target> [--batch=2000] [--pause-ms=200]
+ *                                                       fill chunk_bit for passages stored before 0079 (lib/infra/chunk-bits.ts)
  *   npm run db:cutover -- rollback --confirm=<target>   old app's schema back into public, rebuild parked
  *   npm run db:cutover -- resume --confirm=<target>     the reverse, after a rollback
  *   npm run db:cutover -- drop-legacy --confirm=<target> end of the rollback window
@@ -32,6 +34,7 @@ import nextEnv from '@next/env';
 import { Client, neonConfig } from '@neondatabase/serverless';
 import { join } from 'node:path';
 import { ensureSearchIndexes, searchIndexStates, type SearchIndexOutcome } from '../lib/infra/search-indexes.js';
+import { backfillChunkBits, chunkBitsComplete } from '../lib/infra/chunk-bits.js';
 import { CutoverRefused, deployDatabase, dropLegacy, inspect, planDeploy, resumeCutover, rollbackCutover, type DatabaseState } from './database-cutover.mjs';
 
 nextEnv.loadEnvConfig(process.cwd());
@@ -61,9 +64,10 @@ if (wsProxy) {
   neonConfig.pipelineConnect = false;
 }
 
-const budgetArg = process.argv.find((arg) => arg.startsWith('--budget-minutes='))?.slice('--budget-minutes='.length);
+const option = (name: string) => process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
+const budgetArg = option('budget-minutes');
 
-function minutes(value: string | undefined, fallback: number): number {
+function positive(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
@@ -114,7 +118,7 @@ try {
       console.log(`after:   ${describe(await inspect(client))} (${Date.now() - started} ms, one transaction)`);
       /* Committed above; from here nothing fails the deploy. */
       try {
-        const outcomes = await buildSearchIndexes(minutes(process.env.SEARCH_INDEX_BUDGET_MINUTES, 20));
+        const outcomes = await buildSearchIndexes(positive(process.env.SEARCH_INDEX_BUDGET_MINUTES, 20));
         console.log(`search indexes: ${describeIndexes(outcomes)}`);
       } catch (error) {
         console.warn(`search indexes: not built this time (${error instanceof Error ? error.message : String(error)}); search scans exactly until a later deploy or \`db:cutover -- search-indexes\` builds them`);
@@ -123,8 +127,17 @@ try {
     }
     case 'search-indexes': {
       if (confirm !== target) refuse(`pass --confirm=${target} to build the search indexes on this database`);
-      const outcomes = await buildSearchIndexes(minutes(budgetArg, 120));
+      const outcomes = await buildSearchIndexes(positive(budgetArg, 120));
       console.log(`search indexes: ${describeIndexes(outcomes)}`);
+      break;
+    }
+    case 'chunk-bits': {
+      if (confirm !== target) refuse(`pass --confirm=${target} to fill chunk_bit on this database`);
+      const batch = positive(option('batch'), 2000);
+      if (batch > 5000) refuse('--batch is at most 5000');
+      const pause = Number(option('pause-ms') ?? 200);
+      const outcome = await backfillChunkBits(client, { batch, pauseMs: Number.isFinite(pause) && pause >= 0 ? pause : 200, log: (line) => console.log(line) });
+      if (!outcome.completed) process.exitCode = 2;
       break;
     }
     case 'status': {
@@ -133,6 +146,8 @@ try {
       if (state.public === 'rebuild') {
         const indexes = await searchIndexStates(client).catch(() => null);
         if (indexes) console.log(`search indexes: ${[...indexes].map(([name, value]) => `${name}=${value}`).join(' ')}`);
+        const bits = await chunkBitsComplete(client).catch(() => null);
+        if (bits !== null) console.log(`chunk bits: ${bits ? 'complete' : 'not filled yet (db:cutover -- chunk-bits)'}`);
       }
       const plan = planDeploy(state);
       console.log('refuse' in plan ? `a production build would refuse: ${plan.refuse}` : `a production build would: ${plan.reason}`);
@@ -150,7 +165,7 @@ try {
       break;
     }
     default:
-      refuse('usage: database-cutover-cli.mts deploy | status | search-indexes | rollback | resume | drop-legacy [--confirm=<target>] [--budget-minutes=<n>]');
+      refuse('usage: database-cutover-cli.mts deploy | status | search-indexes | chunk-bits | rollback | resume | drop-legacy [--confirm=<target>] [--budget-minutes=<n>] [--batch=<n>] [--pause-ms=<n>]');
   }
 } catch (error) {
   if (error instanceof CutoverRefused) refuse(error.message);

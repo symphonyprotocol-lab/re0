@@ -32,6 +32,7 @@ const statistics = await import('@/lib/services/statistics');
 const adminPurchases = await import('@/lib/services/admin-purchases');
 const reembed = await import('@/lib/services/reembed');
 const { activeSpace, chunkVector } = await import('@/lib/services/embedding-space');
+const { MISSING_SQL } = await import('@/lib/infra/chunk-bits');
 const models = await import('@/lib/services/models');
 const reesService = await import('@/lib/services/rees');
 const profile = await import('@/lib/services/profile');
@@ -547,6 +548,12 @@ describeWithDb('embedding switch', () => {
       /* Every passage has a vector in the space the switch made active; nothing was rewritten to get there. */
       const [{ n }] = (await db().select({ n: sql<number>`count(*)::int` }).from(schema.chunk).where(sql`${chunkVector(activeSpace)} is null`)) as [{ n: number }];
       expect(n).toBe(0);
+      /* The binary copies (0079's trigger) followed every fill and clean-up: one row per filled slot, its space and bits. */
+      expect(Number((await db().execute<{ missing: number }>(sql.raw(MISSING_SQL))).rows[0]!.missing)).toBe(0);
+      const { rows: [off] } = await db().execute<{ n: number }>(sql`select count(*)::int as n from chunk_bit b join chunk c on c.id = b.chunk_id
+        where b.bits <> binary_quantize(case when b.slot = 0 then c.embedding else c.embedding_next end)::bit(1536)
+          or b.space is distinct from case when b.slot = 0 then coalesce(c.embedding_space, '00000000-0000-0000-0000-000000000000'::uuid) else c.embedding_next_space end`);
+      expect(off!.n).toBe(0);
       /* Step 4's profiles were rebuilt with the new model after the switch. */
       const stale = await db().select({ id: schema.reeProfileVector.id }).from(schema.reeProfileVector).where(lt(schema.reeProfileVector.updatedAt, done!.finishedAt!));
       expect(stale).toHaveLength(0);

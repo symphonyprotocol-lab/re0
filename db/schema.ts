@@ -11,6 +11,7 @@ import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   bigint,
+  bit,
   boolean,
   check,
   date,
@@ -21,6 +22,7 @@ import {
   pgTable,
   primaryKey,
   real,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -363,6 +365,55 @@ export const chunk = pgTable(
     index('chunk_embedding_half_idx').using('hnsw', sql`(${t.embedding}::halfvec(1536)) halfvec_cosine_ops`),
     index('chunk_embedding_next_half_idx').using('hnsw', sql`(${t.embeddingNext}::halfvec(1536)) halfvec_cosine_ops`),
   ],
+);
+
+/**
+ * A binary-quantized copy (`binary_quantize`, one bit per dimension, 192
+ * bytes) of each chunk vector slot that holds a vector in some space:
+ * `slot` 0 is `embedding` (untagged means the base space), 1 is
+ * `embedding_next`. Written only by the trigger 0079 puts on `chunk`
+ * (`chunk_bit_sync`), so every write of a slot, its space tag, its Ree or
+ * its source keeps it current, and a slot set to null drops its row.
+ *
+ * Kept apart from `chunk`, whose 6 KB vectors live out of line (TOAST):
+ * ranking one Ree's passages exactly reads one of those per passage, a
+ * random read each on a cold cache (seconds for a Ree of a few thousand).
+ * Here a Ree's rows sit some 27 to a page, so Discover ranks a named Ree
+ * by bits that differ and reads the full vectors of only the nearest few
+ * (explore.ts `nearestOwnPassage`). `knowledge_id` lets that ranking keep
+ * to answerable sources before it cuts.
+ *
+ * Rows that existed before 0079 are filled by `db:cutover -- chunk-bits`
+ * (lib/infra/chunk-bits.ts), which marks `chunk_bit_backfill` when no slot
+ * is left without its row; until then Discover ranks the old way.
+ */
+export const chunkBit = pgTable(
+  'chunk_bit',
+  {
+    chunkId: uuid('chunk_id')
+      .notNull()
+      .references(() => chunk.id, { onDelete: 'cascade' }),
+    slot: smallint('slot').notNull(),
+    space: uuid('space').notNull(),
+    reeId: uuid('ree_id').notNull(),
+    knowledgeId: uuid('knowledge_id').notNull(),
+    bits: bit('bits', { dimensions: 1536 }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.chunkId, t.slot] }),
+    index('chunk_bit_ree_idx').on(t.reeId, t.space),
+    check('chunk_bit_slot_check', sql`${t.slot} in (0, 1)`),
+  ],
+);
+
+/** One row: when `chunk_bit` last held a row for every chunk vector slot (lib/infra/chunk-bits.ts); null until the first backfill finishes. */
+export const chunkBitBackfill = pgTable(
+  'chunk_bit_backfill',
+  {
+    id: boolean('id').primaryKey().default(true),
+    completedAt: timestampTz('completed_at'),
+  },
+  (t) => [check('chunk_bit_backfill_single', sql`${t.id}`)],
 );
 
 /**

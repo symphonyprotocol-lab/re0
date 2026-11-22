@@ -92,6 +92,11 @@ if [ "$VERCEL_ENV" = "preview" ]; then npm run db:prepare-preview && npm run db:
    - 超时就取消，并删掉建了一半的无效索引；构建照样成功。下一次部署，或手动 `vercel env run -e production -- npm run db:cutover -- search-indexes --confirm=<endpoint> [--budget-minutes=120]`，会接着建。
    - 两个索引都有效之前，搜索走原来的精确扫描。`db:cutover -- status` 会显示每个索引是 valid、invalid 还是 missing。
    - 为什么不放进迁移：0048 第一次发布时把索引放在事务里建，超过了 10 分钟的语句上限，整个发布回滚。而且建索引期间段落无法写入。
+6. **不由部署做，需手动执行**：`chunk_bit` 是每个段落向量的二值副本（0079，`lib/infra/chunk-bits.ts`）。0079 之后的写入由 `chunk` 上的触发器同步。0079 之前已有的段落，用 `vercel env run -e production -- npm run db:cutover -- chunk-bits --confirm=<endpoint> [--batch=2000] [--pause-ms=200]` 分批补齐：
+   - 只往 `chunk_bit` 插入，不改 `chunk`。
+   - 可以随时中断，重跑会接着补，不会重复写。
+   - 最后检查一遍：没有缺漏才打上完成标记。打上之前，发现页对被点名的 Ree 仍走原来的路径。
+   - `db:cutover -- status` 会显示是否已补齐。
 
 | `public` 里是 | 其他条件 | 构建做什么 |
 |---|---|---|

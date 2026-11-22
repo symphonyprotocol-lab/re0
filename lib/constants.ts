@@ -520,6 +520,13 @@ export const EXPLORE_PASSAGE_SCAN_MAX = 10_000;
  * binary index each leg reads twice the rows wanted, at least this many.
  */
 export const EXPLORE_PASSAGE_CANDIDATES = 20;
+/**
+ * A named Ree's passages nearest by their binary copies (`chunk_bit`) whose
+ * full vectors the search reads to keep the nearest one (explore.ts
+ * `nearestOwnPassage`): one random read each on a cold cache, against one
+ * per passage of the Ree for an exact scan.
+ */
+export const EXPLORE_OWN_BIT_CANDIDATES = 40;
 /** How long a server instance trusts its last look at whether those indexes are valid (they are built after a deploy, concurrently). */
 export const EXPLORE_INDEX_CHECK_MS = 60_000;
 /** How long, and for how many questions, a server instance keeps a search question's vector. */
