@@ -89,9 +89,15 @@ if [ "$VERCEL_ENV" = "preview" ]; then npm run db:prepare-preview && npm run db:
 5. **提交之后**（不在事务里，也不会让构建失败）：如果发现页的两个段落索引（`chunk_embedding_half_idx`、`chunk_embedding_next_half_idx`，`lib/infra/search-indexes.ts`）缺失或无效，用 `CREATE INDEX CONCURRENTLY` 建：
    - 建索引期间读写照常。会话级咨询锁 `re0:search-indexes` 防止两次构建互相删对方正在建的索引。
    - 限时 `SEARCH_INDEX_BUDGET_MINUTES`（默认 20 分钟）。`maintenance_work_mem` 只升不降，提到 `SEARCH_INDEX_MEMORY`（默认 512MB）。
-   - 超时就取消，并删掉建了一半的无效索引；构建照样成功。下一次部署，或手动 `vercel env run -e production -- npm run db:cutover -- search-indexes --confirm=<endpoint> [--budget-minutes=120]`，会接着建。
+   - 超时就取消，并删掉建了一半的无效索引；构建照样成功。下一次部署，或手动 `DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- search-indexes --confirm=<endpoint> [--budget-minutes=120]`（连接方式见 §2.5），会接着建。
    - 两个索引都有效之前，搜索走原来的精确扫描。`db:cutover -- status` 会显示每个索引是 valid、invalid 还是 missing。
    - 为什么不放进迁移：0048 第一次发布时把索引放在事务里建，超过了 10 分钟的语句上限，整个发布回滚。而且建索引期间段落无法写入。
+6. **不由部署做，需手动执行**：`chunk_bit` 是每个段落向量的二值副本（0079，`lib/infra/chunk-bits.ts`）。0079 之后的写入由 `chunk` 上的触发器同步。0079 之前已有的段落，用 `DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- chunk-bits --confirm=<endpoint> [--batch=2000] [--pause-ms=200]`（连接方式见 §2.5）分批补齐：
+   - **在低流量时段跑。** 回填要把约 8.8 GB 的 TOAST（每个段落的完整向量）冷读一遍，会把 LFC 里的 bit 索引挤出去。回填期间，以及之后一小段时间，Discover 会变慢。
+   - 只往 `chunk_bit` 插入，不改 `chunk`。
+   - 可以随时中断，重跑会接着补，不会重复写。
+   - 最后检查一遍：没有缺漏才打上完成标记。打上之前，发现页对被点名的 Ree 仍走原来的路径。
+   - `db:cutover -- status` 会显示是否已补齐。
 
 | `public` 里是 | 其他条件 | 构建做什么 |
 |---|---|---|
@@ -125,6 +131,23 @@ after:   public=rebuild journal_last=1794149110765 legacy_main=true rebuild_park
 ```
 
 之后每次部署是 `plan: public already holds the rebuild schema` 加上新迁移（或 `nothing pending`）。
+
+### 2.5 手动对生产库执行命令
+
+不要用 `vercel env run -e production -- …`：生产的 `DATABASE_URL` 是 Sensitive 变量，拉不下来，于是 `.env.local` 生效，命令实际连到 `127.0.0.1/re0`（`search-indexes` 就这样连错过一次）。
+
+改用 Neon 控制台的**直连串**，也就是非 pooler 的那个：主机名里没有 `-pooler`，`SET`、会话锁、长语句都要求直连。直连串只放在当前 shell 的变量里，不写进文件：
+
+```bash
+read -s "PROD_DB?Neon 直连串: "; echo        # zsh；bash 用 read -s -p 'Neon 直连串: ' PROD_DB; echo
+DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- status
+# 其他子命令同理：DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- <子命令> --confirm=<endpoint>
+# 只读 SQL：PGOPTIONS='-c default_transaction_read_only=on' psql "$PROD_DB" -X -v ON_ERROR_STOP=1 -f <文件>
+unset PROD_DB
+```
+
+- 环境里显式给的 `DATABASE_URL_UNPOOLED` 优先于 `.env.local`。
+- 每条命令第一行打印 `database: <endpoint>`，先确认是生产（`ep-delicate-bird-b3lct2ck`）再加 `--confirm`。不带 `--confirm`，或者带错时，命令什么都不做，只打印正确的值。
 
 ---
 
@@ -266,7 +289,7 @@ Production 里留着旧应用的 `EMBEDDING_PROVIDER_API_KEY`。没有后台配�
    - Vercel → Cron Jobs 里只剩新的六个。
    - Vercel 日志里没有 `is not set` / `pricing_unavailable` / 5xx 的集中出现。
    - `https://re0.io/api/mcp` 用新生成的 MCP key 能连上（`docs/mcp.md`）。
-   - 想看数据库状态：`vercel env run -e production -- npm run db:cutover -- status`（只读），应为 `public=rebuild … legacy_main=true`。
+   - 想看数据库状态：`DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- status`（只读，连接方式见 §2.5），应为 `public=rebuild … legacy_main=true`。
 
 ---
 
@@ -280,10 +303,10 @@ Production 里留着旧应用的 `EMBEDDING_PROVIDER_API_KEY`。没有后台配�
 
 旧部署和新部署用的是同一个库，所以光做 Vercel 回滚不够：旧应用会对着新 schema。先把库换回来，再切流量。
 
-1. 在链接了 Vercel 项目的本地 checkout（比如主 checkout）里执行，Production 的连接串由 Vercel CLI 临时注入，不落盘：
+1. 在本地 checkout 里执行。直连串只放在 shell 变量里，不落盘（§2.5）：
 
    ```bash
-   vercel env run -e production -- npm run db:cutover -- rollback --confirm=<endpoint>
+   DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- rollback --confirm=<endpoint>
    ```
 
    `<endpoint>` 是生产库的 Neon endpoint id（`ep-…`）。不带或带错时命令什么都不做，只打印正确的值，所以可以先不带跑一次看。它在一个事务里：把 rebuild 的表和类型移到 `rebuild_parked`、日志改名 `rebuild_parked_drizzle`，把 `legacy_main` 里的旧表和类型移回 `public`、`legacy_drizzle` 改回 `drizzle`。完成后旧应用的库与切换前一致（本地验证：66 张表、24 个类型、日志 61 行，旧查询和 `vector` 运算符正常，旧应用自己的 `drizzle-kit migrate` 是空操作）。
@@ -300,13 +323,13 @@ Production 里留着旧应用的 `EMBEDDING_PROVIDER_API_KEY`。没有后台配�
 
 回滚后 `db:deploy` 会拒绝（构建失败），因为这时候构建出来的部署不一定会自动上线（Instant Rollback 之后 Vercel 会暂停自动分配生产域名），不能在旧站还在服务时把库换掉。修好问题后：
 
-1. `vercel env run -e production -- npm run db:cutover -- resume --confirm=<endpoint>`：把旧表移回 `legacy_main`、把 `rebuild_parked` 移回 `public`，回滚期间写进新应用的数据（注册、Ree、owner 等）都还在。
+1. `DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- resume --confirm=<endpoint>`（§2.5）：把旧表移回 `legacy_main`、把 `rebuild_parked` 移回 `public`，回滚期间写进新应用的数据（注册、Ree、owner 等）都还在。
 2. 推送修复，或在 Vercel 上 Promote / Redeploy 新部署（`vercel promote <deployment>`）。构建看到 rebuild schema，只执行新迁移。
 
 ### 8.4 回滚窗口结束（D6）
 
 ```bash
-vercel env run -e production -- npm run db:cutover -- drop-legacy --confirm=<endpoint>
+DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- drop-legacy --confirm=<endpoint>
 ```
 
 只在 `public` 是 rebuild 时执行，删掉 `legacy_main` 和 `legacy_drizzle`；之后就不能再回滚到旧应用了。再按 §3 的旧前缀清理 Blob，按需删掉 §5.4 的变量。

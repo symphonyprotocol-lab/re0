@@ -159,9 +159,15 @@ describeWithDb('explore search', () => {
     expect(found).toHaveLength(EXPLORE_PROFILE_REES);
     for (const row of found) expect(rees).toContain(row.reeId);
     expect(found.map((row) => row.reeId)).not.toContain(rees[1]);
-    /* Scored by the stored vector of each Ree's nearest row: the nearest Ree's is 2 signs turned. */
+    /*
+     * Scored by the stored vector of the nearest row read of each Ree: the
+     * nearest Ree's rows have 2, 4 and 6 signs turned, and the approximate
+     * scan may reach it through its second or third before the first (once
+     * in a full run). Any of the three is a stored vector's similarity, not
+     * the bits'.
+     */
     expect(found[0]).toMatchObject({ reeId: rees[0] });
-    expect(found[0]!.similarity).toBeCloseTo(similarityOf(2), 5);
+    expect([2, 4, 6].some((flips) => Math.abs(found[0]!.similarity - similarityOf(flips)) < 1e-5)).toBe(true);
     expect(found.map((row) => row.similarity)).toEqual([...found.map((row) => row.similarity)].sort((a, b) => b - a));
     /* Approximate, but near: the 20 found are among the nearest 25 (each Ree 6 signs farther than the last). */
     for (const row of found) expect(rees.indexOf(row.reeId)).toBeLessThan(26);
