@@ -1,6 +1,9 @@
 -- Recall of Discover's named-Ree ranking by binary copies (explore.ts `nearestOwnPassage`), read only.
 --
---   psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 -f scripts/named-passage-recall.sql
+--   PGOPTIONS='-c default_transaction_read_only=on' psql "$PROD_DB" -X -v ON_ERROR_STOP=1 -f scripts/named-passage-recall.sql
+--
+-- with PROD_DB the Neon direct (not -pooler) connection string, read into a
+-- shell variable (docs/cutover/production-cutover.md §2.5).
 --
 -- For every public Ree the five slow test queries name (by name or tag, as
 -- `namedRees` matches them), and a few questions per Ree, it compares:

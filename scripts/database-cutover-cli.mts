@@ -12,10 +12,14 @@
  *   npm run db:cutover -- resume --confirm=<target>     the reverse, after a rollback
  *   npm run db:cutover -- drop-legacy --confirm=<target> end of the rollback window
  *
- * Against production, from a checkout linked to the Vercel project, without
- * writing any secret to disk:
+ * Against production, with Neon's direct (not `-pooler`) connection string
+ * held only in a shell variable -- `vercel env run -e production` cannot
+ * pull the Sensitive DATABASE_URL, so .env.local's local database would
+ * answer instead (docs/cutover/production-cutover.md §2.5):
  *
- *   vercel env run -e production -- npm run db:cutover -- rollback --confirm=<target>
+ *   read -s "PROD_DB?Neon direct URL: "; echo
+ *   DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- rollback --confirm=<target>
+ *   unset PROD_DB
  *
  * `<target>` is the Neon endpoint id (`ep-…`) the command prints when it is
  * missing or wrong, so nobody changes a database they did not look at. The

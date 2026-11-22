@@ -4,7 +4,9 @@
  * it current on its own. Run by hand, `db:cutover -- chunk-bits`, never by
  * a deploy: on production's million passages it reads every 6 KB vector
  * once (a random read each on a cold cache), far past the deploy's
- * transaction and its time.
+ * transaction and its time. That read also pushes the search indexes out
+ * of Neon's local cache, so Discover is slower while it runs and for a
+ * while after: run it when traffic is low.
  *
  * Only inserts: nothing in `chunk` is rewritten, so its indexes (two HNSW
  * among them) and its heap take no new row versions. Source by source --
