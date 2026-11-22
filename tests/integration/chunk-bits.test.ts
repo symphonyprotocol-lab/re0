@@ -3,8 +3,9 @@
  * trigger keeps them in step with every write of a vector slot -- the
  * insert of a source's passages (knowledge.ts), a re-embedding's fill of
  * the spare slot and its clean-up (reembed.ts) -- the backfill fills what
- * was stored before it, and a named Ree's nearest passage is ranked by them
- * and read from the stored vectors of only the nearest few.
+ * was stored before it, and a named Ree's nearest passage -- and a
+ * follow-up's few Rees' nearest passages -- are ranked by them and read from
+ * the stored vectors of only the nearest few.
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { Client } from '@neondatabase/serverless';
@@ -62,6 +63,28 @@ async function bitsOf(chunkId: string): Promise<BitRow[]> {
       b.bits = binary_quantize(case when b.slot = 0 then c.embedding else c.embedding_next end)::bit(1536) as same
     from chunk_bit b join chunk c on c.id = b.chunk_id where b.chunk_id = ${chunkId}::uuid order by b.slot`);
   return rows;
+}
+
+type PlanNode = {
+  'Node Type': string;
+  'Relation Name'?: string;
+  'Index Name'?: string;
+  'Subplan Name'?: string;
+  'CTE Name'?: string;
+  'Actual Rows'?: number;
+  'Actual Loops'?: number;
+  Plans?: PlanNode[];
+};
+const nodesOf = (node: PlanNode): PlanNode[] => [node, ...(node.Plans ?? []).flatMap(nodesOf)];
+
+/* The statement run (EXPLAIN ANALYZE, VERBOSE for each node's output columns), as a tree; seq scans off as in `planOf`. */
+async function runPlanOf(statement: SQL): Promise<PlanNode> {
+  return db().transaction(async (tx) => {
+    await tx.execute(sql`set local enable_seqscan = off`);
+    const { rows } = await tx.execute<{ 'QUERY PLAN': unknown }>(sql`explain (analyze, verbose, format json) ${statement}`);
+    const raw = rows[0]!['QUERY PLAN'];
+    return ((typeof raw === 'string' ? JSON.parse(raw) : raw) as { Plan: PlanNode }[])[0]!.Plan;
+  });
 }
 
 /* Seq scans off: these tables are a few hundred rows, where reading all of one beats any index; production's hold a million. */
@@ -224,4 +247,96 @@ describeWithDb('chunk_bit', () => {
     expect(plan).not.toContain('chunk_embedding');
     expect(EXPLORE_OWN_BIT_CANDIDATES).toBeGreaterThanOrEqual(20);
   });
+
+  it("ranks a follow-up's few Rees' passages by their bits, reads only the nearest few's vectors, and scans exactly until the bits are filled or when the ranking fails", async () => {
+    await db().execute(sql`update chunk_bit_backfill set completed_at = coalesce(completed_at, now())`);
+    explore.forgetSearchIndexCheck();
+    const [first, second, outside] = [await ree(), await ree(), await ree()];
+    const [firstSource, secondSource, outsideSource] = [await source(first), await source(second), await source(outside)];
+    const off = await source(first, false);
+    /*
+     * 150 passages in each of two Rees, the first Ree's passage g with
+     * 10 + 2g signs turned and the second's with 11 + 2g, each from a place
+     * of its own: the nearest five are first 0, second 0, first 1, second 1,
+     * first 2. Nearer ones in a Ree not asked about, in a disabled source,
+     * and in another space only, must not be found.
+     */
+    const many = (reeId: string, knowledgeId: string, base: number, shift: number) =>
+      db().execute(sql`insert into ${schema.chunk} (knowledge_id, ree_id, ordinal, content, embedding)
+        select ${knowledgeId}::uuid, ${reeId}::uuid, g, ${`${shift}:`} || g, v.e from generate_series(0, 149) g,
+          lateral (select (select array_agg(case when ((d + 1111) * (d + 1111) + 3 * (d + 1111)) % 5 < 2 then -1 else 1 end
+            * case when ((d - g * 31 - ${shift}) % 1536 + 1536) % 1536 < ${base} + 2 * g then -1 else 1 end / sqrt(1536) order by d) from generate_series(0, 1535) d)::vector as e) v`);
+    await many(first, firstSource, 10, 0);
+    await many(second, secondSource, 11, 7);
+    await db().execute(sql`insert into ${schema.chunk} (knowledge_id, ree_id, ordinal, content, embedding) values
+      (${outsideSource}::uuid, ${outside}::uuid, 0, 'outside', ${literal(pattern(11))}::vector),
+      (${off}::uuid, ${first}::uuid, 0, 'disabled', ${literal(pattern(11, 1))}::vector)`);
+    await db().execute(sql`insert into ${schema.chunk} (knowledge_id, ree_id, ordinal, content, embedding, embedding_next, embedding_next_space)
+      values (${secondSource}::uuid, ${second}::uuid, 150, 'other space', ${literal(pattern(11, 900))}::vector, ${literal(pattern(11, 2))}::vector, ${OTHER_SPACE}::uuid)`);
+    await db().execute(sql`analyze chunk_bit`);
+    expect(await explore.fewPassages([first, second])).toBe(true);
+
+    const want = [['0:0', 10], ['7:0', 11], ['0:1', 12], ['7:1', 13], ['0:2', 14]] as const;
+    const found = await explore.nearestPassages(question(pattern(11)), [first, second], 5);
+    expect(found.map((passage) => passage.content)).toEqual(want.map(([content]) => content));
+    found.forEach((passage, index) => expect(passage.similarity).toBeCloseTo(similarityOf(want[index]![1]), 4));
+    expect(found.map((passage) => passage.reeId)).toEqual([first, second, first, second, first]);
+    /* The statement alone answers the same; in the other space, the passage whose spare slot is there. */
+    const { rows: direct } = await db().execute<{ content: string }>(explore.bitPassageSearch(question(pattern(11)), [first, second], 5));
+    expect(direct.map((row) => row.content)).toEqual(want.map(([content]) => content));
+    expect((await explore.nearestPassages(question(pattern(11), OTHER_SPACE), [first, second], 5)).map((passage) => passage.content)).toEqual(['other space']);
+
+    /*
+     * The candidates come from chunk_bit by Ree and space, before any chunk
+     * is read: nothing under the CTE touches `chunk` or a vector column.
+     * Then only the candidates' passages are read, by key -- 100 of the 302
+     * in these Rees -- so only their vectors are detoasted.
+     */
+    const take = Math.max(2 * 5, EXPLORE_OWN_BIT_CANDIDATES);
+    const plan = await runPlanOf(explore.bitPassageSearch(question(pattern(11)), [first, second], 5));
+    const all = nodesOf(plan);
+    const cte = all.find((node) => node['Subplan Name'] === 'CTE near');
+    expect(cte).toBeDefined();
+    const below = nodesOf(cte!);
+    expect(below.some((node) => node['Index Name'] === 'chunk_bit_ree_idx')).toBe(true);
+    expect(below.some((node) => node['Relation Name'] === 'chunk')).toBe(false);
+    expect(JSON.stringify(cte)).not.toMatch(/embedding/);
+    const chunkReads = all.filter((node) => node['Relation Name'] === 'chunk');
+    expect(chunkReads.length).toBeGreaterThan(0);
+    expect(chunkReads.every((node) => node['Index Name'] === 'chunk_pkey')).toBe(true);
+    const chunkRows = chunkReads.reduce((sum, node) => sum + (node['Actual Rows'] ?? 0) * (node['Actual Loops'] ?? 1), 0);
+    expect(chunkRows).toBeGreaterThan(0);
+    expect(chunkRows).toBeLessThanOrEqual(take);
+    expect(JSON.stringify(plan)).not.toContain('chunk_embedding');
+
+    /* Proof of which path answers: without its chunk_bit row, the nearest passage is out of the ranking, not out of the exact scan. */
+    const [nearest] = (await db().execute<{ id: string }>(sql`select id from chunk where ree_id = ${first}::uuid and content = '0:0'`)).rows;
+    await db().execute(sql`delete from chunk_bit where chunk_id = ${nearest!.id}::uuid`);
+    expect((await explore.nearestPassages(question(pattern(11)), [first, second], 1))[0]!.content).toBe('7:0');
+
+    /* A ranking that fails answers by the exact scan. */
+    const errors: unknown[] = [];
+    const log = console.error;
+    console.error = (...args: unknown[]) => void errors.push(args);
+    await db().execute(sql`alter table chunk_bit rename to chunk_bit_away`);
+    try {
+      expect((await explore.nearestPassages(question(pattern(11)), [first, second], 1))[0]!.content).toBe('0:0');
+    } finally {
+      await db().execute(sql`alter table chunk_bit_away rename to chunk_bit`);
+      console.error = log;
+    }
+    expect(String(errors[0])).toMatch(/chunk_bit ranking failed, scanning exactly/);
+
+    /* Until the bits are filled, the exact scan. */
+    await db().execute(sql`update chunk_bit_backfill set completed_at = null`);
+    explore.forgetSearchIndexCheck();
+    try {
+      expect(await explore.chunkBitsReady()).toBe(false);
+      const exactly = await explore.nearestPassages(question(pattern(11)), [first, second], 5);
+      expect(exactly.map((passage) => passage.content)).toEqual(want.map(([content]) => content));
+    } finally {
+      await db().execute(sql`update chunk_bit_backfill set completed_at = now()`);
+      explore.forgetSearchIndexCheck();
+    }
+  }, 120_000);
 });

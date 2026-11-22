@@ -86,18 +86,43 @@ if [ "$VERCEL_ENV" = "preview" ]; then npm run db:prepare-preview && npm run db:
 2. 需要归档时：把旧应用在 `public` 里的**每张表、每个类型**（以及可能有的视图、独立序列、函数）移到新 schema `legacy_main`；索引、约束、自增序列随表一起走。把旧日志 `drizzle` 改名为 `legacy_drizzle`。移完再检查 `public` 里不属于扩展的对象是否为零，不为零就整个回滚。
 3. 按 drizzle 迁移器的规则执行待执行的迁移：同样的文件、同样的 sha256、同样的 `drizzle.__drizzle_migrations`、同样的"`when` 大于最新一条才执行"。本地验证：之后再跑真正的 `drizzle-kit migrate` 是空操作（退出码 0、日志仍 33 行）。
 4. 提交。任何一步出错就整体回滚：要么切换完成且新 schema 建好，要么什么都没变。
-5. **提交之后**（不在事务里，也不会让构建失败）：如果发现页的两个段落索引（`chunk_embedding_half_idx`、`chunk_embedding_next_half_idx`，`lib/infra/search-indexes.ts`）缺失或无效，用 `CREATE INDEX CONCURRENTLY` 建：
+5. **提交之后**（不在事务里，也不会让构建失败）：如果发现页的搜索索引（`lib/infra/search-indexes.ts` 的 `SEARCH_INDEXES`：段落的二值索引 `chunk_embedding_bit_idx`、`chunk_embedding_next_bit_idx`，以及 profile 的 `ree_profile_vector_embedding_bit_idx`）缺失或无效，用 `CREATE INDEX CONCURRENTLY` 建：
    - 建索引期间读写照常。会话级咨询锁 `re0:search-indexes` 防止两次构建互相删对方正在建的索引。
    - 限时 `SEARCH_INDEX_BUDGET_MINUTES`（默认 20 分钟）。`maintenance_work_mem` 只升不降，提到 `SEARCH_INDEX_MEMORY`（默认 512MB）。
    - 超时就取消，并删掉建了一半的无效索引；构建照样成功。下一次部署，或手动 `DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- search-indexes --confirm=<endpoint> [--budget-minutes=120]`（连接方式见 §2.5），会接着建。
-   - 两个索引都有效之前，搜索走原来的精确扫描。`db:cutover -- status` 会显示每个索引是 valid、invalid 还是 missing。
+   - 段落的两个索引都有效之前，搜索不走索引：`chunk_bit` 已补齐时按它的二值副本排序，只读最近的 100 条（`limit` 的两倍，至少 100）的完整向量（`bitPassageSearch`），否则精确扫描。`db:cutover -- status` 会显示每个索引是 valid、invalid 还是 missing。
+   - 部署只建不删。退役的索引（下面第 7 条）只在构建日志里提示一行 `retired indexes still here: …`。
    - 为什么不放进迁移：0048 第一次发布时把索引放在事务里建，超过了 10 分钟的语句上限，整个发布回滚。而且建索引期间段落无法写入。
 6. **不由部署做，需手动执行**：`chunk_bit` 是每个段落向量的二值副本（0079，`lib/infra/chunk-bits.ts`）。0079 之后的写入由 `chunk` 上的触发器同步。0079 之前已有的段落，用 `DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- chunk-bits --confirm=<endpoint> [--batch=2000] [--pause-ms=200]`（连接方式见 §2.5）分批补齐：
    - **在低流量时段跑。** 回填要把约 8.8 GB 的 TOAST（每个段落的完整向量）冷读一遍，会把 LFC 里的 bit 索引挤出去。回填期间，以及之后一小段时间，Discover 会变慢。
    - 只往 `chunk_bit` 插入，不改 `chunk`。
    - 可以随时中断，重跑会接着补，不会重复写。
-   - 最后检查一遍：没有缺漏才打上完成标记。打上之前，发现页对被点名的 Ree 仍走原来的路径。
+   - 最后检查一遍：没有缺漏才打上完成标记。打上之前，发现页对被点名的 Ree、以及段落总数不超过 3,000 的几个 Ree（追问）仍走原来的精确扫描。
    - `db:cutover -- status` 会显示是否已补齐。
+7. **不由部署做，需手动执行**：删除退役的半精度段落索引 `chunk_embedding_half_idx`、`chunk_embedding_next_half_idx`（`RETIRED_SEARCH_INDEXES`）。
+   - 为什么删：搜索早已改读二值索引，这两个不再被任何查询使用。但它们合计约 3.95 GB，和真正在用的 bit 索引抢 Neon 约 3 GB 的 LFC，冷启动后第一次搜索的 `passages` 因此还要 1–2 s；而且每次写段落都还要维护它们。
+   - 0080 只把它们从 drizzle-kit 的快照里去掉，迁移本身什么都不做（`SELECT 1`）。不在迁移里删，是因为迁移都在部署的那一个事务里执行：普通的 `DROP INDEX` 会对 `chunk` 加排他锁并一直持有到整个发布提交，期间所有搜索和段落写入都要等；而 `DROP INDEX CONCURRENTLY` 不能在事务里执行。
+   - **顺序：先让这个版本上线，再删。** 旧版本的 `db:deploy` 会把缺失的半精度索引重新建回来，所以删之前确认生产已经是这个版本（构建日志出现 `retired indexes still here`）。
+   - 命令（连接方式见 §2.5）：
+
+     ```bash
+     read -s "PROD_DB?Neon 直连串: "; echo
+     DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- status
+     DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- drop-retired-indexes --confirm=<endpoint>
+     DATABASE_URL_UNPOOLED="$PROD_DB" npm run db:cutover -- status
+     unset PROD_DB
+     ```
+
+     第一次 `status` 应显示 `retired indexes: chunk_embedding_half_idx (… GiB), chunk_embedding_next_half_idx (… GiB)`，删完应显示 `retired indexes: none left`。
+   - 逐个 `DROP INDEX CONCURRENTLY`：不挡读写，只等正在用 `chunk` 的事务结束。拿 `re0:search-indexes` 会话锁，不会和正在建索引的部署撞上；锁被占时两项都是 `skipped`，等那次构建结束再跑。`lock_timeout` 10 秒、`statement_timeout` 30 分钟。
+   - 中途失败（超时、断线）可能留下一个 invalid 的索引：查询不再用，但写入仍在维护它。重跑同一条命令即可删完；`status` 里会标 `invalid`。有 `failed` 或 `skipped` 时命令退出码为 2。
+   - 也可以直接在 psql 里执行（同样不能包在事务里；psql 的多个 `-c` 各自 autocommit）。这样不拿会话锁，确认没有部署正在建索引再跑：
+
+     ```bash
+     psql "$PROD_DB" -X -v ON_ERROR_STOP=1 -c 'set lock_timeout = 10000' -c 'drop index concurrently if exists public."chunk_embedding_half_idx"' -c 'drop index concurrently if exists public."chunk_embedding_next_half_idx"'
+     ```
+
+   - 删完之后一段时间内，LFC 会逐渐被 bit 索引和 `chunk_bit` 填上，冷启动首搜的 `passages` 预计会回落。删除不可逆；要恢复只能重新 `CREATE INDEX CONCURRENTLY`（在 110 万段落上要很久），但当前代码不会再用它们。
 
 | `public` 里是 | 其他条件 | 构建做什么 |
 |---|---|---|

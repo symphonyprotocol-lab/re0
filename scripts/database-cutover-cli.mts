@@ -8,6 +8,8 @@
  *                                                       build Discover's passage indexes by hand
  *   npm run db:cutover -- chunk-bits --confirm=<target> [--batch=2000] [--pause-ms=200]
  *                                                       fill chunk_bit for passages stored before 0079 (lib/infra/chunk-bits.ts)
+ *   npm run db:cutover -- drop-retired-indexes --confirm=<target>
+ *                                                       drop the search indexes nothing reads any more, concurrently
  *   npm run db:cutover -- rollback --confirm=<target>   old app's schema back into public, rebuild parked
  *   npm run db:cutover -- resume --confirm=<target>     the reverse, after a rollback
  *   npm run db:cutover -- drop-legacy --confirm=<target> end of the rollback window
@@ -31,13 +33,14 @@
  * within SEARCH_INDEX_BUDGET_MINUTES (default 20, inside Vercel's 45-minute
  * build), with maintenance_work_mem raised to SEARCH_INDEX_MEMORY (default
  * 512MB). That step never fails the deploy: whatever is not built by then is
- * left for the next deploy or `search-indexes`, and search scans exactly
- * meanwhile.
+ * left for the next deploy or `search-indexes`, and search answers without
+ * them meanwhile. It never drops an index: the retired ones
+ * (RETIRED_SEARCH_INDEXES) it only reports, for `drop-retired-indexes` by hand.
  */
 import nextEnv from '@next/env';
 import { Client, neonConfig } from '@neondatabase/serverless';
 import { join } from 'node:path';
-import { ensureSearchIndexes, searchIndexStates, type SearchIndexOutcome } from '../lib/infra/search-indexes.js';
+import { dropRetiredSearchIndexes, ensureSearchIndexes, retiredSearchIndexes, searchIndexStates, type RetiredIndex, type SearchIndexOutcome } from '../lib/infra/search-indexes.js';
 import { backfillChunkBits, chunkBitsComplete } from '../lib/infra/chunk-bits.js';
 import { CutoverRefused, deployDatabase, dropLegacy, inspect, planDeploy, resumeCutover, rollbackCutover, type DatabaseState } from './database-cutover.mjs';
 
@@ -78,6 +81,10 @@ function positive(value: string | undefined, fallback: number): number {
 
 function describeIndexes(outcomes: SearchIndexOutcome[]): string {
   return outcomes.map((outcome) => `${outcome.name}=${outcome.action}${outcome.ms ? ` (${Math.round(outcome.ms / 1000)} s)` : ''}${outcome.detail ? ` [${outcome.detail}]` : ''}`).join(' ');
+}
+
+function describeRetired(indexes: RetiredIndex[]): string {
+  return indexes.map((index) => `${index.name} (${(index.bytes / 2 ** 30).toFixed(2)} GiB${index.valid ? '' : ', invalid'})`).join(', ');
 }
 
 async function buildSearchIndexes(budgetMinutes: number): Promise<SearchIndexOutcome[]> {
@@ -124,8 +131,10 @@ try {
       try {
         const outcomes = await buildSearchIndexes(positive(process.env.SEARCH_INDEX_BUDGET_MINUTES, 20));
         console.log(`search indexes: ${describeIndexes(outcomes)}`);
+        const retired = await retiredSearchIndexes(client);
+        if (retired.length) console.log(`retired indexes still here: ${describeRetired(retired)}; drop them by hand (db:cutover -- drop-retired-indexes)`);
       } catch (error) {
-        console.warn(`search indexes: not built this time (${error instanceof Error ? error.message : String(error)}); search scans exactly until a later deploy or \`db:cutover -- search-indexes\` builds them`);
+        console.warn(`search indexes: not built this time (${error instanceof Error ? error.message : String(error)}); search answers without them until a later deploy or \`db:cutover -- search-indexes\` builds them`);
       }
       break;
     }
@@ -133,6 +142,13 @@ try {
       if (confirm !== target) refuse(`pass --confirm=${target} to build the search indexes on this database`);
       const outcomes = await buildSearchIndexes(positive(budgetArg, 120));
       console.log(`search indexes: ${describeIndexes(outcomes)}`);
+      break;
+    }
+    case 'drop-retired-indexes': {
+      if (confirm !== target) refuse(`pass --confirm=${target} to drop the retired search indexes on this database`);
+      const outcomes = await dropRetiredSearchIndexes(client, { log: (line) => console.log(line) });
+      console.log(`retired indexes: ${outcomes.map((outcome) => `${outcome.name}=${outcome.action}${outcome.detail ? ` [${outcome.detail}]` : ''}`).join(' ')}`);
+      if (outcomes.some((outcome) => outcome.action === 'failed' || outcome.action === 'skipped')) process.exitCode = 2;
       break;
     }
     case 'chunk-bits': {
@@ -150,6 +166,8 @@ try {
       if (state.public === 'rebuild') {
         const indexes = await searchIndexStates(client).catch(() => null);
         if (indexes) console.log(`search indexes: ${[...indexes].map(([name, value]) => `${name}=${value}`).join(' ')}`);
+        const retired = await retiredSearchIndexes(client).catch(() => null);
+        if (retired) console.log(`retired indexes: ${retired.length ? `${describeRetired(retired)} (db:cutover -- drop-retired-indexes)` : 'none left'}`);
         const bits = await chunkBitsComplete(client).catch(() => null);
         if (bits !== null) console.log(`chunk bits: ${bits ? 'complete' : 'not filled yet (db:cutover -- chunk-bits)'}`);
       }
@@ -169,7 +187,7 @@ try {
       break;
     }
     default:
-      refuse('usage: database-cutover-cli.mts deploy | status | search-indexes | chunk-bits | rollback | resume | drop-legacy [--confirm=<target>] [--budget-minutes=<n>] [--batch=<n>] [--pause-ms=<n>]');
+      refuse('usage: database-cutover-cli.mts deploy | status | search-indexes | chunk-bits | drop-retired-indexes | rollback | resume | drop-legacy [--confirm=<target>] [--budget-minutes=<n>] [--batch=<n>] [--pause-ms=<n>]');
   }
 } catch (error) {
   if (error instanceof CutoverRefused) refuse(error.message);
