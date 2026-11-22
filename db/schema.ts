@@ -352,18 +352,13 @@ export const chunk = pgTable(
     index('chunk_knowledge_idx').on(t.knowledgeId, t.ordinal),
     index('chunk_ree_idx').on(t.reeId),
     /*
-     * One HNSW index per slot, on half-precision copies (half the size, and
-     * the similarity is computed again on the stored vector), for Discover's
-     * passage search across up to 25 Rees (explore.ts `nearestPassages`),
-     * which filters by Ree and space during an iterative scan. Answering
-     * inside one Ree stays an exact scan (`+ 0` in chat.ts keeps the planner
-     * off these). Dropped in 0038 while nothing read them. Not built by a
-     * migration: `db:deploy` builds them concurrently after its transaction
-     * (lib/infra/search-indexes.ts), and the search scans exactly until both
-     * are valid. Declared here so drizzle-kit never generates them.
+     * Discover's passage indexes (binary copies, one per slot) are not
+     * declared here: `db:deploy` builds them concurrently after its
+     * transaction (lib/infra/search-indexes.ts), and drizzle-kit never
+     * learns of them. The half-precision pair that was declared here is
+     * retired: 0080 only takes it out of drizzle-kit's snapshot, and
+     * `db:cutover -- drop-retired-indexes` drops it, concurrently, by hand.
      */
-    index('chunk_embedding_half_idx').using('hnsw', sql`(${t.embedding}::halfvec(1536)) halfvec_cosine_ops`),
-    index('chunk_embedding_next_half_idx').using('hnsw', sql`(${t.embeddingNext}::halfvec(1536)) halfvec_cosine_ops`),
   ],
 );
 

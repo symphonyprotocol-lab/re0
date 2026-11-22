@@ -547,6 +547,13 @@
       "when": 1795285200000,
       "tag": "0079_chunk_bit",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1795288800000,
+      "tag": "0080_retire_half_indexes",
+      "breakpoints": true
     }
   ]
 }

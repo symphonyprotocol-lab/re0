@@ -7,11 +7,13 @@
  * the passage index, where one Ree's passages are too thin a slice to find
  * (a named Ree's nearest passage took seconds there); many passages go
  * through the binary passage index and are ordered by their stored vectors.
- * The half-precision and full-precision indexes still answer until the
- * binary ones are built.
+ * The profiles' full-precision index still answers until their binary one
+ * is built; the passages' retired half-precision pair is never built and is
+ * dropped concurrently by hand.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { inArray, sql, type SQL } from 'drizzle-orm';
+import { Client } from '@neondatabase/serverless';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
 import { EMBEDDING_DIMENSIONS, EXPLORE_EXACT_PASSAGES, EXPLORE_PROFILE_REES } from '@/lib/constants';
 
@@ -21,7 +23,7 @@ const { createSession } = await import('@/lib/services/auth');
 const { db, schema } = await import('@/lib/infra/db');
 const explore = await import('@/lib/services/explore');
 const { BASE_SPACE } = await import('@/lib/services/embedding-space');
-const { SEARCH_INDEXES, createIndexStatement } = await import('@/lib/infra/search-indexes');
+const { SEARCH_INDEXES, RETIRED_SEARCH_INDEXES, SEARCH_INDEX_LOCK, createIndexStatement, dropRetiredSearchIndexes, ensureSearchIndexes, retiredSearchIndexes } = await import('@/lib/infra/search-indexes');
 
 /*
  * The fixtures' vectors: a sign pattern over every dimension, with `flips`
@@ -202,15 +204,12 @@ describeWithDb('explore search', () => {
     expect(near).toMatchObject({ reeId: small, content: 'the near passage' });
     expect(near!.similarity).toBeCloseTo(1, 3);
 
-    const search = explore.passageSearch(question(pattern(3)), [large], 1, 'bit');
+    const search = explore.passageSearch(question(pattern(3)), [large], 1);
     expect(await planOf(search.settings, search.indexed)).toContain('chunk_embedding_bit_idx');
-    /* Until the binary pair is built, the half-precision pair. */
-    const half = explore.passageSearch(question(pattern(3)), [large], 1, 'half');
-    expect(await planOf(half.settings, half.indexed)).toContain('chunk_embedding_half_idx');
     /*
      * Through the index, the result is near, not necessarily the nearest: an
      * HNSW graph is approximate (on CI's x86 runners one run of the
-     * half-precision search missed the nearest). "Near" is the top 2% here:
+     * half-precision search, before the binary one, missed the nearest). "Near" is the top 2% here:
      * at most 34 signs turned, a similarity of 0.955 or more, some 60 of the
      * 3,001.
      */
@@ -232,5 +231,62 @@ describeWithDb('explore search', () => {
       expect(passage.similarity).toBeGreaterThanOrEqual(similarityOf(34));
     }
     expect(both.map((passage) => passage.similarity)).toEqual([...both.map((passage) => passage.similarity)].sort((a, b) => b - a));
+  }, 120_000);
+
+  it('never builds the retired half-precision passage indexes, and drops them concurrently, outside any transaction', async () => {
+    const retired = new Set<string>(RETIRED_SEARCH_INDEXES);
+    expect(SEARCH_INDEXES.filter((index) => retired.has(index.name))).toEqual([]);
+    /* As production still has them: built before the binary pair replaced them. */
+    for (const [name, column] of [['chunk_embedding_half_idx', 'embedding'], ['chunk_embedding_next_half_idx', 'embedding_next']]) {
+      await db().execute(sql.raw(`create index if not exists "${name}" on public.chunk using hnsw (("${column}"::halfvec(${EMBEDDING_DIMENSIONS})) halfvec_cosine_ops)`));
+    }
+    explore.forgetSearchIndexCheck();
+    /* The search reads the binary pair either way, and knows nothing of the half-precision one. */
+    expect(await explore.searchIndexes()).toEqual({ passages: 'bit', profiles: 'bit' });
+
+    const client = new Client({ connectionString: TEST_DATABASE_URL });
+    const other = new Client({ connectionString: TEST_DATABASE_URL });
+    await client.connect();
+    await other.connect();
+    try {
+      expect((await retiredSearchIndexes(client)).map((index) => [index.name, index.valid])).toEqual([
+        ['chunk_embedding_half_idx', true],
+        ['chunk_embedding_next_half_idx', true],
+      ]);
+      /* A deploy's build leaves them alone. */
+      const outcomes = await ensureSearchIndexes(client, { budgetMs: 60_000 });
+      expect(outcomes.filter((outcome) => retired.has(outcome.name))).toEqual([]);
+      expect((await retiredSearchIndexes(client)).length).toBe(2);
+
+      /* Not while a build holds the lock. */
+      await other.query('select pg_advisory_lock(hashtext($1))', [SEARCH_INDEX_LOCK]);
+      expect((await dropRetiredSearchIndexes(client)).map((outcome) => outcome.action)).toEqual(['skipped', 'skipped']);
+      await other.query('select pg_advisory_unlock(hashtext($1))', [SEARCH_INDEX_LOCK]);
+
+      const lines: string[] = [];
+      const dropped = await dropRetiredSearchIndexes(client, { log: (line) => lines.push(line) });
+      expect(dropped.map((outcome) => [outcome.name, outcome.action])).toEqual([
+        ['chunk_embedding_half_idx', 'dropped'],
+        ['chunk_embedding_next_half_idx', 'dropped'],
+      ]);
+      expect(lines.some((line) => line.includes('concurrently'))).toBe(true);
+      expect(await retiredSearchIndexes(client)).toEqual([]);
+      /* Again: nothing to do. The session's settings and the lock are back as they were. */
+      expect((await dropRetiredSearchIndexes(client)).map((outcome) => outcome.action)).toEqual(['absent', 'absent']);
+      expect((await client.query('show statement_timeout')).rows[0]).toEqual({ statement_timeout: '0' });
+      expect((await other.query('select pg_try_advisory_lock(hashtext($1)) as ok', [SEARCH_INDEX_LOCK])).rows[0]).toEqual({ ok: true });
+      await other.query('select pg_advisory_unlock(hashtext($1))', [SEARCH_INDEX_LOCK]);
+
+      /* CONCURRENTLY refuses a transaction: the deploy's migrations could not have dropped them so. */
+      await client.query(`create index "chunk_embedding_half_idx" on public.chunk using hnsw (("embedding"::halfvec(${EMBEDDING_DIMENSIONS})) halfvec_cosine_ops)`);
+      await client.query('begin');
+      await expect(client.query('drop index concurrently if exists public."chunk_embedding_half_idx"')).rejects.toThrow(/transaction block/);
+      await client.query('rollback');
+      expect((await dropRetiredSearchIndexes(client)).map((outcome) => outcome.action)).toEqual(['dropped', 'absent']);
+    } finally {
+      await client.end();
+      await other.end();
+    }
+    explore.forgetSearchIndexCheck();
   }, 120_000);
 });
