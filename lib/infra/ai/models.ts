@@ -30,6 +30,8 @@ import { db, schema } from '@/lib/infra/db';
 import { loggedLanguageModel, recordModelCall } from '@/lib/infra/ai/usage';
 import { embedInBatches, embeddingTokenBound } from '@/lib/infra/ai/embedding-batches';
 import { modelCostTarget, prepareProviderCall, providerWork } from '@/lib/infra/ai/provider-meter';
+import { gatewayProviderMs } from '@/lib/domain/provider-cost';
+import { untimed, type StepTimer } from '@/lib/infra/timing';
 
 export interface ModelEndpoint {
   kind: ModelKind;
@@ -307,12 +309,24 @@ export function toColumn(vector: readonly number[]): number[] {
  * An explicit endpoint (a re-embed job's candidate) is used alone; otherwise
  * the embedding list, whose entries all make the primary's vectors -- the
  * endpoint answered is the primary, the one vectors are tagged with.
+ *
+ * `timing` (Discover's Server-Timing) gets the parts: `embed-chain` (the
+ * list, a minute's cache), `embed-call` (the requests, retries included)
+ * and, through AI Gateway, `embed-provider` (the providers' share of them,
+ * as the Gateway reports it).
  */
-export async function embedTexts(texts: string[], explicit?: ModelEndpoint): Promise<{ vectors: number[][]; endpoint: ModelEndpoint }> {
-  const chain = explicit ? [explicit] : await chainFor('embedding');
+export async function embedTexts(
+  texts: string[],
+  explicit?: ModelEndpoint,
+  { timing = untimed }: { timing?: StepTimer } = {},
+): Promise<{ vectors: number[][]; endpoint: ModelEndpoint }> {
+  const chain = explicit ? [explicit] : await timing.measure('embed-chain', () => chainFor('embedding'));
   const endpoint = chain[0]!;
   const { model, served } = chainEmbeddingModel(chain);
-  const { embeddings, tokens } = await embedInBatches(model, texts, { timeoutMs: Math.max(endpoint.timeoutMs, 30_000), maxRetries: 2 });
+  const { embeddings, tokens, metadata } = await timing.measure('embed-call', () =>
+    embedInBatches(model, texts, { timeoutMs: Math.max(endpoint.timeoutMs, 30_000), maxRetries: 2 }));
+  const reported = metadata.map(gatewayProviderMs).filter((ms): ms is number => ms !== null);
+  if (reported.length > 0) timing.record('embed-provider', reported.reduce((sum, ms) => sum + ms, 0));
   const used = served();
   recordModelCall({ kind: 'embedding', model: used.model, configId: used.configId, inputTokens: tokens, chainPosition: used.position ?? null });
   return { vectors: embeddings.map(toColumn), endpoint };

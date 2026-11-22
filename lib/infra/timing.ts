@@ -16,6 +16,11 @@ export class Timing {
     }
   }
 
+  /** A duration measured elsewhere (a supplier's own report of its part of a call). */
+  record(name: string, ms: number): void {
+    if (Number.isFinite(ms) && ms >= 0) this.steps.push({ name, ms });
+  }
+
   /** `name;dur=12.3, …` in the order the steps finished. */
   header(): string {
     return this.steps.map((step) => `${step.name};dur=${step.ms.toFixed(1)}`).join(', ');
@@ -26,5 +31,8 @@ export class Timing {
   }
 }
 
+/** What a step needs to time its parts. */
+export type StepTimer = Pick<Timing, 'measure' | 'record'>;
+
 /** For callers that do not time: runs the work as is. */
-export const untimed: Pick<Timing, 'measure'> = { measure: (_name, work) => work() };
+export const untimed: StepTimer = { measure: (_name, work) => work(), record: () => undefined };

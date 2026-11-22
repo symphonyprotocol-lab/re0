@@ -72,8 +72,9 @@ export interface BatchedEmbedOptions {
 }
 
 /**
- * Every text's vector, in input order, and the summed token usage (NaN when a
- * provider did not report it, as `embedMany` does). One `embedMany` per
+ * Every text's vector, in input order, the summed token usage (NaN when a
+ * provider did not report it, as `embedMany` does) and each batch's provider
+ * metadata, in the order the batches finished. One `embedMany` per
  * batch, so retries and the timeout are per request; the first failure
  * aborts the batches still running and is what this rejects with.
  */
@@ -81,13 +82,14 @@ export async function embedInBatches(
   model: EmbeddingModel,
   texts: readonly string[],
   options: BatchedEmbedOptions,
-): Promise<{ embeddings: number[][]; tokens: number }> {
-  if (texts.length === 0) return { embeddings: [], tokens: 0 };
+): Promise<{ embeddings: number[][]; tokens: number; metadata: unknown[] }> {
+  if (texts.length === 0) return { embeddings: [], tokens: 0, metadata: [] };
   const maxRetries = options.maxRetries ?? 2;
   const providerMax = typeof model === 'string' ? undefined : await model.maxEmbeddingsPerCall;
   const maxInputs = Math.min(options.maxInputs ?? EMBEDDING_BATCH_MAX_INPUTS, providerMax ?? Infinity);
   const batches = planEmbeddingBatches(texts, { maxTokens: options.maxTokens, maxInputs });
   const embeddings = new Array<number[]>(texts.length);
+  const metadata: unknown[] = [];
   const stop = new AbortController();
   let tokens = 0;
   let next = 0;
@@ -107,6 +109,7 @@ export async function embedInBatches(
       }
       result.embeddings.forEach((vector, offset) => { embeddings[start + offset] = vector; });
       tokens += result.usage?.tokens ?? Number.NaN;
+      if (result.providerMetadata) metadata.push(result.providerMetadata);
     }
   };
 
@@ -119,5 +122,5 @@ export async function embedInBatches(
   const settled = await Promise.allSettled(workers);
   const failed = settled.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
   if (failed) throw stop.signal.reason ?? failed.reason;
-  return { embeddings, tokens };
+  return { embeddings, tokens, metadata };
 }
