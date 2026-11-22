@@ -421,7 +421,7 @@ export function passageSearch(
  * those kept. An exact scan reads every passage's 6 KB vector, out of line,
  * one random read each on a cold cache -- 2 to 4 s in production for a Ree
  * of one to three thousand passages; this reads the Ree's rows of
- * `chunk_bit` (some 27 to a page) and 40 vectors.
+ * `chunk_bit` (some 30 to a page) and 100 vectors.
  */
 export async function nearestOwnPassage(vector: QuestionVector, ree: string): Promise<Passage[]> {
   const { rows } = await db().execute<Passage>(ownPassageSearch(vector, ree));

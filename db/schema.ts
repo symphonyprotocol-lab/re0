@@ -378,7 +378,7 @@ export const chunk = pgTable(
  * Kept apart from `chunk`, whose 6 KB vectors live out of line (TOAST):
  * ranking one Ree's passages exactly reads one of those per passage, a
  * random read each on a cold cache (seconds for a Ree of a few thousand).
- * Here a Ree's rows sit some 27 to a page, so Discover ranks a named Ree
+ * Here a Ree's rows sit some 30 to a page, so Discover ranks a named Ree
  * by bits that differ and reads the full vectors of only the nearest few
  * (explore.ts `nearestOwnPassage`). `knowledge_id` lets that ranking keep
  * to answerable sources before it cuts.

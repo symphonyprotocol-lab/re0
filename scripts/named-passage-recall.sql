@@ -8,14 +8,14 @@
 -- For every public Ree the five slow test queries name (by name or tag, as
 -- `namedRees` matches them), and a few questions per Ree, it compares:
 --   exact  the nearest answerable passage by the stored vectors (today's answer);
---   bits   the 40 nearest by bits that differ (binary_quantize), then the
+--   bits   the 100 nearest by bits that differ (binary_quantize), then the
 --          nearest of those by the stored vectors (the new answer).
 -- Questions: up to two of the Ree's own sample questions ("own"), and the
 -- first sample question of the next Ree the same query names ("other" --
 -- a question about the topic, not this Ree, as a named Ree usually gets).
--- `rank` is where the exact answer falls in the bit order: 40 or less, and
+-- `rank` is where the exact answer falls in the bit order: 100 or less, and
 -- the new answer is the same passage. The TOTAL row counts how many would
--- be with 100 or 200 candidates (EXPLORE_OWN_BIT_CANDIDATES), and the
+-- be with 200 or 400 candidates (EXPLORE_OWN_BIT_CANDIDATES), and the
 -- worst similarity lost where they differ.
 --
 -- Needs no chunk_bit (it quantizes on the fly) and changes nothing. It
@@ -75,7 +75,7 @@ with q(question, keys) as (values
         where c.ree_id = a.id
           and k.status = 'ready' and k.enabled and k.deleted_at is null and s.v is not null
         order by binary_quantize(s.v)::bit(1536) <~> binary_quantize(a.e)::bit(1536)
-        limit 40) t
+        limit 100) t
       order by t.d limit 1
     ) b
   )
@@ -85,7 +85,7 @@ select * from (
   from scored
   union all
   select 2, 'TOTAL', count(*) || ' questions', '', sum(passages)::text,
-    count(*) filter (where exact_id = bit_id) || ' same', 'rank<=100: ' || count(*) filter (where rank <= 100) || ', <=200: ' || count(*) filter (where rank <= 200),
+    count(*) filter (where exact_id = bit_id) || ' same', 'rank<=200: ' || count(*) filter (where rank <= 200) || ', <=400: ' || count(*) filter (where rank <= 400),
     'worst gap ' || round(max(exact_sim - bit_sim)::numeric, 4), 'max rank ' || max(rank)
   from scored
 ) r
