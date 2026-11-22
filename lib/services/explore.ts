@@ -17,6 +17,7 @@ import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import {
   EMBEDDING_DIMENSIONS,
   EXPLORE_EF_SEARCH,
+  EXPLORE_PROFILE_BATCH,
   EXPLORE_EXACT_PASSAGES,
   EXPLORE_INDEX_CHECK_MS,
   EXPLORE_NAME_REES,
@@ -60,7 +61,7 @@ import { votesByOthers } from '@/lib/services/ree-feedback';
 import { answersByOthersOf } from '@/lib/services/ree-counts';
 import { hitRateBucket } from '@/lib/services/rate-limit';
 import { untimed, type Timing } from '@/lib/infra/timing';
-import { SEARCH_INDEXES } from '@/lib/infra/search-indexes';
+import { SEARCH_INDEXES, type SearchIndexGroup } from '@/lib/infra/search-indexes';
 
 const reeId = sql.raw('"ree"."id"');
 const reeOwner = sql.raw('"ree"."owner_id"');
@@ -242,22 +243,37 @@ const SLOTS = [
 
 type Passage = { reeId: string; content: string; title: string; similarity: number };
 
-/* Whether both search indexes are valid, as of at most EXPLORE_INDEX_CHECK_MS ago (per server instance). */
-let indexCheck: { at: number; ready: Promise<boolean> } | null = null;
+/** Which of Discover's indexes the search can read (lib/infra/search-indexes.ts): the passages' binary or half-precision pair, or none; the profiles' binary one, or their own. */
+export interface SearchIndexes {
+  passages: 'bit' | 'half' | null;
+  profiles: 'bit' | null;
+}
 
-/** Both of Discover's passage indexes exist and are valid; false while they are missing, invalid or being built, or when the check fails. */
-export async function searchIndexesReady(now = Date.now()): Promise<boolean> {
+/* As of at most EXPLORE_INDEX_CHECK_MS ago (per server instance). */
+let indexCheck: { at: number; ready: Promise<SearchIndexes> } | null = null;
+
+/** The search indexes that exist and are valid; none while they are missing, invalid or being built, or when the check fails. */
+export async function searchIndexes(now = Date.now()): Promise<SearchIndexes> {
   if (indexCheck && now - indexCheck.at < EXPLORE_INDEX_CHECK_MS) return indexCheck.ready;
   const ready = db()
-    .execute<{ valid: number }>(
-      sql`select count(*)::int as valid from pg_index i join pg_class c on c.oid = i.indexrelid
+    .execute<{ name: string }>(
+      sql`select c.relname as name from pg_index i join pg_class c on c.oid = i.indexrelid
         where c.relnamespace = 'public'::regnamespace and i.indisvalid and i.indisready
           and c.relname in (${sql.join(SEARCH_INDEXES.map((index) => sql`${index.name}`), sql`, `)})`,
     )
-    .then(({ rows }) => Number(rows[0]?.valid ?? 0) === SEARCH_INDEXES.length)
-    .catch(() => false);
+    .then(({ rows }): SearchIndexes => {
+      const valid = new Set(rows.map((row) => row.name));
+      const all = (group: SearchIndexGroup) => SEARCH_INDEXES.filter((index) => index.group === group).every((index) => valid.has(index.name));
+      return { passages: all('passage-bit') ? 'bit' : all('passage-half') ? 'half' : null, profiles: all('profile-bit') ? 'bit' : null };
+    })
+    .catch((): SearchIndexes => ({ passages: null, profiles: null }));
   indexCheck = { at: now, ready };
   return ready;
+}
+
+/** Whether a pair of passage indexes is valid (`searchIndexes`). */
+export async function searchIndexesReady(now = Date.now()): Promise<boolean> {
+  return (await searchIndexes(now)).passages !== null;
 }
 
 /** Forgets the last index check (tests, and right after building the indexes in-process). */
@@ -269,12 +285,16 @@ export function forgetSearchIndexCheck(): void {
  * The nearest answerable passages of `rees` to the question, nearest first,
  * at most `limit`.
  *
- * First through each vector slot's HNSW index (lib/infra/search-indexes.ts), on half-precision
- * copies, with an iterative scan so the filter still fills the list; the
+ * First through each vector slot's HNSW index (lib/infra/search-indexes.ts),
+ * on binary-quantized copies (half-precision ones until those are built),
+ * with an iterative scan so the filter still fills the list; the
  * similarity is then computed again on the stored vectors of the rows
- * found, and the nearest `limit` of them kept: each leg reads at least
- * EXPLORE_PASSAGE_CANDIDATES rows, since a relaxed-order scan's first rows
- * are only roughly its nearest. Only those rows' vectors and texts are
+ * found, and the nearest `limit` of them kept. Each leg reads more rows
+ * than it keeps: a relaxed-order scan's first rows are only roughly its
+ * nearest, and a binary copy's distance (bits that differ) only roughly
+ * the stored vectors' -- twice `limit` (at least
+ * EXPLORE_PASSAGE_CANDIDATES), which on production vectors found the same
+ * 50 passages as an exact scan. Only those rows' vectors and texts are
  * read -- not, as an exact scan does, every passage of every candidate
  * (some 50,000 vectors of 6 KB, three times each, per search). The planner cannot tell how many
  * passages the space tag keeps, so it is told to skip the sort-everything
@@ -296,13 +316,14 @@ export function forgetSearchIndexCheck(): void {
  */
 export async function nearestPassages(vector: QuestionVector, rees: readonly string[], limit: number): Promise<Passage[]> {
   if (!rees.length || limit < 1) return [];
-  const search = passageSearch(vector, rees, limit);
+  const index = (await searchIndexes()).passages;
+  const search = passageSearch(vector, rees, limit, index ?? 'bit');
   const toPassages = (rows: Passage[]) =>
     rows
       .map((row) => ({ ...row, similarity: Number(row.similarity) }))
       .sort((x, y) => y.similarity - x.similarity)
       .slice(0, limit);
-  const indexed = (await searchIndexesReady()) && !(await fewPassages(rees))
+  const indexed = index && !(await fewPassages(rees))
     ? await db()
         .transaction(async (tx) => {
           await tx.execute(search.settings);
@@ -329,10 +350,21 @@ export async function fewPassages(rees: readonly string[]): Promise<boolean> {
   return Number(rows[0]?.n ?? 0) <= EXPLORE_EXACT_PASSAGES;
 }
 
-/** `nearestPassages`' statements: the transaction's settings, the index search (one leg per slot), and the exact scan. Exported for the plan test. */
-export function passageSearch(vector: QuestionVector, rees: readonly string[], limit: number): { settings: SQL; indexed: SQL; exact: SQL } {
+/** `nearestPassages`' statements: the transaction's settings, the search through one pair of indexes (one leg per slot), and the exact scan. Exported for the plan test. */
+export function passageSearch(
+  vector: QuestionVector,
+  rees: readonly string[],
+  limit: number,
+  index: 'bit' | 'half' = 'bit',
+): { settings: SQL; indexed: SQL; exact: SQL } {
   const literal = `[${vector.vector.join(',')}]`;
   const half = sql.raw(`halfvec(${EMBEDDING_DIMENSIONS})`);
+  const bits = sql.raw(`bit(${EMBEDDING_DIMENSIONS})`);
+  const order = (column: SQL) =>
+    index === 'bit'
+      ? sql`binary_quantize(${column})::${bits} <~> binary_quantize(${literal}::vector)::${bits}`
+      : sql`${column}::${half} <=> ${literal}::${half}`;
+  const take = index === 'bit' ? Math.max(2 * limit, EXPLORE_PASSAGE_CANDIDATES) : Math.max(limit, EXPLORE_PASSAGE_CANDIDATES);
   const inRees = sql`c.ree_id in (${sql.join(rees.map((id) => sql`${id}::uuid`), sql`, `)})`;
   /* `answerable()` (retrieval.ts) under the alias `k`. */
   const ready = sql`k.status = 'ready' and k.enabled and k.deleted_at is null`;
@@ -341,8 +373,8 @@ export function passageSearch(vector: QuestionVector, rees: readonly string[], l
   const legs = SLOTS.map(
     (slot) => sql`(select ${columns} from ${schema.chunk} c join ${schema.knowledge} k on k.id = c.knowledge_id
       where ${inRees} and ${ready} and ${slot.vector} is not null and ${slot.inSpace(vector.space)}
-      order by ${slot.vector}::${half} <=> ${literal}::${half}
-      limit ${Math.max(limit, EXPLORE_PASSAGE_CANDIDATES)})`,
+      order by ${order(slot.vector)}
+      limit ${take})`,
   );
   return {
     settings: sql`select
@@ -363,9 +395,8 @@ export function passageSearch(vector: QuestionVector, rees: readonly string[], l
 /**
  * The two levels. With a category, the first level scans that slice of the
  * profile table exactly (`+ 0` keeps the planner off the global index, which
- * filters after it searches); otherwise the HNSW index answers
- * (`profileSearch`), with a candidate list long enough for 20 Rees × 16
- * vectors, the Rees to leave out among them.
+ * filters after it searches); otherwise an HNSW index answers, read a
+ * batch at a time until enough Rees have turned up (`nearestProfiles`).
  * Both levels read only vectors in the question's embedding space; right
  * after a model switch, profiles not yet rebuilt in the new space drop out
  * of the first level until `rebuildProfiles` reaches them (reembed.ts).
@@ -376,10 +407,10 @@ export function passageSearch(vector: QuestionVector, rees: readonly string[], l
  * product name puts that product's Ree first, while a question that only
  * mentions one keeps ranking mostly by its passages.
  *
- * The profile search and the name lookup run side by side, and so do the
- * 50 passages and each named Ree's own nearest one (`nearestPassages`);
- * `explore` starts the name lookup while the question is still being
- * embedded and hands it in as `named`.
+ * The profile search, the name lookup and each named Ree's own nearest
+ * passage (`nearestPassages`) run side by side, the last as soon as the
+ * names are known; then the 50. `explore` starts the name lookup while the
+ * question is still being embedded and hands it in as `named`.
  */
 export async function searchRees(input: {
   question: string;
@@ -393,33 +424,27 @@ export async function searchRees(input: {
   const database = db();
   const timing = input.timing ?? untimed;
   const exclude = (input.exclude ?? []).filter((id) => isUuid(id));
+  const namesLookup = input.named ?? timing.measure('names', () => namedRees(input.question, { category: input.category, exclude }));
+  /*
+   * Each named Ree's nearest passage needs only the vector and the names, so
+   * through the indexes it starts now, beside the profile search, instead of
+   * after it. With exact scans only (indexes not built yet), it waits for the
+   * 50 below and runs only for the named Rees still missing.
+   */
+  const ownNearestOf = (ids: string[]) => timing.measure('named-passages', () => Promise.all(ids.map((id) => nearestPassages(input.vector, [id], 1))));
+  const early = Promise.all([searchIndexesReady(), namesLookup]).then(([indexed, named]) => (indexed ? ownNearestOf([...named.keys()]) : null));
+  /* Awaited below unless the profile search fails first; its own failure must not go unhandled then. */
+  early.catch(() => {});
   const [firstLevel, named] = await Promise.all([
-    timing.measure('profiles', () =>
-      database.transaction(async (tx) => {
-        const search = profileSearch(input.vector, { category: input.category ?? null, exclude });
-        if (search.settings) await tx.execute(search.settings);
-        const { rows } = await tx.execute<{ reeId: string; similarity: number }>(search.nearest);
-        return rows.map((row) => ({ reeId: row.reeId, similarity: Number(row.similarity) }));
-      }),
-    ),
-    input.named ?? timing.measure('names', () => namedRees(input.question, { category: input.category, exclude })),
+    timing.measure('profiles', () => nearestProfiles(input.vector, { category: input.category ?? null, exclude })),
+    namesLookup,
   ]);
   const candidates = [...new Set([...firstLevel.map((row) => row.reeId), ...named.keys()])];
   if (candidates.length === 0) return [];
 
-  /*
-   * The 50, and each named Ree's nearest passage, for a named Ree none of
-   * whose passages makes the 50. Through the indexes both are quick, so they
-   * run side by side; with exact scans only (indexes not built yet), the
-   * named Rees' scans wait for the 50 and run only for those still missing.
-   */
-  const ownNearestOf = (ids: string[]) => timing.measure('named-passages', () => Promise.all(ids.map((id) => nearestPassages(input.vector, [id], 1))));
-  const indexed = await searchIndexesReady();
-  const [passages, early] = await Promise.all([
-    timing.measure('passages', () => nearestPassages(input.vector, candidates, EXPLORE_PASSAGES)),
-    indexed ? ownNearestOf([...named.keys()]) : Promise.resolve(null),
-  ]);
-  const ownNearest = early ?? (await ownNearestOf([...named.keys()].filter((id) => !passages.some((passage) => passage.reeId === id))));
+  /* The 50, and each named Ree's nearest passage, for a named Ree none of whose passages makes the 50. */
+  const [passages, started] = await Promise.all([timing.measure('passages', () => nearestPassages(input.vector, candidates, EXPLORE_PASSAGES)), early]);
+  const ownNearest = started ?? (await ownNearestOf([...named.keys()].filter((id) => !passages.some((passage) => passage.reeId === id))));
 
   const terms = searchTerms(input.question);
   const best = new Map<string, { similarity: number; coverage: number; content: string; title: string }>();
@@ -452,49 +477,116 @@ export async function searchRees(input: {
 }
 
 /**
- * The first level's statement: the EXPLORE_PROFILE_REES public Rees whose
- * profile is nearest, each with its best similarity. Exported for the plan
- * test.
+ * The first level: the EXPLORE_PROFILE_REES public Rees, not excluded,
+ * whose profile is nearest, each with its best similarity, best first.
  *
- * Without a category, through the HNSW index: the profile table alone,
- * nearest first, in a subquery, and only then joined to the Rees to keep
- * the public ones (only public Rees have profiles, so few drop out). With
- * the join inside, the planner never took the index; nor does it on the
- * table alone unless told (`enable_seqscan` off): each vector is stored out
- * of line, so a sequential scan looks like a few hundred pages and reads
- * every profile's -- some 50,000 pages per search, a second in production.
- * The iterative scan fills the list when profiles of another embedding
- * space (right after a model switch) are filtered out.
+ * Without a category, through an HNSW index, read a batch at a time through
+ * a cursor until enough Rees have turned up. The rows come nearest first, so
+ * a Ree's first row is its best and the Rees not yet seen are farther: the
+ * statement this replaced read 320 rows (20 Rees × 16 vectors) whatever
+ * the question, with a candidate list of 400, and on production's 40,000
+ * profiles that touched some 3,400 pages of the full-precision index -- 4.4 s
+ * when they were not cached. A Ree's vectors are spread over what it knows,
+ * so its rows interleave with other Rees' and a few batches find 20.
+ *
+ * The binary-quantized index (lib/infra/search-indexes.ts) is a fifteenth
+ * of that size and stays cached, but orders by bits that differ, a coarse
+ * distance: it reads rows until twice the Rees wanted have turned up, scores
+ * each Ree by the best stored-vector similarity among its rows read, and
+ * keeps the best. (Each row's stored vector is read either way: Postgres
+ * computes the ORDER BY expression of every row it returns.) Until it is
+ * built, the full-precision index's own order is exact. Either way it stops
+ * at the old 320 rows (more with Rees to exclude).
+ *
+ * With a category, its slice is scanned exactly, as before.
  */
-export function profileSearch(vector: QuestionVector, filter: { category: ReeCategory | null; exclude: readonly string[] }): { settings: SQL | null; nearest: SQL } {
+export async function nearestProfiles(vector: QuestionVector, filter: { category: ReeCategory | null; exclude: readonly string[] }): Promise<{ reeId: string; similarity: number }[]> {
+  const index = filter.category ? null : (await searchIndexes()).profiles;
+  const search = profileSearch(vector, filter, index);
+  if ('exact' in search) {
+    const { rows } = await db().execute<{ reeId: string; similarity: number }>(search.exact);
+    return rows.map((row) => ({ reeId: row.reeId, similarity: Number(row.similarity) }));
+  }
+  const excluded = new Set(filter.exclude);
+  const wanted = index === 'bit' ? 2 * EXPLORE_PROFILE_REES : EXPLORE_PROFILE_REES;
+  return db().transaction(async (tx) => {
+    await tx.execute(search.settings);
+    await tx.execute(sql`declare nearest_profiles no scroll cursor for ${search.stream}`);
+    /* Each Ree's best similarity among its rows read. */
+    const best = new Map<string, number>();
+    let read = 0;
+    let shown = new Set<string>();
+    for (;;) {
+      const { rows } = await tx.execute<{ reeId: string; distance: number }>(sql.raw(`fetch ${EXPLORE_PROFILE_BATCH} from nearest_profiles`));
+      read += rows.length;
+      for (const row of rows) {
+        if (excluded.has(row.reeId)) continue;
+        const similarity = 1 - Number(row.distance);
+        if (similarity > (best.get(row.reeId) ?? -Infinity)) best.set(row.reeId, similarity);
+      }
+      const done = rows.length < EXPLORE_PROFILE_BATCH || read >= search.take;
+      if (best.size < wanted && !done) continue;
+      /* A Ree made private keeps its profile until it is rebuilt. */
+      const { rows: visible } = await tx.execute<{ id: string }>(
+        sql`select ${schema.ree.id} as id from ${schema.ree} where ${inArray(schema.ree.id, [...best.keys()])} and ${publicRee()}`,
+      );
+      shown = new Set(visible.map((row) => row.id));
+      if (shown.size >= wanted || done) break;
+    }
+    return [...best]
+      .filter(([reeId]) => shown.has(reeId))
+      .map(([reeId, similarity]) => ({ reeId, similarity }))
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, EXPLORE_PROFILE_REES);
+  });
+}
+
+/**
+ * `nearestProfiles`' statements. Exported for the plan test.
+ *
+ * Without a category: the profile table alone, nearest first, for the
+ * cursor; the Rees are looked up apart. With the join inside, the planner
+ * never took the index; nor does it on the table alone unless told
+ * (`enable_seqscan` off): each vector is stored out of line, so a
+ * sequential scan looks like a few hundred pages and reads every profile's.
+ * The iterative scan goes on past the first EXPLORE_EF_SEARCH candidates as
+ * the cursor asks for more, and fills the batches when profiles of another
+ * embedding space (right after a model switch) are filtered out.
+ *
+ * With a category, which can leave too few rows behind an index search: an
+ * exact scan of that slice (`+ 0` keeps the planner off the index).
+ */
+export function profileSearch(
+  vector: QuestionVector,
+  filter: { category: ReeCategory | null; exclude: readonly string[] },
+  index: 'bit' | null = 'bit',
+): { exact: SQL } | { settings: SQL; stream: SQL; take: number } {
   const literal = `[${vector.vector.join(',')}]`;
   const p = schema.reeProfileVector;
   const distance = sql`${p.embedding} <=> ${literal}::vector`;
-  const notExcluded = filter.exclude.length ? sql`and ${schema.ree.id} not in (${sql.join(filter.exclude.map((id) => sql`${id}::uuid`), sql`, `)})` : sql``;
-  /* A category can leave too few rows behind an index search, so its slice is scanned exactly; up to five excluded Rees only need a longer list (ef_search covers 25 × 16). */
   const take = (EXPLORE_PROFILE_REES + filter.exclude.length) * PROFILE_MAX_VECTORS;
   if (filter.category) {
+    const notExcluded = filter.exclude.length ? sql`and ${schema.ree.id} not in (${sql.join(filter.exclude.map((id) => sql`${id}::uuid`), sql`, `)})` : sql``;
     return {
-      settings: null,
-      nearest: sql`select n.ree_id as "reeId", max(1 - n.distance) as similarity from (
+      exact: sql`select n.ree_id as "reeId", max(1 - n.distance) as similarity from (
           select ${p.reeId} as ree_id, ${distance} as distance from ${p} join ${schema.ree} on ${schema.ree.id} = ${p.reeId}
           where ${publicRee()} and ${profileInSpace(vector.space)} and ${schema.ree.category} = ${filter.category} ${notExcluded}
           order by (${distance}) + 0 limit ${take}) n
         group by n.ree_id order by similarity desc limit ${EXPLORE_PROFILE_REES}`,
     };
   }
+  const bits = sql.raw(`bit(${EMBEDDING_DIMENSIONS})`);
   return {
     settings: sql`select
       set_config('hnsw.ef_search', ${String(EXPLORE_EF_SEARCH)}, true),
       set_config('hnsw.iterative_scan', 'strict_order', true),
       set_config('enable_seqscan', 'off', true)`,
-    nearest: sql`select n.ree_id as "reeId", max(1 - n.distance) as similarity from (
-        select ${p.reeId} as ree_id, ${distance} as distance from ${p}
-        where ${profileInSpace(vector.space)}
-        order by ${distance} limit ${take}) n
-      join ${schema.ree} on ${schema.ree.id} = n.ree_id
-      where ${publicRee()} ${notExcluded}
-      group by n.ree_id order by similarity desc limit ${EXPLORE_PROFILE_REES}`,
+    stream:
+      index === 'bit'
+        ? sql`select ${p.reeId} as "reeId", ${distance} as distance from ${p} where ${profileInSpace(vector.space)}
+            order by binary_quantize(${p.embedding})::${bits} <~> binary_quantize(${literal}::vector)::${bits}`
+        : sql`select ${p.reeId} as "reeId", ${distance} as distance from ${p} where ${profileInSpace(vector.space)} order by ${distance}`,
+    take,
   };
 }
 

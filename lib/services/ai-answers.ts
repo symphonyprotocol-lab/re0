@@ -89,7 +89,7 @@ export type AiAnswerer = (input: AiAnswerInput) => Promise<{ text: string; model
 /** The free tier's generation model, whatever the asker's Plan: the base fee covers its cost, a Plan model's it would not (section 10). */
 export const modelAiAnswer: AiAnswerer = async ({ userId, question, detail, lang, thread, signal }) => {
   const generation = await modelFor('generation', 'free', { userId, purpose: 'ai_answer' });
-  const { text } = await generateText({
+  const { text, response } = await generateText({
     model: generation.model,
     instructions: aiAnswerInstructions(lang),
     messages: [{ role: 'user', content: aiAnswerPrompt(question, detail, thread) }],
@@ -98,7 +98,8 @@ export const modelAiAnswer: AiAnswerer = async ({ userId, question, detail, lang
     maxRetries: 1,
     abortSignal: signal,
   });
-  return { text, model: generation.endpoint.model };
+  /* The entry that answered: a backup when the primary was out of quota (lib/infra/ai/failover.ts). */
+  return { text, model: response.modelId || generation.endpoint.model };
 };
 
 export interface AiDeps {

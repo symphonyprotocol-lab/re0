@@ -39,6 +39,7 @@
 import { and, count, desc, eq, gt, isNull, lt, ne, not, or, sql, type SQL } from 'drizzle-orm';
 import { REEMBED_BATCH, REEMBED_CLEANUP_BATCH, REEMBED_GRACE_MS, REEMBED_STEP_BUDGET_MS } from '@/lib/constants';
 import { consoleEndpoint, embedTexts, forgetModelCache } from '@/lib/infra/ai/models';
+import { lockKind, writeChain } from '@/lib/services/model-chain';
 import { db, schema, type Executor } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
 import { activeSpace, BASE_SPACE, chunkHasSpace } from '@/lib/services/embedding-space';
@@ -176,6 +177,9 @@ async function finish(job: ReembedJob, arrived: number, now: Date): Promise<bool
       .update(schema.modelConfig)
       .set({ enabled: true, embeddingSpace: current.space, updatedBy: job.startedBy, updatedAt: now })
       .where(eq(schema.modelConfig.id, job.toModelConfigId));
+    /* The new space starts a list of its own: the old model's backups make the old vectors. */
+    await lockKind(tx, 'embedding');
+    await writeChain(tx, 'embedding', 'all', [{ configId: job.toModelConfigId, active: true }], job.startedBy, now);
     await tx
       .update(schema.reembedJob)
       .set({ status: 'done', total: sql`greatest(${schema.reembedJob.total}, ${schema.reembedJob.done})`, finishedAt: now, heartbeatAt: now })

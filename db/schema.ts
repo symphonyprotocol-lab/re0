@@ -62,6 +62,7 @@ import {
   type PostVisibility,
 } from '@/lib/domain/post';
 import { PUBLIC_QA_ANSWER_MAX_CHARS, PUBLIC_QA_HIDERS, PUBLIC_QA_SOURCES, PUBLIC_QA_STATUSES, type PublicQaHider, type PublicQaSource, type PublicQaStatus } from '@/lib/domain/public-qa';
+import { CHAIN_AUDIENCES, COOLING_REASONS, type ChainAudience, type SwitchingClass } from '@/lib/domain/model-failover';
 import { MODEL_KINDS, VIDEO_EXPORT_TEMPLATES, VIDEO_TEMPLATES, type ModelKind } from '@/lib/constants';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
@@ -712,6 +713,75 @@ export const modelConfig = pgTable(
       'model_config_base_url_check',
       sql`(transport = 'openai_compatible') = (base_url is not null)`,
     ),
+  ],
+);
+
+/**
+ * Primary and backups per kind (and per audience for generation): position
+ * 0 tries first. `model_config.enabled` / `enabled_plan` stay on the first
+ * active entry (written together with the list) and name the primary, so
+ * code from before lists still reads the right model; the list adds the
+ * backups after it (design Q9).
+ */
+export const modelChain = pgTable(
+  'model_chain',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    kind: text('kind').$type<ModelKind>().notNull(),
+    audience: text('audience').$type<ChainAudience>().notNull(),
+    modelConfigId: uuid('model_config_id').notNull().references(() => modelConfig.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    /** Paused: keeps its place, never tried. */
+    active: boolean('active').notNull().default(true),
+    updatedBy: uuid('updated_by'),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('model_chain_entry_key').on(t.kind, t.audience, t.modelConfigId),
+    uniqueIndex('model_chain_position_key').on(t.kind, t.audience, t.position),
+    check('model_chain_kind_check', oneOf('kind', MODEL_KINDS)),
+    check('model_chain_audience_check', oneOf('audience', CHAIN_AUDIENCES)),
+    check('model_chain_audience_kind_check', sql`(kind = 'generation') = (audience in ('free', 'plan'))`),
+    check('model_chain_position_check', sql`position >= 0`),
+  ],
+);
+
+/** Whether an entry is cooling after a failure, shared by every instance (each also keeps its own copy for ten seconds). */
+export const modelHealth = pgTable(
+  'model_health',
+  {
+    modelConfigId: uuid('model_config_id').primaryKey().references(() => modelConfig.id, { onDelete: 'cascade' }),
+    state: text('state').$type<'ok' | 'cooling'>().notNull().default('ok'),
+    reason: text('reason').$type<SwitchingClass>(),
+    coolingUntil: timestampTz('cooling_until'),
+    consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+    lastFailureAt: timestampTz('last_failure_at'),
+    lastSuccessAt: timestampTz('last_success_at'),
+    /** The failure class and HTTP status (`quota:402`); never the provider's text. */
+    lastErrorCode: text('last_error_code'),
+    lastProbeAt: timestampTz('last_probe_at'),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    check('model_health_state_check', oneOf('state', ['ok', 'cooling'])),
+    check('model_health_reason_check', sql.raw(`reason is null or reason in (${COOLING_REASONS.map((r) => `'${r}'`).join(', ')})`)),
+  ],
+);
+
+/** The console's "recent switches": an entry starting to cool, recovering, or cleared by hand. */
+export const modelHealthEvent = pgTable(
+  'model_health_event',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    modelConfigId: uuid('model_config_id').notNull(),
+    event: text('event').$type<'cooling' | 'recovered' | 'manual_clear'>().notNull(),
+    reason: text('reason').$type<SwitchingClass>(),
+    coolingUntil: timestampTz('cooling_until'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('model_health_event_time_idx').on(t.createdAt),
+    check('model_health_event_event_check', oneOf('event', ['cooling', 'recovered', 'manual_clear'])),
   ],
 );
 
@@ -1787,6 +1857,8 @@ export const modelCall = pgTable(
     outputTokens: integer('output_tokens').notNull().default(0),
     /** Transcription: seconds of audio. */
     seconds: integer('seconds').notNull().default(0),
+    /** The attempt's place in its kind's list (0: the primary); null when the environment's model answered. */
+    chainPosition: integer('chain_position'),
     createdAt: createdAt(),
   },
   (t) => [

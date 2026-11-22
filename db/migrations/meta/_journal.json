@@ -533,6 +533,13 @@
       "when": 1795278000000,
       "tag": "0077_earned_checkout_release",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1795281600000,
+      "tag": "0078_model_chain",
+      "breakpoints": true
     }
   ]
 }
