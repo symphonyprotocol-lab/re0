@@ -306,10 +306,15 @@ export async function inviteOverview(administrator: Administrator): Promise<Invi
       order by i.created_at desc
       limit 20
     `),
+    /*
+     * Every inviter, not only those with a withdrawable reward: under a cap
+     * of 0 all of them are at it (their invitations pay gift credits with
+     * `inviter_cap`), though none has a withdrawable row.
+     */
     database.execute(sql`
       select count(*)::int as n from (
-        select inviter_id from invitation where withdrawable group by inviter_id
-        having count(*) >= (select coalesce((select withdrawable_invites_per_inviter from reward_settings where id = 1), ${INVITE_DEFAULTS.withdrawableInvitesPerInviter}))
+        select inviter_id from invitation group by inviter_id
+        having count(*) filter (where withdrawable) >= (select coalesce((select withdrawable_invites_per_inviter from reward_settings where id = 1), ${INVITE_DEFAULTS.withdrawableInvitesPerInviter}))
       ) capped
     `),
   ]);

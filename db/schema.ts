@@ -748,8 +748,15 @@ export const modelConfig = pgTable(
     lastProbeOk: boolean('last_probe_ok'),
     updatedBy: uuid('updated_by'),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+    /**
+     * Deleted from the console: the row stays (model_call.config_id, the
+     * re-embed jobs and the cost backfill still read it) but no list, page
+     * or request uses it again. Only an entry in no list can be deleted.
+     */
+    deletedAt: timestampTz('deleted_at'),
   },
   (t) => [
+    check('model_config_deleted_check', sql`deleted_at is null or not (enabled or enabled_plan)`),
     uniqueIndex('model_config_one_enabled_key').on(t.kind).where(sql`enabled`),
     uniqueIndex('model_config_one_enabled_plan_key').on(t.kind).where(sql`enabled_plan`),
     check('model_config_enabled_plan_check', sql`not enabled_plan or kind = 'generation'`),
