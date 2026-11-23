@@ -33,7 +33,7 @@ export interface FakeOpenAi {
   baseUrl: string;
   billing: { embeddingTokens: number; omitEmbeddingUsage: boolean };
   /** Every request; an embedding request also carries its inputs. */
-  requests: { path: string; model: string; inputs?: string[] }[];
+  requests: { path: string; model: string; inputs?: string[]; images?: number; system?: string }[];
   /**
    * `model`: embedding requests for it answer a server error once `after`
    * of them have succeeded (null: never).
@@ -246,7 +246,10 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
       res.end(JSON.stringify({ error: { message: 'embedding failed', type: 'server_error' } }));
       return;
     }
-    requests.push({ path: req.url ?? '', model: body.model ?? '', ...(embedding ? { inputs } : {}) });
+    /* A chat request's image parts (a post's images, lib/services/post-images.ts) and its system prompt, for tests to check what a model was shown. */
+    const lastContent = body.messages?.at(-1)?.content;
+    const images = Array.isArray(lastContent) ? (lastContent as { type?: string }[]).filter((part) => part.type === 'image_url').length : 0;
+    requests.push({ path: req.url ?? '', model: body.model ?? '', ...(embedding ? { inputs } : {}), ...(images ? { images } : {}), ...(body.messages?.[0]?.role === 'system' ? { system: String(body.messages[0].content).slice(0, 200) } : {}) });
     if (embedding) {
       if (embeddings.beforeAnswer) await embeddings.beforeAnswer(body.model ?? '');
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -292,6 +295,8 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
           : '## 结论\n- Refunds go back to the original payment method within 14 days [A1][B1].\n## 共识\n- Both name the same window [A1, B1].\n## 分歧\n- None noted [C1] [A9].\n## 没覆盖到\n- Store credit is not covered [B] [2].'
         : system.includes('You check an answer against the knowledge passages')
         ? JSON.stringify(checkVerdicts(typeof last?.content === 'string' ? last.content : ((last?.content ?? []) as { text?: string }[]).map((part) => part.text ?? '').join('')))
+        : system.includes('You describe the images attached to a question')
+        ? question.includes('IMAGES UNREADABLE') ? '' : 'Image 1: A receipt that reads "REFUND ISSUED 14 DAYS". It shows a card payment.'
         : system.includes('Suggest three example questions')
         ? 'When are refunds issued?\nHow long does a refund take?\nWhere does the refund go?'
         : system.includes('continuous 15-second English product demonstration')

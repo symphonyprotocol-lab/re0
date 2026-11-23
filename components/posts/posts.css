@@ -1639,3 +1639,124 @@ a.post-quote:hover {
     animation-duration: 2.4s;
   }
 }
+
+/*
+ * A post's images (lib/domain/post-images.ts): the composer's tray of
+ * thumbnails while writing, the post page's grid, and the card's thumbnail.
+ */
+.post-image-tray {
+  margin-top: 8px;
+}
+.post-image-tray ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.post-image-tray li {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: var(--color-wash);
+}
+.post-image-tray img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.post-image-tray li.is-uploading img {
+  opacity: 0.55;
+}
+.post-image-tray li.is-failed {
+  border-color: #e5484d;
+}
+.post-image-tray .spinner,
+.post-image-tray .post-image-failed {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+.post-image-tray .post-image-failed {
+  width: 20px;
+  height: 20px;
+  color: #e5484d;
+}
+.post-image-tray li button {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+}
+.post-image-tray li button svg {
+  width: 12px;
+  height: 12px;
+}
+.post-composer-foot .icon-btn small {
+  margin-left: 2px;
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+}
+.post-image-gallery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 560px;
+  margin-top: 12px;
+}
+.post-image-gallery.n-1 {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 420px;
+}
+.post-image-gallery a {
+  display: block;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-wash);
+}
+.post-image-gallery img {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+}
+.post-image-gallery:not(.n-1) img {
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+.post-image-thumb {
+  position: relative;
+  display: inline-block;
+  width: 84px;
+  height: 64px;
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: var(--color-wash);
+}
+.post-image-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.post-image-thumb small {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+}

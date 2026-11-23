@@ -65,6 +65,7 @@ import { balanceOf, releaseHold } from '@/lib/services/credits';
 import { nearestPassages, publicRee } from '@/lib/services/explore';
 import { notify } from '@/lib/services/notices';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
+import { postSubject } from '@/lib/domain/post-images';
 import {
   answersFor,
   answerView,
@@ -326,7 +327,7 @@ export async function followupAnswerInput(followupId: string, reeId: string): Pr
     .from(answer)
     .where(and(eq(answer.postId, row.post.id), eq(answer.reeId, reeId), eq(answer.state, 'answered'), isNull(answer.hiddenBy)));
   const ownText = (key: string | null) => own.find((entry) => entry.followupId === key)?.text.slice(0, CONTEXT_ANSWER_CHARS) ?? null;
-  const exchanges: { asked: string[]; answer: string | null }[] = [{ asked: [[row.post.question, row.post.detail].filter(Boolean).join('\n')], answer: ownText(null) }];
+  const exchanges: { asked: string[]; answer: string | null }[] = [{ asked: [postSubject(row.post)], answer: ownText(null) }];
   for (const entry of earlier) exchanges.push({ asked: [entry.question], answer: ownText(entry.id) });
   /* Questions this Ree did not answer join the next one it did (or the follow-up itself), so the turns alternate. */
   const turns: { role: 'user' | 'assistant'; content: string }[] = [];
@@ -373,12 +374,12 @@ export async function processFollowup(id: string, deps: FollowupDeps = {}): Prom
   if (!claimed) return;
   const asker = row.userId;
   try {
-    const [target] = await db().select({ question: post.question, detail: post.detail }).from(post).where(eq(post.id, row.postId)).limit(1);
+    const [target] = await db().select({ question: post.question, detail: post.detail, imageText: post.imageText }).from(post).where(eq(post.id, row.postId)).limit(1);
     /* A 继续问 AI goes to no Ree, even one brought in since it was asked: the AI answers it. */
     const candidates = row.aiOnly ? [] : await firstRoundRees(row.postId);
     const mentioned = candidates.filter((entry) => row!.mentionReeIds.includes(entry.reeId));
     /* @: only those, whatever their relevance. Otherwise every first-round Ree close enough to this follow-up. */
-    const scoring = candidates.length && target ? await (deps.matchFollowup ?? passageMatcher)({ question: row.question, postQuestion: [target.question, target.detail].filter(Boolean).join('\n'), reeIds: candidates.map((entry) => entry.reeId) }) : { similarity: new Map<string, number>(), vector: null };
+    const scoring = candidates.length && target ? await (deps.matchFollowup ?? passageMatcher)({ question: row.question, postQuestion: postSubject(target), reeIds: candidates.map((entry) => entry.reeId) }) : { similarity: new Map<string, number>(), vector: null };
     const chosen = row.mentionReeIds.length
       ? mentioned
       : candidates.filter((entry) => (scoring.similarity.get(entry.reeId) ?? 0) >= POST_MIN_SIMILARITY).sort((a, b) => (scoring.similarity.get(b.reeId) ?? 0) - (scoring.similarity.get(a.reeId) ?? 0));

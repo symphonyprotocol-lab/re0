@@ -22,7 +22,8 @@ export async function uploadToBlob(
   ticketRequest:
     | { purpose: 'document' | 'audio'; fileName: string; size: number }
     | { purpose: 'avatar'; contentType: string; size: number }
-    | { purpose: 'ree-cover'; reeId: string; contentType: string; size: number },
+    | { purpose: 'ree-cover'; reeId: string; contentType: string; size: number }
+    | { purpose: 'post-image'; contentType: string; size: number },
   onProgress?: (percent: number) => void,
   signal?: AbortSignal,
 ): Promise<{ pathname: string } | { error: string }> {

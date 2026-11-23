@@ -7,14 +7,14 @@ import { providerPrices, configuredProviderRate } from '@/lib/services/provider-
 import { loggedLanguageModel } from '@/lib/infra/ai/usage';
 import { providerRateSchema } from '@/lib/domain/provider-cost';
 
-vi.mock('@/lib/infra/ai/gateway-generation-pricing', () => ({ gatewayGenerationPricing: async (model: string) => ({ rate: providerRateSchema.parse({ service: 'generation', endpoint: 'https://ai-gateway.vercel.sh/v1', model, unit: 'tokens', usdPerUnit: '0.00000015', outputUsdPerUnit: '0.0000005', source: 'https://ai-gateway.vercel.sh/v1/models' }), priceRevision: 'gateway-catalog:test', estimated: true }) }));
+vi.mock('@/lib/infra/ai/gateway-generation-pricing', () => ({ gatewayGenerationPricing: async (model: string) => ({ rate: providerRateSchema.parse({ service: 'generation', endpoint: 'https://ai-gateway.vercel.sh/v1', model, unit: 'tokens', usdPerUnit: '0.00000015', outputUsdPerUnit: '0.0000005', source: 'https://ai-gateway.vercel.sh/v1/models' }), priceRevision: 'gateway-catalog:test', estimated: true }), gatewayModelVision: async () => true }));
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 type Model = Parameters<typeof loggedLanguageModel>[0];
 const fake: Model = { specificationVersion: 'v4', provider: 'test', modelId: 'custom', supportedUrls: {}, doStream: vi.fn(), doGenerate: async () => ({ content: [{ type: 'text', text: 'OK' }], finishReason: { unified: 'stop', raw: 'stop' }, warnings: [], usage: { inputTokens: { total: 1000, noCache: 1000, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 100, text: 100, reasoning: 0 } } }) };
 
 describeWithDb('generation model pricing configuration', () => {
   let adminId: string; let id: string; let gatewayId: string;
-  const base = { name: 'Manual model', kind: 'generation', transport: 'openai_compatible', baseUrl: 'https://custom-pricing.test/v1', model: uniqueName('custom') };
+  const base = { name: 'Manual model', kind: 'generation', transport: 'openai_compatible', baseUrl: 'https://custom-pricing.test/v1', model: uniqueName('custom'), supportsImages: true };
   let before: typeof schema.providerPricing.$inferSelect | undefined;
   const calls: string[] = [];
   beforeAll(async () => {

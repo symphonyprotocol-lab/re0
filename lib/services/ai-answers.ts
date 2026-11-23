@@ -48,6 +48,8 @@
 import { generateText } from 'ai';
 import { and, asc, eq, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { aiAnswerInstructions, aiAnswerPrompt, cleanAiAnswer, type AiAnswerThread } from '@/lib/domain/ai-answer';
+import { imagesNote, postSubject } from '@/lib/domain/post-images';
+import { imageParts, visionOptions, withImages, type ImagePart } from '@/lib/services/post-images';
 import { InsufficientCredits } from '@/lib/domain/credits';
 import { isUuid } from '@/lib/domain/list';
 import {
@@ -80,6 +82,8 @@ export interface AiAnswerInput {
   detail: string;
   lang: 'zh' | 'en';
   thread?: AiAnswerThread;
+  /** The post's images (the first round only): the model reads them with the question. */
+  images?: readonly ImagePart[];
   signal: AbortSignal;
 }
 
@@ -87,12 +91,13 @@ export interface AiAnswerInput {
 export type AiAnswerer = (input: AiAnswerInput) => Promise<{ text: string; model: string | null }>;
 
 /** The free tier's generation model, whatever the asker's Plan: the base fee covers its cost, a Plan model's it would not (section 10). */
-export const modelAiAnswer: AiAnswerer = async ({ userId, question, detail, lang, thread, signal }) => {
+export const modelAiAnswer: AiAnswerer = async ({ userId, question, detail, lang, thread, images = [], signal }) => {
   const generation = await modelFor('generation', 'free', { userId, purpose: 'ai_answer' });
   const { text, response } = await generateText({
     model: generation.model,
     instructions: aiAnswerInstructions(lang),
-    messages: [{ role: 'user', content: aiAnswerPrompt(question, detail, thread) }],
+    messages: [withImages(images.length ? `${aiAnswerPrompt(question, detail, thread)}\n\n${imagesNote(images.length)}` : aiAnswerPrompt(question, detail, thread), images)],
+    ...visionOptions(images),
     maxOutputTokens: AI_ANSWER_MAX_OUTPUT_TOKENS,
     temperature: 0.3,
     maxRetries: 1,
@@ -124,7 +129,8 @@ async function askedRound(postId: string, followupId: string | null): Promise<{ 
   if (!followupId) {
     const [row] = await db().select().from(post).where(and(live, eq(post.answerState, 'done'))).limit(1);
     if (!row?.userId) return null;
-    return { userId: row.userId, question: row.question, detail: row.detail, lang: row.lang, visibility: row.visibility, postQuestion: row.question };
+    /* What the images say rides with the detail; the images themselves go to the model too (`runAiAnswer`). */
+    return { userId: row.userId, question: row.question, detail: [row.detail, row.imageText ? `[Images] ${row.imageText}` : ''].filter(Boolean).join('\n'), lang: row.lang, visibility: row.visibility, postQuestion: row.question };
   }
   const [row] = await db()
     .select({ post, followup })
@@ -133,7 +139,7 @@ async function askedRound(postId: string, followupId: string | null): Promise<{ 
     .where(and(live, eq(followup.id, followupId), eq(followup.status, 'published'), isNull(followup.deletedAt), eq(followup.answerState, 'done')))
     .limit(1);
   if (!row) return null;
-  return { userId: row.followup.userId, question: row.followup.question, detail: '', lang: row.followup.lang, visibility: row.post.visibility, postQuestion: [row.post.question, row.post.detail].filter(Boolean).join('\n') };
+  return { userId: row.followup.userId, question: row.followup.question, detail: '', lang: row.followup.lang, visibility: row.post.visibility, postQuestion: postSubject(row.post) };
 }
 
 /**
@@ -247,8 +253,9 @@ export async function runAiAnswer(id: string, deps: AiDeps = {}): Promise<void> 
     const timer = setTimeout(() => controller.abort(new Error('ai answer timed out')), AI_ANSWER_TIMEOUT_MS);
     try {
       const thread = row.followupId ? await threadOf(row.postId, row.followupId, row.userId, round.postQuestion) : undefined;
+      const images = row.followupId ? [] : await imageParts(row.postId);
       const answered = await Promise.race([
-        (deps.aiAnswer ?? modelAiAnswer)({ userId: row.userId, question: round.question, detail: round.detail, lang: round.lang, thread, signal: controller.signal }),
+        (deps.aiAnswer ?? modelAiAnswer)({ userId: row.userId, question: round.question, detail: round.detail, lang: round.lang, thread, images, signal: controller.signal }),
         new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () => reject(new Error('ai answer timed out')), { once: true })),
       ]);
       const text = cleanAiAnswer(answered.text, round.lang);

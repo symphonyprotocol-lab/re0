@@ -10,7 +10,8 @@ import { TEST_DATABASE_URL, uniqueName } from './setup';
 import { and, eq, sql } from 'drizzle-orm';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
-vi.mock('@/lib/infra/ai/gateway-generation-pricing', () => ({ gatewayGenerationPricing: async () => undefined }));
+/* Every gateway model here reads images (the catalog's vision tag, lib/services/models.ts). */
+vi.mock('@/lib/infra/ai/gateway-generation-pricing', () => ({ gatewayGenerationPricing: async () => undefined, gatewayModelVision: async () => true }));
 
 const admin = await import('@/lib/services/admin');
 const models = await import('@/lib/services/models');

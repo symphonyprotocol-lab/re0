@@ -17,13 +17,14 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * `{question, detail?, anonymous?, mentionReeId?, quotePostId?, quoteAnswerId?, clientToken?}`: publishes
+ * `{question, detail?, anonymous?, mentionReeId?, quotePostId?, quoteAnswerId?, clientToken?, images?}`: publishes
  * a public post → 201 `{id, charge}`; the same token, or the same text
  * within a minute, → 200 with the post already made, nothing held twice.
  * A quote ("引用提问") of something no longer visible → 422 `quote_unavailable`. Its review, matching and answers run after the
  * response (the post page polls). 402 with the balance when a post past
  * the free ones cannot be paid for; 429 `daily_limit`; 422 `empty` /
- * `too_long`.
+ * `too_long` / `invalid_images` / `too_many_images` (`images`: up to four
+ * pathnames the author uploaded with `/api/upload-token` purpose `post-image`).
  */
 export async function POST(request: NextRequest) {
   const user = await apiUser(request);
@@ -39,6 +40,7 @@ export async function POST(request: NextRequest) {
     clientToken: typeof input.clientToken === 'string' ? input.clientToken : null,
     quotePostId: typeof input.quotePostId === 'string' ? input.quotePostId : null,
     quoteAnswerId: typeof input.quoteAnswerId === 'string' ? input.quoteAnswerId : null,
+    images: input.images,
     lang: user.lang,
   });
   if (!result.ok) {

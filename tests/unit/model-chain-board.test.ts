@@ -13,7 +13,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: 
 const config = (id: string, name: string, model: string, extra: Partial<ModelConfigView> = {}): ModelConfigView => ({
   id, name, kind: 'generation', transport: 'openai_compatible', baseUrl: 'https://provider.test/v1', model, apiKeyTail: '1234', hasKey: true,
   timeoutMs: 60_000, enabled: false, enabledPlan: false, embeddingSpace: null, lastProbeAt: null, lastProbeOk: null, updatedBy: null,
-  updatedAt: new Date('2026-11-21T00:00:00Z'), costPricing: null, generationPricing: { source: 'unknown' }, ...extra,
+  updatedAt: new Date('2026-11-21T00:00:00Z'), costPricing: null, generationPricing: { source: 'unknown' }, supportsImages: true, readsImages: true, ...extra,
 });
 const later = new Date(Date.now() + 3_600_000).toISOString();
 const board = {

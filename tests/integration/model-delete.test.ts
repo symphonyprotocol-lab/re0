@@ -10,7 +10,7 @@ import { eq, inArray, sql } from 'drizzle-orm';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
-vi.mock('@/lib/infra/ai/gateway-generation-pricing', () => ({ gatewayGenerationPricing: async () => undefined }));
+vi.mock('@/lib/infra/ai/gateway-generation-pricing', () => ({ gatewayGenerationPricing: async () => undefined, gatewayModelVision: async () => true }));
 
 const models = await import('@/lib/services/models');
 const { db, schema } = await import('@/lib/infra/db');
