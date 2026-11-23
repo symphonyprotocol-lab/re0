@@ -219,8 +219,8 @@ export interface AiAnswerView {
   private: boolean;
 }
 
-/** How many answered posts a share page shows ("大家问过的"); the rest are on the Ree page. */
-export const SHARE_POST_PICKS = 3;
+/** How many answered posts a share page shows: one beside its hero, the rest under "大家问过的"; all of them are on the Ree page. */
+export const SHARE_POST_PICKS = 4;
 
 /**
  * One Ree as a box that names it (向 … 提问 on its share page and Ree page)

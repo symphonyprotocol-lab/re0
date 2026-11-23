@@ -15,6 +15,19 @@ export const REE_ASK_ANCHOR = 'ask';
 
 export type AskVisibility = 'public' | 'private';
 
+/** A question picked elsewhere on the page (the share page's 可以这样问它) put into the box: `{ slug, text }`. */
+const ASK_PREFILL_EVENT = 're0:ask-prefill';
+
+/** Bring the box into view with its question in focus; with `text`, that question goes in first. */
+export function focusAsk(slug: string, text?: string): void {
+  if (text !== undefined) window.dispatchEvent(new CustomEvent(ASK_PREFILL_EVENT, { detail: { slug, text } }));
+  requestAnimationFrame(() => {
+    const box = document.getElementById(REE_ASK_ANCHOR);
+    box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    box?.querySelector('textarea')?.focus({ preventScroll: true });
+  });
+}
+
 interface AskDraft {
   text: string;
   visibility: AskVisibility;
@@ -84,6 +97,20 @@ export function ReeAsk({ ree, option, takesPosts, signedIn, loginHref, share = n
     setGeneration((value) => value + 1);
     if (window.location.hash === `#${REE_ASK_ANCHOR}`) document.getElementById(REE_ASK_ANCHOR)?.scrollIntoView({ block: 'center' });
   }, [ree.slug, takesPosts]);
+
+  useEffect(() => {
+    const prefill = (event: Event) => {
+      const detail = (event as CustomEvent<{ slug?: string; text?: string }>).detail;
+      if (detail?.slug !== ree.slug || typeof detail.text !== 'string') return;
+      const next = { ...draft.current, text: detail.text.slice(0, POST_QUESTION_MAX) };
+      draft.current = next;
+      setText(next.text);
+      setGeneration((value) => value + 1);
+      writeDraft(ree.slug, next);
+    };
+    window.addEventListener(ASK_PREFILL_EVENT, prefill);
+    return () => window.removeEventListener(ASK_PREFILL_EVENT, prefill);
+  }, [ree.slug]);
 
   const remember = (change: Partial<AskDraft>) => {
     draft.current = { ...draft.current, ...change };
