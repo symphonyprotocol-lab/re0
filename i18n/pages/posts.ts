@@ -404,7 +404,7 @@ export const zh = {
   },
   admin: {
     title: '公开帖子',
-    lede: '被举报或已下架的帖子在前。下架后帖子在信息流、帖子页、搜索、sitemap 和 Ree 主页都不可见，发帖人仍能看到；恢复会清空举报。已结算的 credits 不退回。',
+    lede: '问题、Ree 回答、追问或 AI 回答被举报的帖子在前。下架后帖子在信息流、帖子页、搜索、sitemap 和 Ree 主页都不可见，发帖人仍能看到；恢复会清空举报。已结算的 credits 不退回。',
     views: { reported: '被举报', quotes: '引用待复核', hidden: '已下架', all: '全部' },
     search: '搜索问题',
     empty: '没有符合条件的帖子。',
@@ -418,6 +418,7 @@ export const zh = {
     stale: '状态已变化，已刷新。',
     open: '打开',
     quoteReview: '引用的帖子已下架或回答已隐藏，回答待复核',
+    reportsOn: { answers: 'Ree 回答 {n}', followups: '追问 {n}' },
     quoteReviewBanner: '有 {n} 条帖子引用了已下架的帖子或已隐藏的回答，它们的回答可能复述原内容，在复核前仍然公开。去复核 →',
     quoteKeep: '保留回答',
     quoteHideAnswers: '隐藏回答',
@@ -837,7 +838,7 @@ export const en: Shape<typeof zh> = {
   },
   admin: {
     title: 'Public posts',
-    lede: 'Reported and taken-down posts first. A taken-down post disappears from feeds, its page, search, the sitemap and Ree pages; its author still sees it. Restoring clears the reports. Settled credits are not refunded.',
+    lede: 'Posts whose question, Ree answers, follow-ups or AI answers were reported come first. A taken-down post disappears from feeds, its page, search, the sitemap and Ree pages; its author still sees it. Restoring clears the reports. Settled credits are not refunded.',
     views: { reported: 'Reported', quotes: 'Quotes to review', hidden: 'Taken down', all: 'All' },
     search: 'Search questions',
     empty: 'No posts match.',
@@ -851,6 +852,7 @@ export const en: Shape<typeof zh> = {
     stale: 'It changed meanwhile; refreshed.',
     open: 'Open',
     quoteReview: 'Quotes a post taken down or an answer hidden; answers to review',
+    reportsOn: { answers: 'Ree answers {n}', followups: 'Follow-ups {n}' },
     quoteReviewBanner: '{n} posts quote a post that was taken down or an answer that was hidden. Their answers may restate it and stay public until reviewed. Review them →',
     quoteKeep: 'Keep answers',
     quoteHideAnswers: 'Hide answers',

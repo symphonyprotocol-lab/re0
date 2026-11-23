@@ -3,7 +3,8 @@ import { requireAdministrator } from '@/lib/http/admin';
 import type { Administrator } from '@/lib/services/admin';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { adminRee, adminReeSources, reeAudit, sourceFilter } from '@/lib/services/admin-rees';
-import { answerCounts, reeStatistics, statisticsQuery } from '@/lib/services/statistics';
+import { reeStatistics, statisticsQuery } from '@/lib/services/statistics';
+import { consoleReeAnswers } from '@/lib/services/ree-counts';
 import { serverMessages } from '@/i18n/server';
 import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { AuditTable } from '@/components/admin/audit-kit';
@@ -54,7 +55,7 @@ export default async function ReeDetailPage({ params, searchParams }: Props) {
     );
   }
   const tab = reeTab(query);
-  const answers = await answerCounts([id], null);
+  const answers = await consoleReeAnswers([id]);
   const from = back.from;
   let body;
   if (tab === 'sources') {
@@ -103,7 +104,7 @@ export default async function ReeDetailPage({ params, searchParams }: Props) {
         body
       ) : (
         <div className="admin-ree-detail">
-          <ReeHeader t={t} locale={locale} detail={detail} answers={answers.get(id) ?? 0} />
+          <ReeHeader t={t} locale={locale} detail={detail} answers={answers.get(id) ?? { others: 0, own: 0 }} />
           {body}
         </div>
       )}

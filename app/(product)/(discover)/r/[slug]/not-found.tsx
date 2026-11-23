@@ -3,6 +3,7 @@ import { currentUser } from '@/lib/http/session';
 import { serverMessages } from '@/i18n/server';
 import { Topbar } from '@/components/shell/topbar';
 import { Icon } from '@/components/ui/icons';
+import { NotFoundMark } from '@/components/shell/page-view';
 
 /**
  * `/r/[slug]` for a slug that is unknown, private or taken down (prototype
@@ -14,6 +15,7 @@ export default async function PublicReeNotFound() {
   const p = t.discover.public.notFound;
   return (
     <>
+      <NotFoundMark />
       {user && <Topbar crumbs={[{ label: t.discover.explore.title, href: '/explore' }]} />}
       <main className={`mx-auto w-full max-w-[1120px] px-4 pb-16 sm:px-6 ${user ? 'pt-6 md:px-8' : 'pt-10'}`}>
         <div className="card flex flex-col items-center px-6 py-14 text-center">

@@ -4,7 +4,7 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { redirect } from 'next/navigation';
 import { csvHref, listHref, reesView, REE_PIN_FILTERS, REE_VISIBILITY } from '@/lib/domain/admin-lists';
 import { listAdminRees } from '@/lib/services/admin-rees';
-import { answerCounts } from '@/lib/services/statistics';
+import { consoleReeAnswers } from '@/lib/services/ree-counts';
 import { serverMessages } from '@/i18n/server';
 import { Fragment } from 'react';
 import { fill, formatNumber } from '@/i18n/format';
@@ -38,7 +38,7 @@ export default async function ReesPage({ searchParams }: Props) {
   const href = (changes: Record<string, string | number | null>) => listHref('/admin/rees', current, changes);
   // A page past the end (rows went away, a stale link) lands on the last page's canonical URL.
   if (data.page !== view.page) redirect(href({}));
-  const answers = await answerCounts(data.items.map((row) => row.id), null);
+  const answers = await consoleReeAnswers(data.items.map((row) => row.id));
   const n = (value: number) => formatNumber(value, locale);
   const filtered = Boolean(view.q) || view.status !== 'all' || view.pin !== 'all' || view.sort !== 'newest';
   const back = encodeURIComponent(href({}));
@@ -108,7 +108,10 @@ export default async function ReesPage({ searchParams }: Props) {
               <Fragment key="fee">
                 <span className="mono">{n(row.queryFee)}</span> credits
               </Fragment>,
-              n(answers.get(row.id) ?? 0),
+              <Fragment key="answers">
+                {n(answers.get(row.id)?.others ?? 0)}
+                {(answers.get(row.id)?.own ?? 0) > 0 && <small className="cell-subline">{fill(t.consoleRees.rees.ownAnswers, { n: n(answers.get(row.id)!.own) })}</small>}
+              </Fragment>,
               <ReeRowActions key="action" t={t} ree={row} detailHref={`/admin/rees/${row.id}?from=${back}`} />,
             ])}
           />

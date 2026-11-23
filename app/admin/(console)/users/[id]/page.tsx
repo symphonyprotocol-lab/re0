@@ -19,7 +19,7 @@ import { redemptionsOf } from '@/lib/services/redeem';
 import { DotAvatar, RoleChecks, RoleHistory, RolePanel } from '@/components/admin/user-detail-roles';
 import { kycHistory } from '@/lib/services/kyc';
 import { listNotices } from '@/lib/services/notices';
-import { answerCounts } from '@/lib/services/statistics';
+import { consoleReeAnswers } from '@/lib/services/ree-counts';
 import { payoutsOf } from '@/lib/services/payouts';
 import { KycStatusTag } from '@/components/admin/payout-kit';
 import { PayoutsTable } from '@/components/admin/payouts-table';
@@ -327,7 +327,7 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
     );
   } else {
     const rees = await userRees(id);
-    const answers = await answerCounts(rees.map((ree) => ree.id), null);
+    const answers = await consoleReeAnswers(rees.map((ree) => ree.id));
     const r = d.rees;
     body = (
       <section className="card">
@@ -355,7 +355,10 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
               <Fragment key="fee">
                 <span className="mono">{n(ree.queryFee)}</span> credits
               </Fragment>,
-              n(answers.get(ree.id) ?? 0),
+              <Fragment key="answers">
+                {n(answers.get(ree.id)?.others ?? 0)}
+                {(answers.get(ree.id)?.own ?? 0) > 0 && <small className="cell-subline">{fill(t.consoleRees.rees.ownAnswers, { n: n(answers.get(ree.id)!.own) })}</small>}
+              </Fragment>,
               <ReeRowActions
                 key="action"
                 t={t}

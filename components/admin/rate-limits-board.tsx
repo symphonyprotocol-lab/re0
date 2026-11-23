@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import type { RateLimitExemptionRow, RateLimitName, RateLimitRow, RateRuleValue } from '@/lib/services/rate-limit-settings';
+import type { FixedLimitRow, RateLimitExemptionRow, RateLimitName, RateLimitRow, RateRuleValue } from '@/lib/services/rate-limit-settings';
 import { RATE_LIMIT_EXEMPT_DEFAULT, RATE_LIMIT_MODEL_COST } from '@/lib/constants';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
@@ -20,8 +20,8 @@ const draftsOf = (limits: RateLimitRow[]): Drafts => Object.fromEntries(limits.m
 const scopesOf = (exemptions: RateLimitExemptionRow[]) => Object.fromEntries(exemptions.map((row) => [row.userId, row.limits]));
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((name) => b.includes(name));
 
-/** The console's rate-limit page: each limit's two windows, reset to default, and the exempt accounts with the limits each covers. */
-export function RateLimitsBoard({ initial }: { initial: Board }) {
+/** The console's rate-limit page: each limit's two windows, reset to default, the ceilings fixed in code, and the exempt accounts with the limits each covers. */
+export function RateLimitsBoard({ initial, fixed }: { initial: Board; fixed: FixedLimitRow[] }) {
   const { t, locale } = useI18n();
   const m = t.rateLimits;
   const toast = useToast();
@@ -143,6 +143,16 @@ export function RateLimitsBoard({ initial }: { initial: Board }) {
     <section className="card record-table rate-limits-section">
       <h2>{m.limitsTitle}</h2>
       <RecordsTable label={m.limitsTitle} head={[m.limit, m.perMinute, m.perHour, '', '']} rows={limitRows} empty={m.errors.not_found} />
+    </section>
+    <section className="card record-table rate-limits-section">
+      <h2>{m.fixedTitle}</h2>
+      <p className="muted">{m.fixedLede}</p>
+      <RecordsTable
+        label={m.fixedTitle}
+        head={[m.limit, m.fixedValue]}
+        rows={fixed.map((row) => [<strong key="name">{m.fixed[row.key]}</strong>, <span key="value" className="mono">{fill(row.per === 'day' ? m.dayRule : m.minuteRule, { n: n(row.limit) })}</span>])}
+        empty={m.errors.not_found}
+      />
     </section>
     <section className="card record-table rate-limits-section">
       <h2>{m.exemptTitle}</h2>

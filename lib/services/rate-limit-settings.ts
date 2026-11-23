@@ -10,7 +10,8 @@
  * exemptions, and tries again shortly. Every change is audited.
  */
 import { asc, eq, sql } from 'drizzle-orm';
-import { RATE_LIMIT_EXEMPT_DEFAULT, USER_RATE_LIMITS } from '@/lib/constants';
+import { EXPLORE_RATE_LIMIT, RATE_LIMIT_EXEMPT_DEFAULT, USER_RATE_LIMITS } from '@/lib/constants';
+import { FOLLOWUP_DAILY_LIMIT, FOLLOWUP_POST_DAILY_LIMIT, POST_DAILY_LIMIT } from '@/lib/domain/post';
 import { isUuid } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
@@ -77,6 +78,34 @@ function isRateLimitName(value: unknown): value is RateLimitName {
 
 function knownLimits(values: readonly string[]): RateLimitName[] {
   return RATE_LIMIT_NAMES.filter((name) => values.includes(name));
+}
+
+export const FIXED_LIMIT_KEYS = ['postsPerDay', 'followupsPerDay', 'followupsPerPostPerDay', 'exploreQuestions'] as const;
+export type FixedLimitKey = (typeof FIXED_LIMIT_KEYS)[number];
+
+/** A ceiling the services count themselves, in code: no console value and no exemption changes it. */
+export interface FixedLimitRow {
+  key: FixedLimitKey;
+  limit: number;
+  /** `day`: the UTC+8 day; `minute`: per account and per client address. */
+  per: 'day' | 'minute';
+}
+
+/**
+ * The ceilings that sit beside `USER_RATE_LIMITS` and that an exemption does
+ * not lift: posts a day (public and private together, not 试问 or MCP asks;
+ * posts.ts and private-posts.ts), follow-ups a day and per post a day
+ * (post-followups.ts), and Explore's questions a minute (explore.ts). The
+ * official Rees' QA, which went out as public posts from 2026-11-23, meets
+ * the first one whatever its exemption covers.
+ */
+export function fixedLimits(): FixedLimitRow[] {
+  return [
+    { key: 'postsPerDay', limit: POST_DAILY_LIMIT, per: 'day' },
+    { key: 'followupsPerDay', limit: FOLLOWUP_DAILY_LIMIT, per: 'day' },
+    { key: 'followupsPerPostPerDay', limit: FOLLOWUP_POST_DAILY_LIMIT, per: 'day' },
+    { key: 'exploreQuestions', limit: EXPLORE_RATE_LIMIT.perUser, per: 'minute' },
+  ];
 }
 
 /* ------------------------------------------------------------ the hot path */
