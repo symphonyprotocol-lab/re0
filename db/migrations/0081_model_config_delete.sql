@@ -1,0 +1,2 @@
+ALTER TABLE "model_config" ADD COLUMN "deleted_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "model_config" ADD CONSTRAINT "model_config_deleted_check" CHECK (deleted_at is null or not (enabled or enabled_plan));

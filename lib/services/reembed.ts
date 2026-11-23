@@ -108,7 +108,7 @@ export async function startReembed(administratorId: string, toId: string, now = 
   return db().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('re0:reembed'))`);
     const [target] = await tx.select().from(schema.modelConfig).where(eq(schema.modelConfig.id, toId)).limit(1);
-    if (!target || target.kind !== 'embedding') throw new AdminInputError('not_found');
+    if (!target || target.kind !== 'embedding' || target.deletedAt) throw new AdminInputError('not_found');
     if (target.enabled) throw new AdminInputError('stale');
     if (await runningReembedJob(tx)) throw new AdminInputError('job_running');
     const [chunks] = await tx.select({ n: count() }).from(schema.chunk);
