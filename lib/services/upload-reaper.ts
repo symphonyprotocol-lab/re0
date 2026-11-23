@@ -2,7 +2,7 @@
  * `/api/cron/purge-uploads` (daily, idempotent): files a browser uploaded
  * with a token from `/api/upload-token` but never registered — a knowledge
  * file no `knowledge.source` names, an avatar no user, Ree or setup draft
- * names, a cover no Ree names — are deleted once older than
+ * names, a cover no Ree names, a post image no post names — are deleted once older than
  * UPLOAD_ORPHAN_HOURS. Unregistered files are never billed for storage, so
  * this is what keeps them from accumulating. A replaced avatar or cover is
  * unreferenced too and goes the same way.
@@ -66,6 +66,16 @@ const PREFIXES: Prefix[] = [
     async referenced(pathnames) {
       const rows = await db().select({ coverBlob: schema.ree.coverBlob }).from(schema.ree).where(inArray(schema.ree.coverBlob, pathnames));
       return new Set(rows.map((row) => row.coverBlob!));
+    },
+  },
+  {
+    /* A post's image the composer uploaded but no post names (abandoned, or its post purged): post_image rows keep the rest. */
+    prefix: 'post-images/',
+    owner: new RegExp(`^post-images/(${UUID})/${UUID}\\.(?:jpg|png|webp)$`),
+    known: knownUsers,
+    async referenced(pathnames) {
+      const rows = await db().selectDistinct({ pathname: schema.postImage.pathname }).from(schema.postImage).where(inArray(schema.postImage.pathname, pathnames));
+      return new Set(rows.map((row) => row.pathname));
     },
   },
 ];

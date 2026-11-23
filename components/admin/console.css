@@ -1600,6 +1600,11 @@
   color: #a6b7ce;
   line-height: 1.9;
 }
+:where(.console-app, .admin-login-page) .model-vision-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 :where(.console-app, .admin-login-page) .model-key {
   font: 9px var(--mono);
   color: #acb9ce;

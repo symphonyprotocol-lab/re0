@@ -148,7 +148,7 @@ describeWithDb('answering', () => {
     const adminId =
       administrator?.id ??
       (await db().insert(schema.administrator).values({ name: 'a', email: `${uniqueName('a')}@x.test`, passwordHash: await admin.hashPassword('x'.repeat(12)), totpSecretCipher: 'x' }).returning())[0]!.id;
-    const created = await models.createModelConfig(adminId, { name: 'Second', kind: 'generation', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'fake-gen-2', apiKey: 'k' });
+    const created = await models.createModelConfig(adminId, { name: 'Second', kind: 'generation', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'fake-gen-2', apiKey: 'k', supportsImages: true });
     await models.activateModelConfig(adminId, created.id);
     try {
       const { answer } = await ask(userId, ree.id, 'When are refunds issued to the original payment method?');

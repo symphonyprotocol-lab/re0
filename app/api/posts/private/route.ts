@@ -7,14 +7,14 @@ import { processPrivatePost, publishPrivatePost } from '@/lib/services/private-p
 export const maxDuration = 300;
 
 /**
- * `{question, detail?, reeIds, fees, aiOnly?, clientToken?}`: asks the chosen Rees
+ * `{question, detail?, reeIds, fees, aiOnly?, clientToken?, images?}`: asks the chosen Rees
  * privately (私密提问) → 201 `{id}`; the same token, or the same text within a
  * minute, → 200 with the post already made, nothing held twice. Every hold
  * is placed before the response; the answers are written after it (the
  * post page polls). `fees` is the price per Ree the composer showed: one now
  * higher → 409 `price_changed` with `prices`; 402 with the balance; 429
  * `daily_limit`; 422 `empty` / `too_long` / `no_rees` / `too_many_rees` /
- * `ree_unavailable`. `aiOnly` with no `reeIds` (只问 AI): a private post only
+ * `ree_unavailable` / `invalid_images` / `too_many_images`. `aiOnly` with no `reeIds` (只问 AI): a private post only
  * the AI answers, at the base fee (402 below it).
  */
 export async function POST(request: NextRequest) {
@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
     fees: typeof input.fees === 'object' && input.fees !== null && !Array.isArray(input.fees) ? (input.fees as Record<string, unknown>) : null,
     aiOnly: input.aiOnly === true,
     clientToken: typeof input.clientToken === 'string' ? input.clientToken : null,
+    images: input.images,
     lang: user.lang,
   });
   if (!result.ok) {

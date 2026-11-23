@@ -48,6 +48,12 @@ export interface ModelEndpoint {
   space?: string | null;
   /** The entry's place in its kind's list (0: the primary); null or absent outside one. */
   position?: number | null;
+  /**
+   * Generation: the entry reads images, as far as this deployment knows --
+   * the operator's mark (OpenAI-compatible), the last catalog answer
+   * (gateway), or `GENERATION_SUPPORTS_IMAGES` for the environment's model.
+   */
+  supportsImages?: boolean;
 }
 
 const ENV_PREFIX: Record<ModelKind, string> = {
@@ -93,6 +99,7 @@ export function environmentEndpoint(kind: ModelKind): ModelEndpoint {
       apiKey,
       timeoutMs: MODEL_TIMEOUT_MS.default,
       source: named ? 'environment' : 'default',
+      ...environmentImages(kind),
     };
   }
   return {
@@ -105,7 +112,13 @@ export function environmentEndpoint(kind: ModelKind): ModelEndpoint {
     apiKey,
     timeoutMs: MODEL_TIMEOUT_MS.default,
     source: named ? 'environment' : 'default',
+    ...environmentImages(kind),
   };
+}
+
+/** Whether the environment's generation model reads images: only the operator can say (`GENERATION_SUPPORTS_IMAGES=true`). */
+function environmentImages(kind: ModelKind): { supportsImages?: boolean } {
+  return kind === 'generation' ? { supportsImages: env('GENERATION_SUPPORTS_IMAGES') === 'true' } : {};
 }
 
 /**
@@ -132,6 +145,7 @@ export async function consoleEndpoint(row: typeof schema.modelConfig.$inferSelec
     timeoutMs: row.timeoutMs,
     source: 'console',
     ...(row.kind === 'embedding' ? { space: row.embeddingSpace } : {}),
+    ...(row.kind === 'generation' ? { supportsImages: row.supportsImages } : {}),
   };
 }
 

@@ -14,6 +14,8 @@ import { instructionsFor, NO_ANSWER_SENTINEL, questionWithPassages, sentinelStat
 import { db, schema } from '@/lib/infra/db';
 import type { generationForUser } from '@/lib/services/generation';
 import type { Ree } from '@/lib/services/rees';
+import { imagesNote } from '@/lib/domain/post-images';
+import { visionOptions, withImages, type ImagePart } from '@/lib/services/post-images';
 
 const MAX_OUTPUT_TOKENS = 1_500;
 
@@ -54,17 +56,19 @@ type Generation = Awaited<ReturnType<typeof generationForUser>>;
  * after closing the text part it opened.
  */
 export async function streamGroundedAnswer(
-  args: { generation: Generation; ree: Pick<Ree, 'id' | 'name' | 'systemPrompt'>; lang: 'zh' | 'en'; subject: string; passages: readonly Passage[]; turns: { role: 'user' | 'assistant'; content: string }[] },
+  args: { generation: Generation; ree: Pick<Ree, 'id' | 'name' | 'systemPrompt'>; lang: 'zh' | 'en'; subject: string; passages: readonly Passage[]; turns: { role: 'user' | 'assistant'; content: string }[]; images?: readonly ImagePart[] },
   emit: Emit,
 ): Promise<{ declined: boolean; text: string; model: string }> {
-  const { generation, ree, subject, passages, turns } = args;
+  const { generation, ree, subject, passages, turns, images = [] } = args;
   const model = generation.endpoint.model;
   let textOpen = false;
   try {
     const result = streamText({
       model: generation.model,
       instructions: instructionsFor({ reeName: ree.name, systemPrompt: ree.systemPrompt, lang: args.lang }),
-      messages: [{ role: 'user', content: questionWithPassages(subject, passages, turns) }],
+      /* A post's images come after the passages and the question; the model reads them as part of the question. */
+      messages: [withImages(images.length ? `${questionWithPassages(subject, passages, turns)}\n\n${imagesNote(images.length)}` : questionWithPassages(subject, passages, turns), images)],
+      ...visionOptions(images),
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       temperature: 0.2,
       maxRetries: 1,

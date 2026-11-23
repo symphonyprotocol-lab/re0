@@ -7,6 +7,7 @@ import { POST_DETAIL_MAX, POST_MAX_ANSWERS, POST_QUESTION_MAX, PRIVATE_POST_MAX_
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { QuoteCard } from '@/components/posts/post-card';
 import { PrivateReePicker } from '@/components/posts/ree-picker';
+import { ImageButton, ImageTray, usePostImages } from '@/components/posts/post-images';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
@@ -166,6 +167,11 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
   }, [quote]);
   /* One token per post being written: a second submit of the same one returns the same post (S4). */
   const [token, setToken] = useState(() => crypto.randomUUID());
+  const images = usePostImages();
+  /* "图片上传中…" from an early Cmd/Ctrl+Enter goes once the uploads are done. */
+  useEffect(() => {
+    if (images.ready) setError((current) => (current === c.imageUploading ? null : current));
+  }, [images.ready, c.imageUploading]);
 
   useEffect(() => {
     let live = true;
@@ -182,19 +188,22 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
     if (busy) return;
     if (!question.trim()) return setError(c.empty);
     if (question.trim().length > POST_QUESTION_MAX || detail.trim().length > POST_DETAIL_MAX) return setError(fill(c.tooLong, { question: POST_QUESTION_MAX, detail: POST_DETAIL_MAX }));
+    /* Cmd/Ctrl+Enter reaches here with uploads running or failed: say so rather than do nothing. */
+    if (!images.ready) return setError(images.uploading ? c.imageUploading : c.imageFailed);
     setBusy(true);
     setError(null);
     try {
       const response = await fetch('/api/posts', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ question, detail, anonymous, mentionReeId: mention?.id ?? null, quotePostId: quote?.postId ?? null, quoteAnswerId: quote?.answerId ?? null, clientToken: token }),
+        body: JSON.stringify({ question, detail, anonymous, mentionReeId: mention?.id ?? null, quotePostId: quote?.postId ?? null, quoteAnswerId: quote?.answerId ?? null, clientToken: token, images: images.pathnames }),
       });
       const body = (await response.json().catch(() => ({}))) as { id?: string; error?: string; balance?: number; needed?: number };
       if ((response.status === 201 || response.status === 200) && body.id) {
         /* Published: the form stays busy and empty until the post's page opens, so nothing can send it twice. */
         setQuestion('');
         setDetail('');
+        images.clear();
         setToken(crypto.randomUUID());
         onPublished?.(body.id);
         const go = () => router.push(`/p/${body.id}`);
@@ -214,7 +223,11 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
               ? fill(c.tooLong, { question: POST_QUESTION_MAX, detail: POST_DETAIL_MAX })
               : body.error === 'empty'
                 ? c.empty
-                : c.failed,
+                : body.error === 'invalid_images' || body.error === 'too_many_images'
+                  ? c.imageInvalid
+                  : body.error === 'images_unsupported'
+                    ? c.imageUnsupported
+                    : c.failed,
       );
     } catch {
       toast(c.failed);
@@ -259,13 +272,15 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
         maxLength={POST_QUESTION_MAX + 50}
         autoFocus={autoFocus}
         onChange={(event) => write(event.target.value)}
+        onPaste={images.onPaste}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void publish();
         }}
       />
       {showDetail && (
-        <textarea className="post-detail" aria-label={c.detail} placeholder={c.detail} value={detail} maxLength={POST_DETAIL_MAX + 50} onChange={(event) => setDetail(event.target.value)} />
+        <textarea className="post-detail" aria-label={c.detail} placeholder={c.detail} value={detail} maxLength={POST_DETAIL_MAX + 50} onPaste={images.onPaste} onChange={(event) => setDetail(event.target.value)} />
       )}
+      <ImageTray images={images} />
       {error && (
         <p className="post-error" role="alert">
           {error}
@@ -294,11 +309,12 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
             {c.addDetail}
           </button>
         )}
+        <ImageButton images={images} disabled={busy} />
         <label>
           <input type="checkbox" checked={anonymous} onChange={(event) => setAnonymous(event.target.checked)} />
           {c.anonymous}
         </label>
-        <button type="button" className="btn btn-sm" disabled={busy || !question.trim() || (allowance !== null && allowance.balance < allowance.baseFee)} onClick={() => void publish()}>
+        <button type="button" className="btn btn-sm" disabled={busy || !question.trim() || !images.ready || (allowance !== null && allowance.balance < allowance.baseFee)} onClick={() => void publish()}>
           {busy ? <i className="spinner" /> : null}
           {busy ? c.publishing : c.publish}
         </button>
@@ -341,6 +357,11 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
   const [lacking, setLacking] = useState(false);
   /* One token per question being written: a second submit of the same one opens the same post. */
   const [token, setToken] = useState(() => crypto.randomUUID());
+  const images = usePostImages();
+  /* "图片上传中…" from an early Cmd/Ctrl+Enter goes once the uploads are done. */
+  useEffect(() => {
+    if (images.ready) setError((current) => (current === c.imageUploading ? null : current));
+  }, [images.ready, c.imageUploading]);
 
   const preset = reeIds?.join(',') ?? '';
   useEffect(() => {
@@ -392,6 +413,7 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
     if (busy) return;
     if (!text) return setError(c.empty);
     if (text.length > POST_QUESTION_MAX || detail.trim().length > POST_DETAIL_MAX) return setError(fill(c.tooLong, { question: POST_QUESTION_MAX, detail: POST_DETAIL_MAX }));
+    if (!images.ready) return setError(images.uploading ? c.imageUploading : c.imageFailed);
     /* No Ree chosen: 只问 AI -- a private post only the AI answers, at the base fee (AI 通用回答). */
     const aiOnly = chosen.length === 0;
     setBusy(true);
@@ -401,7 +423,7 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
       const response = await fetch('/api/posts/private', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ question, detail, reeIds: chosen.map((entry) => entry.reeId), fees: Object.fromEntries(chosen.map((entry) => [entry.reeId, entry.price])), aiOnly, clientToken: token }),
+        body: JSON.stringify({ question, detail, reeIds: chosen.map((entry) => entry.reeId), fees: Object.fromEntries(chosen.map((entry) => [entry.reeId, entry.price])), aiOnly, clientToken: token, images: images.pathnames }),
       });
       const body = (await response.json().catch(() => ({}))) as { id?: string; error?: string; balance?: number; needed?: number; prices?: { reeId: string; price: number }[] };
       if ((response.status === 201 || response.status === 200) && body.id) {
@@ -436,7 +458,11 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
                     ? fill(c.tooManyRees, { max: PRIVATE_POST_MAX_REES })
                     : body.error === 'ree_unavailable'
                       ? c.reeUnavailable
-                      : c.failed,
+                      : body.error === 'invalid_images' || body.error === 'too_many_images'
+                        ? c.imageInvalid
+                        : body.error === 'images_unsupported'
+                          ? c.imageUnsupported
+                          : c.failed,
       );
     } catch {
       setError(c.failed);
@@ -457,13 +483,15 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
           setQuestion(event.target.value);
           onQuestionChange?.(event.target.value);
         }}
+        onPaste={images.onPaste}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void send();
         }}
       />
       {showDetail && (
-        <textarea className="post-detail" aria-label={c.detail} placeholder={c.detail} value={detail} maxLength={POST_DETAIL_MAX + 50} onChange={(event) => setDetail(event.target.value)} />
+        <textarea className="post-detail" aria-label={c.detail} placeholder={c.detail} value={detail} maxLength={POST_DETAIL_MAX + 50} onPaste={images.onPaste} onChange={(event) => setDetail(event.target.value)} />
       )}
+      <ImageTray images={images} />
       <div className="ree-pick">
         <span className="post-hint">{chosen.length === 0 ? (suggesting ? c.suggesting : c.noSuggestion) : touched ? c.chosen : c.suggested}</span>
         {chosen.map((entry) => (
@@ -505,13 +533,14 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
             {c.addDetail}
           </button>
         )}
+        <ImageButton images={images} disabled={busy} />
         {chosen.length === 0 ? (
-          <button type="button" className="btn btn-sm" title={fill(t.posts.ai.askAiHint, { fee: QUERY_BASE_FEE })} disabled={busy || !text || suggesting} onClick={() => void send()}>
+          <button type="button" className="btn btn-sm" title={fill(t.posts.ai.askAiHint, { fee: QUERY_BASE_FEE })} disabled={busy || !text || suggesting || !images.ready} onClick={() => void send()}>
             {busy ? <i className="spinner" /> : <Icon name="sparkle" className="size-3.5" />}
             {busy ? c.privateSending : fill(t.posts.ai.askAi, { fee: formatNumber(QUERY_BASE_FEE, locale) })}
           </button>
         ) : (
-          <button type="button" className="btn btn-sm" disabled={busy || !text} onClick={() => void send()}>
+          <button type="button" className="btn btn-sm" disabled={busy || !text || !images.ready} onClick={() => void send()}>
             {busy ? <i className="spinner" /> : <Icon name="lock" className="size-3.5" />}
             {busy ? c.privateSending : c.privateSend}
           </button>
