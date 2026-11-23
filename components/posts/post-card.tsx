@@ -91,7 +91,7 @@ export function PostHelpful({ post, signedIn, loginHref, onChange }: { post: Pos
   }
   if (!signedIn) {
     return (
-      <Link href={loginHref ?? `/login?returnTo=${encodeURIComponent(`/p/${post.id}`)}`} className="icon-btn" title={t.posts.page.signInToVote} aria-label={`${c.helpful} ${count}`}>
+      <Link rel="nofollow" href={loginHref ?? `/login?returnTo=${encodeURIComponent(`/p/${post.id}`)}`} className="icon-btn" title={t.posts.page.signInToVote} aria-label={`${c.helpful} ${count}`}>
         <Icon name="thumbUp" className="" />
         {count}
       </Link>

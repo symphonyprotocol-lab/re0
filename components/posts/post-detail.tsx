@@ -372,7 +372,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
             {c.helpful} {formatNumber(entry.helpful, locale)}
           </button>
         ) : (
-          <Link href={loginHref} className="icon-btn" title={p.signInToVote}>
+          <Link rel="nofollow" href={loginHref} className="icon-btn" title={p.signInToVote}>
             <Icon name="thumbUp" className="" />
             {c.helpful} {formatNumber(entry.helpful, locale)}
           </Link>
@@ -402,7 +402,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
         )}
         {/* 引用: a new post of one's own quoting this answer; not one's own post, and only the first round's answers. */}
         {open && !mine && live && !round && (
-          <Link href={quoteHref(entry.id)} className="icon-btn" title={fill(q.quoteAnswerHint, { name: entry.reeName })}>
+          <Link rel={signedIn ? undefined : 'nofollow'} href={quoteHref(entry.id)} className="icon-btn" title={fill(q.quoteAnswerHint, { name: entry.reeName })}>
             <Icon name="quote" className="" />
             {q.quoteAnswer}
           </Link>
@@ -773,7 +773,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
           <Icon name="link" className="" />
         </button>
         {live && !mine && (
-          <Link href={quoteHref()} className="icon-btn" title={q.quotePostHint}>
+          <Link rel={signedIn ? undefined : 'nofollow'} href={quoteHref()} className="icon-btn" title={q.quotePostHint}>
             <Icon name="chat" className="" />
             {q.quotePost}
           </Link>

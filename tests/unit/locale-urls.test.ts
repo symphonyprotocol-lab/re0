@@ -110,6 +110,12 @@ describe('private paths: one list for the sign-in gate and robots.txt', () => {
       expect(request(`${path}/x`).headers.get('location')).toBe(`https://re0.test/login?returnTo=${encodeURIComponent(`${path}/x`)}`);
     }
   });
+
+  it('keeps crawlers off the sign-in page\'s returnTo copies but not off /login itself', () => {
+    /* GSC 2026-11: 2,964 of 5.34k unindexed URLs were /login?returnTo=... */
+    expect(CRAWL_DISALLOWED).toContain('/login?');
+    expect(CRAWL_DISALLOWED).not.toContain('/login');
+  });
 });
 
 describe('sign-in return paths', () => {

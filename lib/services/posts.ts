@@ -1095,10 +1095,15 @@ export async function postCover(id: string): Promise<PostCover | null> {
   return { state: 'shown', lang: row.lang, question: row.question, detail: row.detail, answers: shown.length, rees, first: shown[0] ?? null };
 }
 
-/** For the sitemap: visible posts with an answer anyone can read now, newest first. */
+/**
+ * For the sitemap: visible posts with an answer anyone can read now, newest
+ * first. `at` is mapped through the column so it arrives as a Date: a raw
+ * `sql` value comes back as Postgres text (`2026-11-22 16:47:46.953+00`),
+ * which Search Console rejects as a `<lastmod>`.
+ */
 export async function indexablePosts(limit = 5000): Promise<{ id: string; at: Date }[]> {
   return db()
-    .select({ id: post.id, at: sql<Date>`coalesce(${post.answeredAt}, ${post.publishedAt})` })
+    .select({ id: post.id, at: sql<Date>`coalesce(${post.answeredAt}, ${post.publishedAt})`.mapWith(post.publishedAt) })
     .from(post)
     .where(and(visiblePost(), hasShownAnswer()))
     .orderBy(desc(post.publishedAt))

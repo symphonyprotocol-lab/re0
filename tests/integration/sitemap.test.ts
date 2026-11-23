@@ -6,6 +6,8 @@ import { newReeDraft } from '@/lib/domain/ree';
 import { createSession } from '@/lib/services/auth';
 import { createReeFromDraft, deleteRee, saveDraft, setReePublished } from '@/lib/services/rees';
 import sitemap from '@/app/sitemap';
+import { authorOthers, authorOthersPages, publicReeBySlug } from '@/lib/services/public-rees';
+import { PUBLIC_LIST_PAGE_SIZE } from '@/lib/constants';
 
 const suite = TEST_DATABASE_URL ? describe : describe.skip;
 
@@ -47,5 +49,17 @@ suite('sitemap', () => {
       alternates: { languages: { zh: `https://re0.test/zh/r/${shown.slug}`, en: `https://re0.test/en/r/${shown.slug}`, 'x-default': `https://re0.test/r/${shown.slug}` } },
     });
     vi.unstubAllEnvs();
+  });
+
+  it('counts the pages of 同一创作者的更多 Ree the way the list pages them (the ?ap= gate)', async () => {
+    const owner = await person();
+    const first = await ree(owner);
+    const shown = await publicReeBySlug(first.slug);
+    expect(shown).not.toBeNull();
+    expect(await authorOthersPages(shown!)).toBe(1);
+    for (let i = 0; i <= PUBLIC_LIST_PAGE_SIZE; i += 1) await ree(owner);
+    const pages = await authorOthersPages(shown!);
+    expect(pages).toBe(2);
+    expect((await authorOthers(shown!, 99)).page).toBe(pages);
   });
 });

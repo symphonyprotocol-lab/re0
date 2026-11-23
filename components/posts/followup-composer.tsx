@@ -105,7 +105,7 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
             {/* 继续问 AI: no Ree answered, so the AI answers follow-ups, not the first round's Rees. */}
             <p>{publicAi && threadRees.length === 0 ? f.visitorBodyAi : f.visitorBody}</p>
           </div>
-          <Link href={loginHref} className="btn btn-sm">
+          <Link rel="nofollow" href={loginHref} className="btn btn-sm">
             {f.signIn}
           </Link>
         </div>

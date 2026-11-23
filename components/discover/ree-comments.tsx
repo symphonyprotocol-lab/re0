@@ -180,7 +180,7 @@ export function ReeComments({ reeId, initial, signedIn, loginHref, renderedAt, e
             <p className="text-[13px] font-semibold">{c.signInHeading}</p>
             <p className="text-[12px] text-muted">{c.signInHint}</p>
           </div>
-          <Link href={loginHref} className="btn-secondary btn-sm text-blue">
+          <Link rel="nofollow" href={loginHref} className="btn-secondary btn-sm text-blue">
             {c.signIn}
             <Icon name="arrow" className="size-3.5" />
           </Link>
@@ -190,7 +190,7 @@ export function ReeComments({ reeId, initial, signedIn, loginHref, renderedAt, e
       {issue && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
           <p role="alert" className="text-red">{fill(c[issue], { max: REE_COMMENT_MAX_LENGTH })}</p>
-          {issue === 'expired' && <Link href={loginHref} className="text-link">{c.signIn}</Link>}
+          {issue === 'expired' && <Link rel="nofollow" href={loginHref} className="text-link">{c.signIn}</Link>}
         </div>
       )}
 
