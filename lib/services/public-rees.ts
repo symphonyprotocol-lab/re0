@@ -6,7 +6,7 @@
  * public Rees.
  */
 import { and, asc, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
-import { PUBLIC_LIST_PAGE_SIZE, PUBLIC_RELATED_CANDIDATES, QUERY_BASE_FEE } from '@/lib/constants';
+import { PUBLIC_LIST_PAGE_SIZE, PUBLIC_RELATED_CANDIDATES, QUERY_BASE_FEE, REE_CATEGORIES, type ReeCategory } from '@/lib/constants';
 import { positiveRate, relatedRees } from '@/lib/domain/explore';
 import type { SocialContact } from '@/lib/domain/account';
 import { isUuid } from '@/lib/domain/list';
@@ -204,4 +204,20 @@ export async function sitemapReeTotals(): Promise<{ total: number; latest: Date 
     .from(schema.ree)
     .where(publicRee());
   return { total: row?.total ?? 0, latest: row?.latest ?? null };
+}
+
+/**
+ * The Explore categories that have public Rees, in the order the page lists
+ * its category links (`REE_CATEGORIES`), each with when its latest Ree
+ * changed: the same filter as the category's list (lib/services/explore.ts
+ * `explore`), so an empty category -- a page with no Rees -- is left out.
+ */
+export async function sitemapReeCategories(): Promise<{ category: ReeCategory; latest: Date }[]> {
+  const rows = await db()
+    .select({ category: schema.ree.category, latest: sql<Date>`max(${schema.ree.updatedAt})`.mapWith(schema.ree.updatedAt) })
+    .from(schema.ree)
+    .where(publicRee())
+    .groupBy(schema.ree.category);
+  const latest = new Map(rows.map((row) => [row.category, row.latest]));
+  return REE_CATEGORIES.flatMap((category) => (latest.has(category) ? [{ category, latest: latest.get(category)! }] : []));
 }

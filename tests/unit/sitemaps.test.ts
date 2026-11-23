@@ -1,6 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { parseSitemapId, sitemapIndexXml } from '@/lib/sitemaps';
+import { parseSitemapId, sitemapIndexXml, sitemapPart } from '@/lib/sitemaps';
 import { generateSitemaps } from '@/app/sitemap';
+import { publicPage } from '@/lib/seo';
+import { LOCALES } from '@/i18n/locale';
+
+const changed = new Date('2026-11-20T08:00:00Z');
+vi.mock('@/lib/services/public-rees', () => ({
+  sitemapReeTotals: async () => ({ total: 3, latest: changed }),
+  /* Two of the seven categories have public Rees; the rest are empty. */
+  sitemapReeCategories: async () => [{ category: 'technology', latest: changed }, { category: 'life', latest: changed }],
+  sitemapRees: async () => [],
+}));
+vi.mock('@/lib/services/posts', () => ({ indexablePosts: async () => [], indexablePostCount: async () => 0 }));
 
 beforeEach(() => vi.stubEnv('APP_BASE_URL', 'https://re0.io'));
 afterEach(() => vi.unstubAllEnvs());
@@ -27,5 +38,25 @@ describe('sitemap parts (lib/sitemaps.ts)', () => {
       'https://re0.io/sitemap/rees-1.xml',
       'https://re0.io/sitemap/rees-2.xml',
     ]);
+  });
+
+  it('lists each Explore category that has public Rees, in both languages, at exactly the URL its page names as canonical', async () => {
+    const entries = (await sitemapPart({ kind: 'pages' }))!;
+    const categories = entries.filter((entry) => entry.url.includes('/explore?'));
+    expect(categories.map((entry) => entry.url)).toEqual([
+      'https://re0.io/zh/explore?category=technology',
+      'https://re0.io/en/explore?category=technology',
+      'https://re0.io/zh/explore?category=life',
+      'https://re0.io/en/explore?category=life',
+    ]);
+    for (const category of ['technology', 'life']) {
+      for (const locale of LOCALES) {
+        /* What app/(product)/(discover)/explore/page.tsx's generateMetadata gives the category's first page. */
+        const { alternates } = publicPage({ path: `/explore?category=${category}`, title: '', description: '', locale });
+        const entry = categories.find((item) => item.url === alternates?.canonical);
+        expect(entry).toMatchObject({ lastModified: changed, changeFrequency: 'daily', alternates: { languages: alternates?.languages } });
+      }
+    }
+    expect(entries.some((entry) => /[?&](page|sort)=/.test(entry.url))).toBe(false);
   });
 });
