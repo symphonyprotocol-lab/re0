@@ -1,7 +1,7 @@
 import { providerRateSchema, type ProviderRate } from '@/lib/domain/provider-cost';
 
 export const GATEWAY_MODELS_URL = 'https://ai-gateway.vercel.sh/v1/models';
-interface Catalog { at: number; rows: { id: string; pricing?: Record<string, unknown> }[] }
+interface Catalog { at: number; rows: { id: string; pricing?: Record<string, unknown>; tags?: unknown }[] }
 let catalog: Catalog | undefined;
 let fetching: Promise<Catalog | undefined> | undefined;
 /** A failed read is not retried for this long, so an outage costs one timeout, not one per call. */
@@ -36,4 +36,15 @@ export async function gatewayGenerationPricing(model: string): Promise<{ rate: P
     usdPerUnit: price.input, outputUsdPerUnit: price.output, source: GATEWAY_MODELS_URL,
   });
   return parsed.success ? { rate: parsed.data, priceRevision: `gateway-catalog:${current!.at}`, estimated: true } : undefined;
+}
+
+/**
+ * Whether the gateway's catalog says this model reads images (its `vision`
+ * tag): what a post's images need. Undefined when the catalog cannot be
+ * read or does not list the model.
+ */
+export async function gatewayModelVision(model: string): Promise<boolean | undefined> {
+  const row = (await loadCatalog())?.rows.find((entry) => entry.id === model);
+  if (!row) return undefined;
+  return Array.isArray(row.tags) && row.tags.includes('vision');
 }

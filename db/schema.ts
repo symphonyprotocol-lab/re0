@@ -744,6 +744,12 @@ export const modelConfig = pgTable(
      * lib/services/embedding-space.ts).
      */
     embeddingSpace: uuid('embedding_space'),
+    /**
+     * Generation through an OpenAI-compatible endpoint: the operator says the
+     * model reads images (posts carry them). A gateway entry's comes from the
+     * gateway's catalog instead (its `vision` tag).
+     */
+    supportsImages: boolean('supports_images').notNull().default(false),
     lastProbeAt: timestampTz('last_probe_at'),
     lastProbeOk: boolean('last_probe_ok'),
     updatedBy: uuid('updated_by'),
@@ -1429,6 +1435,13 @@ export const post = pgTable(
     anonymous: boolean('anonymous').notNull().default(false),
     question: text('question').notNull(),
     detail: text('detail').notNull().default(''),
+    /**
+     * What the post's images (`post_image`) say, written once by the
+     * generation model (OCR + a short description): what matching, retrieval
+     * and the synthesis read in their place. Null without images, or until
+     * written.
+     */
+    imageText: text('image_text'),
     lang: text('lang').$type<'zh' | 'en'>().notNull(),
     /** The first answering Ree's category, for the feed's tag. */
     category: text('category'),
@@ -1498,6 +1511,30 @@ export const post = pgTable(
     check('post_title_check', sql`title is null or char_length(title) between 1 and ${sql.raw(String(POST_TITLE_MAX))}`),
     /* 试问 and MCP asks are private by nature. */
     check('post_private_source_check', sql`source not in ('test', 'api') or visibility = 'private'`),
+  ],
+);
+
+/**
+ * An image attached to a post (lib/domain/post-images.ts): a private Blob
+ * object under its author's prefix, served by `/media` to whoever may read
+ * the post. 转为公开 copies the rows, so one object may belong to two posts.
+ */
+export const postImage = pgTable(
+  'post_image',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    pathname: text('pathname').notNull(),
+    contentType: text('content_type').notNull(),
+    bytes: integer('bytes').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('post_image_position_key').on(t.postId, t.position),
+    index('post_image_pathname_idx').on(t.pathname),
+    check('post_image_position_check', sql`position between 0 and 3`),
+    check('post_image_content_type_check', oneOf('content_type', ['image/jpeg', 'image/png', 'image/webp'])),
   ],
 );
 

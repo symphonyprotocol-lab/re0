@@ -361,6 +361,8 @@ export interface PostView {
   quote: PostQuote | null;
   /** Visible posts that quote this one. */
   quotes: number;
+  /** The post's images, in order, where `/media` serves them to whoever reads the post (lib/domain/post-images.ts). */
+  images: { url: string }[];
   /** Published follow-ups (追问), for the cards. */
   followupCount: number;
   /** The thread under the first round, on the post's page only (oldest first); empty in feeds. */

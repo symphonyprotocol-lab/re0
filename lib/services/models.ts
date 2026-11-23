@@ -10,11 +10,11 @@
  * `modelFor` caches for). Embedding switches only through a re-embed job.
  */
 import { embed } from 'ai';
-import { and, asc, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import type { ModelKind } from '@/lib/constants';
-import { changesWhatAnswers, keyTail, mayCarryKey, parseModelConfig, perMillionUsd, switchesImmediately, type GenerationAudience, type ModelConfigInput, type ModelGenerationPrice } from '@/lib/domain/models';
+import { changesWhatAnswers, keyTail, mayCarryKey, parseModelConfig, perMillionUsd, readsImages, switchesImmediately, type GenerationAudience, type ModelConfigInput, type ModelGenerationPrice } from '@/lib/domain/models';
 import type { ProviderRate } from '@/lib/domain/provider-cost';
-import { gatewayGenerationPricing } from '@/lib/infra/ai/gateway-generation-pricing';
+import { gatewayGenerationPricing, gatewayModelVision } from '@/lib/infra/ai/gateway-generation-pricing';
 import { configuredProviderRate, providerPrices, saveModelGenerationPrice, saveModelProcessingPrice, type ProviderPrices } from '@/lib/services/provider-pricing';
 import { modelPricingTarget, servicePricingOf, type ServicePricingInput } from '@/lib/domain/service-pricing';
 import { consoleEndpoint, embeddingModel, endpointHasCredentials, environmentEndpoint, forgetModelCache } from '@/lib/infra/ai/models';
@@ -30,7 +30,31 @@ import { runningReembedJob, startReembed } from '@/lib/services/reembed';
 export type ModelConfigRow = typeof schema.modelConfig.$inferSelect;
 
 /** What the page receives: never the cipher. */
-export type ModelConfigView = Omit<ModelConfigRow, 'apiKeyCipher'> & { hasKey: boolean; costPricing: ServicePricingInput | null; generationPricing: (Partial<ModelGenerationPrice> & { source: 'gateway' | 'configured' | 'unknown' }) | null };
+export type ModelConfigView = Omit<ModelConfigRow, 'apiKeyCipher'> & {
+  hasKey: boolean;
+  costPricing: ServicePricingInput | null;
+  generationPricing: (Partial<ModelGenerationPrice> & { source: 'gateway' | 'configured' | 'unknown' }) | null;
+  /** Generation: whether the entry reads images (posts carry them); null when the gateway's catalog cannot say. Always true for other kinds. */
+  readsImages: boolean | null;
+};
+
+/** What a generation entry's image check reads: the catalog for a gateway model, the saved flag otherwise. */
+async function imageReading(row: ModelConfigRow): Promise<boolean | undefined> {
+  return readsImages(row, row.kind === 'generation' && row.transport === 'gateway' ? await gatewayModelVision(row.model) : undefined);
+}
+
+/**
+ * Posts carry images and any generation entry may answer one (moderation,
+ * the image description, the answers), so an entry that cannot read them
+ * never starts answering: enabling it, adding it to a list or resuming it
+ * is refused -- `no_vision`, or `vision_unknown` while the gateway's
+ * catalog cannot be read.
+ */
+async function assertReadsImages(row: ModelConfigRow): Promise<void> {
+  const reads = await imageReading(row);
+  if (reads === undefined) throw new AdminInputError('vision_unknown');
+  if (!reads) throw new AdminInputError('no_vision');
+}
 
 async function view(row: ModelConfigRow, prices?: ProviderPrices): Promise<ModelConfigView> {
   const { apiKeyCipher, ...rest } = row;
@@ -51,11 +75,11 @@ async function view(row: ModelConfigRow, prices?: ProviderPrices): Promise<Model
   const costPricing = row.kind === 'embedding' || row.kind === 'transcription'
     ? servicePricingOf(configuredProviderRate(prices ?? await providerPrices(), modelPricingTarget({ ...row, kind: row.kind })))
     : null;
-  return { ...rest, hasKey: Boolean(apiKeyCipher), generationPricing, costPricing };
+  return { ...rest, hasKey: Boolean(apiKeyCipher), generationPricing, costPricing, readsImages: (await imageReading(row)) ?? null };
 }
 
 function shown(row: ModelConfigRow) {
-  return { name: row.name, kind: row.kind, transport: row.transport, baseUrl: row.baseUrl, model: row.model, apiKeyTail: row.apiKeyTail, timeoutMs: row.timeoutMs, enabled: row.enabled, enabledPlan: row.enabledPlan };
+  return { name: row.name, kind: row.kind, transport: row.transport, baseUrl: row.baseUrl, model: row.model, apiKeyTail: row.apiKeyTail, timeoutMs: row.timeoutMs, enabled: row.enabled, enabledPlan: row.enabledPlan, supportsImages: row.supportsImages };
 }
 
 /** One list as the page shows it: `generation:free`, `generation:plan`, `embedding`, `transcription`, `speech`. */
@@ -162,6 +186,7 @@ export async function createModelConfig(administratorId: string, raw: Record<str
         apiKeyCipher: key?.cipher ?? null,
         apiKeyTail: key?.tail ?? null,
         timeoutMs: input.timeoutMs,
+        supportsImages: input.supportsImages ?? false,
         enabled: false,
         updatedBy: administratorId,
         updatedAt: new Date(),
@@ -180,7 +205,11 @@ export async function updateModelConfig(administratorId: string, id: string, raw
   const [current] = await database.select().from(schema.modelConfig).where(eq(schema.modelConfig.id, id)).limit(1);
   if (!current) throw new AdminInputError('not_found');
   const input = parsed({ ...raw, kind: current.kind });
-  if ((current.enabled || current.enabledPlan || (await inAnyChain(database, id))) && changesWhatAnswers(current, input)) throw new AdminInputError('locked');
+  const live = current.enabled || current.enabledPlan || (await inAnyChain(database, id));
+  if (live && changesWhatAnswers(current, input)) throw new AdminInputError('locked');
+  /* An entry in use keeps reading images: taking the mark off would let it answer posts it cannot see. */
+  const supportsImages = input.transport === 'openai_compatible' ? (input.supportsImages ?? current.supportsImages) : false;
+  if (live && current.supportsImages && !supportsImages && current.transport === 'openai_compatible') throw new AdminInputError('locked');
   /* The candidate of a running re-embed job is frozen too: its vectors are being made. */
   if (changesWhatAnswers(current, input) && (await runningReembedJob())?.toModelConfigId === id) throw new AdminInputError('locked');
   let cipher = current.apiKeyCipher;
@@ -204,6 +233,7 @@ export async function updateModelConfig(administratorId: string, id: string, raw
         apiKeyCipher: cipher,
         apiKeyTail: tail,
         timeoutMs: input.timeoutMs,
+        supportsImages,
         updatedBy: administratorId,
         updatedAt: new Date(),
       })
@@ -229,6 +259,7 @@ export async function activateModelConfig(administratorId: string, id: string, a
   if (!target) throw new AdminInputError('not_found');
   if (target.kind === 'speech' && !endpointHasCredentials(await consoleEndpoint(target))) throw new AdminInputError('voice_key_required');
   if ((audience !== 'free' && audience !== 'plan') || (audience === 'plan' && target.kind !== 'generation')) throw new AdminInputError('audience');
+  if (target.kind === 'generation') await assertReadsImages(target);
   if (target.kind === 'embedding' && target.enabled) return { activated: true, reembed: false, jobId: null };
   /* A backup of the embedding list makes the primary's vectors: becoming the primary is a reorder, never a re-embed. */
   if (target.kind === 'embedding' && (await inAnyChain(database, target.id))) return { ...(await promote(administratorId, target, 'all')), jobId: null };
@@ -343,6 +374,12 @@ export async function saveChain(administratorId: string, kind: ModelKind, audien
   const expected = chainItems(rawExpected);
   const ids = (entries: ChainItem[]) => entries.map((item) => item.configId).sort().join(',');
   if (ids(items) !== ids(expected)) throw new AdminInputError('chain');
+  /* Resuming a paused generation entry starts it answering: it must read images too. */
+  const resumed = items.filter((item) => item.active && !expected.some((seen) => seen.configId === item.configId && seen.active)).map((item) => item.configId);
+  if (kind === 'generation' && resumed.length > 0) {
+    const rows = await db().select().from(schema.modelConfig).where(inArray(schema.modelConfig.id, resumed));
+    for (const row of rows) await assertReadsImages(row);
+  }
   return changeChain(administratorId, kind, list, expected, () => items);
 }
 
@@ -367,6 +404,7 @@ export async function addToChain(administratorId: string, kind: ModelKind, audie
   if (!hasFailover(kind)) throw new AdminInputError('speech_single');
   const [target] = await db().select().from(schema.modelConfig).where(eq(schema.modelConfig.id, id)).limit(1);
   if (!target || target.kind !== kind) throw new AdminInputError('not_found');
+  if (kind === 'generation') await assertReadsImages(target);
   const current = await readChain(db(), kind, list);
   if (current.some((row) => row.modelConfigId === id)) throw new AdminInputError('stale');
   /* With an empty list the entry would be the primary: an embedding one goes through re-embedding, the others through enabling. */

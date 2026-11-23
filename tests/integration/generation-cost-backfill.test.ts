@@ -6,7 +6,7 @@ import { applyGenerationCostBackfill, planGenerationCostBackfill } from '@/lib/s
 import { callCostBasis } from '@/lib/domain/model-calls';
 import { providerRateSchema } from '@/lib/domain/provider-cost';
 
-vi.mock('@/lib/infra/ai/gateway-generation-pricing', () => ({ gatewayGenerationPricing: async (model: string) => ({ rate: providerRateSchema.parse({ service: 'generation', endpoint: 'https://ai-gateway.vercel.sh/v1', model, unit: 'tokens', usdPerUnit: '0.00000025', outputUsdPerUnit: '0.000002', source: 'https://ai-gateway.vercel.sh/v1/models' }), priceRevision: 'gateway-catalog:test', estimated: true }) }));
+vi.mock('@/lib/infra/ai/gateway-generation-pricing', () => ({ gatewayGenerationPricing: async (model: string) => ({ rate: providerRateSchema.parse({ service: 'generation', endpoint: 'https://ai-gateway.vercel.sh/v1', model, unit: 'tokens', usdPerUnit: '0.00000025', outputUsdPerUnit: '0.000002', source: 'https://ai-gateway.vercel.sh/v1/models' }), priceRevision: 'gateway-catalog:test', estimated: true }) , gatewayModelVision: async () => true}));
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 describeWithDb('historical generation cost backfill', () => {
   const model = uniqueName('history');

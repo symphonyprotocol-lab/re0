@@ -54,6 +54,8 @@ import { finishFollowup, followupAnswerInput, passageMatcher, privateThreadRees,
 import { closeAnswer, finishPost, firstRound, groundedAnswer, ownPrivatePost, privateAnswerShown, shownAnswer, shownFollowupOf, takesPosts, type AnswerOne, type AnswerResult } from '@/lib/services/posts';
 import { grantTaskReward } from '@/lib/services/task-rewards';
 import { answerWithAi, type AiAnswerer } from '@/lib/services/ai-answers';
+import { parsePostImages, postSubject } from '@/lib/domain/post-images';
+import { attachImages, checkedImages, copyImages, ensureImageText, imageParts, type ImageDescriber } from '@/lib/services/post-images';
 
 const { post, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postFollowup: followup, ree } = schema;
 
@@ -156,11 +158,13 @@ export interface PrivatePostInput {
   aiOnly?: boolean;
   lang: 'zh' | 'en';
   clientToken?: string | null;
+  /** Pathnames of the author's uploaded images, in order (lib/domain/post-images.ts). */
+  images?: unknown;
 }
 
 export type PrivatePublishOutcome =
   | { ok: true; id: string; duplicate?: boolean }
-  | { ok: false; error: 'empty' | 'too_long' | 'daily_limit' | 'no_rees' | 'too_many_rees' | 'ree_unavailable' }
+  | { ok: false; error: 'empty' | 'too_long' | 'daily_limit' | 'no_rees' | 'too_many_rees' | 'ree_unavailable' | 'invalid_images' | 'too_many_images' }
   | { ok: false; error: 'price_changed'; prices: PriceList }
   | { ok: false; error: 'insufficient_credits'; balance: number; needed: number };
 
@@ -186,11 +190,16 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
   if (ids.length > PRIVATE_POST_MAX_REES) return { ok: false, error: 'too_many_rees' };
   const rees = await askableRees(userId, ids);
   if (rees.length !== ids.length) return { ok: false, error: 'ree_unavailable' };
+  /* 试问 and MCP carry no images: only the composer uploads them. */
+  const named = source === 'post' ? parsePostImages(input.images, userId) : [];
+  if (typeof named === 'string') return { ok: false, error: named };
+  const images = named.length ? await checkedImages(userId, named) : [];
+  if (!images) return { ok: false, error: 'invalid_images' };
   const question = redact(input.question.trim(), input.lang);
   const detail = redact((input.detail ?? '').trim(), input.lang);
   const clientToken = input.clientToken && isUuid(input.clientToken) ? input.clientToken : null;
   /* A replay of a post already made is answered before the prices: it charges nothing again. */
-  const replay = await sameAsk(userId, source, { question, detail, clientToken }, now);
+  const replay = await sameAsk(userId, source, { question, detail, clientToken, firstImage: images[0]?.pathname ?? null }, now);
   if (replay) return { ok: true, id: replay, duplicate: true };
   const prices = raisedPrices(rees, userId, input.fees);
   if (prices) return { ok: false, error: 'price_changed', prices };
@@ -201,7 +210,7 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
   try {
     return await db().transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`post:${userId}`}))`);
-      const same = await sameAsk(userId, source, { question, detail, clientToken }, now, tx);
+      const same = await sameAsk(userId, source, { question, detail, clientToken, firstImage: images[0]?.pathname ?? null }, now, tx);
       if (same) return { ok: true, id: same, duplicate: true } as const;
       if (source === 'post') {
         const [counts] = await tx
@@ -228,6 +237,7 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
         candidates: rees.length,
         createdAt: now,
       });
+      await attachImages(tx, id, images);
       /* Asking the AI alone needs its fee in the balance now: without it nothing would answer. */
       if (aiOnly) {
         const balance = await balanceOf(tx, userId, now);
@@ -245,7 +255,7 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
 }
 
 /** A live private post of this author's that this submit repeats: the same token, or the same text within the duplicate window. */
-async function sameAsk(userId: string, source: string, ask: { question: string; detail: string; clientToken: string | null }, now: Date, executor: Tx | ReturnType<typeof db> = db()): Promise<string | null> {
+async function sameAsk(userId: string, source: string, ask: { question: string; detail: string; clientToken: string | null; firstImage?: string | null }, now: Date, executor: Tx | ReturnType<typeof db> = db()): Promise<string | null> {
   if (source !== 'post' && !ask.clientToken) return null;
   const [same] = await executor
     .select({ id: post.id })
@@ -258,7 +268,17 @@ async function sameAsk(userId: string, source: string, ask: { question: string; 
         isNull(post.deletedAt),
         or(
           ask.clientToken ? eq(post.clientToken, ask.clientToken) : undefined,
-          source === 'post' ? and(eq(post.question, ask.question), eq(post.detail, ask.detail), sql`${post.createdAt} > ${new Date(now.getTime() - POST_DUPLICATE_WINDOW_MS).toISOString()}::timestamptz`) : undefined,
+          source === 'post'
+            ? and(
+                eq(post.question, ask.question),
+                eq(post.detail, ask.detail),
+                sql`${post.createdAt} > ${new Date(now.getTime() - POST_DUPLICATE_WINDOW_MS).toISOString()}::timestamptz`,
+                /* With images, the same upload too (each upload has its own pathname). */
+                ask.firstImage
+                  ? sql`exists (select 1 from ${schema.postImage} pi where pi.post_id = ${post.id} and pi.pathname = ${ask.firstImage})`
+                  : sql`not exists (select 1 from ${schema.postImage} pi where pi.post_id = ${post.id})`,
+              )
+            : undefined,
         ),
       ),
     )
@@ -272,6 +292,8 @@ export interface PrivateDeps {
   matchFollowup?: FollowupMatcher;
   /** AI 通用回答 when none of the chosen Rees answered (ai-answers.ts); the model by default. */
   aiAnswer?: AiAnswerer;
+  /** The images' description (post-images.ts); the model by default. */
+  describe?: ImageDescriber;
   now?: () => Date;
 }
 
@@ -282,8 +304,21 @@ export async function processPrivatePost(id: string, deps: PrivateDeps = {}): Pr
   const [row] = await db().select().from(post).where(and(eq(post.id, id), eq(post.visibility, 'private'), eq(post.answerState, 'answering'))).limit(1);
   if (!row) return;
   const running = await db().select({ id: answer.id, reeId: answer.reeId }).from(answer).where(and(eq(answer.postId, id), firstRound(), eq(answer.state, 'answering')));
-  const subject = [row.question, row.detail].filter(Boolean).join('\n');
-  await answerRunning(running, (reeId) => (deps.answerOne ?? groundedAnswer)({ reeId, subject, lang: row.lang, vector: null }), now);
+  /*
+   * No review, but retrieval still needs the images in words: their
+   * description is written first (once). If it cannot be, the Rees still
+   * answer -- they read the images themselves.
+   */
+  const images = await imageParts(id);
+  let imageText = row.imageText;
+  if (images.length && !imageText) {
+    imageText = await ensureImageText(id, { images, describe: deps.describe }).catch((error: unknown) => {
+      console.warn(`private post ${id} image description failed: ${error instanceof Error ? error.message : 'unknown'}`);
+      return null;
+    });
+  }
+  const subject = postSubject({ ...row, imageText });
+  await answerRunning(running, (reeId) => (deps.answerOne ?? groundedAnswer)({ reeId, subject, lang: row.lang, vector: null, images }), now);
   await finishPost(id, now());
   /* None of the chosen Rees answered (or none was chosen, 只问 AI): the author gets an AI answer, at the base fee. */
   await answerWithAi(id, null, deps);
@@ -405,7 +440,7 @@ export async function askPrivateFollowup(userId: string, postId: string, input: 
   const invalid = followupInputError(input.question);
   if (invalid) return { ok: false, error: invalid };
   if (!isUuid(postId)) return { ok: false, error: 'not_found' };
-  const [target] = await db().select({ id: post.id, question: post.question, detail: post.detail, followupCount: post.followupCount }).from(post).where(and(eq(post.id, postId), ownPrivatePost(userId))).limit(1);
+  const [target] = await db().select({ id: post.id, question: post.question, detail: post.detail, imageText: post.imageText, followupCount: post.followupCount }).from(post).where(and(eq(post.id, postId), ownPrivatePost(userId))).limit(1);
   if (!target) return { ok: false, error: 'not_found' };
   const question = redact(input.question.trim(), input.lang);
   const clientToken = input.clientToken && isUuid(input.clientToken) ? input.clientToken : null;
@@ -428,7 +463,7 @@ export async function askPrivateFollowup(userId: string, postId: string, input: 
     /* A thread no Ree is in yet (只问 AI): the follow-up goes to the AI alone, unless the author adds a Ree. */
     chosenIds = [];
   } else {
-    const scoring = await (deps.matchFollowup ?? passageMatcher)({ question, postQuestion: [target.question, target.detail].filter(Boolean).join('\n'), reeIds: thread.map((entry) => entry.reeId) });
+    const scoring = await (deps.matchFollowup ?? passageMatcher)({ question, postQuestion: postSubject(target), reeIds: thread.map((entry) => entry.reeId) });
     for (const [reeId, value] of scoring.similarity) similarity.set(reeId, value);
     const ranked = [...thread].sort((a, b) => (similarity.get(b.reeId) ?? 0) - (similarity.get(a.reeId) ?? 0));
     const close = ranked.filter((entry) => (similarity.get(entry.reeId) ?? 0) >= POST_MIN_SIMILARITY);
@@ -589,6 +624,7 @@ export async function convertToPublic(userId: string, id: string, options: { ano
       anonymous: options.anonymous === true,
       question: target.question,
       detail: target.detail,
+      imageText: target.imageText,
       lang: target.lang,
       category: target.category,
       status: 'pending',
@@ -604,6 +640,8 @@ export async function convertToPublic(userId: string, id: string, options: { ano
         given.map((entry, index) => ({ postId: copyId, reeId: entry.reeId, state: 'answered' as const, text: entry.text, citations: entry.citations, model: entry.model, similarity: null, answeredAt: entry.answeredAt ?? now, createdAt: new Date(now.getTime() + index) })),
       );
     }
+    /* The same images (the same objects), reviewed with the copy. */
+    await copyImages(tx, id, copyId);
     await tx.update(post).set({ publishedCopyId: copyId }).where(eq(post.id, id));
     return { ok: true, id: copyId } as const;
   });

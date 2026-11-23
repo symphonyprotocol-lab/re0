@@ -13,7 +13,7 @@ import { TEST_DATABASE_URL, pointModelsAt, uniqueName } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
-vi.mock('@/lib/infra/ai/gateway-generation-pricing', () => ({ gatewayGenerationPricing: async () => undefined }));
+vi.mock('@/lib/infra/ai/gateway-generation-pricing', () => ({ gatewayGenerationPricing: async () => undefined , gatewayModelVision: async () => true}));
 
 const { generateText } = await import('ai');
 const models = await import('@/lib/services/models');
@@ -100,7 +100,7 @@ describeWithDb('model failover', () => {
   });
 
   const generation = async (name: string, model: string) => {
-    const config = await models.createModelConfig(administratorId, { name: uniqueName(name), kind: 'generation', transport: 'openai_compatible', baseUrl: chat.baseUrl, model, apiKey: 'sk-test-0000', timeoutMs: 10_000 });
+    const config = await models.createModelConfig(administratorId, { name: uniqueName(name), kind: 'generation', transport: 'openai_compatible', baseUrl: chat.baseUrl, model, apiKey: 'sk-test-0000', timeoutMs: 10_000, supportsImages: true });
     created.push(config.id);
     return config;
   };

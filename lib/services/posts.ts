@@ -88,6 +88,8 @@ import { notify } from '@/lib/services/notices';
 import { grantTaskReward } from '@/lib/services/task-rewards';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
 import { questionRewriter } from '@/lib/services/question-rewrite';
+import { parsePostImages, postSubject } from '@/lib/domain/post-images';
+import { attachImages, checkedImages, ensureImageText, imageParts, imagesFor, type ImageDescriber, type ImagePart } from '@/lib/services/post-images';
 
 const { post, postVote, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user } = schema;
 
@@ -171,11 +173,13 @@ export interface PostInput {
   lang: 'zh' | 'en';
   /** The composer's token for this post: sending it again returns the same post. */
   clientToken?: string | null;
+  /** Pathnames of the author's uploaded images, in order (lib/domain/post-images.ts); anything else is refused. */
+  images?: unknown;
 }
 
 export type PublishOutcome =
   | { ok: true; id: string; duplicate?: boolean }
-  | { ok: false; error: 'empty' | 'too_long' | 'daily_limit' | 'quote_unavailable' }
+  | { ok: false; error: 'empty' | 'too_long' | 'daily_limit' | 'quote_unavailable' | 'invalid_images' | 'too_many_images' }
   | { ok: false; error: 'insufficient_credits'; balance: number; needed: number };
 
 /**
@@ -203,6 +207,10 @@ export async function postAllowance(userId: string, now = new Date()): Promise<{
 export async function publishPost(userId: string, input: PostInput, now = new Date()): Promise<PublishOutcome> {
   const invalid = postInputError(input.question, input.detail ?? '');
   if (invalid) return { ok: false, error: invalid };
+  const named = parsePostImages(input.images, userId);
+  if (typeof named === 'string') return { ok: false, error: named };
+  const images = named.length ? await checkedImages(userId, named) : [];
+  if (!images) return { ok: false, error: 'invalid_images' };
   const question = redact(input.question.trim(), input.lang);
   const detail = redact((input.detail ?? '').trim(), input.lang);
   let mention = input.mentionReeId && isUuid(input.mentionReeId) ? input.mentionReeId : null;
@@ -233,8 +241,11 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
             isNull(post.deletedAt),
             or(
               clientToken ? eq(post.clientToken, clientToken) : undefined,
-              /* The same text quoting the same thing (or nothing): quoting something else is another post. */
+              /* The same text quoting the same thing (or nothing): quoting something else is another post. With images, the same upload too (each upload has its own pathname). */
               and(
+                images.length
+                  ? sql`exists (select 1 from ${schema.postImage} pi where pi.post_id = ${post.id} and pi.pathname = ${images[0]!.pathname})`
+                  : sql`not exists (select 1 from ${schema.postImage} pi where pi.post_id = ${post.id})`,
                 eq(post.question, question),
                 eq(post.detail, detail),
                 sql`${post.quotePostId} is not distinct from ${quote?.postId ?? null}::uuid`,
@@ -269,6 +280,7 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
         clientToken,
         createdAt: now,
       });
+      await attachImages(tx, id, images);
       return { ok: true, id } as const;
     });
   } catch (error) {
@@ -372,7 +384,7 @@ async function tellQuoted(tx: Executor, id: string, published: { userId: string 
  * (`processStalePosts`) reviews it -- so a post trashed while under review
  * is never published, nor pays its starter task, from the trash.
  */
-export async function moderatePost(id: string, judge: Judge = modelJudge, now = new Date()): Promise<'published' | 'rejected' | 'pending' | 'gone'> {
+export async function moderatePost(id: string, judge: Judge = modelJudge, now = new Date(), describe?: ImageDescriber): Promise<'published' | 'rejected' | 'pending' | 'gone'> {
   const [row] = await db()
     .update(post)
     .set({ moderationAttempts: sql`${post.moderationAttempts} + 1` })
@@ -383,7 +395,14 @@ export async function moderatePost(id: string, judge: Judge = modelJudge, now = 
   const copied = await db().select({ text: answer.text }).from(answer).where(and(eq(answer.postId, id), firstRound(), eq(answer.state, 'answered'))).orderBy(asc(answer.createdAt));
   let verdict: boolean | null = null;
   try {
-    verdict = (await judge([row.question, row.detail].filter(Boolean).join('\n\n'), copied.map((entry) => entry.text).join('\n\n'))).publish;
+    /*
+     * Images are reviewed themselves (the model sees them), with their
+     * description beside the text: an image that cannot be read, or a
+     * description that cannot be written, is a check that did not run.
+     */
+    const images = await imageParts(id, { strict: true });
+    const imageText = images.length ? await ensureImageText(id, { images, describe }) : null;
+    verdict = (await judge([row.question, row.detail, imageText ? `[Images] ${imageText}` : ''].filter(Boolean).join('\n\n'), copied.map((entry) => entry.text).join('\n\n'), images)).publish;
   } catch (error) {
     console.warn(`post ${id} review failed: ${error instanceof Error ? error.message : 'unknown'}`);
   }
@@ -456,7 +475,8 @@ export type AnswerResult = { state: 'answered'; text: string; citations: Citatio
 
 /** `turns`: the exchange so far, for a follow-up (追问): the post's question and this Ree's own answers, nobody else's. */
 /** `emit`: the answer's text as it is written (MCP's progress); posts are never streamed to a page. */
-export type AnswerOne = (input: { reeId: string; subject: string; lang: 'zh' | 'en'; vector: QuestionVector | null; context?: QuoteContext | null; turns?: { role: 'user' | 'assistant'; content: string }[]; emit?: Emit }) => Promise<AnswerResult>;
+/** `images`: the post's images, which the model reads with the passages (the first round only). */
+export type AnswerOne = (input: { reeId: string; subject: string; lang: 'zh' | 'en'; vector: QuestionVector | null; context?: QuoteContext | null; turns?: { role: 'user' | 'assistant'; content: string }[]; emit?: Emit; images?: readonly ImagePart[] }) => Promise<AnswerResult>;
 
 /** What a quoting post brings to its answers: the quoted question, and the quoted answer when an answer was quoted. Context only, never evidence. */
 export interface QuoteContext {
@@ -465,7 +485,7 @@ export interface QuoteContext {
 }
 
 /** One Ree's answer from its own knowledge, on the platform's model; never streamed to anyone. */
-export const groundedAnswer: AnswerOne = async ({ reeId, subject, lang, vector, context, turns: earlier, emit }) => {
+export const groundedAnswer: AnswerOne = async ({ reeId, subject, lang, vector, context, turns: earlier, emit, images }) => {
   const [target] = await db().select().from(ree).where(eq(ree.id, reeId)).limit(1);
   if (!target || !(await readyRees([reeId])).has(reeId)) return { state: 'no_answer', model: null };
   let model: string | null = null;
@@ -479,7 +499,7 @@ export const groundedAnswer: AnswerOne = async ({ reeId, subject, lang, vector, 
       ? [{ role: 'user', content: context.question }, { role: 'assistant', content: context.answer }]
       : []);
     const asked = context && !context.answer ? `${subject}\n\n(${context.question})` : subject;
-    const { declined, text, model: answered } = await streamGroundedAnswer({ generation, ree: target, lang, subject: asked, passages: found.passages, turns }, emit ?? (() => undefined));
+    const { declined, text, model: answered } = await streamGroundedAnswer({ generation, ree: target, lang, subject: asked, passages: found.passages, turns, images }, emit ?? (() => undefined));
     model = answered;
     if (declined || !text.trim()) return { state: 'no_answer', model };
     return { state: 'answered', text: text.trim(), citations: citationSnapshots(text, found.passages), model };
@@ -495,6 +515,8 @@ export interface ProcessDeps {
   answerOne?: AnswerOne;
   /** AI 通用回答 when no Ree answered (ai-answers.ts); the model by default. */
   aiAnswer?: AiAnswerer;
+  /** The images' description (post-images.ts); the model by default. */
+  describe?: ImageDescriber;
   now?: () => Date;
 }
 
@@ -508,7 +530,7 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
   let [row] = await db().select().from(post).where(eq(post.id, id)).limit(1);
   if (!row) return;
   if (row.status === 'pending') {
-    const status = await moderatePost(id, deps.judge, now());
+    const status = await moderatePost(id, deps.judge, now(), deps.describe);
     if (status !== 'published') return;
     [row] = await db().select().from(post).where(eq(post.id, id)).limit(1);
     if (!row) return;
@@ -518,7 +540,9 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
   /* `answeringAt`: the sweep times a dead run from its claim, not from publishing (review S3). */
   const [claimed] = await db().update(post).set({ answerState: 'answering', answeringAt: now() }).where(and(eq(post.id, id), eq(post.answerState, 'waiting'))).returning({ id: post.id });
   if (!claimed) return;
-  const subject = [row.question, row.detail].filter(Boolean).join('\n');
+  /* What the images say goes wherever only text goes (matching, retrieval); the answers also read the images themselves. */
+  const subject = postSubject(row);
+  const images = await imageParts(id);
   /* The quote, if it can still be seen: its question also steers which Rees are asked. */
   const context = await quoteContext(row);
   try {
@@ -560,7 +584,7 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
       answering.map(async (entry) => {
         let result: AnswerResult;
         try {
-          result = await (deps.answerOne ?? groundedAnswer)({ reeId: entry.reeId, subject, lang: row!.lang, vector: match.vector, context });
+          result = await (deps.answerOne ?? groundedAnswer)({ reeId: entry.reeId, subject, lang: row!.lang, vector: match.vector, context, images });
         } catch (error) {
           console.warn(`post ${id} answer ree=${entry.reeId} failed: ${error instanceof Error ? error.message : 'unknown'}`);
           result = { state: 'failed', model: null };
@@ -847,7 +871,7 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
   /* A private post is only ever read by its author (the queries above made sure). */
   const ownPrivate = new Set(rows.filter((row) => row.visibility === 'private' && viewerId && row.userId === viewerId).map((row) => row.id));
   const unvoted = ownPrivate.size ? await unvotedBy(viewerId, answers.filter((row) => ownPrivate.has(row.postId)).map((row) => row.id)) : new Set<string>();
-  const [quotes, quoteCounts] = await Promise.all([quotesFor(rows, viewerId), quoteCountsFor(ids)]);
+  const [quotes, quoteCounts, images] = await Promise.all([quotesFor(rows, viewerId), quoteCountsFor(ids), imagesFor(ids)]);
   const authorView = options.whole && viewerId && rows.length === 1 && rows[0]!.userId === viewerId && (AUTHORED_SOURCES as readonly string[]).includes(rows[0]!.source);
   /* A private post has no requests: its author chose and paid for every Ree when asking. */
   const requests = authorView && rows[0]!.visibility === 'public' ? await paidRequestsFor(rows[0]!.id, viewerId) : [];
@@ -898,6 +922,7 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
       answers: listed.map((entry) => answerView(entry, voted, options.whole, ownPrivate.has(row.id) ? { unvoted } : null)),
       quote: row.quoteKind ? (quotes.get(row.id) ?? { kind: row.quoteKind, available: false }) : null,
       quotes: quoteCounts.get(row.id) ?? 0,
+      images: images.get(row.id) ?? [],
       summary: row.summaryState === 'done' && row.summaryContent && !summaryStale(row.summaryAnswers, new Set(shown.map((entry) => entry.id)))
         ? { state: 'done', content: row.summaryContent, sources: row.summarySources ?? [] }
         : row.summaryState === 'running' ? { state: 'running', content: '', sources: [] } : null,
@@ -1602,7 +1627,7 @@ export async function answerPaid(id: string, deps: { answerOne?: AnswerOne; now?
   /* A follow-up's request is asked as that follow-up, with this Ree's own exchange so far (追问). */
   const input = row.answer.followupId
     ? await (await import('@/lib/services/post-followups')).followupAnswerInput(row.answer.followupId, row.answer.reeId)
-    : { subject: [row.post.question, row.post.detail].filter(Boolean).join('\n'), lang: row.post.lang, vector: null, context: await quoteContext(row.post) };
+    : { subject: postSubject(row.post), lang: row.post.lang, vector: null, context: await quoteContext(row.post), images: await imageParts(row.post.id) };
   if (!input) return closeAnswer(id, { state: 'failed', model: null }, now());
   let result: AnswerResult;
   try {
@@ -1797,7 +1822,7 @@ export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en
     const { text } = await generateText({
       model: generation.model,
       instructions: synthesisInstructions(lang),
-      messages: [{ role: 'user', content: synthesisPrompt([target.question, target.detail].filter(Boolean).join('\n'), answers) }],
+      messages: [{ role: 'user', content: synthesisPrompt(postSubject(target), answers) }],
       maxOutputTokens: 1_500,
       temperature: 0.2,
       maxRetries: 1,
@@ -1813,7 +1838,7 @@ export async function summarizePost(userId: string, id: string, lang: 'zh' | 'en
   /* The same review as the post's question: a summary is public text too. A review that cannot run counts as failed (fee back). A private post's is read by its author alone and, like the post, skips it. */
   let verdict: boolean | null = target.visibility === 'private' ? true : null;
   try {
-    if (verdict === null) verdict = (await judge([target.question, target.detail].filter(Boolean).join('\n\n'), content)).publish;
+    if (verdict === null) verdict = (await judge([target.question, target.detail, target.imageText ? `[Images] ${target.imageText}` : ''].filter(Boolean).join('\n\n'), content)).publish;
   } catch (error) {
     console.warn(`post ${id} summary review failed: ${error instanceof Error ? error.message : 'unknown'}`);
   }

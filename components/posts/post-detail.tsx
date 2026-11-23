@@ -17,6 +17,7 @@ import { PostFeed } from '@/components/posts/post-feed';
 import { FollowupComposer, type FollowupComposerHandle } from '@/components/posts/followup-composer';
 import { AiGuide, AiRound, type AiGuideItem } from '@/components/posts/ai-answer';
 import { composeHref } from '@/components/posts/composer';
+import { PostImageGallery } from '@/components/posts/post-images';
 import { PrivateReePicker } from '@/components/posts/ree-picker';
 import './posts.css';
 import { Pending } from '@/components/posts/pending';
@@ -678,6 +679,7 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
       <h1 className="post-page-question">{(isPrivate && post.title) || post.question}</h1>
       {isPrivate && post.title && <p className="post-page-detail">{post.question}</p>}
       {post.detail && <p className="post-page-detail">{post.detail}</p>}
+      <PostImageGallery images={post.images} />
       {post.quote && (
         <div className="mt-3">
           <QuoteCard quote={post.quote} now={now} />

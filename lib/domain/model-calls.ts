@@ -3,7 +3,7 @@ import { param, parseList } from '@/lib/domain/list';
 import { rateCost, reportedGatewayCost, type ProviderRate, type ProviderUsage } from '@/lib/domain/provider-cost';
 
 export const CALL_STATUSES = ['all', 'succeeded', 'failed', 'aborted', 'unknown'] as const;
-export const CALL_PURPOSES = ['answer', 'retrieval', 'verify', 'synthesis', 'suggestions', 'video_answer', 'video_script', 'probe', 'moderation', 'post_answer', 'ai_answer', 'other'] as const;
+export const CALL_PURPOSES = ['answer', 'retrieval', 'verify', 'synthesis', 'suggestions', 'video_answer', 'video_script', 'probe', 'moderation', 'post_answer', 'ai_answer', 'image_text', 'other'] as const;
 export type CallPurpose = (typeof CALL_PURPOSES)[number];
 export type CallStatus = Exclude<(typeof CALL_STATUSES)[number], 'all'>;
 export type CostBasis = 'provider_reported' | 'configured_rate' | 'estimated' | 'unresolved';

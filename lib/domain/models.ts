@@ -29,6 +29,8 @@ export interface ModelConfigInput {
   /** Omitted preserves a saved price; null explicitly removes it. */
   generationPricing?: ModelGenerationPrice | null;
   costPricing?: ServicePricingInput | null;
+  /** OpenAI-compatible generation only: the operator says the model reads images (omitted keeps what is saved). */
+  supportsImages?: boolean;
 }
 
 export type ModelConfigError = 'name' | 'kind' | 'transport' | 'base_url' | 'model' | 'api_key' | 'timeout' | 'generation_pricing' | 'cost_pricing';
@@ -101,7 +103,13 @@ export function parseModelConfig(raw: Record<string, unknown>): ModelConfigInput
     try { costPricing = parseServicePricing(raw.costPricing, raw.kind); }
     catch { return { error: 'cost_pricing' }; }
   }
-  return { name, kind: raw.kind, transport, baseUrl, model, apiKey, timeoutMs, ...(generationPricing !== undefined ? { generationPricing } : {}), ...(costPricing !== undefined ? { costPricing } : {}) };
+  const supportsImages = raw.kind === 'generation' && transport === 'openai_compatible' && typeof raw.supportsImages === 'boolean' ? raw.supportsImages : undefined;
+  return {
+    name, kind: raw.kind, transport, baseUrl, model, apiKey, timeoutMs,
+    ...(generationPricing !== undefined ? { generationPricing } : {}),
+    ...(costPricing !== undefined ? { costPricing } : {}),
+    ...(supportsImages !== undefined ? { supportsImages } : {}),
+  };
 }
 
 /** What the page shows instead of a key. */
@@ -135,4 +143,15 @@ export function mayCarryKey(stored: { transport: ModelTransport; baseUrl: string
 /** Switching generation or transcription takes effect at once; embedding needs a re-embed job (step 5). */
 export function switchesImmediately(kind: ModelKind): boolean {
   return kind !== 'embedding';
+}
+
+/**
+ * Posts carry images (lib/domain/post-images.ts), and every generation
+ * entry may answer one, so only an entry that reads images may answer:
+ * a gateway entry by the catalog's `vision` tag (undefined: the catalog
+ * could not say), an OpenAI-compatible one by the operator's word.
+ */
+export function readsImages(row: { kind: ModelKind; transport: ModelTransport; supportsImages: boolean }, gatewayVision: boolean | undefined): boolean | undefined {
+  if (row.kind !== 'generation') return true;
+  return row.transport === 'gateway' ? gatewayVision : row.supportsImages;
 }

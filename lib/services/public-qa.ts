@@ -46,6 +46,8 @@ import { audit } from '@/lib/services/admin';
 import { generationForUser } from '@/lib/services/generation';
 import { answeredPostCounts, flagQuotingAnswer, ownerActOnAnswer, reportAnswer, setAnswerHelpful, shownAnswer, visiblePost, type OwnerAction } from '@/lib/services/posts';
 import { syncPublicQa } from '@/lib/services/public-qa-sync';
+import { imagesNote } from '@/lib/domain/post-images';
+import { visionOptions, withImages, type ImagePart } from '@/lib/services/post-images';
 
 const { ree, reePublicQa: qa, post, postAnswer: answer, postAnswerVote: vote, postAnswerReport: report, user } = schema;
 
@@ -85,7 +87,8 @@ export async function keepSnapshot(input: Snapshot): Promise<string | null> {
 
 /* --------------------------------------------------------------- moderation */
 
-export type Judge = (question: string, answer: string) => Promise<{ publish: boolean; reason?: string }>;
+/** `images`: a post's images, reviewed with its text (lib/domain/post-images.ts): text inside an image is not reached by `redact`, so the model reads them. */
+export type Judge = (question: string, answer: string, images?: readonly ImagePart[]) => Promise<{ publish: boolean; reason?: string }>;
 
 /**
  * The moderation check on the platform's free generation model, logged as
@@ -98,14 +101,15 @@ export type Judge = (question: string, answer: string) => Promise<{ publish: boo
  * the text leniently (providers without structured output). A reply cut off
  * or without a verdict is asked once more before it counts as a failed check.
  */
-export const modelJudge: Judge = async (question, answer) => {
+export const modelJudge: Judge = async (question, answer, images = []) => {
   const generation = await generationForUser(null, 'moderation');
   let last = '';
   for (let attempt = 0; attempt < MODERATION_TRIES; attempt += 1) {
     const { text, finishReason } = await generateText({
       model: generation.model,
       instructions: answer ? MODERATION_INSTRUCTIONS : MODERATION_QUESTION_INSTRUCTIONS,
-      prompt: moderationPrompt(question, answer),
+      messages: [withImages(images.length ? `${moderationPrompt(question, answer)}\n\n${imagesNote(images.length)} Review the images as part of the post, including any text in them.` : moderationPrompt(question, answer), images)],
+      ...visionOptions(images),
       maxOutputTokens: MODERATION_OUTPUT_TOKENS,
       temperature: 0,
       maxRetries: 1,

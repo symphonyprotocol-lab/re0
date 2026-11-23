@@ -23,6 +23,16 @@ vi.mock('@vercel/blob', async (original) => ({
   },
 }));
 
+/* Who may see a post's image is the database's call (lib/services/post-images.ts): here, a switch. */
+const access = vi.hoisted(() => ({ visible: false, asked: [] as { pathname: string; viewer: string | null; administrator: boolean }[] }));
+vi.mock('@/lib/services/post-images', () => ({
+  postImageVisibleTo: async (pathname: string, viewer: string | null, administrator: boolean) => {
+    access.asked.push({ pathname, viewer, administrator });
+    return access.visible;
+  },
+}));
+vi.mock('@/lib/http/admin', () => ({ currentAdministrator: async () => null }));
+
 const user = '6f1c3a52-6c55-4a8e-9d0e-2f6ad0c1a111';
 const file = '0c8f4f43-1f0a-4cf5-9f44-8a4c7bd5e222';
 const reeId = '1d2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
@@ -80,6 +90,30 @@ describe('/media avatars', () => {
     expect((await get('videos', reeId, `${file}%2e.mp4`)).status).toBe(404);
     expect((await get('ree-covers', reeId, `${file}%2e.png`)).status).toBe(404);
     expect(fetched).toEqual([]);
+  });
+});
+
+describe('/media post images', () => {
+  it('serves a post image only to a viewer the post allows, never cached for long', async () => {
+    access.visible = false;
+    access.asked.length = 0;
+    expect((await get('post-images', user, `${file}.png`)).status).toBe(404);
+    expect(access.asked).toEqual([{ pathname: `post-images/${user}/${file}.png`, viewer: null, administrator: false }]);
+    expect(fetched).toEqual([]);
+    access.visible = true;
+    const response = await get('post-images', user, `${file}.png`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('private, max-age=300');
+    expect(fetched).toEqual([`/post-images/${user}/${file}.png`]);
+  });
+
+  it('refuses anything but the uploader’s shape before asking who may see it', async () => {
+    access.visible = true;
+    access.asked.length = 0;
+    for (const segments of [['post-images', user, `${file}.gif`], ['post-images', 'x', `${file}.png`], ['post-images', user, `${file}.png%2e`]]) {
+      expect((await get(...segments)).status).toBe(404);
+    }
+    expect(access.asked).toEqual([]);
   });
 });
 

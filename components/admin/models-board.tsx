@@ -92,6 +92,8 @@ interface Draft {
   inputUsdPerMillion: string;
   outputUsdPerMillion: string;
   costPricing: ServicePricingInput | null;
+  /** OpenAI-compatible generation: the operator says the model reads images. */
+  supportsImages: boolean;
 }
 
 /**
@@ -158,10 +160,11 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
             inputUsdPerMillion: config.generationPricing?.inputUsdPerMillion ?? '',
             outputUsdPerMillion: config.generationPricing?.outputUsdPerMillion ?? '',
             costPricing: config.costPricing,
+            supportsImages: config.supportsImages,
           }
         : { id: null, name: kind === 'speech' ? 'OpenAI TTS-1' : '', kind, transport: 'gateway',
             baseUrl: '', model: kind === 'speech' ? DEFAULT_MODELS.speech : '',
-            apiKey: '', timeout: 60, enabled: false, tail: null, inputUsdPerMillion: '', outputUsdPerMillion: '', costPricing: null },
+            apiKey: '', timeout: 60, enabled: false, tail: null, inputUsdPerMillion: '', outputUsdPerMillion: '', costPricing: null, supportsImages: false },
     );
   };
 
@@ -177,7 +180,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
       model: draft.model,
       apiKey: draft.apiKey,
       timeoutMs: Math.round(draft.timeout * 1000),
-      ...(draft.kind === 'generation' && draft.transport === 'openai_compatible' ? { generationPricing: { inputUsdPerMillion: draft.inputUsdPerMillion, outputUsdPerMillion: draft.outputUsdPerMillion } } : {}),
+      ...(draft.kind === 'generation' && draft.transport === 'openai_compatible' ? { generationPricing: { inputUsdPerMillion: draft.inputUsdPerMillion, outputUsdPerMillion: draft.outputUsdPerMillion }, supportsImages: draft.supportsImages } : {}),
       ...(draft.kind === 'embedding' || draft.kind === 'transcription' ? { costPricing: draft.costPricing } : {}),
     };
     const result = draft.id
@@ -307,6 +310,9 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
                     {kind === 'generation' && <p className="model-generation-pricing">
                       {config.transport === 'gateway' ? m.pricing.gateway : m.pricing.manual}
                       <br />{fill(m.pricing.summary, { input: config.generationPricing?.inputUsdPerMillion ?? '—', output: config.generationPricing?.outputUsdPerMillion ?? '—' })}
+                    </p>}
+                    {kind === 'generation' && <p className="model-vision">
+                      <Tag tone={config.readsImages ? 'green' : config.readsImages === false ? 'red' : 'grey'}>{config.readsImages ? m.vision.yes : config.readsImages === false ? m.vision.no : m.vision.unknown}</Tag>
                     </p>}
                     {(kind === 'embedding' || kind === 'transcription') && <p className="service-cost-summary">
                       {t.servicePricing.title} · {config.costPricing ? fill(t.servicePricing.summary, { price: config.costPricing.price, unit: t.servicePricing.units[config.costPricing.unit] }) : config.transport === 'gateway' ? t.servicePricing.automatic : t.servicePricing.unknown}
@@ -440,8 +446,16 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
                   <input id="model-output-price" type="number" min="0" max="99999999.999999" step="0.000001" value={draft.outputUsdPerMillion} onChange={(event) => setDraft({ ...draft, outputUsdPerMillion: event.target.value })} />
                   <small>{m.pricing.manualNote}</small>
                 </div>
+                <div className="field">
+                  <label className="model-vision-check">
+                    <input type="checkbox" checked={draft.supportsImages} disabled={locked && draft.supportsImages} onChange={(event) => setDraft({ ...draft, supportsImages: event.target.checked })} />
+                    {m.vision.label}
+                  </label>
+                  <small>{m.vision.compatibleHint}</small>
+                </div>
               </>
             ))}
+            {draft.kind === 'generation' && draft.transport === 'gateway' && <p className="small muted">{m.vision.gatewayNote}</p>}
             {(draft.kind === 'embedding' || draft.kind === 'transcription') && <>
               <ServiceCostFields service={draft.kind} value={draft.costPricing} onChange={(costPricing) => setDraft({ ...draft, costPricing })} note={t.servicePricing.modelNote} />
               <p className="small muted">{draft.transport === 'gateway' ? t.servicePricing.gatewayNote : t.servicePricing.unknownNote}</p>

@@ -36,7 +36,7 @@ const base: PostView = {
   id: '00000000-0000-4000-8000-000000000001', visibility: 'public', title: null, pinned: false, archived: false, publishedCopyId: null, question: '龟背竹叶子发黄卷边？', detail: '', lang: 'zh', category: null,
   author: { kind: 'user', name: '林夏', avatar: null, mine: true }, status: 'published', answerState: 'done', answered: 0, candidates: 4, skipped: 4,
   helpful: 0, voted: false, saved: false, createdAt: '2026-11-20T00:00:00.000Z', answers: [],
-  summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, paidRequests: [], spent: null,
+  summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, images: [], paidRequests: [], spent: null,
   aiAnswer: answered, followupCount: 0, followups: [], followupCandidates: [], followupBlocked: null, followupAiOnly: false, deleted: false,
 };
 const now = Date.parse('2026-11-20T01:00:00Z');

@@ -64,14 +64,20 @@ suite('orphan upload reaper', () => {
     const foreignFile = `knowledge/${id()}/${id()}/other-environment.pdf`;
     const orphanAvatar = `avatars/${u}/${id()}.png`;
     const foreignCover = `ree-covers/${id()}/${id()}.png`;
+    /* A post's image is kept while a post names it; one the composer uploaded and never posted goes. */
+    const [post] = await db().insert(schema.post).values({ userId: u, source: 'post', question: 'Reaped?', lang: 'en' }).returning();
+    const postedImage = `post-images/${u}/${id()}.png`;
+    await db().insert(schema.postImage).values({ postId: post!.id, position: 0, pathname: postedImage, contentType: 'image/png', bytes: 10 });
+    const orphanImage = `post-images/${u}/${id()}.webp`;
 
     blobs.listed.set('knowledge/', [registered, orphanFile, foreignFile].map((pathname) => ({ pathname, uploadedAt: old })).concat({ pathname: recentFile, uploadedAt: recent }));
     blobs.listed.set('avatars/', [avatar, reeAvatar, draftAvatar, orphanAvatar].map((pathname) => ({ pathname, uploadedAt: old })));
     blobs.listed.set('ree-covers/', [keptCover, orphanCover, foreignCover].map((pathname) => ({ pathname, uploadedAt: old })));
+    blobs.listed.set('post-images/', [postedImage, orphanImage].map((pathname) => ({ pathname, uploadedAt: old })));
     blobs.deleted = [];
 
     const removed = await purgeOrphanUploads(now);
-    expect(new Set(blobs.deleted)).toEqual(new Set([orphanFile, orphanAvatar, orphanCover]));
-    expect(removed).toEqual({ 'knowledge/': 1, 'avatars/': 1, 'ree-covers/': 1 });
+    expect(new Set(blobs.deleted)).toEqual(new Set([orphanFile, orphanAvatar, orphanCover, orphanImage]));
+    expect(removed).toEqual({ 'knowledge/': 1, 'avatars/': 1, 'ree-covers/': 1, 'post-images/': 1 });
   });
 });
