@@ -79,6 +79,10 @@ export function InvitesForm({ initial, welcomeCredits }: { initial: RewardSettin
             />
             {field === 'withdrawableInvites' && <small className="muted">{f.withdrawableInvitesHint}</small>}
             {field === 'withdrawableInvitesPerInviter' && <small className="muted">{f.withdrawableInvitesPerInviterHint}</small>}
+            {/* What each starter task pays for, as task-rewards.ts and its callers decide it. */}
+            {field === 'firstReeCredits' && <small className="muted">{f.firstReeCreditsHint}</small>}
+            {field === 'firstPostCredits' && <small className="muted">{f.firstPostCreditsHint}</small>}
+            {field === 'firstHelpfulCredits' && <small className="muted">{f.firstHelpfulCreditsHint}</small>}
           </label>
         ))}
         <button className="btn" type="submit">
