@@ -84,7 +84,7 @@ import {
   type AnswerResult,
   type PostRow,
 } from '@/lib/services/posts';
-import { effectiveCeiling } from '@/lib/services/rate-limit-settings';
+import { ceilingFor } from '@/lib/services/rate-limit-settings';
 
 const { post, postAnswer: answer, postFollowup: followup, postFollowupReport: followupReport, ree, user, notice } = schema;
 
@@ -158,7 +158,8 @@ export type AskOutcome =
  * nothing -- each answer is charged on its own, to the asker -- but a
  * balance below one base fee could pay for no answer, so it is refused with
  * a top-up. Counted under an advisory lock against `FOLLOWUP_DAILY_LIMIT`,
- * `FOLLOWUP_POST_DAILY_LIMIT` and the post's `FOLLOWUP_POST_MAX`; the same
+ * `FOLLOWUP_POST_DAILY_LIMIT` (or the console's values; none for an account
+ * exempt from `post`) and the post's `FOLLOWUP_POST_MAX`; the same
  * `clientToken`, or the same text under the same post within
  * `POST_DUPLICATE_WINDOW_MS`, returns the follow-up already asked.
  */
@@ -178,7 +179,7 @@ export async function askFollowup(userId: string, postId: string, input: Followu
   const clientToken = input.clientToken && isUuid(input.clientToken) ? input.clientToken : null;
   const id = randomUUID();
   const dayStart = postDayStart(now);
-  const [dailyLimit, postDailyLimit] = await Promise.all([effectiveCeiling('followupsPerDay'), effectiveCeiling('followupsPerPostPerDay')]);
+  const [dailyLimit, postDailyLimit] = await Promise.all([ceilingFor('followupsPerDay', userId), ceilingFor('followupsPerPostPerDay', userId)]);
   try {
     return await db().transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`followup:${userId}`}))`);
@@ -206,8 +207,8 @@ export async function askFollowup(userId: string, postId: string, input: Followu
         })
         .from(followup)
         .where(and(eq(followup.userId, userId), sql`${followup.createdAt} >= ${dayStart}::timestamptz`));
-      if ((counts?.today ?? 0) >= dailyLimit) return { ok: false, error: 'daily_limit' } as const;
-      if ((counts?.here ?? 0) >= postDailyLimit) return { ok: false, error: 'post_daily_limit' } as const;
+      if (dailyLimit !== null && (counts?.today ?? 0) >= dailyLimit) return { ok: false, error: 'daily_limit' } as const;
+      if (postDailyLimit !== null && (counts?.here ?? 0) >= postDailyLimit) return { ok: false, error: 'post_daily_limit' } as const;
       const [thread] = await tx.select({ n: post.followupCount }).from(post).where(eq(post.id, postId));
       if ((thread?.n ?? 0) >= FOLLOWUP_POST_MAX) return { ok: false, error: 'full' } as const;
       const balance = await balanceOf(tx, userId, now);

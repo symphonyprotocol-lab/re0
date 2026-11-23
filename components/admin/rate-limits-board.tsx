@@ -135,6 +135,7 @@ export function RateLimitsBoard({ initial }: { initial: Board }) {
         <strong>{m.ceilings[row.key]}</strong>
         <code>{row.key}</code>
         <small className="muted">{fill(m.ceilingDefault, { rule: ruleOf(row.defaultValue) })}</small>
+        <small className="muted">{row.exemptedBy ? fill(m.exemptedBy, { name: row.exemptedBy }) : m.notExemptable}</small>
       </div>,
       <div key="value" className="flex">
         <input className="input rate-limit-input" type="number" inputMode="numeric" min={1} max={100_000} step={1} aria-label={`${row.key} ${m.ceilingValue}`} value={draft} disabled={busy} onChange={(e) => setCeilingDrafts({ ...ceilingDrafts, [row.key]: e.target.value })} />

@@ -240,17 +240,32 @@ describeWithDb('console rate limits', () => {
     ]);
   });
 
-  it('an account exempt from `post` passes the limiter but still meets the posts-a-day ceiling the page lists', async () => {
-    const author = await user('ov-exempt', 1_000);
+  it('an account exempt from `post` publishes its 31st post of the day; one without the exemption still gets `daily_limit`', async () => {
+    const exempt = await user('ov-exempt', 1_000);
+    const plain = await user('ov-plain', 1_000);
     const administrator = await consoleAdministrator();
-    await rateLimits.addRateLimitExemption(administrator.id, { userId: author, limits: ['post'], note: 'batch QA' });
-    expect(await rateLimits.effectiveRateRules('post', author)).toBeNull();
-    const now = new Date();
-    await db()
-      .insert(schema.post)
-      .values(Array.from({ length: POST_DAILY_LIMIT }, (_, index) => ({ userId: author, source: 'post' as const, visibility: 'public' as const, question: `Ceiling ${index}`, lang: 'en' as const, status: 'published' as const, publishedAt: now, createdAt: now })));
-    expect(await posts.publishPost(author, { question: 'One more past the ceiling?', lang: 'en' })).toEqual({ ok: false, error: 'daily_limit' });
-    await rateLimits.removeRateLimitExemption(administrator.id, author);
+    await rateLimits.addRateLimitExemption(administrator.id, { userId: exempt, limits: ['post'], note: 'batch QA' });
+    try {
+      expect(await rateLimits.effectiveRateRules('post', exempt)).toBeNull();
+      const now = new Date();
+      for (const author of [exempt, plain]) {
+        await db()
+          .insert(schema.post)
+          .values(Array.from({ length: POST_DAILY_LIMIT }, (_, index) => ({ userId: author, source: 'post' as const, visibility: 'public' as const, question: `Ceiling ${index}`, lang: 'en' as const, status: 'published' as const, publishedAt: now, createdAt: now })));
+      }
+      const published = await posts.publishPost(exempt, { question: `Post number ${POST_DAILY_LIMIT + 1} today`, lang: 'en' });
+      expect(published.ok).toBe(true);
+      expect(await posts.postAllowance(exempt)).toMatchObject({ postedToday: POST_DAILY_LIMIT + 1, dailyLimit: null });
+      expect(await posts.publishPost(plain, { question: 'One more past the ceiling?', lang: 'en' })).toEqual({ ok: false, error: 'daily_limit' });
+      expect(await posts.postAllowance(plain)).toMatchObject({ postedToday: POST_DAILY_LIMIT, dailyLimit: POST_DAILY_LIMIT });
+      // From the composer's private post too (source `post`), still for the exempt account only.
+      const { reeId } = await publicRee();
+      const privateAsk = { question: 'A private one past the ceiling', reeIds: [reeId], fees: { [reeId]: QUERY_BASE_FEE }, lang: 'en' as const };
+      expect((await privatePosts.publishPrivatePost(exempt, privateAsk)).ok).toBe(true);
+      expect(await privatePosts.publishPrivatePost(plain, privateAsk)).toEqual({ ok: false, error: 'daily_limit' });
+    } finally {
+      await rateLimits.removeRateLimitExemption(administrator.id, exempt);
+    }
   });
 });
 

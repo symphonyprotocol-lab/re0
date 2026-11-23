@@ -292,5 +292,21 @@ describeWithDb('follow-ups in a post (追问)', () => {
       await ceilings.resetCeiling(administrator.id, { key: 'followupsPerDay' });
     }
     await ask(reader, first, 'Second under the first post, at the code default');
+
+    // An account exempt from `post` (the limiter follow-ups on public posts go through) skips both.
+    const exempt = await user('fu-exempt-ceiling', 1_000);
+    await ceilings.addRateLimitExemption(administrator.id, { userId: exempt, limits: ['post'] });
+    try {
+      await ceilings.saveCeiling(administrator.id, { key: 'followupsPerPostPerDay', value: 1 });
+      await ceilings.saveCeiling(administrator.id, { key: 'followupsPerDay', value: 1 });
+      await ask(exempt, first, 'Exempt, first');
+      await ask(exempt, first, 'Exempt, second under the same post');
+      await ask(exempt, second, 'Exempt, third today');
+      expect(await followups.askFollowup(reader, second, { question: 'Not exempt, past the ceiling', lang: 'en' })).toEqual({ ok: false, error: 'daily_limit' });
+    } finally {
+      await ceilings.resetCeiling(administrator.id, { key: 'followupsPerPostPerDay' });
+      await ceilings.resetCeiling(administrator.id, { key: 'followupsPerDay' });
+      await ceilings.removeRateLimitExemption(administrator.id, exempt);
+    }
   });
 });

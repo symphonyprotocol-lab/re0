@@ -24,7 +24,8 @@ export const zh = {
   },
   modelCost: '调用模型，产生费用',
   ceilingsTitle: '每日和每分钟上限',
-  ceilingsLede: '这些上限由各功能自己计数，可以在这里修改，30 秒内对所有实例生效；豁免账号不会解除这些上限。官方 Ree 的批量 QA 以公开帖子发出，同样受每天发帖上限约束。每天的计数在 UTC 0 点（北京时间 8 点）重置。',
+  ceilingsLede: '这些上限由各功能自己计数，可以在这里修改，30 秒内对所有实例生效。豁免了 post 的账号同时跳过每天发帖（公开帖和私密帖）和两项每天追问上限，因此官方 Ree 的批量 QA 帖不受每天发帖上限约束；Explore 带问题搜索没有对应的豁免项，任何豁免都不会解除。每天的计数在 UTC 0 点（北京时间 8 点）重置。',
+  exemptedBy: '豁免 {name} 的账号不受此上限', notExemptable: '不能豁免',
   ceilingValue: '上限', ceilingDefault: '默认 {rule}', dayRule: '{n} / 天（UTC 0 点重置）', dayUnit: '/ 天', minuteUnit: '/ 分钟',
   ceilings: {
     postsPerDay: '每个账号每天发帖（公开和私密合计，不含试问和 MCP）',
@@ -76,7 +77,8 @@ export const en: Shape<typeof zh> = {
   },
   modelCost: 'calls models, costs money',
   ceilingsTitle: 'Daily and per-minute ceilings',
-  ceilingsLede: 'Each feature counts these itself. You can change them here; changes take effect everywhere within 30 seconds. No exemption lifts them, and the official Rees’ batch QA goes out as public posts, so it meets the posts-a-day ceiling too. Daily counts restart at 00:00 UTC (08:00 UTC+8).',
+  ceilingsLede: 'Each feature counts these itself. You can change them here; changes take effect everywhere within 30 seconds. An account exempt from post also skips the posts-a-day ceiling (public and private posts) and both follow-up ceilings, so the official Rees’ batch QA posts are not held to it. Explore searches with a question have no exemption of their own, and none lifts them. Daily counts restart at 00:00 UTC (08:00 UTC+8).',
+  exemptedBy: 'Accounts exempt from {name} skip this ceiling', notExemptable: 'No exemption lifts this',
   ceilingValue: 'Ceiling', ceilingDefault: 'Default {rule}', dayRule: '{n} / day (resets 00:00 UTC)', dayUnit: '/ day', minuteUnit: '/ min',
   ceilings: {
     postsPerDay: 'Posts per account per day (public and private together; not owner tests or MCP)',

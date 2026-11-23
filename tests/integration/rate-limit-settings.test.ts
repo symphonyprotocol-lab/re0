@@ -20,6 +20,7 @@ import { rateLimited } from '@/lib/http/rate-limit';
 import { openAdminSession } from '@/lib/services/admin';
 import {
   addRateLimitExemption,
+  ceilingFor,
   effectiveCeiling,
   listCeilings,
   resetCeiling,
@@ -323,12 +324,24 @@ suite('console rate limits and exemptions', () => {
     expect(actions.map((row) => row.action).sort()).toEqual(['rate_limit.ceiling.reset', 'rate_limit.ceiling.update', 'rate_limit.ceiling.update']);
   });
 
-  it('daily ceilings: an exemption does not lift them', async () => {
+  it('daily ceilings: only a `post` exemption lifts posts and follow-ups a day; none lifts Explore questions', async () => {
     const { id } = await account();
-    await addRateLimitExemption(administratorId, { userId: id, limits: Object.keys(USER_RATE_LIMITS) });
+    const others = Object.keys(USER_RATE_LIMITS).filter((name) => name !== 'post');
+    await addRateLimitExemption(administratorId, { userId: id, limits: others });
     await saveCeiling(administratorId, { key: 'postsPerDay', value: 1 });
     await postsAt(id, 1, new Date());
-    expect(await publishPost(id, { question: 'Exempt, still counted', lang: 'en' })).toEqual({ ok: false, error: 'daily_limit' });
+    expect(await publishPost(id, { question: 'Exempt from everything but post, still counted', lang: 'en' })).toEqual({ ok: false, error: 'daily_limit' });
+    expect(await ceilingFor('followupsPerDay', id)).toBe(await effectiveCeiling('followupsPerDay'));
+
+    await addRateLimitExemption(administratorId, { userId: id, limits: ['post'] });
+    expect(await publishPost(id, { question: 'Exempt from post: past the ceiling, refused only for credits', lang: 'en' })).toMatchObject({ ok: false, error: 'insufficient_credits' });
+    expect((await postAllowance(id)).dailyLimit).toBeNull();
+    for (const key of ['postsPerDay', 'followupsPerDay', 'followupsPerPostPerDay'] as const) expect(await ceilingFor(key, id)).toBeNull();
+    await addRateLimitExemption(administratorId, { userId: id, limits: Object.keys(USER_RATE_LIMITS) });
+    expect(await ceilingFor('exploreQuestions', id)).toBe(EXPLORE_RATE_LIMIT.perUser);
+    expect((await listCeilings()).map((row) => [row.key, row.exemptedBy])).toEqual([
+      ['postsPerDay', 'post'], ['followupsPerDay', 'post'], ['followupsPerPostPerDay', 'post'], ['exploreQuestions', null],
+    ]);
   });
 
   it('a day restarts at 00:00 UTC, whatever the session time zone', async () => {

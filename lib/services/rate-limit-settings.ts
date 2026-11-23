@@ -87,12 +87,13 @@ export const CEILING_VALUE_BOUNDS = { min: 1, max: 100_000 } as const;
 
 /**
  * The ceilings that sit beside `USER_RATE_LIMITS`, which each feature counts
- * itself and no exemption lifts: posts a day (public and private together,
+ * itself: posts a day (public and private together,
  * not 试问 or MCP asks; posts.ts and private-posts.ts), follow-ups a day and
  * per post a day (post-followups.ts), and Explore's questions a minute per
  * account and per client address (explore.ts). A day starts at
  * 00:00 UTC (`postDayStart`). The code values are the defaults; the console
- * stores others in `limit_ceiling_setting`.
+ * stores others in `limit_ceiling_setting`. An exemption from `post` lifts
+ * the three daily ones (`CEILING_EXEMPTED_BY`).
  */
 export const CEILING_DEFAULTS: Record<CeilingKey, { value: number; per: 'day' | 'minute' }> = {
   postsPerDay: { value: POST_DAILY_LIMIT, per: 'day' },
@@ -107,6 +108,8 @@ export interface CeilingRow {
   defaultValue: number;
   /** `day`: from 00:00 UTC; `minute`: per account and per client address. */
   per: 'day' | 'minute';
+  /** The exemption that lifts it for an account, if any. */
+  exemptedBy: RateLimitName | null;
   overridden: boolean;
   updatedAt: string | null;
 }
@@ -181,9 +184,35 @@ export async function effectiveRateRules(name: RateLimitName, userId: string | n
   return current.rules.get(name) ?? USER_RATE_LIMITS[name];
 }
 
-/** A ceiling's value now: the console's, else the code default. Never exempted. */
+/** Whether `userId` is exempt from the limiter's `name`, from the same cached snapshot `effectiveRateRules` reads. */
+export async function isRateLimitExempt(name: RateLimitName, userId: string | null): Promise<boolean> {
+  if (!userId) return false;
+  return Boolean((await snapshot()).exempt.get(userId)?.has(name));
+}
+
+/**
+ * The exemption that lifts a ceiling: `post` (publishing, and follow-ups on
+ * public posts, go through that limiter) lifts the posts-a-day and both
+ * follow-up ceilings. Explore questions have no limiter name of their own
+ * (`browse` is searching without a question), so no exemption lifts them.
+ */
+export const CEILING_EXEMPTED_BY: Record<CeilingKey, RateLimitName | null> = {
+  postsPerDay: 'post',
+  followupsPerDay: 'post',
+  followupsPerPostPerDay: 'post',
+  exploreQuestions: null,
+};
+
+/** A ceiling's value now: the console's, else the code default. */
 export async function effectiveCeiling(key: CeilingKey): Promise<number> {
   return (await snapshot()).ceilings.get(key) ?? CEILING_DEFAULTS[key].value;
+}
+
+/** A ceiling for `userId`: `null` when the account's exemption lifts it (`CEILING_EXEMPTED_BY`). */
+export async function ceilingFor(key: CeilingKey, userId: string): Promise<number | null> {
+  const exemptedBy = CEILING_EXEMPTED_BY[key];
+  if (exemptedBy && (await isRateLimitExempt(exemptedBy, userId))) return null;
+  return effectiveCeiling(key);
 }
 
 /* ----------------------------------------------------------------- console */
@@ -195,7 +224,7 @@ export async function listCeilings(): Promise<CeilingRow[]> {
   return CEILING_KEYS.map((key) => {
     const row = byKey.get(key);
     const { value, per } = CEILING_DEFAULTS[key];
-    return { key, value: row?.value ?? value, defaultValue: value, per, overridden: Boolean(row), updatedAt: row?.updatedAt.toISOString() ?? null };
+    return { key, value: row?.value ?? value, defaultValue: value, per, exemptedBy: CEILING_EXEMPTED_BY[key], overridden: Boolean(row), updatedAt: row?.updatedAt.toISOString() ?? null };
   });
 }
 

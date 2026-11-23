@@ -56,7 +56,7 @@ import { grantTaskReward } from '@/lib/services/task-rewards';
 import { answerWithAi, type AiAnswerer } from '@/lib/services/ai-answers';
 import { parsePostImages, postSubject } from '@/lib/domain/post-images';
 import { attachImages, checkedImages, hasSameImages, imagesReadableFor, copyImages, ensureImageText, imageParts, type ImageDescriber } from '@/lib/services/post-images';
-import { effectiveCeiling } from '@/lib/services/rate-limit-settings';
+import { ceilingFor } from '@/lib/services/rate-limit-settings';
 
 const { post, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postFollowup: followup, ree } = schema;
 
@@ -209,7 +209,7 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
   const entries = rees.map((entry) => ({ ree: entry, ready: ready.has(entry.id), similarity: null, mentioned: true }));
   const id = randomUUID();
   const dayStart = postDayStart(now);
-  const dailyLimit = await effectiveCeiling('postsPerDay');
+  const dailyLimit = await ceilingFor('postsPerDay', userId);
   try {
     return await db().transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`post:${userId}`}))`);
@@ -220,7 +220,7 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
           .select({ today: sql<number>`count(*) filter (where ${post.createdAt} >= ${dayStart}::timestamptz)::int` })
           .from(post)
           .where(and(eq(post.userId, userId), eq(post.source, 'post')));
-        if ((counts?.today ?? 0) >= dailyLimit) return { ok: false, error: 'daily_limit' } as const;
+        if (dailyLimit !== null && (counts?.today ?? 0) >= dailyLimit) return { ok: false, error: 'daily_limit' } as const;
       }
       await tx.insert(post).values({
         id,
