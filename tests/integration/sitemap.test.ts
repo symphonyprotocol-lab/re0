@@ -9,7 +9,8 @@ import sitemap from '@/app/sitemap';
 import { GET as sitemapIndex } from '@/app/sitemap-index.xml/route';
 import { sitemapIds } from '@/lib/sitemaps';
 import { authorOthers, authorOthersPages, publicReeBySlug } from '@/lib/services/public-rees';
-import { PUBLIC_LIST_PAGE_SIZE } from '@/lib/constants';
+import { PUBLIC_LIST_PAGE_SIZE, REE_CATEGORIES } from '@/lib/constants';
+import { explore } from '@/lib/services/explore';
 
 const suite = TEST_DATABASE_URL ? describe : describe.skip;
 
@@ -65,6 +66,18 @@ suite('sitemap', () => {
     const entries = (await Promise.all((await sitemapIds()).filter((id) => id.startsWith('rees-')).map((id) => sitemap({ id })))).flat();
     const listed = entries.filter((entry) => entry.url.endsWith(`/r/${official.slug}`));
     expect(listed).toEqual([{ url: `https://re0.test/en/r/${official.slug}`, lastModified: expect.any(Date), changeFrequency: 'weekly', priority: 0.8 }]);
+    vi.unstubAllEnvs();
+  });
+
+  it('lists exactly the Explore categories whose page has Rees, in both languages', async () => {
+    vi.stubEnv('APP_BASE_URL', 'https://re0.test');
+    await ree(await person());
+    const pages = (await sitemap({ id: 'pages' })).map((entry) => entry.url);
+    for (const category of REE_CATEGORIES) {
+      const { total } = await explore({ q: '', category, sort: 'active' }, { cursor: null, size: 1 }, { includeIntros: false });
+      for (const locale of ['zh', 'en']) expect(pages.includes(`https://re0.test/${locale}/explore?category=${category}`)).toBe(total > 0);
+    }
+    expect(pages).toContain('https://re0.test/en/explore?category=technology');
     vi.unstubAllEnvs();
   });
 
