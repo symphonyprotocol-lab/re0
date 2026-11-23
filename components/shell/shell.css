@@ -437,9 +437,6 @@ html:has(.app-main .context-nav-row) {
   align-items: center;
   gap: 18px;
 }
-.topbar .mobile-menu {
-  display: none;
-}
 .topbar .icon-btn > svg {
   width: 17px;
   height: 17px;
@@ -796,14 +793,11 @@ html:has(.app-main .context-nav-row) {
     width: 28px;
     height: 28px;
   }
-  .topbar .mobile-menu {
-    display: inline-flex;
-  }
   .sidebar-collapse {
     display: none;
   }
   .topbar-main {
-    padding-inline: 20px;
+    padding-inline: 18px;
   }
   .context-nav-row {
     gap: 10px;
@@ -822,7 +816,7 @@ html:has(.app-main .context-nav-row) {
 @media (max-width: 600px) {
   .app-main .topbar .topbar-main {
     gap: 10px;
-    padding-inline: 14px;
+    padding-inline: 18px;
   }
   .app-main .topbar .topbar-right {
     gap: 4px;
@@ -894,7 +888,6 @@ html:has(.app-main .context-nav-row) {
   .ree-workspace-shell .topbar-location {
     gap: 0;
   }
-  .ree-workspace-shell .topbar-location > .mobile-menu,
   .ree-workspace-shell .header-breadcrumbs,
   .ree-workspace-shell .topbar-right > * {
     display: none;
@@ -1002,10 +995,37 @@ html:has(.xshell) {
 .xshell .topbar-main {
   height: calc(var(--navigation-base) - 1px);
 }
+/* Above a phone the bar shows the breadcrumbs; its title row (Topbar) is the phone's. */
+.topbar-phone-title {
+  display: none;
+}
 @media (max-width: 760px) {
-  /* Phones have no sidebar beside the column: a shorter title row. */
+  /* Phones have no sidebar beside the column: a shorter title row, the same for a feed column's head and the top bar under the brand line (MobileTop). */
   html:has(.xshell) {
     --header-line: 48px;
+    --workspace-bar-height: 48px;
+  }
+  /* The top bar's first row is the page's title, set like a feed column's (columns.css `.xcol-title`): the crumbs give way to it. */
+  .topbar-phone-title {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    font-size: 18px;
+    font-weight: 750;
+  }
+  .topbar-phone-title > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .topbar-phone-title > .icon-btn {
+    flex: none;
+    margin-left: -6px;
+  }
+  .topbar-phone-title + .header-breadcrumbs {
+    display: none;
   }
   .xshell .sidebar-close {
     top: calc((var(--header-line) - 1px - 28px) / 2);
