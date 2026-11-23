@@ -17,7 +17,8 @@
  * The fragments read the post answer as `a` and its post as `p`.
  */
 import { sql, type SQL } from 'drizzle-orm';
-import { schema } from '@/lib/infra/db';
+import { isUuid } from '@/lib/domain/list';
+import { db, schema } from '@/lib/infra/db';
 
 const { post, postAnswer, postFollowup, postAnswerVote, postAnswerFeedback, reeLegacyStats } = schema;
 
@@ -51,4 +52,45 @@ export function postVotesOf(reeId: SQL, owner: SQL, vote: 'up' | 'down'): SQL<nu
 export function votesByOthersOf(reeId: SQL, owner: SQL, vote: 'up' | 'down'): SQL<number> {
   const legacy = vote === 'up' ? sql.raw('ls.helpful') : sql.raw('ls.unhelpful');
   return sql<number>`(coalesce((select ${legacy} from ${reeLegacyStats} ls where ls.ree_id = ${reeId}), 0) + ${postVotesOf(reeId, owner, vote)})::int`;
+}
+
+/* ------------------------------------------------- console (2026-11-23) */
+
+/** Post `p` is a question someone sent: `post` or `api`, public or private, and not a 转为公开 copy (its question was the private post's). */
+export function realPost(p: SQL): SQL {
+  return sql`(${p}.source in ('post', 'api') and not exists (select 1 from ${post} cp where cp.published_copy_id = ${p}.id))`;
+}
+
+/**
+ * Answer `a` on post `p` is a Ree's answer to a real question: the first
+ * round of a real post, or any follow-up but a 试问's. Copied Q&A, a
+ * visitor's published answer, RE0's examples and a 转为公开 copy's first
+ * round were never asked of the Ree.
+ */
+export function realAnswer(a: SQL, p: SQL): SQL {
+  return sql`(${a}.state = 'answered' and ${a}.legacy_qa_id is null
+    and case when ${a}.followup_id is null then ${realPost(p)} else ${p}.source <> 'test' end)`;
+}
+
+/**
+ * The console's answers per Ree (users and Rees pages): `others`, the
+ * figure its public page and Explore show (`answersByOthersOf`, frozen
+ * conversations plus posts), and `own`, its answers to real questions its
+ * owner asked on posts -- the official Rees' QA, which went out as public
+ * posts mentioning the Ree from 2026-11-23. A 试问 is neither. Not read
+ * from the ledger: `query_base` puts every 试问 and the owner's own
+ * questions in one number with the answers to others.
+ */
+export async function consoleReeAnswers(reeIds: readonly string[]): Promise<Map<string, { others: number; own: number }>> {
+  const ids = reeIds.filter((id) => isUuid(id));
+  if (!ids.length) return new Map();
+  const list = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
+  const result = await db().execute<{ id: string; others: number; own: number }>(sql`
+    select r.id, ${answersByOthersOf(sql`r.id`, sql`r.owner_id`)} as others,
+      (select count(*) from ${postAnswer} oa join ${post} op on op.id = oa.post_id
+        where oa.ree_id = r.id and ${realAnswer(sql`oa`, sql`op`)}
+          and case when oa.followup_id is null then op.user_id = r.owner_id
+            else exists (select 1 from ${postFollowup} owf where owf.id = oa.followup_id and owf.user_id = r.owner_id) end)::int as own
+    from ${schema.ree} r where r.id in (${list})`);
+  return new Map(result.rows.map((row) => [row.id, { others: Number(row.others), own: Number(row.own) }]));
 }

@@ -1,10 +1,18 @@
 /**
  * The console's overview (2.5 "概览"), on live figures: users, Rees,
- * sources, questions, answers and earned credits over the last 30 days
- * (answers include those free Rees gave signed-out visitors, which have no
- * ledger entry: anonymous-chat.ts), what waits
- * for an administrator, and this month's model calls with an estimated cost
- * from the call log (`model_call`).
+ * sources, questions, answers and earned credits over the last 30 days,
+ * what waits for an administrator, and this month's model calls with an
+ * estimated cost from the call log (`model_call`).
+ *
+ * Questions and answers are read from the posts (lib/services/posts.ts),
+ * which replaced the conversations: a real question is a post someone sent
+ * (`post` or `api`, public or private, not a 转为公开 copy) or a follow-up
+ * under any post but a 试问; an answer is a Ree's `post_answer` to one of
+ * them. A Ree owner's 试问 (`test`, the official Rees' QA traffic before it
+ * moved to public posts) is counted apart and never as a question or an
+ * answer, as everywhere else (ree-try.ts). The ledger's `query_base` is not
+ * read for answers: it also settles every 试问, and copies, examples and the
+ * conversations' entries cannot be told apart in it.
  */
 import { and, count, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { MODEL_KINDS, MODEL_PRICES, type ModelKind } from '@/lib/constants';
@@ -18,6 +26,7 @@ import { openPayoutCount } from '@/lib/services/payouts';
 import { runningReembedJob } from '@/lib/services/reembed';
 import { assertConsole, type Administrator } from '@/lib/services/admin';
 import { aiAnswerStats } from '@/lib/services/ai-answers';
+import { realAnswer, realPost } from '@/lib/services/ree-counts';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -46,18 +55,30 @@ export async function adminOverview(administrator: Administrator, now = new Date
         public: sql<number>`count(*) filter (where ${schema.ree.isPublic} and ${schema.ree.isPublished} and ${schema.ree.moderatedAt} is null)::int`,
         unpublished: sql<number>`count(*) filter (where ${schema.ree.isPublic} and not ${schema.ree.isPublished} and ${schema.ree.moderatedAt} is null)::int`,
         moderated: sql<number>`count(*) filter (where ${schema.ree.moderatedAt} is not null)::int`,
+        /* Its owner's alone: with the three above, every Ree in the total. */
+        private: sql<number>`count(*) filter (where not ${schema.ree.isPublic} and ${schema.ree.moderatedAt} is null)::int`,
       })
       .from(schema.ree)
       .where(isNull(schema.ree.deletedAt)),
-    database.select({ total: count(), ready: sql<number>`count(*) filter (where ${schema.knowledge.status} = 'ready')::int` }).from(schema.knowledge).where(isNull(schema.knowledge.deletedAt)),
+    /* A deleted Ree's sources stay on file until purged; only live Rees' count. */
+    database
+      .select({ total: count(), ready: sql<number>`count(*) filter (where ${schema.knowledge.status} = 'ready')::int` })
+      .from(schema.knowledge)
+      .innerJoin(schema.ree, eq(schema.ree.id, schema.knowledge.reeId))
+      .where(and(isNull(schema.knowledge.deletedAt), isNull(schema.ree.deletedAt))),
     /*
-     * Questions asked in 30 days: real posts (public and private, `post` and
-     * `api`; not 试问, copies or RE0's examples) and their follow-ups.
+     * Questions asked in 30 days (see the head): posts sent and follow-ups,
+     * and the 试问 left out, shown apart. A follow-up under a copied Q&A or
+     * an example post is still a question someone asked.
      */
-    database.execute<{ total: number }>(sql`select
-      (select count(*) from ${schema.post} p where p.source in ('post', 'api') and p.created_at >= ${since.toISOString()}::timestamptz
-        and not exists (select 1 from ${schema.post} cp where cp.published_copy_id = p.id))
-      + (select count(*) from ${schema.postFollowup} f join ${schema.post} p on p.id = f.post_id where p.source in ('post', 'api') and f.created_at >= ${since.toISOString()}::timestamptz) as total`).then((result) => result.rows.map((row) => ({ total: Number(row.total) }))),
+    database
+      .execute<{ posts: number; followups: number; tests: number }>(
+        sql`select
+          (select count(*) from ${schema.post} p where ${realPost(sql`p`)} and p.created_at >= ${since.toISOString()}::timestamptz)::int as posts,
+          (select count(*) from ${schema.postFollowup} f join ${schema.post} p on p.id = f.post_id where p.source <> 'test' and f.created_at >= ${since.toISOString()}::timestamptz)::int as followups,
+          (select count(*) from ${schema.post} p where p.source = 'test' and p.created_at >= ${since.toISOString()}::timestamptz)::int as tests`,
+      )
+      .then((result) => result.rows.map((row) => ({ posts: Number(row.posts), followups: Number(row.followups), tests: Number(row.tests) }))),
     database
       .select({ sum: sql<number>`coalesce(sum(${schema.creditEntry.delta}), 0)::bigint` })
       .from(schema.creditEntry)
@@ -83,15 +104,18 @@ export async function adminOverview(administrator: Administrator, now = new Date
       .where(and(gte(schema.modelCall.createdAt, new Date(month.start)), sql`${schema.modelCall.createdAt} < ${new Date(month.end)}`))
       .groupBy(schema.modelCall.kind, schema.modelCall.model)
       .orderBy(desc(count())),
-    /* Successful answers per reporting day, the last 30 days. */
+    /*
+     * Successful answers per reporting day, the last 30 days: Rees' answers
+     * to real questions (see the head), hidden since or not, by when written.
+     */
     database
-      .select({
-        day: sql<string>`to_char(${schema.creditEntry.createdAt} at time zone 'Asia/Shanghai', 'YYYY-MM-DD')`,
-        n: sql<number>`count(distinct (${schema.creditEntry.refId}, ${schema.creditEntry.reeId}))::int`,
-      })
-      .from(schema.creditEntry)
-      .where(and(eq(schema.creditEntry.reason, 'query_base'), gte(schema.creditEntry.createdAt, new Date(now.getTime() - 30 * DAY))))
-      .groupBy(sql`1`),
+      .execute<{ day: string; n: number }>(
+        sql`select to_char(a.answered_at at time zone 'Asia/Shanghai', 'YYYY-MM-DD') as day, count(*)::int as n
+          from ${schema.postAnswer} a join ${schema.post} p on p.id = a.post_id
+          where ${realAnswer(sql`a`, sql`p`)} and a.answered_at >= ${since.toISOString()}::timestamptz
+          group by 1`,
+      )
+      .then((result) => result.rows.map((row) => ({ day: String(row.day), n: Number(row.n) }))),
     /*
      * Answers to signed-out visitors per reporting day, the same window. They
      * leave an `anonymous_answer` row and never a ledger entry, so no answer
@@ -108,7 +132,7 @@ export async function adminOverview(administrator: Administrator, now = new Date
     listAudit(administrator, { q: '', action: 'all', period: 'all', sort: 'newest', size: 5, page: 1 }),
     pendingKyc(),
     openPayoutCount(),
-    /* AI 通用回答 in 30 days: never an answer above (not `query_base`), counted apart. */
+    /* AI 通用回答 in 30 days: never a Ree's answer above, counted apart. */
     aiAnswerStats(since),
   ]);
   const byDay = new Map(trend.map((row) => [row.day, row.n]));
@@ -144,7 +168,8 @@ export async function adminOverview(administrator: Administrator, now = new Date
     users: users[0]!,
     rees: rees[0]!,
     sources: sources[0]!,
-    questions30: questions[0]?.total ?? 0,
+    questions30: (questions[0]?.posts ?? 0) + (questions[0]?.followups ?? 0),
+    questions: questions[0] ?? { posts: 0, followups: 0, tests: 0 },
     earned30: Number(earned[0]?.sum ?? 0),
     revenue30: { usd: Number(revenue[0]?.minor ?? 0) / 100, payments: revenue[0]?.n ?? 0 },
     pending: { verifications, reembed: job ? 1 : 0, kyc, payouts },

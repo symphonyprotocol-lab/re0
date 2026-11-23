@@ -22,7 +22,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const state = vi.hoisted(() => ({ user: null as { id: string } | null }));
+const state = vi.hoisted(() => ({ user: null as { id: string } | null, sparse: false }));
 const t = messages('zh');
 vi.mock('@/lib/http/session', () => ({ currentUser: async () => state.user }));
 vi.mock('@/i18n/server', async () => {
@@ -45,8 +45,17 @@ const post: PostView = {
   summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, paidRequests: [], spent: null, aiAnswer: null, followupCount: 0, followups: [],
   followupCandidates: [], followupBlocked: null, followupAiOnly: false, deleted: false,
 };
-vi.mock('@/lib/services/public-rees', async (original) => ({ ...(await original<typeof import('@/lib/services/public-rees')>()), publicReeBySlug: async () => ree }));
-vi.mock('@/lib/services/posts', async (original) => ({ ...(await original<typeof import('@/lib/services/posts')>()), reePostPicks: async () => ({ items: [post], total: 4 }) }));
+const second: PostView = {
+  ...post, id: '00000000-0000-4000-8000-000000000002', question: '专项附加扣除怎么填？', helpful: 1,
+  answers: [{ ...post.answers[0]!, id: '00000000-0000-4000-8000-0000000000a2', text: '在个税 App 里填报 [1][2]。', pinned: false, helpful: 1,
+    citations: [{ index: 1, knowledgeId: '00000000-0000-4000-8000-0000000000e1', title: '个人所得税法实施条例', kind: 'document', locator: {}, excerpt: '……' }] }],
+};
+vi.mock('@/lib/services/public-rees', async (original) => ({ ...(await original<typeof import('@/lib/services/public-rees')>()), publicReeBySlug: async () => (state.sparse ? { ...ree, sources: 0, answers: 0, sampleQuestions: [] } : ree) }));
+vi.mock('@/lib/services/posts', async (original) => ({ ...(await original<typeof import('@/lib/services/posts')>()), reePostPicks: async () => (state.sparse ? { items: [], total: 0 } : { items: [post, second], total: 4 }) }));
+vi.mock('@/lib/services/share-landing', () => ({
+  reeSourceMix: async () => (state.sparse ? [] : [{ kind: 'document', count: 2 }, { kind: 'page', count: 1 }]),
+  reeCitedSources: async () => (state.sparse ? [] : [{ knowledgeId: '00000000-0000-4000-8000-0000000000e1', title: '个人所得税法实施条例', kind: 'document', answers: 2 }]),
+}));
 
 const SharePage = (await import('@/app/s/[slug]/page')).default;
 const { ReeDetailView } = await import('@/components/discover/ree-detail-view');
@@ -77,14 +86,36 @@ function expectPostsAndBox(html: string) {
 
 beforeEach(() => {
   state.user = null;
+  state.sparse = false;
 });
 
+/** The box 向 {name} 提问 at the foot of the share page. */
+function expectBox(html: string) {
+  expect(html).toContain('aria-label="向 个税顾问 提问"');
+  expect(html).toMatch(/<span class="fu-chip ask-chip">.*个税顾问<\/span>/);
+  expect(html).toContain('role="radiogroup" aria-label="谁能看到"');
+}
+
 describe('the share page', () => {
-  it('shows a visitor post cards and the box with 登录后提问 back to it', async () => {
+  it('is a landing page: one real exchange, questions to try, its sources, more answers and the box', async () => {
     const html = await share();
-    expectPostsAndBox(html);
+    expect(html.match(/<h1\b/g)).toHaveLength(1);
+    expect(html).toMatch(/<h1 [^>]*>个税顾问<\/h1>/);
+    /* The top pick beside the hero, its citation markers dropped. */
+    expect(html).toContain('class="share-proof"');
+    expect(html).toContain('年度汇算什么时候办？');
+    expect(html).toContain('每年 3 月 1 日至 6 月 30 日。');
+    expect(html).not.toContain('[1]');
+    /* 可以这样问它, its sources by kind and the ones public answers cited. */
+    expect(html).toContain('租房扣除每个月能扣多少？');
+    expect(html).toContain('文档<strong class="font-mono text-[13px]">2</strong>');
+    expect(html).toContain('个人所得税法实施条例');
+    expect(html).toContain('被 2 个回答引用');
+    /* The other picks, and the way to all of them. */
+    expect(html).toContain('专项附加扣除怎么填？');
     expect(html).toContain('4 个公开帖子中的精选');
     expect(html).toContain('查看全部 4 个帖子');
+    expectBox(html);
     expect(html).toContain(`href="/login?returnTo=${encodeURIComponent('/s/tax#ask')}"`);
     expect(html).toContain('>登录后提问<span class="workspace-link-progress"');
     expect(html).not.toContain('开始对话');
@@ -94,10 +125,22 @@ describe('the share page', () => {
   it('gives a signed-in reader the composer naming the Ree', async () => {
     state.user = { id: '00000000-0000-4000-8000-0000000000d1' };
     const html = await share();
-    expectPostsAndBox(html);
+    expectBox(html);
     expect(html).not.toContain('登录后提问');
     expect(html).toContain('placeholder="向 个税顾问 提问…"');
     expect(html).toContain('>发布</button>');
+  });
+
+  it('leaves out what a Ree without sources or answers does not have', async () => {
+    state.sparse = true;
+    const html = await share();
+    expect(html).toContain('知识还在准备中');
+    expect(html).not.toContain('share-proof');
+    expect(html).not.toContain('可以这样问它');
+    expect(html).not.toContain('它的回答从哪里来');
+    expect(html).not.toContain('大家问过的');
+    expect(html).not.toContain('share-closing');
+    expect(html).not.toContain('id="ask"');
   });
 });
 

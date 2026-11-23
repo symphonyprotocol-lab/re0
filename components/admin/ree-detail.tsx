@@ -253,7 +253,7 @@ export function reeSourceHref(id: string, kid: string, from: string | null, para
  * and status, description, the public page and takedown / restore; then a
  * note when the Ree is deleted or taken down, and the four metric cards.
  */
-export function ReeHeader({ t, locale, detail, answers }: { t: Messages; locale: Locale; detail: AdminReeDetail; answers: number }) {
+export function ReeHeader({ t, locale, detail, answers }: { t: Messages; locale: Locale; detail: AdminReeDetail; answers: { others: number; own: number } }) {
   const r = t.consoleRees.ree;
   const { ree, visibility, sources } = detail;
   const n = (value: number) => formatNumber(value, locale);
@@ -301,7 +301,7 @@ export function ReeHeader({ t, locale, detail, answers }: { t: Messages; locale:
       <div className="admin-ree-detail-metrics">
         {(
           [
-            [r.metrics.answers, n(answers), r.metrics.answersNote],
+            [r.metrics.answers, n(answers.others), answers.own > 0 ? `${r.metrics.answersNote} · ${fill(t.consoleRees.rees.ownAnswers, { n: n(answers.own) })}` : r.metrics.answersNote],
             [r.metrics.sources, n(sources.total), r.metrics.sourcesNote],
             [r.metrics.ready, n(sources.ready), r.metrics.readyNote],
           ] as const

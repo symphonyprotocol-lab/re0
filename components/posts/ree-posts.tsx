@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { PostView } from '@/lib/domain/post';
 import { PostCard } from '@/components/posts/post-card';
+import { FeedFooter } from '@/components/posts/post-feed';
 import { useI18n } from '@/i18n/client';
 import { Icon } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
+import { useLoadOnScroll } from '@/components/ui/use-load-on-scroll';
 import './posts.css';
 
 export interface ReePostPage {
@@ -17,7 +19,8 @@ export interface ReePostPage {
 /**
  * The public posts a Ree answered, as post cards each showing its answer
  * (稿 2: a share page's "大家问过的" and a Ree page's 回答的帖子 -- no chat
- * bubbles). On the Ree page more pages load from `/api/rees/[id]/posts`,
+ * bubbles). On the Ree page more pages load from `/api/rees/[id]/posts`
+ * as the list scrolls,
  * and its owner pins or hides its answer under each card, as on the old
  * Q&A list (`PATCH /api/rees/[id]/public-qa/[answerId]`).
  */
@@ -30,23 +33,32 @@ export function ReePostList({ reeId, initial, signedIn, owner = false, paged = f
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
 
-  async function more() {
-    if (!page.next || loading) return;
+  const [failed, setFailed] = useState(false);
+  const inFlight = useRef(false);
+
+  const more = useCallback(async () => {
+    const cursor = page.next;
+    if (!cursor || inFlight.current) return;
+    inFlight.current = true;
     setLoading(true);
+    setFailed(false);
     try {
-      const response = await fetch(`/api/rees/${reeId}/posts?before=${page.next}`, { headers: { accept: 'application/json' } });
+      const response = await fetch(`/api/rees/${reeId}/posts?before=${encodeURIComponent(cursor)}`, { headers: { accept: 'application/json' } });
       if (!response.ok) throw new Error(String(response.status));
       const next = (await response.json()) as ReePostPage;
       setPage((current) => {
+        if (current.next !== cursor) return current;
         const seen = new Set(current.items.map((item) => item.id));
         return { items: [...current.items, ...next.items.filter((item) => !seen.has(item.id))], total: next.total, next: next.next };
       });
     } catch {
-      toast(q.loadError);
+      setFailed(true);
     } finally {
+      inFlight.current = false;
       setLoading(false);
     }
-  }
+  }, [page.next, reeId]);
+  const { sentinel, observing } = useLoadOnScroll<HTMLDivElement>(more, paged && Boolean(page.next) && !loading && !failed);
 
   /* The Ree's answer on the card: the list shows only this Ree's. */
   async function act(post: PostView, action: 'hide' | 'pin' | 'unpin') {
@@ -111,13 +123,16 @@ export function ReePostList({ reeId, initial, signedIn, owner = false, paged = f
           />
         );
       })}
-      {paged && page.next && (
-        <div className="pt-2 text-center">
-          <button type="button" className="btn-secondary btn-sm" disabled={loading} onClick={() => void more()}>
-            {loading ? <i className="spinner" /> : null}
-            {q.more}
-          </button>
-        </div>
+      {paged && (
+        <FeedFooter
+          sentinel={sentinel}
+          more={Boolean(page.next)}
+          loading={loading}
+          failed={failed}
+          observing={observing}
+          onMore={() => void more()}
+          labels={{ more: q.more, loading: q.loading, failed: q.loadError, end: initial.next ? q.end : null }}
+        />
       )}
     </div>
   );

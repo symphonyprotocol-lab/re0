@@ -1,0 +1,310 @@
+/*
+ * The share page `/s/[slug]` as the Ree's landing page. Each Ree's own color
+ * (components/ui/ree-avatar.tsx, the six defaults) tints its hero panel,
+ * the source bar and the closing band: `--tone` for ink and marks, `--tone-tint`
+ * for fields, `--tone-line` for their edges. The rest is the site's palette.
+ */
+.share-landing {
+  --tone: #0867c4;
+  --tone-tint: #edf4ff;
+  --tone-line: #d6e6fb;
+}
+.share-landing.tone-lilac {
+  --tone: #7255bd;
+  --tone-tint: #f3effc;
+  --tone-line: #e3dbf6;
+}
+.share-landing.tone-sand {
+  --tone: #85672f;
+  --tone-tint: #f8f3ea;
+  --tone-line: #ebe1cf;
+}
+.share-landing.tone-sage {
+  --tone: #2f7563;
+  --tone-tint: #ebf5f1;
+  --tone-line: #d3e8df;
+}
+.share-landing.tone-rose {
+  --tone: #a2545b;
+  --tone-tint: #fbf1f1;
+  --tone-line: #f0dcdd;
+}
+.share-landing.tone-slate {
+  --tone: #4c6389;
+  --tone-tint: #eef1f7;
+  --tone-line: #dbe2ee;
+}
+
+/* Hero: who it is on the left, one real exchange on the tinted right. */
+.share-hero {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 18px 48px #0911350d;
+}
+@media (min-width: 960px) {
+  .share-hero.has-side {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  }
+}
+.share-hero-main {
+  padding: 28px 20px 24px;
+}
+@media (min-width: 640px) {
+  .share-hero-main {
+    padding: 44px 44px 36px;
+  }
+}
+.share-hero-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-top: 1px solid var(--tone-line);
+  background: var(--tone-tint);
+  padding: 20px;
+}
+@media (min-width: 640px) {
+  .share-hero-side {
+    padding: 36px;
+  }
+}
+@media (min-width: 960px) {
+  .share-hero-side {
+    border-top: 0;
+    border-left: 1px solid var(--tone-line);
+  }
+}
+.share-name {
+  font-size: 32px;
+  line-height: 1.08;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+@media (min-width: 640px) {
+  .share-name {
+    font-size: 46px;
+  }
+}
+.share-lede {
+  max-width: 58ch;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #3b4361;
+  overflow-wrap: anywhere;
+}
+@media (min-width: 640px) {
+  .share-lede {
+    font-size: 16px;
+  }
+}
+
+/* The figures: a row of plain numbers, each with what it counts. */
+.share-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 28px;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-line);
+}
+.share-facts div {
+  display: flex;
+  flex-direction: column-reverse;
+  min-width: 0;
+}
+.share-facts dt {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.share-facts dd {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--color-ink);
+}
+
+/* The real exchange: the question as asked, the answer as given, what it cited. */
+.share-proof {
+  border: 1px solid var(--tone-line);
+  border-radius: 14px;
+  background: #fff;
+  padding: 18px;
+  box-shadow: 0 10px 28px #0911350a;
+}
+@media (min-width: 640px) {
+  .share-proof {
+    padding: 22px;
+  }
+}
+.share-proof-question {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.share-proof-answer {
+  margin-top: 14px;
+  border-left: 3px solid var(--tone);
+  padding-left: 14px;
+}
+.share-excerpt {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #3b4361;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 7;
+  overflow: hidden;
+}
+.share-cites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.share-cite {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--tone-line);
+  border-radius: 999px;
+  background: var(--tone-tint);
+  padding: 2px 9px 2px 7px;
+  font-size: 11px;
+  color: var(--tone);
+}
+.share-cite span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Sections below the hero: a heading column and the content beside it. */
+.share-section {
+  display: grid;
+  gap: 16px;
+  margin-top: 56px;
+}
+@media (min-width: 960px) {
+  .share-section {
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 48px;
+    margin-top: 72px;
+  }
+}
+.share-section-title {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.share-section-note {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-muted);
+}
+
+/* 可以这样问它: each question a line to pick. */
+.share-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.share-question {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 13px 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+a.share-question {
+  transition: border-color 0.15s, color 0.15s;
+}
+a.share-question svg {
+  color: var(--color-muted);
+}
+a.share-question:hover {
+  border-color: var(--tone);
+  color: var(--tone);
+}
+a.share-question:hover svg {
+  color: var(--tone);
+}
+
+/* Its sources by kind: one bar in proportion, then the counts. */
+.share-mix-bar {
+  display: flex;
+  height: 10px;
+  gap: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+}
+.share-mix-bar span {
+  background: var(--tone);
+}
+.share-mix-bar span:nth-child(2) {
+  opacity: 0.7;
+}
+.share-mix-bar span:nth-child(3) {
+  opacity: 0.5;
+}
+.share-mix-bar span:nth-child(n + 4) {
+  opacity: 0.32;
+}
+.share-list {
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: #fff;
+}
+.share-list > li + li {
+  border-top: 1px solid var(--color-line);
+}
+
+/* 大家问过的: question beside answer, one exchange per row. */
+.share-qa {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+@media (min-width: 720px) {
+  .share-qa {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 28px;
+    padding: 22px 24px;
+  }
+}
+
+/* The closing band: the ask box on the Ree's own tint. */
+.share-closing {
+  margin-top: 64px;
+  border: 1px solid var(--tone-line);
+  border-radius: 20px;
+  background: var(--tone-tint);
+  padding: 24px 16px;
+}
+@media (min-width: 640px) {
+  .share-closing {
+    padding: 40px 44px;
+  }
+}
+.share-closing .post-ask {
+  margin-top: 20px;
+}
+.share-closing .post-composer {
+  border-radius: 14px;
+  background: #fff;
+}

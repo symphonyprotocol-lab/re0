@@ -330,7 +330,11 @@ export interface AdminPublicQa {
   id: string;
   postId: string;
   source: string;
+  /** The follow-up's question for a follow-up's answer, else the post's. */
   question: string;
+  followup: boolean;
+  /** The post was taken down (by an administrator or reports): its answers are out of sight whatever their own status. */
+  postHidden: boolean;
   answer: string;
   status: 'published' | 'hidden';
   hiddenBy: 'owner' | 'admin' | 'reports' | null;
@@ -339,17 +343,47 @@ export interface AdminPublicQa {
   createdAt: string;
 }
 
-/** A Ree's answers for the console (shown and hidden), reported first. */
+/**
+ * The answers the console may see and act on: on a public post past review
+ * (shown or taken down) out of its author's trash, and for a follow-up's
+ * answer, a follow-up past review and not deleted. A private post's -- a
+ * private question, a 试问, an MCP ask -- is its author's alone,
+ * administrators included (as `adminPosts`).
+ */
+const consoleAnswer = (): SQL =>
+  sql`(${post.visibility} = 'public' and ${post.status} in ('published', 'hidden') and ${post.deletedAt} is null
+    and (${answer.followupId} is null or exists (select 1 from ${schema.postFollowup} cf where cf.id = ${answer.followupId} and cf.status in ('published', 'hidden') and cf.deleted_at is null)))`;
+
+/** A Ree's public answers for the console (shown and hidden), reported first. */
 export async function adminPublicQa(reeId: string, limit = 50): Promise<AdminPublicQa[]> {
   if (!isUuid(reeId)) return [];
   const rows = await db()
-    .select({ id: answer.id, postId: post.id, source: post.source, question: post.question, answer: answer.text, hiddenBy: answer.hiddenBy, reports: answer.reportCount, helpful: answer.helpfulCount, createdAt: answer.createdAt })
+    .select({
+      id: answer.id,
+      postId: post.id,
+      source: post.source,
+      question: sql<string>`coalesce((select qf.question from ${schema.postFollowup} qf where qf.id = ${answer.followupId}), ${post.question})`,
+      followupId: answer.followupId,
+      postStatus: post.status,
+      answer: answer.text,
+      hiddenBy: answer.hiddenBy,
+      reports: answer.reportCount,
+      helpful: answer.helpfulCount,
+      createdAt: answer.createdAt,
+    })
     .from(answer)
     .innerJoin(post, eq(post.id, answer.postId))
-    .where(and(eq(answer.reeId, reeId), eq(answer.state, 'answered')))
+    .where(and(eq(answer.reeId, reeId), eq(answer.state, 'answered'), consoleAnswer()))
     .orderBy(desc(answer.reportCount), desc(answer.createdAt))
     .limit(limit);
-  return rows.map((row) => ({ ...row, status: row.hiddenBy ? 'hidden' : 'published', answer: previewOf(row.answer).answer, createdAt: row.createdAt.toISOString() }));
+  return rows.map(({ followupId, postStatus, ...row }) => ({
+    ...row,
+    followup: followupId !== null,
+    postHidden: postStatus === 'hidden',
+    status: row.hiddenBy ? 'hidden' : 'published',
+    answer: previewOf(row.answer).answer,
+    createdAt: row.createdAt.toISOString(),
+  }));
 }
 
 /** An administrator hides an answer, or restores one an owner or reports hid; either is in the management log. */
@@ -360,7 +394,7 @@ export async function adminSetPublicQa(administratorId: string, reeId: string, i
       .select({ hiddenBy: answer.hiddenBy, postId: answer.postId, question: post.question })
       .from(answer)
       .innerJoin(post, eq(post.id, answer.postId))
-      .where(and(eq(answer.id, id), eq(answer.reeId, reeId), eq(answer.state, 'answered')))
+      .where(and(eq(answer.id, id), eq(answer.reeId, reeId), eq(answer.state, 'answered'), consoleAnswer()))
       .for('update', { of: answer });
     if (!before || (before.hiddenBy !== null) !== show) return false;
     /* The owner's hiding is theirs: an administrator restores only what an administrator or reports hid. */
@@ -374,7 +408,8 @@ export async function adminSetPublicQa(administratorId: string, reeId: string, i
     }
     await tx
       .update(post)
-      .set({ answerCount: sql`(select count(*)::int from ${answer} a where a.post_id = ${before.postId} and a.state = 'answered' and a.hidden_by is null)` })
+      /* The post's first round only, as posts.ts `recount`: a follow-up's answers are not the post's. */
+      .set({ answerCount: sql`(select count(*)::int from ${answer} a where a.post_id = ${before.postId} and a.followup_id is null and a.state = 'answered' and a.hidden_by is null)` })
       .where(and(eq(post.id, before.postId), eq(post.answerState, 'done')));
     await audit(tx, { administratorId, action: show ? 'ree.qa.restore' : 'ree.qa.hide', target: reeId, before: { qa: id, status: before.hiddenBy ? 'hidden' : 'published', hiddenBy: before.hiddenBy, question: before.question.slice(0, 200) } });
     return true;

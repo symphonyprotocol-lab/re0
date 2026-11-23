@@ -14,11 +14,9 @@ import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RoundtableEntry } from '@/components/discover/roundtable-entry';
 import { rememberExploreReturn, takePublicReturn } from '@/components/discover/public-visit';
 import { explorePageCount, explorePagePath } from '@/components/discover/explore-pages';
+import { useLoadOnScroll } from '@/components/ui/use-load-on-scroll';
 import '@/components/site/site.css';
 import '@/components/discover/explore.css';
-
-/** How far below the viewport the next batch starts loading. */
-const PRELOAD_MARGIN = '800px 0px';
 
 interface Loaded {
   items: ReeCard[];
@@ -193,27 +191,8 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
     }
   }, [listPath, loaded.nextCursor]);
 
-  /*
-   * The sentinel under the grid asks for the next batch as it nears the
-   * viewport. A fresh observer after every batch reports at once if the
-   * sentinel is still in reach (a tall screen), so the list fills it.
-   * Without IntersectionObserver, a "load more" button does the same.
-   */
-  const sentinel = useRef<HTMLDivElement>(null);
-  const [observing, setObserving] = useState(true);
-  useEffect(() => {
-    if (typeof IntersectionObserver === 'undefined') {
-      setObserving(false);
-      return;
-    }
-    const target = sentinel.current;
-    if (!target || !loaded.nextCursor || loading || failed) return;
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) void loadMore();
-    }, { rootMargin: PRELOAD_MARGIN });
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [loaded.nextCursor, loading, failed, loadMore]);
+  /* The footer under the grid asks for the next batch as it nears the viewport (use-load-on-scroll.ts). */
+  const { sentinel, observing } = useLoadOnScroll<HTMLDivElement>(loadMore, Boolean(loaded.nextCursor) && !loading && !failed);
 
   /* Remember the list as a card is opened, and that the Ree's page goes back here (outside its URL: public-visit.tsx). */
   const keep = (event: MouseEvent) => {
