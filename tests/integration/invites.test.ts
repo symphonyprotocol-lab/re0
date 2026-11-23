@@ -300,9 +300,20 @@ describeWithDb('invitations and starter tasks', () => {
     expect((await rowOf(none.userId)).giftReason).toBe('inviter_cap');
     expect(await withdrawable(db(), c.user.userId)).toBe(0);
 
+    /* The console's capped inviters: under a cap of 0 every inviter is at it, those with no withdrawable reward included. */
+    const inviterCount = async (cap: number) =>
+      (
+        await db().execute<{ n: number }>(
+          sql`select count(*)::int as n from (select inviter_id from invitation group by inviter_id having count(*) filter (where withdrawable) >= ${cap}) capped`,
+        )
+      ).rows[0]!.n;
+    const allInviters = (await db().select({ n: sql<number>`count(distinct ${schema.invitation.inviterId})::int` }).from(schema.invitation))[0]!.n;
+    expect((await inviteOverview(admin)).invitersCapped).toBe(allInviters);
+
     await configure({ withdrawableInvitesPerInviter: 3 });
     const overview = await inviteOverview(admin);
     expect(overview.invitersCapped).toBeGreaterThanOrEqual(2);
+    expect(overview.invitersCapped).toBe(await inviterCount(3));
     expect(overview.inviters.find((row) => row.id === a.user.userId)).toMatchObject({ invited: 6, withdrawable: 3, gift: 3 });
     await configure({});
   });
