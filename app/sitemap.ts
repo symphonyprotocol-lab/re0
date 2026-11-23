@@ -1,39 +1,28 @@
 import type { MetadataRoute } from 'next';
-import { desc } from 'drizzle-orm';
-import { LOCALES } from '@/i18n/locale';
-import { localeAlternates, PUBLIC_PAGES } from '@/i18n/paths';
-import { db, schema } from '@/lib/infra/db';
-import { publicRee } from '@/lib/services/explore';
-import { indexablePosts } from '@/lib/services/posts';
-import { absoluteUrl, localeUrl } from '@/lib/seo';
+import { notFound } from 'next/navigation';
+import { parseSitemapId, sitemapPart } from '@/lib/sitemaps';
 
 export const dynamic = 'force-dynamic';
 
-type Entry = MetadataRoute.Sitemap[number];
+/**
+ * The parts of the sitemap that always exist (lib/sitemaps.ts), served at
+ * `/sitemap/<id>.xml`; `/sitemap.xml` is their index
+ * (app/sitemap-index.xml/route.ts), which lists the later Ree and post files as
+ * they fill up -- those are served on demand like these. No database here:
+ * Next calls this at build time for the route's static params.
+ */
+export async function generateSitemaps(): Promise<{ id: string }[]> {
+  return [{ id: 'pages' }, { id: 'rees-1' }, { id: 'posts-1' }];
+}
 
 /**
- * The public site and every public Ree's page, so search engines can bring
- * people in (2.4), once per language (`/zh/...`, `/en/...`), each listing
- * the other as its hreflang alternate (i18n/paths.ts). Only `publicRee()`
- * Rees: public, published, not taken down, not deleted. The share pages
- * `/s/*` are left out; they point at `/r/*` as canonical. Explore changes
- * whenever a public Ree does. v5: public posts a Ree answered (`/p/*`), in
- * both languages like a Ree's page.
+ * One part of the sitemap: the public site, public Rees, or public posts a
+ * Ree answered (v5), so search engines can bring people in (2.4). A part
+ * that does not exist is a 404.
  */
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const rees = await db()
-    .select({ slug: schema.ree.slug, updatedAt: schema.ree.updatedAt })
-    .from(schema.ree)
-    .where(publicRee())
-    .orderBy(desc(schema.ree.updatedAt))
-    .limit(10_000);
-  const latest = rees[0]?.updatedAt;
-  const posts = await indexablePosts();
-  const page = (path: string, entry: Omit<Entry, 'url' | 'alternates'>): Entry[] =>
-    LOCALES.map((locale) => ({ url: localeUrl(locale, path), alternates: { languages: localeAlternates(path, absoluteUrl) }, ...entry }));
-  return [
-    ...PUBLIC_PAGES.flatMap(({ path, changeFrequency, priority }) => page(path, { lastModified: path === '/explore' ? latest : undefined, changeFrequency, priority })),
-    ...rees.flatMap((ree) => page(`/r/${ree.slug}`, { lastModified: ree.updatedAt, changeFrequency: 'weekly', priority: 0.8 })),
-    ...posts.flatMap((post) => page(`/p/${post.id}`, { lastModified: post.at, changeFrequency: 'weekly', priority: 0.6 })),
-  ];
+export default async function sitemap({ id }: { id?: string }): Promise<MetadataRoute.Sitemap> {
+  const part = parseSitemapId(id);
+  const entries = part && (await sitemapPart(part));
+  if (!entries) notFound();
+  return entries;
 }

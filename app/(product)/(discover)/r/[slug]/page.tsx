@@ -3,7 +3,7 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import { cache } from 'react';
 import { currentUser } from '@/lib/http/session';
 import { authorOthersPages, publicReeBySlug as lookup, type PublicRee } from '@/lib/services/public-rees';
-import { oneLine, publicPage, reeJsonLd, SITE_NAME, UNLISTED_ROBOTS } from '@/lib/seo';
+import { oneLine, reeJsonLd, reePage, SITE_NAME, UNLISTED_ROBOTS } from '@/lib/seo';
 import { serverMessages } from '@/i18n/server';
 import { localePath } from '@/i18n/paths';
 import type { Locale } from '@/i18n/locale';
@@ -38,7 +38,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   const [ree, query, { t, locale }] = await Promise.all([params.then(({ slug }) => publicReeBySlug(slug)), searchParams, serverMessages()]);
   if (!ree) return { title: { absolute: SITE_NAME }, robots: { index: false } };
   const robots = await authorPageGate(ree, query.ap, locale);
-  const meta = publicPage({ path: `/r/${ree.slug}`, title: ree.name, description: reeDescription(ree, t.site.seo.reeFallback), locale, ownImage: true });
+  const meta = reePage(ree, locale, reeDescription(ree, t.site.seo.reeFallback));
   return { ...meta, keywords: ree.tags.length ? ree.tags : undefined, ...(robots ? { robots } : {}) };
 }
 
