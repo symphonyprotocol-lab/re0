@@ -52,8 +52,8 @@ export const zh = {
   },
   notes: {
     title: '统计口径',
-    counted: '计入：使用站点布局的所有页面（含首页、Ree 页面、分享页、发现、帖子与工作台），每次打开或站内切换到新路径算一次浏览。路径不含查询参数，/zh、/en 版本算同一页面。',
-    notCounted: '不计入：管理后台、API、爬虫与链接预览（如 Twitterbot），以及不接受 Cookie 的浏览器。站外的曝光次数（推文或搜索结果被看到多少次）无法测量。',
+    counted: '计入：使用站点布局的所有页面（含首页、Ree 页面、分享页、发现、公开帖子与工作台；私密帖子只有作者能打开，计入工作台），每次打开或站内切换到新路径算一次浏览。路径不含查询参数，/zh、/en 版本算同一页面。',
+    notCounted: '不计入：管理后台、API、不存在的页面（404）、爬虫与链接预览（如 Twitterbot），以及不接受 Cookie 的浏览器。站外的曝光次数（推文或搜索结果被看到多少次）无法测量。',
     twitter: '从 X / Twitter 进入但被应用去掉来源、链接里也没有 utm_source 的访问，会计入「直接访问」。',
     privacy: '不保存 IP 和 User-Agent；来源网址只保留域名。明细保留 90 天，之后只保留按日汇总。',
   },
@@ -110,8 +110,8 @@ export const en: Shape<typeof zh> = {
   },
   notes: {
     title: 'What is counted',
-    counted: 'Counted: every page on the site layout (home, Ree pages, share pages, Explore, posts and the workspace); each open, or each move to a new path inside the site, is one view. Paths drop their query; the /zh and /en versions are one page.',
-    notCounted: 'Not counted: the console, API calls, crawlers and link previews (such as Twitterbot), and browsers that refuse cookies. Off-site impressions (how often a tweet or search result was shown) cannot be measured.',
+    counted: 'Counted: every page on the site layout (home, Ree pages, share pages, Explore, public posts and the workspace; a private post only its author opens counts as the workspace); each open, or each move to a new path inside the site, is one view. Paths drop their query; the /zh and /en versions are one page.',
+    notCounted: 'Not counted: the console, API calls, pages that do not exist (404), crawlers and link previews (such as Twitterbot), and browsers that refuse cookies. Off-site impressions (how often a tweet or search result was shown) cannot be measured.',
     twitter: 'A visit from X / Twitter whose app stripped the referrer, through a link without utm_source, lands in “Direct”.',
     privacy: 'No IP address or user agent is stored, and of the referrer only its host. Details are kept 90 days, daily totals for good.',
   },

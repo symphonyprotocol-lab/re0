@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { requireAdministrator } from '@/lib/http/admin';
-import { listRateLimitExemptions, listRateLimits } from '@/lib/services/rate-limit-settings';
+import { fixedLimits, listRateLimitExemptions, listRateLimits } from '@/lib/services/rate-limit-settings';
 import { serverMessages } from '@/i18n/server';
 import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { RateLimitsBoard } from '@/components/admin/rate-limits-board';
@@ -15,7 +15,7 @@ export default async function RateLimitsPage() {
   return (
     <ConsolePage>
       <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: t.console.nav['rate-limits'] }]} />
-      <RateLimitsBoard initial={{ limits, exemptions }} />
+      <RateLimitsBoard initial={{ limits, exemptions }} fixed={fixedLimits()} />
     </ConsolePage>
   );
 }

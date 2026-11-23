@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { requireAdministrator } from '@/lib/http/admin';
-import { adminPosts, quoteReviewCount } from '@/lib/services/posts';
+import { ADMIN_POST_VIEWS as VIEWS, adminPostCounts, adminPosts, quoteReviewCount, type AdminPostView } from '@/lib/services/posts';
 import { serverMessages } from '@/i18n/server';
+import { formatNumber } from '@/i18n/format';
 import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { PageHead } from '@/components/admin/list-kit';
 import { AdminPostsTable } from '@/components/admin/admin-posts';
@@ -12,16 +13,20 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t.posts.admin.title };
 }
 
-const VIEWS = ['reported', 'quotes', 'hidden', 'all'] as const;
-
-/** `/admin/posts`: public posts to take down or restore (v5, review round 2 B2), reported first; `?view=` and `?q=`. */
+/**
+ * `/admin/posts`: public posts to take down or restore (v5, review round 2
+ * B2); `?view=` and `?q=`. Without a view it opens on Reported while
+ * anything is reported, else on All, so an empty Reported tab never reads as
+ * "no posts".
+ */
 export default async function AdminPostsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   await requireAdministrator();
-  const [{ t }, params] = await Promise.all([serverMessages(), searchParams]);
+  const [{ t, locale }, params] = await Promise.all([serverMessages(), searchParams]);
   const a = t.posts.admin;
-  const view = VIEWS.includes(params.view as (typeof VIEWS)[number]) ? (params.view as (typeof VIEWS)[number]) : 'reported';
   const q = params.q?.slice(0, 200) ?? '';
-  const [rows, waiting] = await Promise.all([adminPosts({ view, q }), quoteReviewCount()]);
+  const [counts, waiting] = await Promise.all([adminPostCounts(q), quoteReviewCount()]);
+  const view: AdminPostView = VIEWS.includes(params.view as AdminPostView) ? (params.view as AdminPostView) : counts.reported > 0 ? 'reported' : 'all';
+  const rows = await adminPosts({ view, q });
   return (
     <ConsolePage>
       <ConsoleTopbar crumbs={[{ label: t.console.nav.home, href: '/admin/overview' }, { label: a.title }]} />
@@ -38,7 +43,7 @@ export default async function AdminPostsPage({ searchParams }: { searchParams: P
             <nav className="flex gap-2" aria-label={a.title}>
               {VIEWS.map((key) => (
                 <Link key={key} href={`/admin/posts?view=${key}${q ? `&q=${encodeURIComponent(q)}` : ''}`} className={`btn sm ${view === key ? '' : 'ghost'}`} aria-current={view === key ? 'page' : undefined}>
-                  {a.views[key]}
+                  {a.views[key]} <span className="mono">{formatNumber(counts[key], locale)}</span>
                 </Link>
               ))}
             </nav>

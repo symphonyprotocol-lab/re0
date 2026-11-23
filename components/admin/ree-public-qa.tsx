@@ -47,11 +47,15 @@ export function ReePublicQaTab({ reeId, rows }: { reeId: string; rows: AdminPubl
         head={[r.columns.time, r.columns.question, r.columns.answer, r.columns.status, r.columns.reports, '']}
         rows={rows.map((row) => [
           formatDateTime(row.createdAt, locale),
-          <span key="q" className="block max-w-[260px] whitespace-normal">{row.question}</span>,
+          <span key="q" className="block max-w-[260px] whitespace-normal">
+            {row.question}
+            {row.followup && <span className="block text-[11px] text-muted">{r.followup}</span>}
+          </span>,
           <span key="a" className="block max-w-[360px] whitespace-normal text-muted">{row.answer}</span>,
           <span key="s">
             {r.status[row.status]}
             {row.hiddenBy && <span className="block text-[11px] text-muted">{r.hiddenBy[row.hiddenBy]}</span>}
+            {row.postHidden && <span className="block text-[11px] text-[#b4372c]">{r.postHidden}</span>}
           </span>,
           <span key="r" className="mono">{row.reports}</span>,
           row.status === 'published' ? (

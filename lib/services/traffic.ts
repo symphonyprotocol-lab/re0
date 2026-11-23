@@ -11,6 +11,8 @@
  * - an IP is limited per minute; past it nothing is read or stored;
  * - one visitor's views are taken one at a time (an advisory lock), so two
  *   beacons at once cannot both land a new visit;
+ * - a private post's page (`/p/{id}`, its author's thread) is a workspace
+ *   view, not a public post's;
  * - days are cut in UTC+8 (lib/domain/statistics.ts). The cron rolls up each
  *   finished day once into `site_traffic_day` / `site_traffic_landing` and
  *   marks it in `site_traffic_rollup`; a day not marked yet -- today, or
@@ -32,6 +34,7 @@ import {
   type PageKind,
   type SourceChannel,
 } from '@/lib/domain/traffic';
+import { isUuid } from '@/lib/domain/list';
 import { db, schema } from '@/lib/infra/db';
 import { assertConsole, type Administrator } from '@/lib/services/admin';
 import { hitRateBucket } from '@/lib/services/rate-limit';
@@ -60,12 +63,25 @@ export interface ViewInput {
   ownHosts: readonly string[];
 }
 
+/**
+ * `/p/{id}` is a public post's page and, since private posts replaced the
+ * conversations (2026-11-20), also a private thread its author alone opens:
+ * that one is a view of the workspace, not of a public post.
+ */
+async function postPageKind(path: string): Promise<PageKind> {
+  const id = path.split('/')[2] ?? '';
+  if (!isUuid(id)) return 'post';
+  const found = await db().execute<{ visibility: string }>(sql`select visibility from ${schema.post} where id = ${id}::uuid`);
+  return found.rows[0]?.visibility === 'private' ? 'workspace' : 'post';
+}
+
 /** One page view. `ignored`: a path that is never counted (the console, an API route, not a path). */
 export async function recordPageView(input: ViewInput, now = new Date()): Promise<ViewResult> {
   const page = trackedPath(input.path);
   if (!page) return 'ignored';
   if (input.ip && !(await hitRateBucket(`traffic:ip:${input.ip}`, TRAFFIC_IP_PER_MINUTE, 60, now))) return 'limited';
   if (input.freshVisitor) return 'cookie';
+  const kind = page.kind === 'post' ? await postPageKind(page.path) : page.kind;
   const arrived = classifySource({ referrer: input.referrer, utmSource: input.utmSource, ownHosts: input.ownHosts });
   await db().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`re0:traffic:${input.visitorId}`}))`);
@@ -80,7 +96,7 @@ export async function recordPageView(input: ViewInput, now = new Date()): Promis
       visitorId: input.visitorId,
       userId: input.userId,
       path: page.path,
-      pageKind: page.kind,
+      pageKind: kind,
       landing: visit.landing,
       source: visit.source,
       /* The referrer and utm values belong to the view that landed; later ones only inherit the source. */

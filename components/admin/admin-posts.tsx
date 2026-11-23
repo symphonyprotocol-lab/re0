@@ -77,7 +77,11 @@ export function AdminPostsTable({ rows }: { rows: AdminPost[] }) {
             </span>
           ))}
         </span>,
-        <span key="r" className="mono">{row.reports}</span>,
+        <span key="r">
+          <span className="mono">{row.reports}</span>
+          {row.answerReports > 0 && <span className="block text-[11px] text-muted">{fill(a.reportsOn.answers, { n: row.answerReports })}</span>}
+          {row.followupReports > 0 && <span className="block text-[11px] text-muted">{fill(a.reportsOn.followups, { n: row.followupReports })}</span>}
+        </span>,
         <span key="n" className="mono">{row.answers}</span>,
         <span key="act" className="flex flex-wrap gap-1">
           {row.quoteReview && (

@@ -1875,7 +1875,11 @@ export interface AdminPost {
   source: PostSource;
   status: 'published' | 'hidden';
   hiddenBy: 'admin' | 'reports' | null;
+  /** Reports on the question itself. */
   reports: number;
+  /** Reports on its Rees' answers and on its follow-ups (questions and answers): a reporter's way to flag them, shown with the post. */
+  answerReports: number;
+  followupReports: number;
   answers: number;
   createdAt: string;
   /** It quotes a post that was taken down, or an answer that was hidden, and waits for review. */
@@ -1884,24 +1888,69 @@ export interface AdminPost {
   ai: AdminAiAnswer[];
 }
 
-/** The console's posts: reported or hidden ones first, then the newest; `q` searches the question. A reported AI answer puts its post among the reported. */
-export async function adminPosts(options: { view?: 'reported' | 'hidden' | 'quotes' | 'all'; q?: string | null; limit?: number } = {}): Promise<AdminPost[]> {
-  const view = options.view ?? 'reported';
-  const where = and(
+export const ADMIN_POST_VIEWS = ['reported', 'quotes', 'hidden', 'all'] as const;
+export type AdminPostView = (typeof ADMIN_POST_VIEWS)[number];
+
+/* Reports on a post's Ree answers, its follow-ups and their answers, and its AI answers (the question's own are `report_count`). */
+/* Spelled out: in a one-table select drizzle leaves the column unqualified, and the subquery would read its own `id`. */
+const postId = sql.raw('"post"."id"');
+const answerReports = sql<number>`(select coalesce(sum(ra.report_count), 0) from ${answer} ra where ra.post_id = ${postId})::int`;
+const followupReports = sql<number>`(select coalesce(sum(rf.report_count), 0) from ${schema.postFollowup} rf where rf.post_id = ${postId})::int`;
+const aiReports = sql<number>`(select coalesce(sum(rai.report_count), 0) from ${schema.postAiAnswer} rai where rai.post_id = ${postId})::int`;
+const allReports = sql<number>`(${post.reportCount} + ${answerReports} + ${followupReports} + ${aiReports})`;
+
+/**
+ * What the console lists: public posts past review (published or taken
+ * down) and out of their authors' trash -- private posts are their authors'
+ * alone, administrators included; a trashed one is shown to no one else.
+ * `q` searches the question and its detail.
+ */
+function adminPostScope(q: string | null | undefined): SQL {
+  return and(
     inArray(post.status, ['published', 'hidden']),
-    /* Private posts are their authors' alone, administrators included. */
     eq(post.visibility, 'public'),
-    view === 'reported' ? sql`(${post.reportCount} > 0 or exists (select 1 from ${schema.postAiAnswer} ra where ra.post_id = ${post.id} and ra.report_count > 0))` : view === 'hidden' ? eq(post.status, 'hidden') : view === 'quotes' ? isNotNull(post.quoteReviewAt) : undefined,
-    options.q?.trim() ? sql`${searchable} ilike ${`%${options.q.trim().replace(/[%_\\]/g, '\\$&')}%`}` : undefined,
-  );
+    isNull(post.deletedAt),
+    q?.trim() ? sql`${searchable} ilike ${`%${q.trim().replace(/[%_\\]/g, '\\$&')}%`}` : undefined,
+  )!;
+}
+
+/** Each view's filter. Reported: anything on the post was reported -- its question, a Ree's answer, a follow-up or an answer to one, an AI answer. */
+function adminPostView(view: AdminPostView): SQL | undefined {
+  if (view === 'reported') return sql`(${post.reportCount} > 0
+    or exists (select 1 from ${answer} ra where ra.post_id = ${postId} and ra.report_count > 0)
+    or exists (select 1 from ${schema.postFollowup} rf where rf.post_id = ${postId} and rf.report_count > 0)
+    or exists (select 1 from ${schema.postAiAnswer} rai where rai.post_id = ${postId} and rai.report_count > 0))`;
+  if (view === 'hidden') return eq(post.status, 'hidden');
+  if (view === 'quotes') return isNotNull(post.quoteReviewAt);
+  return undefined;
+}
+
+/** The console's posts: the most reported first, then the newest (quotes to review: the longest waiting first). */
+export async function adminPosts(options: { view?: AdminPostView; q?: string | null; limit?: number } = {}): Promise<AdminPost[]> {
+  const view = options.view ?? 'reported';
   const rows = await db()
-    .select({ id: post.id, question: post.question, source: post.source, status: post.status, hiddenBy: post.hiddenBy, reports: post.reportCount, answers: post.answerCount, createdAt: post.createdAt, quoteReview: post.quoteReviewAt })
+    .select({ id: post.id, question: post.question, source: post.source, status: post.status, hiddenBy: post.hiddenBy, reports: post.reportCount, answerReports, followupReports, answers: post.answerCount, createdAt: post.createdAt, quoteReview: post.quoteReviewAt })
     .from(post)
-    .where(where)
-    .orderBy(view === 'quotes' ? asc(post.quoteReviewAt) : desc(post.reportCount), desc(post.createdAt))
+    .where(and(adminPostScope(options.q), adminPostView(view)))
+    .orderBy(view === 'quotes' ? asc(post.quoteReviewAt) : desc(allReports), desc(post.createdAt))
     .limit(options.limit ?? 50);
   const ai = await adminAiAnswers(rows.map((row) => row.id));
   return rows.map((row) => ({ ...row, status: row.status as 'published' | 'hidden', createdAt: row.createdAt.toISOString(), quoteReview: row.quoteReview !== null, ai: ai.filter((entry) => entry.postId === row.id) }));
+}
+
+/** How many posts each view of the console lists, for its tabs and to land on Reported only when something is. */
+export async function adminPostCounts(q?: string | null): Promise<Record<AdminPostView, number>> {
+  const counts = sql.join(
+    ADMIN_POST_VIEWS.map((view) => {
+      const filter = adminPostView(view);
+      const as = sql.raw(`"${view}"`);
+      return filter ? sql`count(*) filter (where ${filter})::int as ${as}` : sql`count(*)::int as ${as}`;
+    }),
+    sql`, `,
+  );
+  const result = await db().execute<Record<string, number>>(sql`select ${counts} from ${post} where ${adminPostScope(q)}`);
+  const row = result.rows[0] ?? {};
+  return Object.fromEntries(ADMIN_POST_VIEWS.map((view) => [view, Number(row[view] ?? 0)])) as Record<AdminPostView, number>;
 }
 
 /**
