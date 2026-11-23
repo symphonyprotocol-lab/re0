@@ -226,18 +226,7 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
   ) : null;
 
   const favorites = new Set(loaded.favorites);
-  const banner = (
-    <div className="knowledge-banner">
-      <div>
-        <h3>{e.banner}</h3>
-        <p>{e.bannerBody}</p>
-      </div>
-      <Link rel={signedIn ? undefined : 'nofollow'} href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn secondary">
-        <Icon name="plus" />
-        {e.create}
-      </Link>
-    </div>
-  );
+  const banner = <EarnBanner signedIn={signedIn} />;
   const [resultsBefore, resultsAfter] = e.results.split('{n}');
 
   return (
@@ -451,19 +440,38 @@ export function SiteRail({ search, popular, saved, signedIn }: { search?: { acti
           </Link>
         </div>
       )}
-      <div className="knowledge-banner">
-        <div>
-          <h3>{e.banner}</h3>
-          <p>{e.bannerBody}</p>
-        </div>
-        <Link rel={signedIn ? undefined : 'nofollow'} href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn-secondary btn-sm">
-          <Icon name="plus" className="size-4" />
-          {e.create}
-        </Link>
-      </div>
+      <EarnBanner signedIn={signedIn} small />
       <p className="px-2 text-[11px] text-muted">
         <Link href="/pricing" className="hover:text-blue">{t.common.nav.pricing}</Link> · <Link href="/about" className="hover:text-blue">{t.common.nav.about}</Link> · <Link href="/legal/privacy" className="hover:text-blue">{t.site.visitor.privacy}</Link> · <Link href="/legal/terms" className="hover:text-blue">{t.site.visitor.terms}</Link>
       </p>
+    </div>
+  );
+}
+
+/**
+ * The create-a-Ree card (Explore's list end and the right column): what a
+ * published Ree earns, in large type -- a paid Ree's query fee goes to its
+ * owner in full and can be paid out (legal section 7; the rules are in the
+ * Pricing FAQ) -- and the way to create one.
+ */
+function EarnBanner({ signedIn, small = false }: { signedIn: boolean; small?: boolean }) {
+  const { t } = useI18n();
+  const e = t.discover.explore;
+  return (
+    <div className="knowledge-banner">
+      <div>
+        <h3>{e.banner}</h3>
+        <p>
+          {e.bannerBody}{' '}
+          <Link href="/pricing#faq-q5" className="text-link">
+            {e.bannerPayouts}
+          </Link>
+        </p>
+      </div>
+      <Link rel={signedIn ? undefined : 'nofollow'} href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className={small ? 'btn-secondary btn-sm' : 'btn secondary'}>
+        <Icon name="plus" className={small ? 'size-4' : undefined} />
+        {e.create}
+      </Link>
     </div>
   );
 }

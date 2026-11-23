@@ -174,7 +174,7 @@ export default async function PricingPage() {
         </div>
         <div className="xp-faq">
           {FAQ.map((key) => (
-            <details key={key}>
+            <details key={key} id={`faq-${key}`}>
               <summary>
                 {t.site.faq[key].q}
                 <Icon name="plus" />
