@@ -5,7 +5,7 @@
  * names, introductions, tags and category only) and the owner's other
  * public Rees.
  */
-import { and, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { PUBLIC_LIST_PAGE_SIZE, PUBLIC_RELATED_CANDIDATES, QUERY_BASE_FEE } from '@/lib/constants';
 import { positiveRate, relatedRees } from '@/lib/domain/explore';
 import type { SocialContact } from '@/lib/domain/account';
@@ -172,4 +172,36 @@ export async function publicReeRef(slug: string): Promise<{ id: string; ownerId:
     .where(and(eq(schema.ree.slug, slug.toLowerCase()), publicRee()))
     .limit(1);
   return row ?? null;
+}
+
+/** A public Ree as the sitemap lists it (app/sitemap.ts): its URL, when it changed, and whose it is (lib/seo.ts `reeContentLocale`). */
+export interface SitemapRee {
+  slug: string;
+  role: PublicRee['role'];
+  updatedAt: Date;
+}
+
+/**
+ * Public Rees for the sitemap, oldest first (then by id), so a Ree keeps
+ * its sitemap file as newer ones are added: the same `publicRee()` gate as
+ * the page -- public, published, not taken down, not deleted.
+ */
+export async function sitemapRees({ offset, limit }: { offset: number; limit: number }): Promise<SitemapRee[]> {
+  return db()
+    .select({ slug: schema.ree.slug, role: schema.user.role, updatedAt: schema.ree.updatedAt })
+    .from(schema.ree)
+    .innerJoin(schema.user, eq(schema.user.id, schema.ree.ownerId))
+    .where(publicRee())
+    .orderBy(asc(schema.ree.createdAt), asc(schema.ree.id))
+    .offset(offset)
+    .limit(limit);
+}
+
+/** How many public Rees there are, and when the latest of them changed (Explore's `<lastmod>`). */
+export async function sitemapReeTotals(): Promise<{ total: number; latest: Date | null }> {
+  const [row] = await db()
+    .select({ total: sql<number>`count(*)::int`, latest: sql<Date | null>`max(${schema.ree.updatedAt})`.mapWith(schema.ree.updatedAt) })
+    .from(schema.ree)
+    .where(publicRee());
+  return { total: row?.total ?? 0, latest: row?.latest ?? null };
 }

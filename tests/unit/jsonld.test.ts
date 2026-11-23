@@ -66,15 +66,16 @@ describe('postJsonLd', () => {
 });
 
 describe('exploreJsonLd', () => {
-  it('lists the Rees in order at their own pages', () => {
-    const data = exploreJsonLd([{ slug: 'dw200', name: 'DW200' }, { slug: 'tax', name: 'Tax' }], 'en', { name: 'Rees', description: 'd' });
-    expect(data).toMatchObject({ '@type': 'CollectionPage', url: 'https://re0.io/en/explore', name: 'Rees', isPartOf: { '@id': 'https://re0.io/#website' } });
+  it('lists the Rees in order at their canonical pages, on the page’s own canonical', () => {
+    const rees = [{ slug: 'dw200', name: 'DW200', role: 'official' as const }, { slug: 'tax', name: 'Tax', role: 'normal' as const }];
+    const data = exploreJsonLd(rees, 'zh', { path: '/explore?category=design&page=2', name: 'Design · Page 2', description: 'd' });
+    expect(data).toMatchObject({ '@type': 'CollectionPage', url: 'https://re0.io/zh/explore?category=design&page=2', name: 'Design · Page 2', inLanguage: 'zh-CN', isPartOf: { '@id': 'https://re0.io/#website' } });
     expect(data.mainEntity).toEqual({
       '@type': 'ItemList',
       numberOfItems: 2,
       itemListElement: [
         { '@type': 'ListItem', position: 1, url: 'https://re0.io/en/r/dw200', name: 'DW200' },
-        { '@type': 'ListItem', position: 2, url: 'https://re0.io/en/r/tax', name: 'Tax' },
+        { '@type': 'ListItem', position: 2, url: 'https://re0.io/zh/r/tax', name: 'Tax' },
       ],
     });
   });

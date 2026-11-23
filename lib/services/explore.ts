@@ -781,7 +781,12 @@ function afterKey(sort: ExploreSort, key: ExploreKey): SQL {
 export async function explore(
   query: ExploreQuery,
   batch: ExploreBatch,
-  { includeIntros = true, timing = untimed }: { includeIntros?: boolean; timing?: StepTimer } = {},
+  { includeIntros = true, timing = untimed, offset = 0 }: {
+    includeIntros?: boolean;
+    timing?: StepTimer;
+    /** Browsing without a cursor: Rees to skip first (`/explore?page=N`, a numbered page of the same order). */
+    offset?: number;
+  } = {},
 ): Promise<ExploreResult> {
   if (query.q) {
     if (batch.cursor) return { mode: 'search', items: [], total: 0, nextCursor: null };
@@ -814,7 +819,8 @@ export async function explore(
     .innerJoin(schema.user, eq(schema.user.id, schema.ree.ownerId))
     .where(and(where, key ? afterKey(query.sort, key) : undefined))
     .orderBy(...keyColumns(query.sort).map((column) => desc(column)))
-    .limit(batch.size + 1);
+    .limit(batch.size + 1)
+    .offset(key ? 0 : Math.max(0, offset));
   const more = rows.length > batch.size;
   const page = rows.slice(0, batch.size);
   const last = page.at(-1);

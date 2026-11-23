@@ -20,7 +20,7 @@ import { composeHref } from '@/components/posts/composer';
 import { REE_ASK_ANCHOR, ReeAsk } from '@/components/posts/ree-ask';
 import { ReePostList, type ReePostPage } from '@/components/posts/ree-posts';
 import { PublicListSection } from '@/components/discover/public-list';
-import { PublicVisit } from '@/components/discover/public-visit';
+import { PublicVisit, rememberExploreReturn, useExploreReturn } from '@/components/discover/public-visit';
 import { ReeComments } from '@/components/discover/ree-comments';
 import { ReeFavoriteButton } from '@/components/rees/ree-favorite-button';
 import { PublicIntro } from '@/components/video/public-intro';
@@ -49,14 +49,13 @@ const RELATED_SHOWN = 3;
  * "使用这个 Ree" column, whose 向它提问 goes to the box (稿 2, section 6).
  */
 export function ReeDetailView({
-  savedRee, query, viewerId, preview, draftId, from, related, author, video, comments, posts, favoriteIds, renderedAt,
+  savedRee, query, viewerId, preview, draftId, related, author, video, comments, posts, favoriteIds, renderedAt,
 }: {
   savedRee: PublicRee;
   query: Search;
   viewerId?: string;
   preview: boolean;
   draftId?: string;
-  from: string;
   related: PublicList | null;
   author: PublicList | null;
   video: IntroProps | null;
@@ -77,9 +76,10 @@ export function ReeDetailView({
     ? { ...savedRee, ...draft.fields, queryFee, price: QUERY_BASE_FEE + queryFee }
     : savedRee;
   const coverSrc = draft ? draft.coverSrc : ree.coverBlob ? `/media/${ree.coverBlob}` : null;
+  /* The explore list this page was opened from, if any: kept outside the URL, so the server's links never carry it (public-visit.tsx). */
+  const from = useExploreReturn(savedRee.slug, !preview);
   const self = (changes: Record<string, string | number | null>) => {
     const next = new URLSearchParams();
-    if (from !== '/explore') next.set('from', from);
     const merged = { ap: author?.page, tab: null as string | null, ...changes };
     if (merged.ap && merged.ap !== 1) next.set('ap', String(merged.ap));
     if (merged.tab) next.set('tab', String(merged.tab));
@@ -335,7 +335,7 @@ export function ReeDetailView({
                 <ul className="mt-3 flex flex-col gap-3">
                   {related.items.slice(0, RELATED_SHOWN).map((item) => (
                     <li key={item.id}>
-                      <Link href={`/r/${item.slug}${from !== '/explore' ? `?from=${encodeURIComponent(from)}` : ''}`} className="group flex items-center gap-2.5">
+                      <Link href={`/r/${item.slug}`} onClick={() => rememberExploreReturn(item.slug, from)} className="group flex items-center gap-2.5">
                         <ReeAvatar avatar={item.avatarBlob} color={item.color} size="sm" />
                         <span className="min-w-0">
                           <strong className="block truncate text-[12px] group-hover:text-blue">{item.name}</strong>
@@ -357,7 +357,8 @@ export function ReeDetailView({
     return (
       <>
         <PublicVisit from={from} />
-        <FeedColumns title={ree.name} back={from} rail={side}>
+        {/* The profile's name is the page's one h1; the head repeats it as plain text. */}
+        <FeedColumns title={ree.name} heading={false} back={from} rail={side}>
           <div className="px-[18px] pt-4 pb-10">{body}</div>
         </FeedColumns>
       </>

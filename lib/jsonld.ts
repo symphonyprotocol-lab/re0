@@ -1,7 +1,8 @@
 import type { PricingView } from '@/lib/domain/pricing';
 import type { PostView } from '@/lib/domain/post';
 import { HTML_LANG, type Locale } from '@/i18n/locale';
-import { absoluteUrl, localeUrl, siteImage, SITE_NAME } from '@/lib/seo';
+import { absoluteUrl, localeUrl, reeUrl, siteImage, SITE_NAME } from '@/lib/seo';
+import type { PublicRee } from '@/lib/services/public-rees';
 
 /**
  * JSON-LD for the pricing page, a post's page and Explore (2026-11-23, GSC
@@ -104,12 +105,13 @@ export function postJsonLd(post: PostView, locale: Locale): JsonLdGraph | null {
 }
 
 /**
- * `/explore`: the page as a collection, and the Rees it lists first (the
- * batch rendered on the server; the rest load as the list scrolls), each
- * linked at its own page.
+ * `/explore`, a category of it or one of their numbered pages (each its own
+ * canonical, `path`): the page as a collection, and the Rees it lists (the
+ * batch rendered on the server; the rest load as the list scrolls), each at
+ * its canonical page (`reeUrl`: an official Ree's is in English).
  */
-export function exploreJsonLd(rees: readonly { slug: string; name: string }[], locale: Locale, labels: { name: string; description: string }): JsonLdGraph {
-  const url = localeUrl(locale, '/explore');
+export function exploreJsonLd(rees: readonly Pick<PublicRee, 'slug' | 'name' | 'role'>[], locale: Locale, labels: { path: string; name: string; description: string }): JsonLdGraph {
+  const url = localeUrl(locale, labels.path);
   return {
     '@context': 'https://schema.org',
     '@type': 'CollectionPage',
@@ -122,7 +124,7 @@ export function exploreJsonLd(rees: readonly { slug: string; name: string }[], l
     mainEntity: {
       '@type': 'ItemList',
       numberOfItems: rees.length,
-      itemListElement: rees.map((ree, index) => ({ '@type': 'ListItem', position: index + 1, url: localeUrl(locale, `/r/${ree.slug}`), name: ree.name })),
+      itemListElement: rees.map((ree, index) => ({ '@type': 'ListItem', position: index + 1, url: reeUrl(ree, locale), name: ree.name })),
     },
   };
 }

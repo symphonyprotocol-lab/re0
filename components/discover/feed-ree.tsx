@@ -27,6 +27,7 @@ const LISTED_FOR_MS = 30 * 86_400_000;
  */
 export function FeedRee({ ree, from, favorite, viewerId, pinned = false, now }: {
   ree: ReeCard;
+  /** The list this item is in: where saving it while signed out comes back to. */
   from: string;
   favorite?: boolean;
   viewerId?: string;
@@ -38,7 +39,8 @@ export function FeedRee({ ree, from, favorite, viewerId, pinned = false, now }: 
   const c = t.discover.card;
   const toast = useToast();
   const n = (value: number) => formatNumber(value, locale);
-  const href = `/r/${ree.slug}${from && from !== '/explore' ? `?from=${encodeURIComponent(from)}` : ''}`;
+  /* The bare page: the way back to the list travels outside the URL (public-visit.tsx). */
+  const href = `/r/${ree.slug}`;
   const category = t.common.categories[ree.category as keyof typeof t.common.categories] ?? ree.category;
   const createdAt = new Date(ree.createdAt);
   const time = ree.lastAnsweredAt

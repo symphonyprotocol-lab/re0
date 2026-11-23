@@ -43,22 +43,63 @@ export function siteImage(locale: Locale): { url: string; width: number; height:
 /**
  * An indexable page's own metadata. `path` is the plain path (`/pricing`):
  * the canonical is the page in this language (`/en/pricing`), with hreflang
- * alternates for each language and the plain path as x-default
- * (i18n/paths.ts). Open Graph and Twitter carry the title, description and
- * the site's image. A route with its own `opengraph-image` file (a public
- * Ree) passes `ownImage`: an image named here would replace the file's.
+ * alternates for each language and the English page as x-default
+ * (i18n/paths.ts). A page whose content exists in one language only (an
+ * English Ree, `contentLocale`) is canonical in that language from both
+ * URLs and has no hreflang: the other URL is the same text under another
+ * interface, not a translation. Open Graph and Twitter carry the
+ * title, description and the site's image. A route with its own
+ * `opengraph-image` file (a public Ree) passes `ownImage`: an image named
+ * here would replace the file's.
  */
-export function publicPage({ path, title, description, locale, absoluteTitle = false, ownImage = false }: { path: string; title: string; description: string; locale: Locale; absoluteTitle?: boolean; ownImage?: boolean }): Metadata {
-  const url = localeUrl(locale, path);
+export function publicPage({ path, title, description, locale, absoluteTitle = false, ownImage = false, contentLocale }: { path: string; title: string; description: string; locale: Locale; absoluteTitle?: boolean; ownImage?: boolean; contentLocale?: Locale | null }): Metadata {
+  const canonicalLocale = contentLocale ?? locale;
+  const url = localeUrl(canonicalLocale, path);
+  const alternates = contentLocale ? { canonical: url } : { canonical: url, languages: localeAlternates(path, absoluteUrl) };
+  const alternateLocale = contentLocale ? [] : LOCALES.filter((other) => other !== locale).map(ogLocale);
   /* Left out, not `undefined`: Next reads a present `images` key as "no image" and drops the file's. */
   const image = ownImage ? {} : { images: [siteImage(locale)] };
   return {
     title: absoluteTitle ? { absolute: title } : title,
     description,
-    alternates: { canonical: url, languages: localeAlternates(path, absoluteUrl) },
-    openGraph: { type: 'website', siteName: SITE_NAME, locale: ogLocale(locale), alternateLocale: LOCALES.filter((other) => other !== locale).map(ogLocale), url, title, description, ...image },
+    alternates,
+    openGraph: { type: 'website', siteName: SITE_NAME, locale: ogLocale(canonicalLocale), alternateLocale, url, title, description, ...image },
     twitter: { card: 'summary_large_image', title, description, ...image },
   };
+}
+
+/**
+ * The language a public Ree's own words (name, introduction, sample
+ * questions) are written in, when they are in one language only; null for
+ * a Ree indexed in both. A Ree has no content-language field yet; official
+ * Rees are all written in English, so they are `en`, and everyone else's
+ * stay in both languages as before. Questions in Chinese still work
+ * on an English Ree; only which URL search engines index changes.
+ */
+export function reeContentLocale(ree: Pick<PublicRee, 'role'>): Locale | null {
+  return ree.role === 'official' ? 'en' : null;
+}
+
+/** A public Ree's canonical page: in its content language if it has one, else in `locale` (Explore's ItemList, the share page). */
+export function reeUrl(ree: Pick<PublicRee, 'slug' | 'role'>, locale: Locale): string {
+  return localeUrl(reeContentLocale(ree) ?? locale, `/r/${ree.slug}`);
+}
+
+/** What a Ree page's title promises after the Ree's name: what people come to do there. */
+const REE_TITLE_PROMISE: Record<Locale, string> = { en: 'Ask questions, get cited answers', zh: '提问，获得带出处的回答' };
+
+/**
+ * A public Ree's page title: its name and what the page is for, in the
+ * Ree's own language (so both URLs of an English Ree read the same), e.g.
+ * "System Design Primer — Ask questions, get cited answers · RE0".
+ */
+export function reeTitle(ree: Pick<PublicRee, 'name' | 'role'>, locale: Locale): string {
+  return `${ree.name} — ${REE_TITLE_PROMISE[reeContentLocale(ree) ?? locale]}`;
+}
+
+/** `/r/<slug>`'s metadata: `publicPage` in the Ree's content language, with the Ree's own preview image. */
+export function reePage(ree: Pick<PublicRee, 'slug' | 'name' | 'role'>, locale: Locale, description: string): Metadata {
+  return publicPage({ path: `/r/${ree.slug}`, title: reeTitle(ree, locale), description, locale, ownImage: true, contentLocale: reeContentLocale(ree) });
 }
 
 /**
@@ -94,7 +135,9 @@ export function siteJsonLd(description: string): JsonLd {
  * and og:image already carries it.
  */
 export function reeJsonLd(ree: PublicRee, locale: Locale, labels: { home: string; explore: string; category: string; description: string }): JsonLd {
-  const url = localeUrl(locale, `/r/${ree.slug}`);
+  /* The canonical page (reePage): an English Ree's /zh URL describes its /en page. */
+  const contentLocale = reeContentLocale(ree) ?? locale;
+  const url = reeUrl(ree, locale);
   return {
     '@context': 'https://schema.org',
     '@graph': [
@@ -104,7 +147,7 @@ export function reeJsonLd(ree: PublicRee, locale: Locale, labels: { home: string
         url,
         name: ree.name,
         description: labels.description,
-        inLanguage: HTML_LANG[locale],
+        inLanguage: HTML_LANG[contentLocale],
         isPartOf: { '@id': websiteId() },
         breadcrumb: { '@id': `${url}#breadcrumb` },
         mainEntity: { '@id': `${url}#ree` },
