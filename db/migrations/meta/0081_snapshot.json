@@ -1,5 +1,5 @@
 {
-  "id": "fddbfe26-fa87-4a43-a675-f3444c8f6991",
+  "id": "60839b40-c30f-4624-be0a-139d2d024149",
   "prevId": "ed019908-fcd4-456b-b8ce-e902361f397c",
   "version": "7",
   "dialect": "postgresql",
@@ -4102,13 +4102,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "supports_images": {
-          "name": "supports_images",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "last_probe_at": {
           "name": "last_probe_at",
           "type": "timestamp with time zone",
@@ -4133,6 +4126,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -4174,6 +4173,10 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "model_config_deleted_check": {
+          "name": "model_config_deleted_check",
+          "value": "deleted_at is null or not (enabled or enabled_plan)"
+        },
         "model_config_enabled_plan_check": {
           "name": "model_config_enabled_plan_check",
           "value": "not enabled_plan or kind = 'generation'"
@@ -5114,12 +5117,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "''"
-        },
-        "image_text": {
-          "name": "image_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "lang": {
           "name": "lang",
@@ -6841,123 +6838,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.post_image": {
-      "name": "post_image",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "post_id": {
-          "name": "post_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "position": {
-          "name": "position",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "pathname": {
-          "name": "pathname",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "content_type": {
-          "name": "content_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bytes": {
-          "name": "bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "post_image_position_key": {
-          "name": "post_image_position_key",
-          "columns": [
-            {
-              "expression": "post_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "position",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "post_image_pathname_idx": {
-          "name": "post_image_pathname_idx",
-          "columns": [
-            {
-              "expression": "pathname",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "post_image_post_id_post_id_fk": {
-          "name": "post_image_post_id_post_id_fk",
-          "tableFrom": "post_image",
-          "tableTo": "post",
-          "columnsFrom": [
-            "post_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "post_image_position_check": {
-          "name": "post_image_position_check",
-          "value": "position between 0 and 3"
-        },
-        "post_image_content_type_check": {
-          "name": "post_image_content_type_check",
-          "value": "content_type in ('image/jpeg', 'image/png', 'image/webp')"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.post_report": {

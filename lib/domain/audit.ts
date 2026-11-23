@@ -18,6 +18,7 @@ export const AUDIT_ACTIONS = [
   'user.payout_minimum',
   'model.create',
   'model.update',
+  'model.delete',
   'model.cost_backfill',
   'model.probe',
   'model.activate',

@@ -1,7 +1,7 @@
 import type { Shape } from '@/i18n/format';
 export const zh = {
   title: '价格与促销',
-  description: '管理视频脚本和导出价格、注册赠送积分、知识处理的基础设施成本，以及 Plan 和 Pack 的价格与积分额度。促销按 UTC+8 自动开始和结束。',
+  description: '管理注册赠送积分、视频脚本和导出价格、知识处理的基础设施成本、收入（Earned）的转换与购买抵扣，以及 Plan 和 Pack 的价格与积分额度。促销按 UTC+8 自动开始和结束。',
   welcome: {
     title: '新用户注册赠送',
     amount: '赠送积分（credits）',
@@ -98,7 +98,7 @@ export const zh = {
 export const en: Shape<typeof zh> = {
   title: 'Pricing & promotions',
   description:
-    'Manage video script and export pricing, welcome credits, the infrastructure costs knowledge is billed at, and the prices and allowances for Plan and Pack. Promotions start and end automatically in UTC+8.',
+    'Manage welcome credits, video script and export pricing, the infrastructure costs knowledge is billed at, converting and paying with Earned credits, and the prices and allowances for Plan and Pack. Promotions start and end automatically in UTC+8.',
   welcome: {
     title: 'New user welcome credits',
     amount: 'Welcome amount (credits)',

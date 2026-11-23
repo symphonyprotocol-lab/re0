@@ -10,7 +10,7 @@
  * `modelFor` caches for). Embedding switches only through a re-embed job.
  */
 import { embed } from 'ai';
-import { and, asc, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import type { ModelKind } from '@/lib/constants';
 import { changesWhatAnswers, keyTail, mayCarryKey, parseModelConfig, perMillionUsd, readsImages, switchesImmediately, type GenerationAudience, type ModelConfigInput, type ModelGenerationPrice } from '@/lib/domain/models';
 import type { ProviderRate } from '@/lib/domain/provider-cost';
@@ -21,16 +21,16 @@ import { consoleEndpoint, embeddingModel, endpointHasCredentials, environmentEnd
 import { probeEndpoint, type ProbeResult } from '@/lib/infra/ai/probe';
 import { chainAudience, hasFailover, HEALTH_PROBE_EVERY_MS, sameEmbeddingSpace, type ChainAudience, type SwitchingClass } from '@/lib/domain/model-failover';
 import { clearHealth, reportSuccess } from '@/lib/infra/ai/model-health';
-import { inAnyChain, lockKind, readAllChains, readChain, writeChain, type ChainItem } from '@/lib/services/model-chain';
+import { chainsOf, inAnyChain, lockKind, readAllChains, readChain, writeChain, type ChainItem } from '@/lib/services/model-chain';
 import { sealCredential } from '@/lib/infra/crypto/credentials';
-import { db, schema } from '@/lib/infra/db';
+import { db, schema, type Executor } from '@/lib/infra/db';
 import { audit, AdminInputError } from '@/lib/services/admin';
 import { runningReembedJob, startReembed } from '@/lib/services/reembed';
 
 export type ModelConfigRow = typeof schema.modelConfig.$inferSelect;
 
 /** What the page receives: never the cipher. */
-export type ModelConfigView = Omit<ModelConfigRow, 'apiKeyCipher'> & {
+export type ModelConfigView = Omit<ModelConfigRow, 'apiKeyCipher' | 'deletedAt'> & {
   hasKey: boolean;
   costPricing: ServicePricingInput | null;
   generationPricing: (Partial<ModelGenerationPrice> & { source: 'gateway' | 'configured' | 'unknown' }) | null;
@@ -57,7 +57,7 @@ async function assertReadsImages(row: ModelConfigRow): Promise<void> {
 }
 
 async function view(row: ModelConfigRow, prices?: ProviderPrices): Promise<ModelConfigView> {
-  const { apiKeyCipher, ...rest } = row;
+  const { apiKeyCipher, deletedAt: _deleted, ...rest } = row;
   let generationPricing: ModelConfigView['generationPricing'] = null;
   if (row.kind === 'generation') {
     let rate: ProviderRate | undefined;
@@ -80,6 +80,12 @@ async function view(row: ModelConfigRow, prices?: ProviderPrices): Promise<Model
 
 function shown(row: ModelConfigRow) {
   return { name: row.name, kind: row.kind, transport: row.transport, baseUrl: row.baseUrl, model: row.model, apiKeyTail: row.apiKeyTail, timeoutMs: row.timeoutMs, enabled: row.enabled, enabledPlan: row.enabledPlan, supportsImages: row.supportsImages };
+}
+
+/** An entry not deleted (`deleteModelConfig`): a deleted one answers like one that never existed. */
+async function live(executor: Executor, id: string): Promise<ModelConfigRow | undefined> {
+  const [row] = await executor.select().from(schema.modelConfig).where(and(eq(schema.modelConfig.id, id), isNull(schema.modelConfig.deletedAt))).limit(1);
+  return row;
 }
 
 /** One list as the page shows it: `generation:free`, `generation:plan`, `embedding`, `transcription`, `speech`. */
@@ -113,7 +119,7 @@ export async function listModelConfigs(now = new Date()): Promise<{
 }> {
   const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const [rows, prices, chainRows, healthRows, todayRows, eventRows] = await Promise.all([
-    db().select().from(schema.modelConfig).orderBy(asc(schema.modelConfig.kind), asc(schema.modelConfig.updatedAt)),
+    db().select().from(schema.modelConfig).where(isNull(schema.modelConfig.deletedAt)).orderBy(asc(schema.modelConfig.kind), asc(schema.modelConfig.updatedAt)),
     providerPrices(),
     readAllChains(db()),
     db().select().from(schema.modelHealth),
@@ -162,7 +168,7 @@ async function carriedKey(input: ModelConfigInput): Promise<{ cipher: string; ta
   const rows = await db()
     .select()
     .from(schema.modelConfig)
-    .where(eq(schema.modelConfig.transport, input.transport))
+    .where(and(eq(schema.modelConfig.transport, input.transport), isNull(schema.modelConfig.deletedAt)))
     .orderBy(desc(schema.modelConfig.enabled), desc(schema.modelConfig.updatedAt));
   const donor = rows.find((row) => row.kind !== 'speech' && row.apiKeyCipher && mayCarryKey(row, input));
   return donor?.apiKeyCipher ? { cipher: donor.apiKeyCipher, tail: donor.apiKeyTail } : null;
@@ -202,14 +208,14 @@ export async function createModelConfig(administratorId: string, raw: Record<str
 
 export async function updateModelConfig(administratorId: string, id: string, raw: Record<string, unknown>): Promise<ModelConfigView> {
   const database = db();
-  const [current] = await database.select().from(schema.modelConfig).where(eq(schema.modelConfig.id, id)).limit(1);
+  const current = await live(database, id);
   if (!current) throw new AdminInputError('not_found');
   const input = parsed({ ...raw, kind: current.kind });
-  const live = current.enabled || current.enabledPlan || (await inAnyChain(database, id));
-  if (live && changesWhatAnswers(current, input)) throw new AdminInputError('locked');
+  const inUse = current.enabled || current.enabledPlan || (await inAnyChain(database, id));
+  if (inUse && changesWhatAnswers(current, input)) throw new AdminInputError('locked');
   /* An entry in use keeps reading images: taking the mark off would let it answer posts it cannot see. */
   const supportsImages = input.transport === 'openai_compatible' ? (input.supportsImages ?? current.supportsImages) : false;
-  if (live && current.supportsImages && !supportsImages && current.transport === 'openai_compatible') throw new AdminInputError('locked');
+  if (inUse && current.supportsImages && !supportsImages && current.transport === 'openai_compatible') throw new AdminInputError('locked');
   /* The candidate of a running re-embed job is frozen too: its vectors are being made. */
   if (changesWhatAnswers(current, input) && (await runningReembedJob())?.toModelConfigId === id) throw new AdminInputError('locked');
   let cipher = current.apiKeyCipher;
@@ -255,7 +261,7 @@ export async function updateModelConfig(administratorId: string, id: string, raw
  */
 export async function activateModelConfig(administratorId: string, id: string, audience: GenerationAudience = 'free'): Promise<{ activated: boolean; reembed: boolean; jobId: string | null }> {
   const database = db();
-  const [target] = await database.select().from(schema.modelConfig).where(eq(schema.modelConfig.id, id)).limit(1);
+  const target = await live(database, id);
   if (!target) throw new AdminInputError('not_found');
   if (target.kind === 'speech' && !endpointHasCredentials(await consoleEndpoint(target))) throw new AdminInputError('voice_key_required');
   if ((audience !== 'free' && audience !== 'plan') || (audience === 'plan' && target.kind !== 'generation')) throw new AdminInputError('audience');
@@ -281,6 +287,7 @@ async function enable(administratorId: string, target: ModelConfigRow, audience:
   await db().transaction(async (tx) => {
     /* Serialize even the first activation, when there is no active row to lock. */
     await lockKind(tx, target.kind);
+    if (!(await live(tx, target.id))) throw new AdminInputError('not_found');
     const enabledField = audience === 'plan' ? 'enabledPlan' : 'enabled';
     const [previous] = await tx
       .select()
@@ -311,6 +318,7 @@ async function enable(administratorId: string, target: ModelConfigRow, audience:
 async function promote(administratorId: string, target: ModelConfigRow, list: ChainAudience): Promise<{ activated: boolean; reembed: boolean }> {
   await db().transaction(async (tx) => {
     await lockKind(tx, target.kind);
+    if (!(await live(tx, target.id))) throw new AdminInputError('not_found');
     const current = await readChain(tx, target.kind, list);
     if (!current.some((row) => row.modelConfigId === target.id)) throw new AdminInputError('stale');
     const before = current.map((row) => ({ configId: row.modelConfigId, active: row.active }));
@@ -391,6 +399,55 @@ export async function removeFromChain(administratorId: string, kind: ModelKind, 
   return changeChain(administratorId, kind, list, expected, (current) => current.filter((item) => item.configId !== id));
 }
 
+/** What keeps an entry from being deleted: a list it is in, or the running re-embed job making its vectors. */
+export type ModelUse = ChainKey | 'reembed';
+
+/** `in_use`, naming each list the entry has to be removed from first. */
+export class ModelInUseError extends AdminInputError {
+  constructor(readonly uses: ModelUse[]) {
+    super('in_use');
+  }
+}
+
+/**
+ * Deletes an entry that nothing uses: in no list (generation's Free or Plan
+ * list, embedding's, transcription's, speech's single entry), not enabled
+ * for either audience, and not the candidate of a running re-embed job. The
+ * environment's model is no entry, so nothing stored depends on it. Model
+ * calls, re-embed jobs, the cost backfill and audit rows still name the
+ * entry, so the row stays, marked deleted (no page, list or request reads
+ * it again, and its sealed key is dropped); its cooldown state goes, its
+ * health events stay as history.
+ */
+export async function deleteModelConfig(administratorId: string, id: string): Promise<void> {
+  const database = db();
+  const [found] = await database.select({ kind: schema.modelConfig.kind }).from(schema.modelConfig).where(eq(schema.modelConfig.id, id)).limit(1);
+  if (!found) throw new AdminInputError('not_found');
+  await database.transaction(async (tx) => {
+    /* The kind's lock holds off list changes and activations; the re-embed lock a job starting for this entry. */
+    await lockKind(tx, found.kind);
+    if (found.kind === 'embedding') await tx.execute(sql`select pg_advisory_xact_lock(hashtext('re0:reembed'))`);
+    const [current] = await tx.select().from(schema.modelConfig).where(and(eq(schema.modelConfig.id, id), isNull(schema.modelConfig.deletedAt))).for('update');
+    if (!current) throw new AdminInputError('not_found');
+    const uses = new Set<ModelUse>((await chainsOf(tx, [id])).map((row) => chainKey(row.kind, row.audience)));
+    if (current.enabled) uses.add(chainKey(current.kind, current.kind === 'generation' ? 'free' : 'all'));
+    if (current.enabledPlan) uses.add('generation:plan');
+    if (current.kind === 'embedding') {
+      const job = await runningReembedJob(tx);
+      if (job && (job.toModelConfigId === id || job.fromModelConfigId === id)) uses.add('reembed');
+    }
+    if (uses.size > 0) throw new ModelInUseError([...uses]);
+    const now = new Date();
+    await tx.update(schema.modelConfig)
+      .set({ deletedAt: now, apiKeyCipher: null, updatedBy: administratorId, updatedAt: now })
+      .where(eq(schema.modelConfig.id, id));
+    await tx.delete(schema.modelHealth).where(eq(schema.modelHealth.modelConfigId, id));
+    await audit(tx, { administratorId, action: 'model.delete', target: id, before: shown(current) });
+  });
+  await clearHealth(id).catch(() => undefined);
+  forgetModelCache();
+}
+
 /** The text both embedding entries embed to show they share a space. */
 const SPACE_CHECK_TEXT = 're0 embedding space check: 知识库检索 / knowledge retrieval';
 
@@ -402,7 +459,7 @@ const SPACE_CHECK_TEXT = 're0 embedding space check: 知识库检索 / knowledge
 export async function addToChain(administratorId: string, kind: ModelKind, audience: unknown, id: string): Promise<ChainEntryView[]> {
   const list = listFor(kind, audience);
   if (!hasFailover(kind)) throw new AdminInputError('speech_single');
-  const [target] = await db().select().from(schema.modelConfig).where(eq(schema.modelConfig.id, id)).limit(1);
+  const target = await live(db(), id);
   if (!target || target.kind !== kind) throw new AdminInputError('not_found');
   if (kind === 'generation') await assertReadsImages(target);
   const current = await readChain(db(), kind, list);
@@ -426,6 +483,7 @@ export async function addToChain(administratorId: string, kind: ModelKind, audie
   }
   const saved = await db().transaction(async (tx) => {
     await lockKind(tx, kind);
+    if (!(await live(tx, id))) throw new AdminInputError('not_found');
     const latest = await readChain(tx, kind, list);
     if (latest.some((row) => row.modelConfigId === id) || latest[0]?.modelConfigId !== current[0]?.modelConfigId) throw new AdminInputError('stale');
     /* A backup's vectors are the primary's: it carries the primary's space, so it still does if it ever leads the list. */
@@ -442,8 +500,7 @@ export async function addToChain(administratorId: string, kind: ModelKind, audie
 
 /** "解除冷却": requests use the entry again at once (this instance) or within ten seconds (others). */
 export async function clearModelCooldown(administratorId: string, id: string): Promise<{ cleared: boolean }> {
-  const [row] = await db().select({ id: schema.modelConfig.id }).from(schema.modelConfig).where(eq(schema.modelConfig.id, id)).limit(1);
-  if (!row) throw new AdminInputError('not_found');
+  if (!(await live(db(), id))) throw new AdminInputError('not_found');
   const cleared = await clearHealth(id);
   await audit(db(), { administratorId, action: 'model.cooldown.clear', target: id, after: { cleared } });
   return { cleared };
@@ -451,7 +508,7 @@ export async function clearModelCooldown(administratorId: string, id: string): P
 
 export async function probeModelConfig(administratorId: string, id: string): Promise<ProbeResult> {
   const database = db();
-  const [row] = await database.select().from(schema.modelConfig).where(eq(schema.modelConfig.id, id)).limit(1);
+  const row = await live(database, id);
   if (!row) throw new AdminInputError('not_found');
   const result = await probeEndpoint(await consoleEndpoint(row));
   await database

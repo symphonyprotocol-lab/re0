@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { DEFAULT_MODELS, MODEL_ID_MAX_LENGTH, MODEL_KINDS, MODEL_NAME_MAX_LENGTH, MODEL_TIMEOUT_MS, type ModelKind } from '@/lib/constants';
 import type { GenerationAudience, ModelTransport } from '@/lib/domain/models';
-import type { ModelConfigView } from '@/lib/services/models';
+import type { ModelConfigView, ModelUse } from '@/lib/services/models';
 import type { ServicePricingInput } from '@/lib/domain/service-pricing';
 import { ServiceCostFields } from '@/components/admin/service-cost-fields';
 import { api } from '@/lib/client/upload';
@@ -113,6 +113,8 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
   const [saving, setSaving] = useState(false);
   const [probes, setProbes] = useState<Record<string, { busy: boolean; ok?: boolean; text?: string }>>({});
   const [activate, setActivate] = useState<{ config: ModelConfigView; audience: GenerationAudience } | null>(null);
+  const [removing, setRemoving] = useState<ModelConfigView | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [job, setJob] = useState<ReembedJobView | null>(initialJob);
   const board = initial;
   const running = job?.status === 'running';
@@ -236,6 +238,33 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
     router.refresh();
   };
 
+  /* The lists an entry sits in, as the page last saw them; the server checks again (and the running re-embed job). */
+  const usesOf = (config: ModelConfigView): ModelUse[] => {
+    const uses = new Set(Object.entries(board.chains).filter(([, list]) => list.some((entry) => entry.configId === config.id)).map(([key]) => key as ModelUse));
+    if (config.enabled) uses.add(config.kind === 'generation' ? 'generation:free' : (config.kind as ModelUse));
+    if (config.enabledPlan) uses.add('generation:plan');
+    return [...uses];
+  };
+  const blocked = (name: string, uses: readonly ModelUse[]) => fill(m.deleteBlocked, { name, uses: uses.map((use) => m.uses[use]).join(locale === 'zh' ? '、' : ', ') });
+
+  const askDelete = (config: ModelConfigView) => {
+    const uses = usesOf(config);
+    if (uses.length > 0) return toast(blocked(config.name, uses));
+    setRemoving(config);
+  };
+
+  const doDelete = async (config: ModelConfigView) => {
+    setDeleting(true);
+    const result = await api<{ error?: string; uses?: ModelUse[] }>(`/api/admin/models/${config.id}`, { method: 'DELETE' });
+    setDeleting(false);
+    setRemoving(null);
+    if (!result.ok) {
+      const code = result.data.error as keyof typeof m.errors | undefined;
+      toast(result.data.error === 'in_use' && result.data.uses?.length ? blocked(config.name, result.data.uses) : code && code in m.errors ? m.errors[code] : t.common.errors.generic);
+    } else toast(m.deleted);
+    router.refresh();
+  };
+
   const locked = Boolean(draft?.id && draft.enabled);
 
   const probeLine = (config: ModelConfigView) => {
@@ -321,9 +350,14 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
                       <span>
                         <CI name="lock" /> {config.hasKey ? `•••• ${config.apiKeyTail ?? ''}` : m.noKey}
                       </span>
-                      <button type="button" className="icon-btn" aria-label={m.edit} title={m.edit} onClick={() => open(kind, config)}>
-                        <CI name="settings" />
-                      </button>
+                      <span className="flex">
+                        <button type="button" className="icon-btn" aria-label={m.edit} title={m.edit} onClick={() => open(kind, config)}>
+                          <CI name="settings" />
+                        </button>
+                        <button type="button" className="icon-btn" aria-label={`${m.delete} ${config.name}`} title={m.delete} onClick={() => askDelete(config)}>
+                          <CI name="trash" />
+                        </button>
+                      </span>
                     </div>
                     {line && <div className={`probe-result ${line.ok ? '' : 'error'}`}>{line.text}</div>}
                     <div className="flex model-config-actions">
@@ -500,6 +534,17 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
         confirmLabel={activate?.config.kind === 'embedding' ? m.reembed : m.activate}
         onClose={() => setActivate(null)}
         onConfirm={() => activate && doActivate(activate.config, activate.audience)}
+      />
+
+      <ConfirmModal
+        open={Boolean(removing)}
+        title={fill(m.deleteTitle, { name: removing?.name ?? '' })}
+        body={removing ? <>{m.deleteBody}<br /><code>{removing.model}</code></> : ''}
+        confirmLabel={m.delete}
+        danger
+        busy={deleting}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => removing && doDelete(removing)}
       />
     </>
   );
