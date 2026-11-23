@@ -38,9 +38,18 @@ export type ModelConfigView = Omit<ModelConfigRow, 'apiKeyCipher' | 'deletedAt'>
   readsImages: boolean | null;
 };
 
-/** What a generation entry's image check reads: the catalog for a gateway model, the saved flag otherwise. */
+/**
+ * What a generation entry's image check reads: the catalog for a gateway
+ * model, the saved flag otherwise. A catalog answer is kept on the gateway
+ * entry, so an outage later falls back to it instead of freezing changes.
+ */
 async function imageReading(row: ModelConfigRow): Promise<boolean | undefined> {
-  return readsImages(row, row.kind === 'generation' && row.transport === 'gateway' ? await gatewayModelVision(row.model) : undefined);
+  if (row.kind !== 'generation' || row.transport !== 'gateway') return readsImages(row, undefined);
+  const vision = await gatewayModelVision(row.model);
+  if (vision !== undefined && vision !== row.supportsImages) {
+    await db().update(schema.modelConfig).set({ supportsImages: vision }).where(and(eq(schema.modelConfig.id, row.id), eq(schema.modelConfig.model, row.model)));
+  }
+  return readsImages(row, vision);
 }
 
 /**
@@ -214,7 +223,10 @@ export async function updateModelConfig(administratorId: string, id: string, raw
   const inUse = current.enabled || current.enabledPlan || (await inAnyChain(database, id));
   if (inUse && changesWhatAnswers(current, input)) throw new AdminInputError('locked');
   /* An entry in use keeps reading images: taking the mark off would let it answer posts it cannot see. */
-  const supportsImages = input.transport === 'openai_compatible' ? (input.supportsImages ?? current.supportsImages) : false;
+  /* A gateway entry keeps the catalog's last answer while it names the same model. */
+  const supportsImages = input.transport === 'openai_compatible'
+    ? (input.supportsImages ?? (current.transport === 'openai_compatible' ? current.supportsImages : false))
+    : current.transport === 'gateway' && current.model === input.model ? current.supportsImages : false;
   if (inUse && current.supportsImages && !supportsImages && current.transport === 'openai_compatible') throw new AdminInputError('locked');
   /* The candidate of a running re-embed job is frozen too: its vectors are being made. */
   if (changesWhatAnswers(current, input) && (await runningReembedJob())?.toModelConfigId === id) throw new AdminInputError('locked');

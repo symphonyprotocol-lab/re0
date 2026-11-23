@@ -55,7 +55,7 @@ import { closeAnswer, finishPost, firstRound, groundedAnswer, ownPrivatePost, pr
 import { grantTaskReward } from '@/lib/services/task-rewards';
 import { answerWithAi, type AiAnswerer } from '@/lib/services/ai-answers';
 import { parsePostImages, postSubject } from '@/lib/domain/post-images';
-import { attachImages, checkedImages, copyImages, ensureImageText, imageParts, type ImageDescriber } from '@/lib/services/post-images';
+import { attachImages, checkedImages, hasSameImages, imagesReadableFor, copyImages, ensureImageText, imageParts, type ImageDescriber } from '@/lib/services/post-images';
 
 const { post, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postFollowup: followup, ree } = schema;
 
@@ -164,7 +164,7 @@ export interface PrivatePostInput {
 
 export type PrivatePublishOutcome =
   | { ok: true; id: string; duplicate?: boolean }
-  | { ok: false; error: 'empty' | 'too_long' | 'daily_limit' | 'no_rees' | 'too_many_rees' | 'ree_unavailable' | 'invalid_images' | 'too_many_images' }
+  | { ok: false; error: 'empty' | 'too_long' | 'daily_limit' | 'no_rees' | 'too_many_rees' | 'ree_unavailable' | 'invalid_images' | 'too_many_images' | 'images_unsupported' }
   | { ok: false; error: 'price_changed'; prices: PriceList }
   | { ok: false; error: 'insufficient_credits'; balance: number; needed: number };
 
@@ -195,11 +195,12 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
   if (typeof named === 'string') return { ok: false, error: named };
   const images = named.length ? await checkedImages(userId, named) : [];
   if (!images) return { ok: false, error: 'invalid_images' };
+  if (images.length && !(await imagesReadableFor(userId))) return { ok: false, error: 'images_unsupported' };
   const question = redact(input.question.trim(), input.lang);
   const detail = redact((input.detail ?? '').trim(), input.lang);
   const clientToken = input.clientToken && isUuid(input.clientToken) ? input.clientToken : null;
   /* A replay of a post already made is answered before the prices: it charges nothing again. */
-  const replay = await sameAsk(userId, source, { question, detail, clientToken, firstImage: images[0]?.pathname ?? null }, now);
+  const replay = await sameAsk(userId, source, { question, detail, clientToken, images: images.map((image) => image.pathname) }, now);
   if (replay) return { ok: true, id: replay, duplicate: true };
   const prices = raisedPrices(rees, userId, input.fees);
   if (prices) return { ok: false, error: 'price_changed', prices };
@@ -210,7 +211,7 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
   try {
     return await db().transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`post:${userId}`}))`);
-      const same = await sameAsk(userId, source, { question, detail, clientToken, firstImage: images[0]?.pathname ?? null }, now, tx);
+      const same = await sameAsk(userId, source, { question, detail, clientToken, images: images.map((image) => image.pathname) }, now, tx);
       if (same) return { ok: true, id: same, duplicate: true } as const;
       if (source === 'post') {
         const [counts] = await tx
@@ -255,7 +256,7 @@ export async function publishPrivatePost(userId: string, input: PrivatePostInput
 }
 
 /** A live private post of this author's that this submit repeats: the same token, or the same text within the duplicate window. */
-async function sameAsk(userId: string, source: string, ask: { question: string; detail: string; clientToken: string | null; firstImage?: string | null }, now: Date, executor: Tx | ReturnType<typeof db> = db()): Promise<string | null> {
+async function sameAsk(userId: string, source: string, ask: { question: string; detail: string; clientToken: string | null; images?: readonly string[] }, now: Date, executor: Tx | ReturnType<typeof db> = db()): Promise<string | null> {
   if (source !== 'post' && !ask.clientToken) return null;
   const [same] = await executor
     .select({ id: post.id })
@@ -273,10 +274,8 @@ async function sameAsk(userId: string, source: string, ask: { question: string; 
                 eq(post.question, ask.question),
                 eq(post.detail, ask.detail),
                 sql`${post.createdAt} > ${new Date(now.getTime() - POST_DUPLICATE_WINDOW_MS).toISOString()}::timestamptz`,
-                /* With images, the same upload too (each upload has its own pathname). */
-                ask.firstImage
-                  ? sql`exists (select 1 from ${schema.postImage} pi where pi.post_id = ${post.id} and pi.pathname = ${ask.firstImage})`
-                  : sql`not exists (select 1 from ${schema.postImage} pi where pi.post_id = ${post.id})`,
+                /* With images, the same uploads in the same order too. */
+                hasSameImages(post.id, ask.images ?? []),
               )
             : undefined,
         ),

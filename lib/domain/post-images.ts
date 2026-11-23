@@ -11,7 +11,18 @@
 import { REE_IMAGE_EXTENSIONS } from '@/lib/constants';
 
 export const POST_IMAGE_MAX = 4;
+/** The largest file the author may pick. */
 export const POST_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+/**
+ * What is stored and sent to models: the browser scales an image so its
+ * longest edge is at most `POST_IMAGE_EDGE` (what providers resize to
+ * anyway) and re-encodes it until it fits `POST_IMAGE_UPLOAD_MAX_BYTES`;
+ * the upload token and the publish check hold that limit. Four of them,
+ * base64, stay well inside every provider's request and per-image limits
+ * (Anthropic 5 MB per image, Gemini ~20 MB inline per request).
+ */
+export const POST_IMAGE_EDGE = 1568;
+export const POST_IMAGE_UPLOAD_MAX_BYTES = 1536 * 1024;
 export const POST_IMAGE_TYPES = REE_IMAGE_EXTENSIONS;
 export type PostImageType = keyof typeof POST_IMAGE_TYPES;
 /** The description stored for the text-only steps: long enough for a screenshot's text, short enough for an embedding. */
@@ -49,6 +60,22 @@ export function parsePostImages(raw: unknown, userId: string): string[] | 'inval
     paths.push(entry);
   }
   return paths;
+}
+
+/** The size an image is drawn at: scaled down to fit `edge` on its longest side, never up. */
+export function fitWithin(width: number, height: number, edge = POST_IMAGE_EDGE): { width: number; height: number } {
+  const scale = Math.min(1, edge / Math.max(width, height, 1));
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
+/**
+ * The images a paste adds to a post: only when the clipboard holds no
+ * text. Copying cells from a spreadsheet or a word processor puts a picture
+ * of them beside the text; that paste is the text.
+ */
+export function pastedImages(clipboard: { types: readonly string[]; files: ArrayLike<{ type: string }> }): number[] {
+  if (clipboard.types.includes('text/plain')) return [];
+  return Array.from(clipboard.files, (file, index) => (file.type.startsWith('image/') ? index : -1)).filter((index) => index >= 0);
 }
 
 /** What the text-only steps read for a post: its question, its detail and what its images say. */

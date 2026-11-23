@@ -4,8 +4,7 @@ import { isAvatarPath, isReeCoverPath } from '@/lib/domain/ree';
 import { streamBlob, streamBlobRange } from '@/lib/infra/blob';
 import { currentUser } from '@/lib/http/session';
 import { currentAdministrator } from '@/lib/http/admin';
-import { postImageOwner } from '@/lib/domain/post-images';
-import { postImageVisibleTo } from '@/lib/services/post-images';
+import { visiblePostImage } from '@/lib/services/post-images';
 import { coverVisibleTo } from '@/lib/services/public-rees';
 import { exportVisibleTo, narrationVisibleTo } from '@/lib/services/video';
 
@@ -22,6 +21,28 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pat
   const segments = (await context.params).path;
   /* Route params arrive decoded; decoding again would throw on a literal '%'. */
   const pathname = segments.join('/');
+  /*
+   * A post's image: `/media/post-images/<post_image id>` -- the row, not the
+   * stored pathname (it names the author), to whoever may read the post
+   * (lib/services/post-images.ts); never cached for long.
+   */
+  if (segments[0] === 'post-images') {
+    if (segments.length !== 2 || !ID.test(segments[1]!)) return new Response(null, { status: 404 });
+    const [viewer, administrator] = await Promise.all([currentUser(), currentAdministrator()]);
+    const image = await visiblePostImage(segments[1]!, viewer?.id ?? null, Boolean(administrator));
+    if (!image) return new Response(null, { status: 404 });
+    const blob = await streamBlob(image.pathname);
+    if (!blob?.contentType || !Object.hasOwn(REE_IMAGE_EXTENSIONS, blob.contentType)) return new Response(null, { status: 404 });
+    return new Response(blob.stream, {
+      headers: {
+        'content-type': blob.contentType,
+        /* Briefly: a post taken down stops showing its images within minutes, even in a browser that saw them. */
+        'cache-control': 'private, max-age=300',
+        'x-content-type-options': 'nosniff',
+        'content-security-policy': "default-src 'none'",
+      },
+    });
+  }
   /*
    * Each segment must be a plain name: the Blob SDK pastes the pathname into
    * a URL, where a decoded `%2e%2e`, `/`, `\\`, `?` or `#` would address a
@@ -43,24 +64,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pat
         'content-type': blob.contentType,
         'cache-control': 'private, no-store',
         'x-content-type-options': 'nosniff',
-      },
-    });
-  }
-
-  /* A post's image: to whoever may read the post (lib/services/post-images.ts), never cached past them. */
-  if (segments[0] === 'post-images') {
-    if (!postImageOwner(pathname)) return new Response(null, { status: 404 });
-    const [viewer, administrator] = await Promise.all([currentUser(), currentAdministrator()]);
-    if (!(await postImageVisibleTo(pathname, viewer?.id ?? null, Boolean(administrator)))) return new Response(null, { status: 404 });
-    const blob = await streamBlob(pathname);
-    if (!blob?.contentType || !Object.hasOwn(REE_IMAGE_EXTENSIONS, blob.contentType)) return new Response(null, { status: 404 });
-    return new Response(blob.stream, {
-      headers: {
-        'content-type': blob.contentType,
-        /* Briefly: a post taken down stops showing its images within minutes, even in a browser that saw them. */
-        'cache-control': 'private, max-age=300',
-        'x-content-type-options': 'nosniff',
-        'content-security-policy': "default-src 'none'",
       },
     });
   }

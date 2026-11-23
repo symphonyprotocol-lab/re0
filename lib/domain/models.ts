@@ -148,10 +148,13 @@ export function switchesImmediately(kind: ModelKind): boolean {
 /**
  * Posts carry images (lib/domain/post-images.ts), and every generation
  * entry may answer one, so only an entry that reads images may answer:
- * a gateway entry by the catalog's `vision` tag (undefined: the catalog
- * could not say), an OpenAI-compatible one by the operator's word.
+ * a gateway entry by the catalog's `vision` tag -- or, while the catalog
+ * cannot be read, by the last answer it gave, kept on the entry
+ * (`supportsImages`); undefined when there is none -- an OpenAI-compatible
+ * one by the operator's word.
  */
 export function readsImages(row: { kind: ModelKind; transport: ModelTransport; supportsImages: boolean }, gatewayVision: boolean | undefined): boolean | undefined {
   if (row.kind !== 'generation') return true;
-  return row.transport === 'gateway' ? gatewayVision : row.supportsImages;
+  if (row.transport === 'gateway') return gatewayVision ?? (row.supportsImages ? true : undefined);
+  return row.supportsImages;
 }

@@ -168,6 +168,10 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
   /* One token per post being written: a second submit of the same one returns the same post (S4). */
   const [token, setToken] = useState(() => crypto.randomUUID());
   const images = usePostImages();
+  /* "图片上传中…" from an early Cmd/Ctrl+Enter goes once the uploads are done. */
+  useEffect(() => {
+    if (images.ready) setError((current) => (current === c.imageUploading ? null : current));
+  }, [images.ready, c.imageUploading]);
 
   useEffect(() => {
     let live = true;
@@ -184,7 +188,8 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
     if (busy) return;
     if (!question.trim()) return setError(c.empty);
     if (question.trim().length > POST_QUESTION_MAX || detail.trim().length > POST_DETAIL_MAX) return setError(fill(c.tooLong, { question: POST_QUESTION_MAX, detail: POST_DETAIL_MAX }));
-    if (!images.ready) return;
+    /* Cmd/Ctrl+Enter reaches here with uploads running or failed: say so rather than do nothing. */
+    if (!images.ready) return setError(images.uploading ? c.imageUploading : c.imageFailed);
     setBusy(true);
     setError(null);
     try {
@@ -220,7 +225,9 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
                 ? c.empty
                 : body.error === 'invalid_images' || body.error === 'too_many_images'
                   ? c.imageInvalid
-                  : c.failed,
+                  : body.error === 'images_unsupported'
+                    ? c.imageUnsupported
+                    : c.failed,
       );
     } catch {
       toast(c.failed);
@@ -351,6 +358,10 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
   /* One token per question being written: a second submit of the same one opens the same post. */
   const [token, setToken] = useState(() => crypto.randomUUID());
   const images = usePostImages();
+  /* "图片上传中…" from an early Cmd/Ctrl+Enter goes once the uploads are done. */
+  useEffect(() => {
+    if (images.ready) setError((current) => (current === c.imageUploading ? null : current));
+  }, [images.ready, c.imageUploading]);
 
   const preset = reeIds?.join(',') ?? '';
   useEffect(() => {
@@ -402,7 +413,7 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
     if (busy) return;
     if (!text) return setError(c.empty);
     if (text.length > POST_QUESTION_MAX || detail.trim().length > POST_DETAIL_MAX) return setError(fill(c.tooLong, { question: POST_QUESTION_MAX, detail: POST_DETAIL_MAX }));
-    if (!images.ready) return;
+    if (!images.ready) return setError(images.uploading ? c.imageUploading : c.imageFailed);
     /* No Ree chosen: 只问 AI -- a private post only the AI answers, at the base fee (AI 通用回答). */
     const aiOnly = chosen.length === 0;
     setBusy(true);
@@ -449,7 +460,9 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
                       ? c.reeUnavailable
                       : body.error === 'invalid_images' || body.error === 'too_many_images'
                         ? c.imageInvalid
-                        : c.failed,
+                        : body.error === 'images_unsupported'
+                          ? c.imageUnsupported
+                          : c.failed,
       );
     } catch {
       setError(c.failed);

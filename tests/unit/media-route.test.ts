@@ -24,11 +24,11 @@ vi.mock('@vercel/blob', async (original) => ({
 }));
 
 /* Who may see a post's image is the database's call (lib/services/post-images.ts): here, a switch. */
-const access = vi.hoisted(() => ({ visible: false, asked: [] as { pathname: string; viewer: string | null; administrator: boolean }[] }));
+const access = vi.hoisted(() => ({ visible: false, asked: [] as { id: string; viewer: string | null; administrator: boolean }[] }));
 vi.mock('@/lib/services/post-images', () => ({
-  postImageVisibleTo: async (pathname: string, viewer: string | null, administrator: boolean) => {
-    access.asked.push({ pathname, viewer, administrator });
-    return access.visible;
+  visiblePostImage: async (id: string, viewer: string | null, administrator: boolean) => {
+    access.asked.push({ id, viewer, administrator });
+    return access.visible ? { pathname: `post-images/6f1c3a52-6c55-4a8e-9d0e-2f6ad0c1a111/${id}.png`, contentType: 'image/png' } : null;
   },
 }));
 vi.mock('@/lib/http/admin', () => ({ currentAdministrator: async () => null }));
@@ -94,23 +94,23 @@ describe('/media avatars', () => {
 });
 
 describe('/media post images', () => {
-  it('serves a post image only to a viewer the post allows, never cached for long', async () => {
+  it('serves a post image by its row id, only to a viewer the post allows, never cached for long', async () => {
     access.visible = false;
     access.asked.length = 0;
-    expect((await get('post-images', user, `${file}.png`)).status).toBe(404);
-    expect(access.asked).toEqual([{ pathname: `post-images/${user}/${file}.png`, viewer: null, administrator: false }]);
+    expect((await get('post-images', file)).status).toBe(404);
+    expect(access.asked).toEqual([{ id: file, viewer: null, administrator: false }]);
     expect(fetched).toEqual([]);
     access.visible = true;
-    const response = await get('post-images', user, `${file}.png`);
+    const response = await get('post-images', file);
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, max-age=300');
     expect(fetched).toEqual([`/post-images/${user}/${file}.png`]);
   });
 
-  it('refuses anything but the uploader’s shape before asking who may see it', async () => {
+  it('never takes a stored pathname (it names the author) or anything but one id', async () => {
     access.visible = true;
     access.asked.length = 0;
-    for (const segments of [['post-images', user, `${file}.gif`], ['post-images', 'x', `${file}.png`], ['post-images', user, `${file}.png%2e`]]) {
+    for (const segments of [['post-images', user, `${file}.png`], ['post-images', 'x'], ['post-images', `${file}.png`], ['post-images', file.toUpperCase()]]) {
       expect((await get(...segments)).status).toBe(404);
     }
     expect(access.asked).toEqual([]);

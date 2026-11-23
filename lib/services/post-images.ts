@@ -12,13 +12,13 @@
  * call log and the provider cost record them like any other.
  */
 import { generateText, type FilePart, type ModelMessage, type TextPart } from 'ai';
-import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import {
   cleanImageText,
   IMAGE_TEXT_INSTRUCTIONS,
   imageTextPrompt,
   isPostImageType,
-  POST_IMAGE_MAX_BYTES,
+  POST_IMAGE_UPLOAD_MAX_BYTES,
   POST_IMAGE_TYPES,
   postImageOwner,
   postImagePath,
@@ -28,7 +28,11 @@ import {
 import { uploadTicket, readBlob, type UploadTicket } from '@/lib/infra/blob';
 import { blobInfo } from '@/lib/infra/blob-access';
 import { db, schema, type Executor } from '@/lib/infra/db';
+import { isUuid } from '@/lib/domain/list';
 import { generationForUser } from '@/lib/services/generation';
+import { hasActivePlan } from '@/lib/services/billing';
+import { chainFor } from '@/lib/infra/ai/models';
+import { gatewayModelVision } from '@/lib/infra/ai/gateway-generation-pricing';
 
 const { post, postImage } = schema;
 
@@ -43,26 +47,48 @@ export interface PostImageView {
   url: string;
 }
 
+/* --------------------------------------------------------- who can read them */
+
+/**
+ * Whether every generation entry a post of this user's may reach reads
+ * images: their audience's list (primary and backups) and the Free list,
+ * which the review and the AI answer use whatever the plan. Entries enabled
+ * before images existed are not re-checked by the console, so a publish
+ * with images asks here and is refused (`images_unsupported`) rather than
+ * left to fail its review. A gateway model the catalog cannot speak for
+ * right now is given the benefit of the doubt: its calls ask for vision
+ * routing and fail loudly if none is there.
+ */
+export async function imagesReadableFor(userId: string): Promise<boolean> {
+  const plan = await hasActivePlan(db(), userId);
+  const chains = await Promise.all([chainFor('generation', 'free'), ...(plan ? [chainFor('generation', 'plan')] : [])]);
+  for (const endpoint of chains.flat()) {
+    const reads = endpoint.transport === 'gateway' ? ((await gatewayModelVision(endpoint.model)) ?? true) : endpoint.supportsImages === true;
+    if (!reads) return false;
+  }
+  return true;
+}
+
 /* ----------------------------------------------------------------- uploads */
 
-/** A Blob token for one image of a post this user is about to publish: their prefix, the type, at most 5 MB. */
+/** A Blob token for one (already scaled) image of a post this user is about to publish: their prefix, the type, at most `POST_IMAGE_UPLOAD_MAX_BYTES`. */
 export async function postImageTicket(userId: string, input: { contentType?: unknown; size?: unknown }): Promise<(UploadTicket & { contentType: string }) | null> {
   const size = Number(input.size ?? 0);
-  if (!isPostImageType(input.contentType) || !Number.isSafeInteger(size) || size <= 0 || size > POST_IMAGE_MAX_BYTES) return null;
-  const ticket = await uploadTicket(postImagePath(userId, crypto.randomUUID(), input.contentType), { contentTypes: [input.contentType], maxBytes: POST_IMAGE_MAX_BYTES });
+  if (!isPostImageType(input.contentType) || !Number.isSafeInteger(size) || size <= 0 || size > POST_IMAGE_UPLOAD_MAX_BYTES) return null;
+  const ticket = await uploadTicket(postImagePath(userId, crypto.randomUUID(), input.contentType), { contentTypes: [input.contentType], maxBytes: POST_IMAGE_UPLOAD_MAX_BYTES });
   return { ...ticket, contentType: input.contentType };
 }
 
 /**
  * The uploads a publish names, checked in Blob: there, an allowed type
- * matching the extension, at most 5 MB. Null when any is not.
+ * matching the extension, at most `POST_IMAGE_UPLOAD_MAX_BYTES`. Null when any is not.
  */
 export async function checkedImages(userId: string, pathnames: readonly string[]): Promise<PostImageRow[] | null> {
   const rows: PostImageRow[] = [];
   for (const pathname of pathnames) {
     if (postImageOwner(pathname) !== userId.toLowerCase()) return null;
     const info = await blobInfo(pathname);
-    if (!info || info.size <= 0 || info.size > POST_IMAGE_MAX_BYTES || !isPostImageType(info.contentType)) return null;
+    if (!info || info.size <= 0 || info.size > POST_IMAGE_UPLOAD_MAX_BYTES || !isPostImageType(info.contentType)) return null;
     if (!pathname.endsWith(`.${POST_IMAGE_TYPES[info.contentType]}`)) return null;
     rows.push({ pathname, contentType: info.contentType, bytes: info.size });
   }
@@ -72,6 +98,16 @@ export async function checkedImages(userId: string, pathnames: readonly string[]
 export async function attachImages(tx: Executor, postId: string, images: readonly PostImageRow[]): Promise<void> {
   if (images.length === 0) return;
   await tx.insert(postImage).values(images.map((image, position) => ({ postId, position, pathname: image.pathname, contentType: image.contentType, bytes: image.bytes })));
+}
+
+/**
+ * The post (`postId`, a column of the query) has exactly these images, in
+ * this order -- none for an empty list. Each upload has its own pathname, so
+ * this is "the same submit" for duplicate detection.
+ */
+export function hasSameImages(postId: SQL | AnyColumn, pathnames: readonly string[]): SQL {
+  const wanted = pathnames.length ? sql`array[${sql.join(pathnames.map((pathname) => sql`${pathname}`), sql`, `)}]::text[]` : sql`'{}'::text[]`;
+  return sql`coalesce((select array_agg(pi.pathname order by pi.position) from ${postImage} pi where pi.post_id = ${postId}), '{}'::text[]) = ${wanted}`;
 }
 
 /** 转为公开: the public copy shows the same images (the same objects). */
@@ -85,30 +121,41 @@ async function imageRows(postId: string, executor: Executor = db()): Promise<Pos
   return rows.map((row) => ({ ...row, contentType: row.contentType as PostImageType }));
 }
 
-/** Each post's images, in order, as pages show them. */
+/**
+ * Each post's images, in order, as pages show them: by the row's own id,
+ * never the stored pathname -- that carries the author's id, which would
+ * name the author of an anonymous post (and tie their anonymous posts
+ * together). A 转为公开 copy has rows of its own, so its URLs do not lead
+ * back to the private post either.
+ */
 export async function imagesFor(postIds: readonly string[]): Promise<Map<string, PostImageView[]>> {
   const found = new Map<string, PostImageView[]>();
   if (postIds.length === 0) return found;
-  const rows = await db().select({ postId: postImage.postId, pathname: postImage.pathname }).from(postImage).where(inArray(postImage.postId, [...postIds])).orderBy(asc(postImage.postId), asc(postImage.position));
-  for (const row of rows) found.set(row.postId, [...(found.get(row.postId) ?? []), { url: `/media/${row.pathname}` }]);
+  const rows = await db().select({ id: postImage.id, postId: postImage.postId }).from(postImage).where(inArray(postImage.postId, [...postIds])).orderBy(asc(postImage.postId), asc(postImage.position));
+  for (const row of rows) found.set(row.postId, [...(found.get(row.postId) ?? []), { url: postImageUrl(row.id) }]);
   return found;
 }
 
+export function postImageUrl(id: string): string {
+  return `/media/post-images/${id}`;
+}
+
 /**
- * Whether this viewer may see the image: it belongs to a post they may
- * read -- a public published one out of the trash, or one of their own in
- * any state -- or, for an administrator, to any public post (reports and
- * take-downs are reviewed with the images).
+ * The stored object of one image row (`/media/post-images/<id>`), when this
+ * viewer may see it: it belongs to a post they may read -- a public
+ * published one out of the trash, or one of their own in any state -- or,
+ * for an administrator, to any public post (reports and take-downs are
+ * reviewed with the images). Null otherwise.
  */
-export async function postImageVisibleTo(pathname: string, viewerId: string | null, administrator = false): Promise<boolean> {
-  if (!postImageOwner(pathname)) return false;
+export async function visiblePostImage(id: string, viewerId: string | null, administrator = false): Promise<{ pathname: string; contentType: string } | null> {
+  if (!isUuid(id)) return null;
   const [row] = await db()
-    .select({ id: post.id })
+    .select({ pathname: postImage.pathname, contentType: postImage.contentType })
     .from(postImage)
     .innerJoin(post, eq(post.id, postImage.postId))
     .where(
       and(
-        eq(postImage.pathname, pathname),
+        eq(postImage.id, id),
         or(
           and(eq(post.visibility, 'public'), eq(post.status, 'published'), isNull(post.deletedAt)),
           viewerId ? eq(post.userId, viewerId) : undefined,
@@ -117,7 +164,7 @@ export async function postImageVisibleTo(pathname: string, viewerId: string | nu
       ),
     )
     .limit(1);
-  return Boolean(row);
+  return row && postImageOwner(row.pathname) ? row : null;
 }
 
 /* ------------------------------------------------------------ for models */

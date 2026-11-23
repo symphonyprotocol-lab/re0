@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanImageText, parsePostImages, postImageOwner, postImagePath, postSubject, POST_IMAGE_TEXT_MAX_CHARS } from '@/lib/domain/post-images';
+import { cleanImageText, fitWithin, parsePostImages, pastedImages, postImageOwner, postImagePath, postSubject, POST_IMAGE_EDGE, POST_IMAGE_TEXT_MAX_CHARS } from '@/lib/domain/post-images';
 import { parseModelConfig, readsImages } from '@/lib/domain/models';
 
 const user = '6f1c3a52-6c55-4a8e-9d0e-2f6ad0c1a111';
@@ -34,11 +34,29 @@ describe('post image paths', () => {
   });
 });
 
+describe('preparing images', () => {
+  it('scales the longest edge down to the limit, keeping the shape, never up', () => {
+    expect(fitWithin(4032, 3024)).toEqual({ width: POST_IMAGE_EDGE, height: 1176 });
+    expect(fitWithin(1000, 6000)).toEqual({ width: 261, height: POST_IMAGE_EDGE });
+    expect(fitWithin(800, 600)).toEqual({ width: 800, height: 600 });
+  });
+
+  it('takes images from a paste only when it carries no text (spreadsheet cells paste as text)', () => {
+    const png = { type: 'image/png' };
+    const doc = { type: 'application/pdf' };
+    expect(pastedImages({ types: ['Files'], files: [png, doc, png] })).toEqual([0, 2]);
+    expect(pastedImages({ types: ['text/plain', 'text/html', 'Files'], files: [png] })).toEqual([]);
+    expect(pastedImages({ types: ['text/plain'], files: [] })).toEqual([]);
+  });
+});
+
 describe('generation entries read images', () => {
   it('by the catalog for the gateway, by the operator\'s mark otherwise, and every other kind needs none', () => {
     expect(readsImages({ kind: 'generation', transport: 'gateway', supportsImages: false }, true)).toBe(true);
     expect(readsImages({ kind: 'generation', transport: 'gateway', supportsImages: true }, false)).toBe(false);
     expect(readsImages({ kind: 'generation', transport: 'gateway', supportsImages: false }, undefined)).toBeUndefined();
+    /* The catalog down: the last answer it gave, kept on the entry. */
+    expect(readsImages({ kind: 'generation', transport: 'gateway', supportsImages: true }, undefined)).toBe(true);
     expect(readsImages({ kind: 'generation', transport: 'openai_compatible', supportsImages: true }, undefined)).toBe(true);
     expect(readsImages({ kind: 'generation', transport: 'openai_compatible', supportsImages: false }, true)).toBe(false);
     expect(readsImages({ kind: 'embedding', transport: 'openai_compatible', supportsImages: false }, undefined)).toBe(true);

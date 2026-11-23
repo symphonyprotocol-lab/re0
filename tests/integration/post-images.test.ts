@@ -80,6 +80,27 @@ function upload(userId: string, contentType: 'image/png' | 'image/jpeg' | 'image
   return pathname;
 }
 
+/** Takes every generation list out of the database (the environment's model answers) and gives back a function that puts them back. */
+async function environmentModelsOnly(): Promise<() => Promise<void>> {
+  const chains = await db().select().from(schema.modelChain).where(eq(schema.modelChain.kind, 'generation'));
+  const enabled = await db().select({ id: schema.modelConfig.id, enabled: schema.modelConfig.enabled, enabledPlan: schema.modelConfig.enabledPlan }).from(schema.modelConfig).where(eq(schema.modelConfig.kind, 'generation'));
+  await db().delete(schema.modelChain).where(eq(schema.modelChain.kind, 'generation'));
+  await db().update(schema.modelConfig).set({ enabled: false, enabledPlan: false }).where(eq(schema.modelConfig.kind, 'generation'));
+  forgetModelCache();
+  return async () => {
+    await db().delete(schema.modelChain).where(eq(schema.modelChain.kind, 'generation'));
+    if (chains.length) await db().insert(schema.modelChain).values(chains);
+    await db().update(schema.modelConfig).set({ enabled: false, enabledPlan: false }).where(eq(schema.modelConfig.kind, 'generation'));
+    for (const row of enabled) if (row.enabled || row.enabledPlan) await db().update(schema.modelConfig).set({ enabled: row.enabled, enabledPlan: row.enabledPlan }).where(eq(schema.modelConfig.id, row.id));
+    forgetModelCache();
+  };
+}
+
+async function imageId(postId: string): Promise<string> {
+  const [row] = await db().select({ id: schema.postImage.id }).from(schema.postImage).where(eq(schema.postImage.postId, postId)).orderBy(asc(schema.postImage.position));
+  return row!.id;
+}
+
 async function publicRee() {
   const ownerId = await user('img-owner', 1_000);
   await rees.saveDraft(ownerId, { ...newReeDraft(), name: uniqueName('Refund desk'), category: 'business', step: 4, reached: 4 });
@@ -158,9 +179,64 @@ describeWithDb('post images', () => {
     expect(matched[0]).toContain('REFUND ISSUED 14 DAYS');
     expect(seen).toEqual([{ subject: expect.stringContaining('[Images] Image 1: A receipt'), images: 2 }]);
 
-    /* The page shows them where /media serves them. */
+    /* The page shows them by row id, where /media serves them. */
     const view = await posts.getPost(made.id);
-    expect(view?.images).toEqual(paths.map((pathname) => ({ url: `/media/${pathname}` })));
+    expect(view?.images).toEqual(rows.map((entry) => ({ url: `/media/post-images/${entry.id}` })));
+  });
+
+  it('never puts the author\'s id in an anonymous post\'s image URLs, nor ties two of their posts together', async () => {
+    const author = await user('img-anon');
+    const first = await posts.publishPost(author, { question: 'Anonymous: what is this rash?', lang: 'en', anonymous: true, images: [upload(author)] });
+    const second = await posts.publishPost(author, { question: 'Anonymous: and this one?', lang: 'en', anonymous: true, images: [upload(author)] });
+    if (!first.ok || !second.ok) throw new Error('not published');
+    await db().update(schema.post).set({ status: 'published', publishedAt: new Date() }).where(eq(schema.post.userId, author));
+    const urls = [...((await posts.getPost(first.id))?.images ?? []), ...((await posts.getPost(second.id))?.images ?? [])].map((image) => image.url);
+    expect(urls).toHaveLength(2);
+    for (const url of urls) {
+      expect(url).toMatch(/^\/media\/post-images\/[0-9a-f-]{36}$/);
+      expect(url).not.toContain(author);
+    }
+    expect(JSON.stringify(await posts.getPost(first.id))).not.toContain(author);
+  });
+
+  it('treats only the same uploads in the same order as the same submit', async () => {
+    const author = await user('img-dedup');
+    const [a, b, c] = [upload(author), upload(author), upload(author)];
+    const question = 'Which of these receipts is the refund?';
+    const first = await posts.publishPost(author, { question, lang: 'en', images: [a, b] });
+    if (!first.ok) throw new Error(first.error);
+    expect(await posts.publishPost(author, { question, lang: 'en', images: [a, b] })).toEqual({ ok: true, id: first.id, duplicate: true });
+    for (const other of [[a, c], [a], [b, a], []]) {
+      const made = await posts.publishPost(author, { question, lang: 'en', images: other });
+      expect(made).toMatchObject({ ok: true });
+      expect(made.ok && made.id).not.toBe(first.id);
+    }
+    const reeId = await publicRee();
+    const ask = (images: string[]) => privatePosts.publishPrivatePost(author, { question: 'Private: which receipt?', reeIds: [reeId], fees: { [reeId]: QUERY_BASE_FEE }, lang: 'en', images });
+    const privateFirst = await ask([a, b]);
+    if (!privateFirst.ok) throw new Error(privateFirst.error);
+    expect(await ask([a, b])).toEqual({ ok: true, id: privateFirst.id, duplicate: true });
+    const differing = await ask([a, c]);
+    expect(differing.ok && differing.id).not.toBe(privateFirst.id);
+  });
+
+  it('refuses images while a generation list a post reaches cannot read them', async () => {
+    const author = await user('img-blind', 500);
+    const reeId = await publicRee();
+    /* Only the environment's model answers here, whatever lists earlier files left; it cannot read images. */
+    const restore = await environmentModelsOnly();
+    vi.stubEnv('GENERATION_SUPPORTS_IMAGES', 'false');
+    forgetModelCache();
+    try {
+      expect(await posts.publishPost(author, { question: 'Can you read this?', lang: 'en', images: [upload(author)] })).toEqual({ ok: false, error: 'images_unsupported' });
+      expect(await privatePosts.publishPrivatePost(author, { question: 'Private: can you read this?', reeIds: [reeId], fees: { [reeId]: QUERY_BASE_FEE }, lang: 'en', images: [upload(author)] })).toEqual({ ok: false, error: 'images_unsupported' });
+      /* Without images nothing changes. */
+      expect(await posts.publishPost(author, { question: 'Can you answer this?', lang: 'en' })).toMatchObject({ ok: true });
+    } finally {
+      vi.unstubAllEnvs();
+      await restore();
+    }
+    expect(await posts.publishPost(author, { question: 'Can you read this now?', lang: 'en', images: [upload(author)] })).toMatchObject({ ok: true });
   });
 
   it('keeps a post pending when an image cannot be read or described, and refuses it when the review does', async () => {
@@ -187,15 +263,18 @@ describeWithDb('post images', () => {
     const pathname = upload(author);
     const made = await posts.publishPost(author, { question: 'Who may see this image?', lang: 'en', images: [pathname] });
     if (!made.ok) throw new Error(made.error);
-    expect(await images.postImageVisibleTo(pathname, author)).toBe(true);
-    expect(await images.postImageVisibleTo(pathname, reader)).toBe(false);
-    expect(await images.postImageVisibleTo(pathname, null)).toBe(false);
-    expect(await images.postImageVisibleTo(pathname, null, true)).toBe(true);
+    const id = await imageId(made.id);
+    const seen = { pathname, contentType: 'image/png' };
+    expect(await images.visiblePostImage(id, author)).toEqual(seen);
+    expect(await images.visiblePostImage(id, reader)).toBeNull();
+    expect(await images.visiblePostImage(id, null)).toBeNull();
+    expect(await images.visiblePostImage(id, null, true)).toEqual(seen);
     await db().update(schema.post).set({ status: 'published', publishedAt: new Date() }).where(eq(schema.post.id, made.id));
-    expect(await images.postImageVisibleTo(pathname, reader)).toBe(true);
-    expect(await images.postImageVisibleTo(pathname, null)).toBe(true);
-    /* An upload no post names is nobody's to see. */
-    expect(await images.postImageVisibleTo(upload(author), author)).toBe(false);
+    expect(await images.visiblePostImage(id, reader)).toEqual(seen);
+    expect(await images.visiblePostImage(id, null)).toEqual(seen);
+    /* No such row, or not an id. */
+    expect(await images.visiblePostImage(crypto.randomUUID(), author)).toBeNull();
+    expect(await images.visiblePostImage('nope', author)).toBeNull();
   });
 
   it('gives a private post\'s images to its answers, with a description for retrieval, and copies them on 转为公开', async () => {
@@ -208,9 +287,10 @@ describeWithDb('post images', () => {
     const { deps, seen } = recording([reeId]);
     await privatePosts.processPrivatePost(made.id, deps);
     expect(seen).toEqual([{ subject: expect.stringContaining('REFUND ISSUED 14 DAYS'), images: 1 }]);
-    expect(await images.postImageVisibleTo(pathname, author)).toBe(true);
-    expect(await images.postImageVisibleTo(pathname, reader)).toBe(false);
-    expect(await images.postImageVisibleTo(pathname, null, true)).toBe(false);
+    const privateImage = await imageId(made.id);
+    expect(await images.visiblePostImage(privateImage, author)).not.toBeNull();
+    expect(await images.visiblePostImage(privateImage, reader)).toBeNull();
+    expect(await images.visiblePostImage(privateImage, null, true)).toBeNull();
 
     const copy = await privatePosts.convertToPublic(author, made.id);
     if (!copy.ok) throw new Error(copy.error);
@@ -220,13 +300,16 @@ describeWithDb('post images', () => {
     /* Published after review: the copy shows the image to anyone; the private post's row stays private. */
     await posts.processPost(copy.id, {});
     expect((await db().select().from(schema.post).where(eq(schema.post.id, copy.id)))[0]!.status).toBe('published');
-    expect(await images.postImageVisibleTo(pathname, reader)).toBe(true);
+    const copiedImage = await imageId(copy.id);
+    expect(copiedImage).not.toBe(privateImage);
+    expect(await images.visiblePostImage(copiedImage, reader)).not.toBeNull();
+    /* The private post's own row stays private. */
+    expect(await images.visiblePostImage(privateImage, reader)).toBeNull();
   });
 
   it('refuses to enable or add a generation entry that cannot read images', async () => {
     /* Whatever lists earlier files left: put back afterwards. */
-    const chains = await db().select().from(schema.modelChain).where(eq(schema.modelChain.kind, 'generation'));
-    const enabled = await db().select({ id: schema.modelConfig.id, enabled: schema.modelConfig.enabled, enabledPlan: schema.modelConfig.enabledPlan }).from(schema.modelConfig).where(eq(schema.modelConfig.kind, 'generation'));
+    const restore = await environmentModelsOnly();
     const [admin] = await db().insert(schema.administrator).values({ email: `${uniqueName('vision')}@example.test`, passwordHash: 'x', totpSecretCipher: 'x', name: 'Vision' }).returning();
     const compatible = (name: string, supportsImages?: boolean) =>
       models.createModelConfig(admin!.id, { name: uniqueName(name), kind: 'generation', transport: 'openai_compatible', baseUrl: fake.baseUrl, model: 'fake-gen-1', apiKey: 'k', ...(supportsImages === undefined ? {} : { supportsImages }) });
@@ -242,14 +325,15 @@ describeWithDb('post images', () => {
     /* Gateway entries by the catalog's vision tag; a catalog that cannot say refuses too. */
     const gateway = (model: string) => models.createModelConfig(admin!.id, { name: uniqueName('gw'), kind: 'generation', transport: 'gateway', model, apiKey: 'k' });
     await expect(models.activateModelConfig(admin!.id, (await gateway('deepseek/deepseek-v4-flash')).id, 'plan')).rejects.toMatchObject({ message: 'no_vision' });
-    await expect(models.activateModelConfig(admin!.id, (await gateway('catalog/down')).id, 'plan')).rejects.toMatchObject({ message: 'vision_unknown' });
+    const down = await gateway('catalog/down');
+    await expect(models.activateModelConfig(admin!.id, down.id, 'plan')).rejects.toMatchObject({ message: 'vision_unknown' });
+    /* A catalog answer is kept on the entry, so an outage later falls back to it. */
     const vision = await gateway('google/gemini-3.5-flash');
     expect(vision.readsImages).toBe(true);
+    expect((await db().select().from(schema.modelConfig).where(eq(schema.modelConfig.id, vision.id)))[0]!.supportsImages).toBe(true);
+    await db().update(schema.modelConfig).set({ supportsImages: true }).where(eq(schema.modelConfig.id, down.id));
+    await models.activateModelConfig(admin!.id, down.id, 'plan');
     await models.activateModelConfig(admin!.id, vision.id, 'plan');
-    await db().delete(schema.modelChain).where(eq(schema.modelChain.kind, 'generation'));
-    if (chains.length) await db().insert(schema.modelChain).values(chains);
-    await db().update(schema.modelConfig).set({ enabled: false, enabledPlan: false }).where(eq(schema.modelConfig.kind, 'generation'));
-    for (const row of enabled) if (row.enabled || row.enabledPlan) await db().update(schema.modelConfig).set({ enabled: row.enabled, enabledPlan: row.enabledPlan }).where(eq(schema.modelConfig.id, row.id));
-    forgetModelCache();
+    await restore();
   });
 });

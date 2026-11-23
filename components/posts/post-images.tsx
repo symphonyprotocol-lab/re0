@@ -1,13 +1,43 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'react';
-import { isPostImageType, POST_IMAGE_MAX, POST_IMAGE_MAX_BYTES, POST_IMAGE_TYPES } from '@/lib/domain/post-images';
+import { fitWithin, isPostImageType, pastedImages, POST_IMAGE_EDGE, POST_IMAGE_MAX, POST_IMAGE_MAX_BYTES, POST_IMAGE_TYPES, POST_IMAGE_UPLOAD_MAX_BYTES } from '@/lib/domain/post-images';
 import { uploadToBlob } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 
 const MB = POST_IMAGE_MAX_BYTES / 1024 / 1024;
+
+/**
+ * The image as it is stored and sent to models: scaled so its longest edge
+ * is at most `POST_IMAGE_EDGE`, re-encoded as JPEG (on white, for
+ * transparent PNGs) at falling quality until it fits
+ * `POST_IMAGE_UPLOAD_MAX_BYTES`. A file already that small and that size is
+ * kept as it is. Throws when the browser cannot decode it or it never fits.
+ */
+async function preparedImage(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const size = fitWithin(bitmap.width, bitmap.height, POST_IMAGE_EDGE);
+    if (size.width === bitmap.width && size.height === bitmap.height && file.size <= POST_IMAGE_UPLOAD_MAX_BYTES) return file;
+    const canvas = document.createElement('canvas');
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('no canvas');
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, size.width, size.height);
+    context.drawImage(bitmap, 0, 0, size.width, size.height);
+    for (const quality of [0.85, 0.72, 0.6, 0.5]) {
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+      if (blob && blob.size <= POST_IMAGE_UPLOAD_MAX_BYTES) return blob;
+    }
+    throw new Error('image too large after scaling');
+  } finally {
+    bitmap.close();
+  }
+}
 
 interface Attachment {
   key: string;
@@ -51,9 +81,12 @@ export function usePostImages() {
         const key = crypto.randomUUID();
         const preview = URL.createObjectURL(file);
         setItems((current) => [...current, { key, preview, state: 'uploading', pathname: null }]);
-        void uploadToBlob(file, { purpose: 'post-image', contentType: file.type, size: file.size }).then((result) => {
-          setItems((current) => current.map((item) => (item.key !== key ? item : 'pathname' in result ? { ...item, state: 'done', pathname: result.pathname } : { ...item, state: 'failed' })));
-        });
+        void preparedImage(file)
+          .then((image) => uploadToBlob(image, { purpose: 'post-image', contentType: image.type, size: image.size }))
+          .catch(() => ({ error: 'prepare' }))
+          .then((result) => {
+            setItems((current) => current.map((item) => (item.key !== key ? item : 'pathname' in result ? { ...item, state: 'done', pathname: result.pathname } : { ...item, state: 'failed' })));
+          });
       }
     },
     [c],
@@ -74,10 +107,11 @@ export function usePostImages() {
     setProblem(null);
   }, []);
 
-  /** Images pasted into the question or the detail join the post. */
+  /** Images pasted into the question or the detail join the post; a paste that carries text (cells copied from a spreadsheet) stays text. */
   const onPaste = useCallback(
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
-      const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'));
+      const data = event.clipboardData;
+      const files = pastedImages({ types: Array.from(data.types), files: data.files }).map((index) => data.files[index]!);
       if (files.length === 0) return;
       event.preventDefault();
       add(files);

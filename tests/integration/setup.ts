@@ -15,6 +15,8 @@ export function pointModelsAt(baseUrl: string): void {
   process.env.GENERATION_BASE_URL = baseUrl;
   process.env.GENERATION_API_KEY = 'test-key';
   process.env.GENERATION_MODEL = 'fake-gen-1';
+  /* The fake takes image parts (posts with images need every generation entry to). */
+  process.env.GENERATION_SUPPORTS_IMAGES = 'true';
   process.env.EMBEDDING_BASE_URL = baseUrl;
   process.env.EMBEDDING_API_KEY = 'test-key';
   process.env.EMBEDDING_MODEL = 'fake-embed';

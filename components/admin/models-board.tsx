@@ -293,6 +293,7 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
         <span>{m.info}</span>
       </div>
       <ChainBanners board={board} />
+      <VisionWarning board={board} />
       {job && <JobCard job={job} />}
       <div className="model-kind-grid">
         {MODEL_KINDS.map((kind) => {
@@ -547,5 +548,25 @@ export function ModelsBoard({ initial, initialJob }: { initial: Board; initialJo
         onConfirm={() => removing && doDelete(removing)}
       />
     </>
+  );
+}
+
+/**
+ * Generation entries a list uses (active or paused) that cannot read
+ * images: enabled before posts carried them, and never re-checked. Posts
+ * with images are refused while any of them is in a list a post may reach
+ * (lib/services/post-images.ts `imagesReadableFor`).
+ */
+function VisionWarning({ board }: { board: Board }) {
+  const { t, locale } = useI18n();
+  const v = t.admin.models.vision;
+  const used = new Set([...board.chains['generation:free'], ...board.chains['generation:plan']].map((entry) => entry.configId));
+  const blind = board.configs.filter((config) => config.kind === 'generation' && used.has(config.id) && config.readsImages === false);
+  if (blind.length === 0) return null;
+  return (
+    <div className="info-strip mb16 danger" role="status">
+      <CI name="info" />
+      <span>{fill(v.inUseWarning, { names: blind.map((config) => `「${config.name}」`).join(locale === 'zh' ? '、' : ', ') })}</span>
+    </div>
   );
 }

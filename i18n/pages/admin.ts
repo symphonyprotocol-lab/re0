@@ -88,6 +88,7 @@ export const zh = {
       unknown: '图片能力未知',
       compatibleHint: '帖子可以带图片，审核和回答都会把图片直接发给生成模型。只有勾选了这一项的模型才能启用或加入备用列表；请确认端点上的模型确实能读图。',
       gatewayNote: '帖子可以带图片：AI Gateway 模型按官方目录的 vision 标签判断能否读图，不支持图片的模型不能启用或加入备用列表。',
+      inUseWarning: '生成模型列表里有不支持图片的模型：{names}。在它们换掉之前，用户发带图片的帖子会被拒绝（审核和回答都要读图）。请换成支持图片的模型，或确认它能读图后勾选“支持图片输入”。',
     },
     form: {
       createTitle: '添加模型配置',
@@ -291,6 +292,7 @@ export const en: Shape<typeof zh> = {
       unknown: 'Image input unknown',
       compatibleHint: 'Posts can carry images, and review and answers send them straight to the generation model. Only a model with this ticked can be enabled or added as a backup; make sure the endpoint’s model really reads images.',
       gatewayNote: 'Posts can carry images: an AI Gateway model reads them when the gateway catalog tags it vision. One without it cannot be enabled or added as a backup.',
+      inUseWarning: 'A generation list uses models that cannot read images: {names}. Until they are replaced, posts with images are refused (review and answers read them). Switch to models that read images, or tick “Reads images” once you have confirmed one does.',
     },
     form: {
       createTitle: 'Add model',

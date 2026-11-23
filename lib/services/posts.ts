@@ -89,7 +89,7 @@ import { grantTaskReward } from '@/lib/services/task-rewards';
 import { modelJudge, type Judge } from '@/lib/services/public-qa';
 import { questionRewriter } from '@/lib/services/question-rewrite';
 import { parsePostImages, postSubject } from '@/lib/domain/post-images';
-import { attachImages, checkedImages, ensureImageText, imageParts, imagesFor, type ImageDescriber, type ImagePart } from '@/lib/services/post-images';
+import { attachImages, checkedImages, hasSameImages, imagesReadableFor, ensureImageText, imageParts, imagesFor, type ImageDescriber, type ImagePart } from '@/lib/services/post-images';
 
 const { post, postVote, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user } = schema;
 
@@ -179,7 +179,7 @@ export interface PostInput {
 
 export type PublishOutcome =
   | { ok: true; id: string; duplicate?: boolean }
-  | { ok: false; error: 'empty' | 'too_long' | 'daily_limit' | 'quote_unavailable' | 'invalid_images' | 'too_many_images' }
+  | { ok: false; error: 'empty' | 'too_long' | 'daily_limit' | 'quote_unavailable' | 'invalid_images' | 'too_many_images' | 'images_unsupported' }
   | { ok: false; error: 'insufficient_credits'; balance: number; needed: number };
 
 /**
@@ -211,6 +211,7 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
   if (typeof named === 'string') return { ok: false, error: named };
   const images = named.length ? await checkedImages(userId, named) : [];
   if (!images) return { ok: false, error: 'invalid_images' };
+  if (images.length && !(await imagesReadableFor(userId))) return { ok: false, error: 'images_unsupported' };
   const question = redact(input.question.trim(), input.lang);
   const detail = redact((input.detail ?? '').trim(), input.lang);
   let mention = input.mentionReeId && isUuid(input.mentionReeId) ? input.mentionReeId : null;
@@ -241,11 +242,9 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
             isNull(post.deletedAt),
             or(
               clientToken ? eq(post.clientToken, clientToken) : undefined,
-              /* The same text quoting the same thing (or nothing): quoting something else is another post. With images, the same upload too (each upload has its own pathname). */
+              /* The same text quoting the same thing (or nothing): quoting something else is another post. With images, the same uploads in the same order too. */
               and(
-                images.length
-                  ? sql`exists (select 1 from ${schema.postImage} pi where pi.post_id = ${post.id} and pi.pathname = ${images[0]!.pathname})`
-                  : sql`not exists (select 1 from ${schema.postImage} pi where pi.post_id = ${post.id})`,
+                hasSameImages(post.id, images.map((image) => image.pathname)),
                 eq(post.question, question),
                 eq(post.detail, detail),
                 sql`${post.quotePostId} is not distinct from ${quote?.postId ?? null}::uuid`,
