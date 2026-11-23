@@ -27,7 +27,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
  * `/p/[id]` -- a post's page in the three-column frame; the right column
  * lists the Rees that answered. A private post (only its author gets it from
  * `getPost`) is titled 私密提问, and its right column first says what
- * private means.
+ * private means. An unknown or hidden post is a real 404: no loading.tsx
+ * boundary wraps this page (GSC review 2026-11, A8).
  */
 export default async function PostPage({ params }: Props) {
   const { id } = await params;
@@ -86,7 +87,8 @@ export default async function PostPage({ params }: Props) {
     </div>
   );
   return (
-    <FeedColumns title={isPrivate ? p.privateTitle : p.back} back={isPrivate ? '/me/posts?tab=private' : '/'} rail={rail}>
+    /* The question is the page's h1 (PostDetail); the head only names the kind of page. */
+    <FeedColumns title={isPrivate ? p.privateTitle : p.back} heading={false} back={isPrivate ? '/me/posts?tab=private' : '/'} rail={rail}>
       <PostDetail initial={post} quoting={quoting} signedIn={Boolean(user)} now={Date.now()} loginHref={`/login?returnTo=${encodeURIComponent(`/p/${id}`)}`} />
     </FeedColumns>
   );
