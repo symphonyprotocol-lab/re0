@@ -41,7 +41,7 @@ function ReturningSignIn({ label, className }: { label: string; className: strin
   const here = pathname + (search ? `?${search}` : '');
   const href = stripLocale(pathname) === '/' ? '/login' : `/login?returnTo=${encodeURIComponent(here)}`;
   return (
-    <Link href={href} className={className}>
+    <Link rel="nofollow" href={href} className={className}>
       {label}
     </Link>
   );
@@ -52,7 +52,7 @@ export function SignInLink({ label, className = 'btn-secondary' }: { label: stri
   return (
     <Suspense
       fallback={
-        <Link href="/login" className={className}>
+        <Link rel="nofollow" href="/login" className={className}>
           {label}
         </Link>
       }

@@ -96,7 +96,7 @@ export function PublicListSection({
           </span>
           <span className="flex items-center gap-2">
             {list.page > 1 ? (
-              <Link scroll={false} href={previousHref} className="icon-btn" aria-label={fill(p.groupPrevious, { group: title })}>
+              <Link scroll={false} href={previousHref} rel="nofollow" className="icon-btn" aria-label={fill(p.groupPrevious, { group: title })}>
                 <Icon name="chevronLeft" />
               </Link>
             ) : (
@@ -108,7 +108,7 @@ export function PublicListSection({
               {list.page} / {list.pages}
             </span>
             {list.page < list.pages ? (
-              <Link scroll={false} href={nextHref} className="icon-btn" aria-label={fill(p.groupNext, { group: title })}>
+              <Link scroll={false} href={nextHref} rel="nofollow" className="icon-btn" aria-label={fill(p.groupNext, { group: title })}>
                 <Icon name="chevronRight" />
               </Link>
             ) : (

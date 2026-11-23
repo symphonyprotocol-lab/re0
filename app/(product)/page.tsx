@@ -97,7 +97,7 @@ export default async function HomePage({ searchParams }: Props) {
                 <p>{v.welcomeBody}</p>
               </div>
               <div className="xwelcome-actions">
-                <Link href={`/login?returnTo=${encodeURIComponent('/?compose=public')}`} className="btn btn-sm">
+                <Link rel="nofollow" href={`/login?returnTo=${encodeURIComponent('/?compose=public')}`} className="btn btn-sm">
                   {v.introAsk}
                 </Link>
                 <Link href="/about" className="text-link">

@@ -222,7 +222,7 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
         <h3>{e.banner}</h3>
         <p>{e.bannerBody}</p>
       </div>
-      <Link href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn secondary">
+      <Link rel={signedIn ? undefined : 'nofollow'} href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn secondary">
         <Icon name="plus" />
         {e.create}
       </Link>
@@ -417,7 +417,7 @@ export function SiteRail({ search, saved, signedIn }: { search?: { action: strin
           <h3>{e.banner}</h3>
           <p>{e.bannerBody}</p>
         </div>
-        <Link href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn-secondary btn-sm">
+        <Link rel={signedIn ? undefined : 'nofollow'} href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn-secondary btn-sm">
           <Icon name="plus" className="size-4" />
           {e.create}
         </Link>

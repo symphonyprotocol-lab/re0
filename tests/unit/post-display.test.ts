@@ -70,7 +70,7 @@ describe('a post\'s 👍 and 💬 (2026-11-20)', () => {
     const signedIn = render(PostCard, { post: { ...post, helpful: 3, voted: true }, now: 0, signedIn: true });
     expect(signedIn).toMatch(/<button type="button" class="icon-btn" aria-pressed="true" title="有帮助"[^>]*><svg[^>]*class="text-blue"/);
     const visitor = render(PostCard, { post, now: 0, signedIn: false });
-    expect(visitor).toMatch(/<a title="登录后可以标记有帮助" aria-label="有帮助 0" class="workspace-link icon-btn" href="\/login\?returnTo=%2Fp%2F00000000-0000-4000-8000-000000000001">/);
+    expect(visitor).toMatch(/<a rel="nofollow" title="登录后可以标记有帮助" aria-label="有帮助 0" class="workspace-link icon-btn" href="\/login\?returnTo=%2Fp%2F00000000-0000-4000-8000-000000000001">/);
   });
 
   it('opens the post at its answers from the card, and scrolls to them on the post', () => {

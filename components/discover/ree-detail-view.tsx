@@ -157,7 +157,7 @@ export function ReeDetailView({
                         {t.posts.rees.askIt}
                       </Link>
                     ) : (
-                      <Link href={loginHref(`/r/${ree.slug}?compose=public&ree=${ree.id}&name=${encodeURIComponent(ree.name)}`)} className="btn btn-sm">
+                      <Link rel="nofollow" href={loginHref(`/r/${ree.slug}?compose=public&ree=${ree.id}&name=${encodeURIComponent(ree.name)}`)} className="btn btn-sm">
                         <Icon name="plus" className="size-3.5" />
                         {t.posts.rees.askIt}
                       </Link>

@@ -44,7 +44,7 @@ export function RoundtableEntry({ question, rees, signedIn }: { question: string
           <small>· {fill(e.cost, { n: formatNumber(cost, locale) })}</small>
         </Link>
       ) : (
-        <Link href={`/login?returnTo=${encodeURIComponent(href)}`} className="btn sm">
+        <Link rel="nofollow" href={`/login?returnTo=${encodeURIComponent(href)}`} className="btn sm">
           <Icon name="users" />
           {e.login}
         </Link>

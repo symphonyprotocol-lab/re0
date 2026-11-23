@@ -1,3 +1,5 @@
+import htmlBots from 'next/dist/shared/lib/router/utils/html-bots.js';
+
 /*
  * Response headers for every route (rebuild review M14): HSTS, no MIME
  * sniffing, a same-origin referrer, no framing by anyone (the console approves
@@ -24,8 +26,22 @@ const SECURITY_HEADERS = [
   { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), usb=(), interest-cohort=()' },
 ];
 
+/*
+ * Metadata in <head> for Googlebot (2026-11-23, GSC). Next streams
+ * generateMetadata's tags into <body> for any user agent not on its
+ * HTML-limited list, and plain `Googlebot` is not on it (`Google-*` and
+ * `*-Google` are). Google then read no canonical at all ("User-declared
+ * canonical: None") and picked `?from=` / `?ap=` copies and the redirecting
+ * plain `/r/...` as canonicals. Next's own list, plus Googlebot; everyone
+ * else keeps streaming. Search Console's live test sends
+ * Google-InspectionTool, which was already on the list, so it never showed
+ * this.
+ */
+const HTML_LIMITED_BOTS = new RegExp(`${htmlBots.HTML_LIMITED_BOT_UA_RE.source}|Googlebot`, 'i');
+
 /** @type {import('next').NextConfig} */
 const config = {
+  htmlLimitedBots: HTML_LIMITED_BOTS,
   async headers() {
     return [
       { source: '/:path*', headers: SECURITY_HEADERS },

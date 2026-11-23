@@ -179,7 +179,10 @@ describeWithDb('public posts, review round 2', () => {
     const author = await user('r2-visibility', 1_000);
     const posted = await publish(author);
     await posts.processPost(posted.id, stub([reeId]));
-    expect((await posts.indexablePosts()).map((row) => row.id)).toContain(posted.id);
+    const listed = (await posts.indexablePosts()).find((row) => row.id === posted.id);
+    expect(listed).toBeDefined();
+    /* The sitemap's <lastmod>: a Date, not Postgres text (GSC "Invalid date", 2026-11). */
+    expect(listed?.at).toBeInstanceOf(Date);
 
     await db().update(schema.ree).set({ isPublic: false, isPublished: false }).where(eq(schema.ree.id, reeId));
     expect((await posts.listFeed('for_you')).items.map((item) => item.id)).not.toContain(posted.id);

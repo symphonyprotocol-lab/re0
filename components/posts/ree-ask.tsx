@@ -139,7 +139,7 @@ export function ReeAsk({ ree, option, takesPosts, signedIn, loginHref, share = n
             <p className="post-hint">{a.visitorHint}</p>
             <div className="post-composer-foot">
               <small className="post-cost">{fill(a.visitorCost, { fee: QUERY_BASE_FEE })}</small>
-              <Link href={loginHref} className="btn btn-sm ml-auto" onClick={() => writeDraft(ree.slug, draft.current)}>
+              <Link rel="nofollow" href={loginHref} className="btn btn-sm ml-auto" onClick={() => writeDraft(ree.slug, draft.current)}>
                 {a.signIn}
               </Link>
             </div>

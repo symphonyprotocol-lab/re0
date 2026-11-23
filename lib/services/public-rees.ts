@@ -130,8 +130,8 @@ export async function relatedFor(ree: PublicRee, page: number): Promise<PublicLi
 
 /** The owner's other public Rees, most answered first, paged on the server. */
 export async function authorOthers(ree: PublicRee, page: number): Promise<PublicList> {
-  const where = and(publicRee(), eq(schema.ree.ownerId, ree.ownerId), ne(schema.ree.id, ree.id));
-  const [{ total } = { total: 0 }] = await db().select({ total: sql<number>`count(*)::int` }).from(schema.ree).where(where);
+  const where = authorOthersWhere(ree);
+  const total = await authorOthersTotal(ree);
   const pages = Math.max(1, Math.ceil(total / PUBLIC_LIST_PAGE_SIZE));
   const current = Math.min(pages, Math.max(1, page));
   const ids = await db()
@@ -142,6 +142,20 @@ export async function authorOthers(ree: PublicRee, page: number): Promise<Public
     .limit(PUBLIC_LIST_PAGE_SIZE)
     .offset((current - 1) * PUBLIC_LIST_PAGE_SIZE);
   return { items: await reeCards(ids.map((row) => row.id)), total, page: current, pages };
+}
+
+function authorOthersWhere(ree: PublicRee) {
+  return and(publicRee(), eq(schema.ree.ownerId, ree.ownerId), ne(schema.ree.id, ree.id));
+}
+
+async function authorOthersTotal(ree: PublicRee): Promise<number> {
+  const [{ total } = { total: 0 }] = await db().select({ total: sql<number>`count(*)::int` }).from(schema.ree).where(authorOthersWhere(ree));
+  return total;
+}
+
+/** How many pages 同一创作者的更多 Ree has (`?ap=`), at least one. */
+export async function authorOthersPages(ree: PublicRee): Promise<number> {
+  return Math.max(1, Math.ceil((await authorOthersTotal(ree)) / PUBLIC_LIST_PAGE_SIZE));
 }
 
 /** A slug as the public page and the share page accept it. */

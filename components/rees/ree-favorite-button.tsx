@@ -29,7 +29,7 @@ export function ReeFavoriteButton({ ree, favorite, returnTo, labeled = false }: 
   if (favorite === undefined) {
     const label = fill(f.signIn, { name: ree.name });
     return (
-      <Link href={loginHref} className={className} aria-label={label} title={label}>
+      <Link rel="nofollow" href={loginHref} className={className} aria-label={label} title={label}>
         {icon}{labeled && f.add}
       </Link>
     );

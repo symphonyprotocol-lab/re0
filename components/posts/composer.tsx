@@ -626,7 +626,7 @@ export function HomeComposer({ signedIn }: { signedIn: boolean }) {
             <strong className="block text-[13px]">{c.visitorTitle}</strong>
             <small className="text-[11px] text-muted">{c.visitorBody}</small>
           </div>
-          <Link href="/login?returnTo=%2F%3Fcompose%3Dpublic" className="btn btn-sm">
+          <Link rel="nofollow" href="/login?returnTo=%2F%3Fcompose%3Dpublic" className="btn btn-sm">
             {c.signIn}
           </Link>
         </div>
