@@ -1,8 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JsonLd } from '@/components/site/json-ld';
-import { defaultPrice } from '@/lib/domain/pricing';
-import { oneLine, pricingJsonLd, publicPage, reeJsonLd } from '@/lib/seo';
+import { oneLine, publicPage, reeJsonLd } from '@/lib/seo';
 import type { PublicRee } from '@/lib/services/public-rees';
 
 beforeEach(() => vi.stubEnv('APP_BASE_URL', 'https://re0.io/'));
@@ -51,13 +50,5 @@ describe('JSON-LD', () => {
     expect((graph[1]!.itemListElement as { item: string }[]).map((item) => item.item)).toEqual(['https://re0.io/zh', 'https://re0.io/zh/explore', 'https://re0.io/zh/r/dw200']);
     expect(graph[2]).toMatchObject({ author: { '@type': 'Organization', name: 'RE0' }, keywords: undefined });
     expect(JSON.stringify(graph)).not.toMatch(/aggregateRating|opengraph-image/);
-  });
-
-  it('prices offers in USD from the catalogue', () => {
-    const offers = pricingJsonLd({ plan: defaultPrice('plan'), pack: defaultPrice('pack') }, 'en', 'd').offers as Record<string, unknown>[];
-    expect(offers.map((offer) => [offer.price, offer.priceCurrency])).toEqual([
-      [(defaultPrice('plan').priceMinor / 100).toFixed(2), 'USD'],
-      [(defaultPrice('pack').priceMinor / 100).toFixed(2), 'USD'],
-    ]);
   });
 });

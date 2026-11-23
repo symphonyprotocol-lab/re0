@@ -12,6 +12,7 @@ import { publicPage, UNLISTED_ROBOTS } from '@/lib/seo';
 import { serverMessages } from '@/i18n/server';
 import { FeedColumns } from '@/components/shell/feed-columns';
 import { ExploreView, SiteRail } from '@/components/discover/explore-view';
+import { ExploreJsonLd } from '@/components/site/structured-data';
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -54,6 +55,7 @@ export default async function ExplorePage({ searchParams }: Props) {
   const items = result.items.map((ree) => ({ ...ree, video: coverVideos.get(ree.id) ?? null }));
   return (
     <FeedColumns title={t.common.nav.discover} rail={<SiteRail saved={saved} signedIn={Boolean(user)} />}>
+      <ExploreJsonLd query={query} rees={items} />
       <ExploreView query={query} result={{ ...result, items }} limited={limited} signedIn={Boolean(user)} favoriteIds={favoriteIds} viewerId={user?.id} renderedAt={Date.now()} />
     </FeedColumns>
   );
