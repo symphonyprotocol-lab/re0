@@ -8,6 +8,7 @@ import { Icon } from '@/components/ui/icons';
 import { ReeCover } from '@/components/discover/ree-card';
 import { RoleBadge } from '@/components/discover/role-badge';
 import { ReeFavoriteButton } from '@/components/rees/ree-favorite-button';
+import { rememberExploreReturn } from '@/components/discover/public-visit';
 
 /** "相关 Rees" / "作者的其他 Rees" (prototype public-dot.js `recommendationGroup`): four a page, each group paged on its own. */
 export function PublicListSection({
@@ -30,6 +31,7 @@ export function PublicListSection({
   empty: string;
   previousHref: string;
   nextHref: string;
+  /** The explore list this Ree page was opened from; the Rees listed here go back to it too. */
   from: string;
   returnTo: string;
   favoriteIds?: string[];
@@ -55,14 +57,14 @@ export function PublicListSection({
       ) : (
         <ul className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {list.items.map((ree) => {
-            const href = `/r/${ree.slug}${from !== '/explore' ? `?from=${encodeURIComponent(from)}` : ''}`;
             return (
               <li key={ree.id} className="group relative min-w-0 overflow-hidden rounded-xl border border-line bg-white transition-[scale,box-shadow] has-[>div>a>.workspace-link-progress[data-pending=true]]:scale-[0.985] has-[>div>a>.workspace-link-progress[data-pending=true]]:ring-2 has-[>div>a>.workspace-link-progress[data-pending=true]]:ring-[#c5dcf8]">
                 <ReeCover ree={ree} />
                 <div className="flex items-start gap-1.5 p-3">
                   {/* One link per Ree; its ::after covers the whole card (the link is unpositioned so the li holds it). */}
                   <Link
-                    href={href}
+                    href={`/r/${ree.slug}`}
+                    onClick={() => rememberExploreReturn(ree.slug, from)}
                     className="static! block min-w-0 flex-1 group-hover:text-blue after:absolute after:inset-0 after:z-0 after:content-['']"
                   >
                     <strong className="flex min-w-0 items-center text-[13px]">

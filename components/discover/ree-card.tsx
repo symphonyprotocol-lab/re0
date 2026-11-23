@@ -24,7 +24,8 @@ export function ReeCover({ ree }: { ree: Pick<Card, 'name' | 'avatarBlob' | 'col
 
 /**
  * An explore result (prototype app.js `dotCard`, 2.4 step 4): the cover is
- * the way in -- it opens the public page, the search carried in `from` --
+ * the way in -- it opens the public page (bare: `from` is only where saving
+ * it comes back to) --
  * with no input. Introduction, the matched passage when there is a question,
  * source count, the owner and their role, price, answers and helpful share.
  * `pinned` marks a Ree an administrator pinned, where the list is in the
@@ -35,7 +36,7 @@ export function ReeCardView({ ree, from, favorite, viewerId, pinned = false }: {
   const { t, locale } = useI18n();
   const c = t.discover.card;
   const n = (value: number) => formatNumber(value, locale);
-  const href = `/r/${ree.slug}${from && from !== '/explore' ? `?from=${encodeURIComponent(from)}` : ''}`;
+  const href = `/r/${ree.slug}`;
   return (
     <article className={`dot-card discovery-card ree-video-card${pinned ? ' is-pinned' : ''}`} aria-label={ree.name}>
       {pinned && <span className="discovery-pin">{c.pinned}</span>}

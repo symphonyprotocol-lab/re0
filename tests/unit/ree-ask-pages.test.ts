@@ -56,7 +56,7 @@ const share = async () => wrap((await SharePage({ params: Promise.resolve({ slug
 const reePage = (viewerId?: string) =>
   wrap(
     createElement(ReeDetailView, {
-      savedRee: ree, query: {}, viewerId, preview: false, from: '/explore', related: null, author: null, video: null,
+      savedRee: ree, query: {}, viewerId, preview: false, related: null, author: null, video: null,
       comments: { items: [], total: 0, next: null } as never, posts: { items: [post], total: 1, next: null }, renderedAt: Date.parse('2026-11-20T01:00:00Z'),
     }),
   );
@@ -102,6 +102,15 @@ describe('the share page', () => {
 });
 
 describe('the Ree page', () => {
+  it('has one h1, the profile\'s name, and no ?from= in its links (GSC review 2026-11, A2 / A12)', () => {
+    for (const html of [reePage(), reePage('00000000-0000-4000-8000-0000000000d1')]) {
+      expect(html.match(/<h1\b/g)).toHaveLength(1);
+      expect(html).toMatch(/<h1 [^>]*>个税顾问<\/h1>/);
+      expect(html).not.toContain('from=');
+      expect(html).not.toContain('from%3D');
+    }
+  });
+
   it('lists answered posts as cards under the box, and the rail goes to the box', () => {
     const html = reePage('00000000-0000-4000-8000-0000000000d1');
     expectPostsAndBox(html);

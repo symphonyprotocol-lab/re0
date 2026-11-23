@@ -674,8 +674,8 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
           </div>
         </div>
       </header>
-      {/* A renamed private post leads with its title; the question it asked follows. */}
-      <h2 className="post-page-question">{(isPrivate && post.title) || post.question}</h2>
+      {/* The page's h1 (GSC review 2026-11, A12): the question itself, or a renamed private post's title, the question it asked following. */}
+      <h1 className="post-page-question">{(isPrivate && post.title) || post.question}</h1>
       {isPrivate && post.title && <p className="post-page-detail">{post.question}</p>}
       {post.detail && <p className="post-page-detail">{post.detail}</p>}
       {post.quote && (

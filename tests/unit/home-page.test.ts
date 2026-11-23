@@ -4,7 +4,7 @@
  * the way to 发现 -- the full list lives on /explore alone, so the two
  * pages do not repeat each other.
  */
-import { createElement } from 'react';
+import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '@/i18n/client';
@@ -31,10 +31,17 @@ vi.mock('@/lib/services/posts', () => ({ listFeed: async () => ({ items: [], nex
 
 const { default: HomePage } = await import('@/app/(product)/page');
 
+/** 首页 is a Suspense boundary around the feed (it stands in for the old app/loading.tsx); its async child, awaited, is what streams in. */
+async function home(params: Record<string, string>): Promise<ReactElement> {
+  const boundary = HomePage({ searchParams: Promise.resolve(params) }) as ReactElement<{ children: ReactElement }>;
+  const feed = boundary.props.children;
+  return (feed.type as (props: unknown) => Promise<ReactElement>)(feed.props);
+}
+
 describe('the visitor\'s 首页', () => {
   it('has the introduction as its only h1, six Rees and the way to 发现', async () => {
     const t = messages('zh');
-    const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await HomePage({ searchParams: Promise.resolve({}) }) }));
+    const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await home({}) }));
     expect(html.match(/<h1\b/g)).toHaveLength(1);
     expect(html).toMatch(/<h1 id="home-intro">/);
     expect(html.match(/Ree number \d+/g)?.length ?? 0).toBeGreaterThan(0);
@@ -44,7 +51,7 @@ describe('the visitor\'s 首页', () => {
 
   it('opens on one welcome card with one way to sign in, and searches posts (v6)', async () => {
     const t = messages('zh');
-    const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await HomePage({ searchParams: Promise.resolve({}) }) }));
+    const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await home({}) }));
     expect(html).toContain('class="xwelcome"');
     expect(html).toContain(t.site.visitor.welcomeTitle);
     expect(html.match(new RegExp(t.site.visitor.introAsk, 'g'))).toHaveLength(1);
@@ -57,7 +64,7 @@ describe('the visitor\'s 首页', () => {
 
   it('shows a post search under the front page, without the welcome card', async () => {
     const t = messages('zh');
-    const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await HomePage({ searchParams: Promise.resolve({ q: 'refund' }) }) }));
+    const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await home({ q: 'refund' }) }));
     expect(html).not.toContain('class="xwelcome"');
     expect(html).toContain('搜索“refund”的帖子');
     expect(html).toContain(t.posts.explore.noPosts);
@@ -65,7 +72,7 @@ describe('the visitor\'s 首页', () => {
 
   it('says nothing of asking without an account: visitors must sign in to ask (2026-11-21)', async () => {
     const t = messages('zh');
-    const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await HomePage({ searchParams: Promise.resolve({}) }) }));
+    const html = renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: await home({}) }));
     expect(html).not.toContain('xfree-note');
     expect(html).not.toContain('免登录提问');
     expect('railFree' in t.discover.explore).toBe(false);

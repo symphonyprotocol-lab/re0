@@ -75,7 +75,7 @@ describe('a private post\'s page', () => {
 
   it('leads with its title once renamed, the question under it', () => {
     const renamed = page({ ...privatePost, title: '个税扣除' });
-    expect(renamed).toContain('<h2 class="post-page-question">个税扣除</h2><p class="post-page-detail">换工作后，个税的专项附加扣除需要重新填吗？</p>');
+    expect(renamed).toContain('<h1 class="post-page-question">个税扣除</h1><p class="post-page-detail">换工作后，个税的专项附加扣除需要重新填吗？</p>');
   });
 });
 

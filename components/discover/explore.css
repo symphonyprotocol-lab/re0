@@ -877,3 +877,36 @@
     justify-content: center;
   }
 }
+
+/*
+ * What the list is, in words (GSC review 2026-11, A12): the page's one h1
+ * and a line under it -- the whole list, or one category's. The sticky head
+ * above only names the section.
+ */
+.discovery-page .discovery-intro {
+  padding: 16px 0px 2px;
+}
+.discovery-page .discovery-intro h1 {
+  margin: 0px;
+  font-size: 17px;
+  font-weight: 750;
+  line-height: 1.35;
+  color: var(--color-ink);
+}
+.discovery-page .discovery-intro p {
+  margin: 4px 0px 0px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #77839d;
+}
+/* Numbered pages under the list, for whoever does not scroll; gone once the list has grown past the server's batch. */
+.discovery-page .discovery-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 18px;
+  margin-top: 14px;
+  font-size: 11px;
+  color: #a0aec3;
+}
