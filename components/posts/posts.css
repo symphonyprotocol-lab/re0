@@ -1605,3 +1605,37 @@ a.post-quote:hover {
     opacity: 0.55;
   }
 }
+
+/* The foot of a post list that loads as it scrolls (post-feed.tsx FeedFooter; explore.css's results footer). */
+.post-feed-footer {
+  display: flex;
+  justify-content: center;
+  min-height: 1px;
+  padding: 18px 0 24px;
+}
+.post-feed-footer > p {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.post-feed-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #d6e2f3;
+  border-top-color: var(--color-blue);
+  border-radius: 50%;
+  animation: post-feed-spin 0.8s linear infinite;
+}
+@keyframes post-feed-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .post-feed-spinner {
+    animation-duration: 2.4s;
+  }
+}
