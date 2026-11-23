@@ -63,6 +63,7 @@ import { answersByOthersOf } from '@/lib/services/ree-counts';
 import { hitRateBucket } from '@/lib/services/rate-limit';
 import { untimed, type StepTimer, type Timing } from '@/lib/infra/timing';
 import { SEARCH_INDEXES, type SearchIndexGroup } from '@/lib/infra/search-indexes';
+import { effectiveCeiling } from '@/lib/services/rate-limit-settings';
 
 const reeId = sql.raw('"ree"."id"');
 const reeOwner = sql.raw('"ree"."owner_id"');
@@ -850,11 +851,17 @@ export async function activeRees(limit: number, { officialOnly = false }: { offi
 
 export { clearRateBuckets, hitRateBucket } from '@/lib/services/rate-limit';
 
-/** One free search against the IP's and the account's one-minute limits. */
+/**
+ * One free search against the IP's and the account's one-minute limits:
+ * `EXPLORE_RATE_LIMIT` until the console sets the `exploreQuestions`
+ * ceiling, which then applies to both.
+ */
 export async function allowSearch(keys: { ip: string | null; userId: string | null }, now = new Date()): Promise<boolean> {
   const checks: [string, number][] = [];
-  if (keys.ip) checks.push([`explore:ip:${keys.ip}`, EXPLORE_RATE_LIMIT.perIp]);
-  if (keys.userId) checks.push([`explore:user:${keys.userId}`, EXPLORE_RATE_LIMIT.perUser]);
+  const set = await effectiveCeiling('exploreQuestions');
+  const overridden = set !== EXPLORE_RATE_LIMIT.perUser;
+  if (keys.ip) checks.push([`explore:ip:${keys.ip}`, overridden ? set : EXPLORE_RATE_LIMIT.perIp]);
+  if (keys.userId) checks.push([`explore:user:${keys.userId}`, set]);
   let allowed = true;
   for (const [key, limit] of checks) {
     if (!(await hitRateBucket(key, limit, EXPLORE_RATE_LIMIT.windowSeconds, now))) allowed = false;

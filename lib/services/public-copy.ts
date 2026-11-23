@@ -12,14 +12,15 @@ import { rewardSettings } from '@/lib/services/invites';
 import { sitePayoutMinimum } from '@/lib/services/payout-minimum';
 import { welcomeCredits } from '@/lib/services/signup-reward';
 import { QUERY_BASE_FEE } from '@/lib/constants';
-import { POST_DAILY_LIMIT, POST_MAX_ANSWERS, POST_PAID_AGREE_MAX, POST_REPORT_THRESHOLD, POST_SUMMARY_FEE, POST_SUMMARY_FREE_REWRITES, PRIVATE_POST_MAX_REES } from '@/lib/domain/post';
+import { POST_MAX_ANSWERS, POST_PAID_AGREE_MAX, POST_REPORT_THRESHOLD, POST_SUMMARY_FEE, POST_SUMMARY_FREE_REWRITES, PRIVATE_POST_MAX_REES } from '@/lib/domain/post';
 import { PUBLIC_QA_REPORT_THRESHOLD } from '@/lib/domain/public-qa';
 import type { Messages } from '@/i18n';
 import { fill, formatNumber } from '@/i18n/format';
 import type { Locale } from '@/i18n/locale';
+import { effectiveCeiling } from '@/lib/services/rate-limit-settings';
 
 export async function publicCopyValues(t: Messages, locale: Locale): Promise<Record<string, string>> {
-  const [welcome, payoutMin, rewards] = await Promise.all([welcomeCredits(), sitePayoutMinimum(), rewardSettings()]);
+  const [welcome, payoutMin, rewards, postDailyLimit] = await Promise.all([welcomeCredits(), sitePayoutMinimum(), rewardSettings(), effectiveCeiling('postsPerDay')]);
   const n = (value: number) => formatNumber(value, locale);
   const numbers = {
     welcomeCredits: n(welcome.credits),
@@ -30,7 +31,7 @@ export async function publicCopyValues(t: Messages, locale: Locale): Promise<Rec
     postBaseFee: n(QUERY_BASE_FEE),
     postMaxAutoCost: n(POST_MAX_ANSWERS * QUERY_BASE_FEE),
     postAgreeMax: n(POST_PAID_AGREE_MAX),
-    postDailyLimit: n(POST_DAILY_LIMIT),
+    postDailyLimit: n(postDailyLimit),
     postSummaryFee: n(POST_SUMMARY_FEE),
     postSummaryFreeRewrites: n(POST_SUMMARY_FREE_REWRITES),
     postMaxAnswers: n(POST_MAX_ANSWERS),

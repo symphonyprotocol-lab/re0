@@ -228,13 +228,15 @@ describeWithDb('console rate limits', () => {
     const names = (await rateLimits.listRateLimits()).map((row) => row.name);
     for (const messages of [i18nRateLimits.zh, i18nRateLimits.en]) {
       expect(Object.keys(messages.names).sort()).toEqual([...names].sort());
-      expect(Object.keys(messages.fixed).sort()).toEqual([...rateLimits.FIXED_LIMIT_KEYS].sort());
+      expect(Object.keys(messages.ceilings).sort()).toEqual([...rateLimits.CEILING_KEYS].sort());
     }
-    expect(rateLimits.fixedLimits()).toEqual([
-      { key: 'postsPerDay', limit: POST_DAILY_LIMIT, per: 'day' },
-      { key: 'followupsPerDay', limit: FOLLOWUP_DAILY_LIMIT, per: 'day' },
-      { key: 'followupsPerPostPerDay', limit: FOLLOWUP_POST_DAILY_LIMIT, per: 'day' },
-      { key: 'exploreQuestions', limit: EXPLORE_RATE_LIMIT.perUser, per: 'minute' },
+    await db().delete(schema.limitCeilingSetting);
+    rateLimits.forgetRateLimitSettings();
+    expect((await rateLimits.listCeilings()).map(({ key, value, defaultValue, per, overridden }) => ({ key, value, defaultValue, per, overridden }))).toEqual([
+      { key: 'postsPerDay', value: POST_DAILY_LIMIT, defaultValue: POST_DAILY_LIMIT, per: 'day', overridden: false },
+      { key: 'followupsPerDay', value: FOLLOWUP_DAILY_LIMIT, defaultValue: FOLLOWUP_DAILY_LIMIT, per: 'day', overridden: false },
+      { key: 'followupsPerPostPerDay', value: FOLLOWUP_POST_DAILY_LIMIT, defaultValue: FOLLOWUP_POST_DAILY_LIMIT, per: 'day', overridden: false },
+      { key: 'exploreQuestions', value: EXPLORE_RATE_LIMIT.perUser, defaultValue: EXPLORE_RATE_LIMIT.perUser, per: 'minute', overridden: false },
     ]);
   });
 

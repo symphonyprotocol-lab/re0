@@ -35,6 +35,8 @@ const { forgetModelCache } = await import('@/lib/infra/ai/models');
 const { QUERY_BASE_FEE: BASE } = await import('@/lib/constants');
 const { POST_REPORT_THRESHOLD } = await import('@/lib/domain/post');
 const { POST: askRoute } = await import('@/app/api/posts/[id]/followups/route');
+const ceilings = await import('@/lib/services/rate-limit-settings');
+const { consoleAdministrator } = await import('../fixtures/console-administrator');
 
 let fake: FakeOpenAi;
 beforeAll(async () => {
@@ -269,5 +271,26 @@ describeWithDb('follow-ups in a post (追问)', () => {
     expect(response.status).toBe(201);
     expect(later.length).toBeGreaterThan(0);
     token = undefined;
+  });
+
+  it('counts follow-ups against the console\'s daily ceilings, and the code defaults once they are reset', async () => {
+    const one = await publicRee();
+    const author = await user('fu-author-ceiling', 1_000);
+    const first = await answeredPost(author, [one.reeId]);
+    const second = await answeredPost(author, [one.reeId]);
+    const reader = await user('fu-reader-ceiling', 1_000);
+    const administrator = await consoleAdministrator();
+    try {
+      await ceilings.saveCeiling(administrator.id, { key: 'followupsPerPostPerDay', value: 1 });
+      await ceilings.saveCeiling(administrator.id, { key: 'followupsPerDay', value: 2 });
+      await ask(reader, first, 'First under the first post');
+      expect(await followups.askFollowup(reader, first, { question: 'Second under the first post', lang: 'en' })).toEqual({ ok: false, error: 'post_daily_limit' });
+      await ask(reader, second, 'First under the second post');
+      expect(await followups.askFollowup(reader, second, { question: 'Third today', lang: 'en' })).toEqual({ ok: false, error: 'daily_limit' });
+    } finally {
+      await ceilings.resetCeiling(administrator.id, { key: 'followupsPerPostPerDay' });
+      await ceilings.resetCeiling(administrator.id, { key: 'followupsPerDay' });
+    }
+    await ask(reader, first, 'Second under the first post, at the code default');
   });
 });

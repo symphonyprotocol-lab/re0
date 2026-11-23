@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import type { FixedLimitRow, RateLimitExemptionRow, RateLimitName, RateLimitRow, RateRuleValue } from '@/lib/services/rate-limit-settings';
+import type { CeilingRow, RateLimitExemptionRow, RateLimitName, RateLimitRow, RateRuleValue } from '@/lib/services/rate-limit-settings';
 import { RATE_LIMIT_EXEMPT_DEFAULT, RATE_LIMIT_MODEL_COST } from '@/lib/constants';
 import { api } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
@@ -11,22 +11,24 @@ import { PageHead, RecordsTable, Tag } from '@/components/admin/list-kit';
 import { useToast } from '@/components/ui/toast';
 import './rate-limits.css';
 
-interface Board { limits: RateLimitRow[]; exemptions: RateLimitExemptionRow[] }
+interface Board { limits: RateLimitRow[]; exemptions: RateLimitExemptionRow[]; ceilings: CeilingRow[] }
 type Drafts = Record<string, { perMinute: string; perHour: string }>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const whole = (value: string) => (/^\d+$/.test(value.trim()) ? Number(value.trim()) : null);
 const draftsOf = (limits: RateLimitRow[]): Drafts => Object.fromEntries(limits.map((row) => [row.name, { perMinute: String(row.perMinute ?? ''), perHour: String(row.perHour ?? '') }]));
+const ceilingDraftsOf = (ceilings: CeilingRow[]): Record<string, string> => Object.fromEntries(ceilings.map((row) => [row.key, String(row.value)]));
 const scopesOf = (exemptions: RateLimitExemptionRow[]) => Object.fromEntries(exemptions.map((row) => [row.userId, row.limits]));
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((name) => b.includes(name));
 
-/** The console's rate-limit page: each limit's two windows, reset to default, the ceilings fixed in code, and the exempt accounts with the limits each covers. */
-export function RateLimitsBoard({ initial, fixed }: { initial: Board; fixed: FixedLimitRow[] }) {
+/** The console's rate-limit page: each limit's two windows, the daily and per-minute ceilings, reset to default, and the exempt accounts with the limits each covers. */
+export function RateLimitsBoard({ initial }: { initial: Board }) {
   const { t, locale } = useI18n();
   const m = t.rateLimits;
   const toast = useToast();
   const [data, setData] = useState(initial);
   const [drafts, setDrafts] = useState<Drafts>(() => draftsOf(initial.limits));
+  const [ceilingDrafts, setCeilingDrafts] = useState(() => ceilingDraftsOf(initial.ceilings));
   const [scopes, setScopes] = useState<Record<string, RateLimitName[]>>(() => scopesOf(initial.exemptions));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -45,6 +47,7 @@ export function RateLimitsBoard({ initial, fixed }: { initial: Board; fixed: Fix
     if (!result.ok) throw new Error('reload');
     setData(result.data);
     setDrafts(draftsOf(result.data.limits));
+    setCeilingDrafts(ceilingDraftsOf(result.data.ceilings));
     setScopes(scopesOf(result.data.exemptions));
   };
   /* A change the server accepted is reported as done even if the list then fails to load. */
@@ -73,6 +76,8 @@ export function RateLimitsBoard({ initial, fixed }: { initial: Board; fixed: Fix
     return mutate(() => api('/api/admin/rate-limits', { method: 'PUT', json: { name, perMinute: whole(draft.perMinute), perHour: whole(draft.perHour) } }), m.saved);
   };
   const reset = (name: string) => mutate(() => api('/api/admin/rate-limits', { method: 'DELETE', json: { name } }), m.resetDone);
+  const saveCeiling = (key: string) => mutate(() => api('/api/admin/rate-limits/ceilings', { method: 'PUT', json: { key, value: whole(ceilingDrafts[key] ?? '') } }), m.saved);
+  const resetCeiling = (key: string) => mutate(() => api('/api/admin/rate-limits/ceilings', { method: 'DELETE', json: { key } }), m.resetDone);
   const add = (event: FormEvent) => {
     event.preventDefault();
     const value = account.trim();
@@ -122,6 +127,27 @@ export function RateLimitsBoard({ initial, fixed }: { initial: Board; fixed: Fix
     ];
   });
 
+  const ceilingRows = data.ceilings.map((row) => {
+    const draft = ceilingDrafts[row.key] ?? '';
+    const ruleOf = (value: number) => fill(row.per === 'day' ? m.dayRule : m.minuteRule, { n: n(value) });
+    return [
+      <div key="name" className="rate-limit-name">
+        <strong>{m.ceilings[row.key]}</strong>
+        <code>{row.key}</code>
+        <small className="muted">{fill(m.ceilingDefault, { rule: ruleOf(row.defaultValue) })}</small>
+      </div>,
+      <div key="value" className="flex">
+        <input className="input rate-limit-input" type="number" inputMode="numeric" min={1} max={100_000} step={1} aria-label={`${row.key} ${m.ceilingValue}`} value={draft} disabled={busy} onChange={(e) => setCeilingDrafts({ ...ceilingDrafts, [row.key]: e.target.value })} />
+        <small className="muted">{row.per === 'day' ? m.dayUnit : m.minuteUnit}</small>
+      </div>,
+      <Tag key="state" tone={row.overridden ? 'orange' : 'grey'}>{row.overridden ? m.custom : m.default}</Tag>,
+      <div key="actions" className="flex">
+        <button type="button" className="btn sm" disabled={busy || draft === String(row.value)} onClick={() => void saveCeiling(row.key)}>{m.save}</button>
+        {row.overridden && <button type="button" className="btn secondary sm" disabled={busy} onClick={() => void resetCeiling(row.key)}>{m.reset}</button>}
+      </div>,
+    ];
+  });
+
   const exemptRows = data.exemptions.map((row) => {
     const scope = scopes[row.userId] ?? row.limits;
     return [
@@ -145,14 +171,9 @@ export function RateLimitsBoard({ initial, fixed }: { initial: Board; fixed: Fix
       <RecordsTable label={m.limitsTitle} head={[m.limit, m.perMinute, m.perHour, '', '']} rows={limitRows} empty={m.errors.not_found} />
     </section>
     <section className="card record-table rate-limits-section">
-      <h2>{m.fixedTitle}</h2>
-      <p className="muted">{m.fixedLede}</p>
-      <RecordsTable
-        label={m.fixedTitle}
-        head={[m.limit, m.fixedValue]}
-        rows={fixed.map((row) => [<strong key="name">{m.fixed[row.key]}</strong>, <span key="value" className="mono">{fill(row.per === 'day' ? m.dayRule : m.minuteRule, { n: n(row.limit) })}</span>])}
-        empty={m.errors.not_found}
-      />
+      <h2>{m.ceilingsTitle}</h2>
+      <p className="muted">{m.ceilingsLede}</p>
+      <RecordsTable label={m.ceilingsTitle} head={[m.limit, m.ceilingValue, '', '']} rows={ceilingRows} empty={m.errors.not_found} />
     </section>
     <section className="card record-table rate-limits-section">
       <h2>{m.exemptTitle}</h2>

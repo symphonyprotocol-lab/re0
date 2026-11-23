@@ -34,6 +34,8 @@ export const AUDIT_ACTIONS = [
   'firecrawl.key.delete',
   'rate_limit.update',
   'rate_limit.reset',
+  'rate_limit.ceiling.update',
+  'rate_limit.ceiling.reset',
   'rate_limit.exempt.add',
   'rate_limit.exempt.update',
   'rate_limit.exempt.remove',

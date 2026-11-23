@@ -23,10 +23,10 @@ export const zh = {
     browse: '浏览 Explore（不带问题）、帖子信息流和私密提问的 Ree 推荐',
   },
   modelCost: '调用模型，产生费用',
-  fixedTitle: '代码中的固定上限',
-  fixedLede: '这些上限由各功能自己计数，不能在这里修改，豁免也不会解除。官方 Ree 的批量 QA 以公开帖子发出，同样受每天 30 条帖子的限制。',
-  fixedValue: '上限', dayRule: '{n} / 天（UTC+8）',
-  fixed: {
+  ceilingsTitle: '每日和每分钟上限',
+  ceilingsLede: '这些上限由各功能自己计数，可以在这里修改，30 秒内对所有实例生效；豁免账号不会解除这些上限。官方 Ree 的批量 QA 以公开帖子发出，同样受每天发帖上限约束。每天的计数在 UTC 0 点（北京时间 8 点）重置。',
+  ceilingValue: '上限', ceilingDefault: '默认 {rule}', dayRule: '{n} / 天（UTC 0 点重置）', dayUnit: '/ 天', minuteUnit: '/ 分钟',
+  ceilings: {
     postsPerDay: '每个账号每天发帖（公开和私密合计，不含试问和 MCP）',
     followupsPerDay: '每个账号每天追问',
     followupsPerPostPerDay: '每个账号每天在同一帖子下追问',
@@ -42,6 +42,7 @@ export const zh = {
   removeTitle: '移除「{name}」的豁免？', removeBody: '移除后该账号的请求重新按以上限额计数（30 秒内对所有实例生效）。',
   errors: {
     invalid_rate_limit: '请输入 1–1,000,000 之间的整数，且每分钟不能大于每小时。',
+    invalid_ceiling: '请输入 1–100,000 之间的整数。',
     not_editable: '此限额只能在代码中修改。',
     not_found: '记录不存在，请刷新后重试。',
     user_not_found: '找不到这个邮箱对应的账号。',
@@ -74,10 +75,10 @@ export const en: Shape<typeof zh> = {
     browse: 'Browsing Explore (without a question), the posts feed, and Ree suggestions for a private question',
   },
   modelCost: 'calls models, costs money',
-  fixedTitle: 'Ceilings fixed in code',
-  fixedLede: 'Each feature counts these itself. They cannot be changed here and no exemption lifts them. The official Rees’ batch QA goes out as public posts, so it meets the 30 posts a day too.',
-  fixedValue: 'Ceiling', dayRule: '{n} / day (UTC+8)',
-  fixed: {
+  ceilingsTitle: 'Daily and per-minute ceilings',
+  ceilingsLede: 'Each feature counts these itself. You can change them here; changes take effect everywhere within 30 seconds. No exemption lifts them, and the official Rees’ batch QA goes out as public posts, so it meets the posts-a-day ceiling too. Daily counts restart at 00:00 UTC (08:00 UTC+8).',
+  ceilingValue: 'Ceiling', ceilingDefault: 'Default {rule}', dayRule: '{n} / day (resets 00:00 UTC)', dayUnit: '/ day', minuteUnit: '/ min',
+  ceilings: {
     postsPerDay: 'Posts per account per day (public and private together; not owner tests or MCP)',
     followupsPerDay: 'Follow-ups per account per day',
     followupsPerPostPerDay: 'Follow-ups per account under one post per day',
@@ -93,6 +94,7 @@ export const en: Shape<typeof zh> = {
   removeTitle: 'Remove the exemption for “{name}”?', removeBody: 'This account’s requests count against the limits above again (everywhere within 30 seconds).',
   errors: {
     invalid_rate_limit: 'Enter whole numbers from 1 to 1,000,000, with per minute no higher than per hour.',
+    invalid_ceiling: 'Enter a whole number from 1 to 100,000.',
     not_editable: 'This limit can only be changed in code.',
     not_found: 'The record no longer exists. Refresh and try again.',
     user_not_found: 'No account uses this email.',
