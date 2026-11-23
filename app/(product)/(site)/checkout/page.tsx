@@ -94,7 +94,7 @@ export default async function CheckoutPage({ searchParams }: { searchParams: Pro
             ) : (
               <>
                 <p className="mt-3 text-[13px] text-muted">{c.signInBody}</p>
-                <Link href={`/login?returnTo=${encodeURIComponent(pending ? `/checkout?_ptxn=${pending}` : self)}`} className="btn mt-5">
+                <Link rel="nofollow" href={`/login?returnTo=${encodeURIComponent(pending ? `/checkout?_ptxn=${pending}` : self)}`} className="btn mt-5">
                   {c.signIn}
                   <Icon name="arrow" />
                 </Link>

@@ -5,7 +5,7 @@
  * names, introductions, tags and category only) and the owner's other
  * public Rees.
  */
-import { and, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { PUBLIC_LIST_PAGE_SIZE, PUBLIC_RELATED_CANDIDATES, QUERY_BASE_FEE } from '@/lib/constants';
 import { positiveRate, relatedRees } from '@/lib/domain/explore';
 import type { SocialContact } from '@/lib/domain/account';
@@ -130,8 +130,8 @@ export async function relatedFor(ree: PublicRee, page: number): Promise<PublicLi
 
 /** The owner's other public Rees, most answered first, paged on the server. */
 export async function authorOthers(ree: PublicRee, page: number): Promise<PublicList> {
-  const where = and(publicRee(), eq(schema.ree.ownerId, ree.ownerId), ne(schema.ree.id, ree.id));
-  const [{ total } = { total: 0 }] = await db().select({ total: sql<number>`count(*)::int` }).from(schema.ree).where(where);
+  const where = authorOthersWhere(ree);
+  const total = await authorOthersTotal(ree);
   const pages = Math.max(1, Math.ceil(total / PUBLIC_LIST_PAGE_SIZE));
   const current = Math.min(pages, Math.max(1, page));
   const ids = await db()
@@ -142,6 +142,20 @@ export async function authorOthers(ree: PublicRee, page: number): Promise<Public
     .limit(PUBLIC_LIST_PAGE_SIZE)
     .offset((current - 1) * PUBLIC_LIST_PAGE_SIZE);
   return { items: await reeCards(ids.map((row) => row.id)), total, page: current, pages };
+}
+
+function authorOthersWhere(ree: PublicRee) {
+  return and(publicRee(), eq(schema.ree.ownerId, ree.ownerId), ne(schema.ree.id, ree.id));
+}
+
+async function authorOthersTotal(ree: PublicRee): Promise<number> {
+  const [{ total } = { total: 0 }] = await db().select({ total: sql<number>`count(*)::int` }).from(schema.ree).where(authorOthersWhere(ree));
+  return total;
+}
+
+/** How many pages 同一创作者的更多 Ree has (`?ap=`), at least one. */
+export async function authorOthersPages(ree: PublicRee): Promise<number> {
+  return Math.max(1, Math.ceil((await authorOthersTotal(ree)) / PUBLIC_LIST_PAGE_SIZE));
 }
 
 /** A slug as the public page and the share page accept it. */
@@ -158,4 +172,36 @@ export async function publicReeRef(slug: string): Promise<{ id: string; ownerId:
     .where(and(eq(schema.ree.slug, slug.toLowerCase()), publicRee()))
     .limit(1);
   return row ?? null;
+}
+
+/** A public Ree as the sitemap lists it (app/sitemap.ts): its URL, when it changed, and whose it is (lib/seo.ts `reeContentLocale`). */
+export interface SitemapRee {
+  slug: string;
+  role: PublicRee['role'];
+  updatedAt: Date;
+}
+
+/**
+ * Public Rees for the sitemap, oldest first (then by id), so a Ree keeps
+ * its sitemap file as newer ones are added: the same `publicRee()` gate as
+ * the page -- public, published, not taken down, not deleted.
+ */
+export async function sitemapRees({ offset, limit }: { offset: number; limit: number }): Promise<SitemapRee[]> {
+  return db()
+    .select({ slug: schema.ree.slug, role: schema.user.role, updatedAt: schema.ree.updatedAt })
+    .from(schema.ree)
+    .innerJoin(schema.user, eq(schema.user.id, schema.ree.ownerId))
+    .where(publicRee())
+    .orderBy(asc(schema.ree.createdAt), asc(schema.ree.id))
+    .offset(offset)
+    .limit(limit);
+}
+
+/** How many public Rees there are, and when the latest of them changed (Explore's `<lastmod>`). */
+export async function sitemapReeTotals(): Promise<{ total: number; latest: Date | null }> {
+  const [row] = await db()
+    .select({ total: sql<number>`count(*)::int`, latest: sql<Date | null>`max(${schema.ree.updatedAt})`.mapWith(schema.ree.updatedAt) })
+    .from(schema.ree)
+    .where(publicRee());
+  return { total: row?.total ?? 0, latest: row?.latest ?? null };
 }

@@ -66,7 +66,7 @@ export default async function AboutPage() {
             {h.lede2}
           </p>
           <div className="xp-hero-actions">
-            <Link href={createHref} className="btn btn-sm">
+            <Link rel={user ? undefined : 'nofollow'} href={createHref} className="btn btn-sm">
               {h.ctaCreate}
               <Icon name="arrow" className="size-4" />
             </Link>
@@ -167,7 +167,7 @@ export default async function AboutPage() {
             {h.workflowTitle}
             {h.workflowEm}
           </h2>
-          <Link href={createHref} className="text-link">
+          <Link rel={user ? undefined : 'nofollow'} href={createHref} className="text-link">
             {h.start}
             <Icon name="arrow" className="size-3.5" />
           </Link>
@@ -324,7 +324,7 @@ export default async function AboutPage() {
           </h2>
           {welcome.credits > 0 && <p>{fill(h.finalNote, { welcomeCredits: formatNumber(welcome.credits, locale) })}</p>}
         </div>
-        <Link href={createHref} className="btn btn-sm">
+        <Link rel={user ? undefined : 'nofollow'} href={createHref} className="btn btn-sm">
           {h.ctaCreate}
           <Icon name="arrow" className="size-4" />
         </Link>

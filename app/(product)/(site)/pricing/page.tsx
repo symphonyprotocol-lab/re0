@@ -14,7 +14,8 @@ import { fill, formatNumber } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import { Estimator } from '@/components/site/estimator';
 import { JsonLd } from '@/components/site/json-ld';
-import { pricingJsonLd, publicPage } from '@/lib/seo';
+import { publicPage } from '@/lib/seo';
+import { pricingJsonLd } from '@/lib/jsonld';
 import { ContentPage } from '@/components/site/content-page';
 
 const FAQ = ['q3', 'q4', 'q7', 'q9', 'q5', 'q6'] as const;

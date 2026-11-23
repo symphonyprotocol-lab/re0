@@ -1095,14 +1095,28 @@ export async function postCover(id: string): Promise<PostCover | null> {
   return { state: 'shown', lang: row.lang, question: row.question, detail: row.detail, answers: shown.length, rees, first: shown[0] ?? null };
 }
 
-/** For the sitemap: visible posts with an answer anyone can read now, newest first. */
-export async function indexablePosts(limit = 5000): Promise<{ id: string; at: Date }[]> {
+/**
+ * For the sitemap: visible posts with an answer anyone can read now, in the
+ * order they were published (then by id), so a post keeps its sitemap file
+ * (app/sitemap.ts) as newer ones are added. `at` is mapped through the
+ * column so it arrives as a Date: a raw `sql` value comes back as Postgres
+ * text (`2026-11-22 16:47:46.953+00`), which Search Console rejects as a
+ * `<lastmod>`.
+ */
+export async function indexablePosts({ offset = 0, limit = 5000 }: { offset?: number; limit?: number } = {}): Promise<{ id: string; at: Date }[]> {
   return db()
-    .select({ id: post.id, at: sql<Date>`coalesce(${post.answeredAt}, ${post.publishedAt})` })
+    .select({ id: post.id, at: sql<Date>`coalesce(${post.answeredAt}, ${post.publishedAt})`.mapWith(post.publishedAt) })
     .from(post)
     .where(and(visiblePost(), hasShownAnswer()))
-    .orderBy(desc(post.publishedAt))
+    .orderBy(asc(post.publishedAt), asc(post.id))
+    .offset(offset)
     .limit(limit);
+}
+
+/** How many posts `indexablePosts` has in all, for the sitemap index. */
+export async function indexablePostCount(): Promise<number> {
+  const [{ total } = { total: 0 }] = await db().select({ total: sql<number>`count(*)::int` }).from(post).where(and(visiblePost(), hasShownAnswer()));
+  return total;
 }
 
 /** 我的帖子's tabs: 全部, 公开, 私密 and 回收站. */

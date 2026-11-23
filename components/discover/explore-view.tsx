@@ -2,7 +2,7 @@
 
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { useNavigationRouter as useRouter } from '@/components/shell/navigation-provider';
-import { useCallback, useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition, type MouseEvent } from 'react';
 import { EXPLORE_RESULTS, REE_CATEGORIES, ROUNDTABLE_REES, SYNTHESIS_ENABLED, SYNTHESIS_MIN_ANSWERS } from '@/lib/constants';
 import { explorePath, type ExploreQuery, type ExploreSort } from '@/lib/domain/explore';
 import type { ExploreResult, ReeCard } from '@/lib/services/explore';
@@ -12,7 +12,8 @@ import { Icon } from '@/components/ui/icons';
 import { FeedRee } from '@/components/discover/feed-ree';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RoundtableEntry } from '@/components/discover/roundtable-entry';
-import { takePublicReturn } from '@/components/discover/public-visit';
+import { rememberExploreReturn, takePublicReturn } from '@/components/discover/public-visit';
+import { explorePageCount, explorePagePath } from '@/components/discover/explore-pages';
 import '@/components/site/site.css';
 import '@/components/discover/explore.css';
 
@@ -48,9 +49,13 @@ export interface RailRee {
   ownerName: string;
 }
 
-export function ExploreView({ query, result, limited, signedIn, favoriteIds, viewerId, renderedAt, variant = 'explore' }: {
+export function ExploreView({ query, result, limited, signedIn, favoriteIds, viewerId, renderedAt, page = 1, intro, variant = 'explore' }: {
   query: ExploreQuery;
   result: ExploreResult;
+  /** Which numbered page (`?page=`, explore-pages.ts) the server's batch is; the list scrolls on from it. */
+  page?: number;
+  /** `/explore`'s h1 and the line under it (the sticky head only names the section). */
+  intro?: { title: string; body: string };
   limited: boolean;
   signedIn: boolean;
   favoriteIds?: string[];
@@ -69,7 +74,7 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
     if (!typed.current) setQ(query.q);
   }, [query.q]);
   const n = (value: number) => formatNumber(value, locale);
-  const current = explorePath(query);
+  const current = explorePagePath(query, page);
   /*
    * A new list (search, category, sort) is a navigation; while it runs the
    * old list stays, marked busy, and the Search button spins. A later one
@@ -135,19 +140,19 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
   }, []);
 
-  /* An old link's `page` or `size` no longer applies: show the canonical URL. */
+  /* An old link's `size` no longer applies: show the page's own URL. */
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.has('page') || params.has('size')) router.replace(current, { scroll: false });
+    if (params.has('size')) router.replace(current, { scroll: false });
   }, [current, router]);
 
   /* The toolbar sticks under the site header, whose height changes with the width (prototype discovery.js `afterRender`). */
-  const page = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const header = document.querySelector('.marketing-header');
-    const root = page.current;
-    if (!header || !root) return;
-    const measure = () => root.style.setProperty('--site-header', `${header.getBoundingClientRect().height}px`);
+    const element = root.current;
+    if (!header || !element) return;
+    const measure = () => element.style.setProperty('--site-header', `${header.getBoundingClientRect().height}px`);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(header);
@@ -210,10 +215,36 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
     return () => observer.disconnect();
   }, [loaded.nextCursor, loading, failed, loadMore]);
 
-  /* Remember the list as a card is opened. */
-  const keep = () => {
+  /* Remember the list as a card is opened, and that the Ree's page goes back here (outside its URL: public-visit.tsx). */
+  const keep = (event: MouseEvent) => {
     kept = { path: current, ...loaded, scrollY: window.scrollY };
+    const link = event.target instanceof Element ? event.target.closest('a[href]') : null;
+    const slug = link?.getAttribute('href')?.match(/\/r\/([^/?#]+)/)?.[1];
+    if (slug) rememberExploreReturn(slug, current);
   };
+  /* A plain click on a category link is a list change like the others (busy list, spinner); the link itself is there for crawlers and new tabs. */
+  const follow = (event: MouseEvent, changes: Partial<ExploreQuery>) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    go(changes);
+  };
+  /* Numbered pages for whoever does not scroll (a crawler): the server's batch is page `page`; once the list has grown past it they no longer match what is shown. */
+  const pages = result.mode === 'browse' ? explorePageCount(result.total) : 1;
+  const pager = variant === 'explore' && pages > 1 && loaded.items.length <= result.items.length ? (
+    <nav className="discovery-pager" aria-label={e.pagesLabel}>
+      {page > 1 && (
+        <Link href={explorePagePath(query, page - 1)} rel="prev" className="text-link">
+          ← {e.previousPage}
+        </Link>
+      )}
+      <span>{fill(e.pageOf, { page: n(page), pages: n(pages) })}</span>
+      {page < pages && (
+        <Link href={explorePagePath(query, page + 1)} rel="next" className="text-link">
+          {e.nextPage} →
+        </Link>
+      )}
+    </nav>
+  ) : null;
 
   const favorites = new Set(loaded.favorites);
   const banner = (
@@ -222,7 +253,7 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
         <h3>{e.banner}</h3>
         <p>{e.bannerBody}</p>
       </div>
-      <Link href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn secondary">
+      <Link rel={signedIn ? undefined : 'nofollow'} href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn secondary">
         <Icon name="plus" />
         {e.create}
       </Link>
@@ -231,7 +262,13 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
   const [resultsBefore, resultsAfter] = e.results.split('{n}');
 
   return (
-    <div ref={page} className="discovery-page">
+    <div ref={root} className="discovery-page">
+      {intro && (
+        <header className="discovery-intro">
+          <h1>{intro.title}</h1>
+          <p>{intro.body}</p>
+        </header>
+      )}
       {variant === 'explore' && (
       <section ref={toolbar} className="discovery-toolbar" aria-label={e.label}>
         <div className="discovery-search-row">
@@ -279,19 +316,20 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
             </select>
           </label>
         </div>
-        <div className="filter-row" role="group" aria-label={e.categoriesLabel}>
+        <nav className="filter-row" aria-label={e.categoriesLabel}>
           {[null, ...REE_CATEGORIES].map((category) => (
-            <button
+            <Link
               key={category ?? 'all'}
-              type="button"
-              aria-pressed={query.category === category}
-              onClick={() => go({ category })}
+              href={explorePath({ category })}
+              scroll={false}
+              aria-current={query.category === category ? 'page' : undefined}
+              onClick={(event) => follow(event, { category })}
               className={`filter${query.category === category ? ' active' : ''}`}
             >
               {category ? t.common.categories[category] : t.discover.allCategories}
-            </button>
+            </Link>
           ))}
-        </div>
+        </nav>
       </section>
       )}
 
@@ -360,6 +398,7 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
                 result.mode === 'browse' && <p>{fill(e.end, { n: n(result.total) })}</p>
               )}
             </div>
+            {pager}
             {/* Below 1100px the right column is hidden (columns.css); the banner stays at the end of the list. */}
             <div className="discovery-feed-banner">{banner}</div>
           </div>
@@ -382,17 +421,38 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
 
 /**
  * 首页's and Rees' right column (v6): one search box where the page has none
- * of its own (首页 searches posts), the signed-in user's saved Rees on Rees,
+ * of its own (首页 searches posts), the most active public Rees on 首页 (so
+ * its HTML always links some Rees; GSC review 2026-11, A9), the signed-in
+ * user's saved Rees on Rees,
  * the create-a-Ree card -- the one place a visitor is asked to create one --
  * and the small links. Below 1200px the column folds away; 首页 then shows
  * its search at the top of the centre column (RailSearch `inline`).
  */
-export function SiteRail({ search, saved, signedIn }: { search?: { action: string; label: string; defaultValue?: string }; saved?: RailRee[]; signedIn: boolean }) {
+export function SiteRail({ search, popular, saved, signedIn }: { search?: { action: string; label: string; defaultValue?: string }; popular?: RailRee[]; saved?: RailRee[]; signedIn: boolean }) {
   const { t } = useI18n();
   const e = t.discover.explore;
   return (
     <div className="discovery-page">
       {search && <RailSearch action={search.action} label={search.label} defaultValue={search.defaultValue} />}
+      {popular && popular.length > 0 && (
+        <section className="rail-card" aria-labelledby="rail-popular-heading">
+          <h3 id="rail-popular-heading">{e.railPopular}</h3>
+          <ol>
+            {popular.map((ree) => (
+              <li key={ree.id}>
+                <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="sm" />
+                <Link href={`/r/${ree.slug}`} className="min-w-0 hover:text-blue">
+                  <strong>{ree.name}</strong>
+                  <small>{ree.ownerName}</small>
+                </Link>
+              </li>
+            ))}
+          </ol>
+          <Link href="/explore" className="text-link mt-3 inline-flex text-[12px]">
+            {t.site.visitor.allRees} →
+          </Link>
+        </section>
+      )}
       {saved && saved.length > 0 && (
         <div className="rail-card">
           <h3>{e.railSaved}</h3>
@@ -417,7 +477,7 @@ export function SiteRail({ search, saved, signedIn }: { search?: { action: strin
           <h3>{e.banner}</h3>
           <p>{e.bannerBody}</p>
         </div>
-        <Link href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn-secondary btn-sm">
+        <Link rel={signedIn ? undefined : 'nofollow'} href={signedIn ? '/rees/new' : `/login?returnTo=${encodeURIComponent('/rees/new')}`} className="btn-secondary btn-sm">
           <Icon name="plus" className="size-4" />
           {e.create}
         </Link>

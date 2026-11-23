@@ -6,13 +6,22 @@ import { isLocale, LOCALES, type Locale } from './locale';
  * `/en/...`. The pages themselves live at their plain paths in `app/`; the
  * middleware rewrites `/en/pricing` to `/pricing` and passes the language
  * on in a request header (LOCALE_HEADER), which `requestLocale()` reads
- * first. The plain path is the x-default: the middleware sends a visitor
- * there on to their language (cookie, then Accept-Language, then zh), so
- * links made before this keep working. Everything else -- the workspace,
+ * first. The plain path sends a visitor on to their language (cookie, then
+ * Accept-Language, then zh; middleware.ts), so links made before this keep
+ * working. The x-default is the English page (SEARCH_DEFAULT_LOCALE): a
+ * redirecting URL makes a poor canonical, and most Rees are written in
+ * English. Everything else -- the workspace,
  * the console, sign-in, checkout, share pages -- has one URL in both
  * languages, as before.
  */
 export const LOCALE_HEADER = 'x-re0-locale';
+
+/**
+ * The language a search engine is sent to when nothing says which: the
+ * hreflang x-default, and where a plain path takes a request that carries
+ * no language cookie and no Accept-Language (crawlers; middleware.ts).
+ */
+export const SEARCH_DEFAULT_LOCALE: Locale = 'en';
 
 /** hreflang values, per locale. */
 export const HREFLANG: Record<Locale, string> = { zh: 'zh', en: 'en' };
@@ -69,10 +78,10 @@ export function localizeHref(locale: Locale, href: string): string {
   return isLocalizedPath(path) ? localePath(locale, path) + (cut === -1 ? '' : href.slice(cut)) : href;
 }
 
-/** The same page in each language, for hreflang. */
+/** The same page in each language, for hreflang, with the English page as x-default. */
 export function localeAlternates(path: string, absolute: (path: string) => string): Record<string, string> {
   return {
     ...Object.fromEntries(LOCALES.map((locale) => [HREFLANG[locale], absolute(localePath(locale, path))])),
-    'x-default': absolute(path),
+    'x-default': absolute(localePath(SEARCH_DEFAULT_LOCALE, path)),
   };
 }

@@ -53,12 +53,13 @@ describe('language URLs (i18n/paths.ts)', () => {
     for (const href of ['/rees/new', '/login?returnTo=%2Fr%2Fx', '/s/x', 'https://example.com/pricing', '//evil.example/', '#top']) expect(localizeHref('en', href)).toBe(href);
   });
 
-  it('lists each language and the plain path as x-default', () => {
+  it('lists each language and the English page as x-default', () => {
     expect(localeAlternates('/pricing', (path) => `https://re0.io${path}`)).toEqual({
       zh: 'https://re0.io/zh/pricing',
       en: 'https://re0.io/en/pricing',
-      'x-default': 'https://re0.io/pricing',
+      'x-default': 'https://re0.io/en/pricing',
     });
+    expect(localeAlternates('/', (path) => `https://re0.io${path}`)['x-default']).toBe('https://re0.io/en');
   });
 });
 
@@ -84,7 +85,29 @@ describe('middleware: language URLs', () => {
     expect(byCookie.headers.get('location')).toBe('https://re0.test/en/r/some-ree?join=1');
     expect(byCookie.headers.get('vary')).toBe('Cookie, Accept-Language');
     expect(request('/', { 'accept-language': 'en-GB,en;q=0.8' }).headers.get('location')).toBe('https://re0.test/en');
-    expect(request('/pricing').headers.get('location')).toBe('https://re0.test/zh/pricing');
+    const chinese = request('/pricing', { 'accept-language': 'pt-BR' });
+    expect(chinese.status).toBe(307);
+    expect(chinese.headers.get('location')).toBe('https://re0.test/zh/pricing');
+    expect(request('/pricing', { cookie: 're0_lang=zh' }).headers.get('location')).toBe('https://re0.test/zh/pricing');
+  });
+
+  it('moves a request that names no language (a crawler) permanently to the English page, the x-default', () => {
+    /* Googlebot sends no Accept-Language and no cookie; the 307s were chosen as canonicals (GSC 2026-11, 问题 4). */
+    for (const headers of [{}, { 'accept-language': '' }, { 'user-agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)' }] as Record<string, string>[]) {
+      const response = request('/r/some-ree?join=1', headers);
+      expect(response.status).toBe(308);
+      expect(response.headers.get('location')).toBe('https://re0.test/en/r/some-ree?join=1');
+      expect(response.headers.get('vary')).toBe('Cookie, Accept-Language');
+      expect(response.headers.get('cache-control')).toBe('private, no-store');
+    }
+    expect(request('/').headers.get('location')).toBe('https://re0.test/en');
+    expect(request('/pricing', { cookie: 'other=1' }).status).toBe(308);
+  });
+
+  it('serves /sitemap.xml from the sitemap index route, the parts under /sitemap/ as they are', () => {
+    expect(rewrittenTo(request('/sitemap.xml'))).toBe('https://re0.test/sitemap-index.xml');
+    expect(request('/sitemap.xml').headers.get('location')).toBeNull();
+    expect(rewrittenTo(request('/sitemap/rees-1.xml'))).toBeNull();
   });
 
   it('drops a prefix in front of a page that has one URL for both languages', () => {
@@ -109,6 +132,12 @@ describe('private paths: one list for the sign-in gate and robots.txt', () => {
       expect(CRAWL_DISALLOWED).toContain(path === '/me' ? '/me/' : path);
       expect(request(`${path}/x`).headers.get('location')).toBe(`https://re0.test/login?returnTo=${encodeURIComponent(`${path}/x`)}`);
     }
+  });
+
+  it('keeps crawlers off the sign-in page\'s returnTo copies but not off /login itself', () => {
+    /* GSC 2026-11: 2,964 of 5.34k unindexed URLs were /login?returnTo=... */
+    expect(CRAWL_DISALLOWED).toContain('/login?');
+    expect(CRAWL_DISALLOWED).not.toContain('/login');
   });
 });
 

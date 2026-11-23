@@ -3,7 +3,6 @@ import { listReeComments } from '@/lib/services/ree-comments';
 import { reeAnsweredPosts } from '@/lib/services/posts';
 import { favoriteReeIds } from '@/lib/services/ree-favorites';
 import { introsFor } from '@/lib/services/video';
-import { exploreReturnPath } from '@/lib/domain/explore';
 import { authorOthers, relatedFor, type PublicRee } from '@/lib/services/public-rees';
 import { ReeDetailView } from '@/components/discover/ree-detail-view';
 
@@ -21,7 +20,6 @@ export async function ReeDetail({ ree, query = {}, viewerId, preview = false, dr
   preview?: boolean;
   draftId?: string;
 }) {
-  const from = exploreReturnPath(one(query.from));
   const authorPage = Number(one(query.ap)) || 1;
   const [related, author, intros, comments, posts] = await Promise.all([
     preview ? null : relatedFor(ree, 1),
@@ -43,7 +41,6 @@ export async function ReeDetail({ ree, query = {}, viewerId, preview = false, dr
       viewerId={viewerId}
       preview={preview}
       draftId={draftId}
-      from={from}
       related={related}
       author={author}
       video={video}

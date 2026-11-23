@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { EXPLORE_BATCH_SIZES } from '@/lib/constants';
 import { parseExploreQuery } from '@/lib/domain/explore';
@@ -17,10 +18,13 @@ import { feedTabOf, FEED_TABS, type FeedTab } from '@/lib/domain/post';
 import { listFeed, unansweredCount } from '@/lib/services/posts';
 import { HomeComposer } from '@/components/posts/composer';
 import { PostFeed } from '@/components/posts/post-feed';
+import { RouteLoading } from '@/components/shell/route-loading';
 import '@/components/ui/tabs.css';
 
 /** 首页 shows this many Rees until there are posts; 发现 has them all. */
 const HOME_REES = 6;
+/** Once there are posts, the right column links this many of the most active Rees (GSC review 2026-11, A9: the page's HTML had no Ree links at all). */
+const RAIL_REES = 8;
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -47,20 +51,39 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
  * searches posts by their words (the right column's box, or the centre
  * column's below 1200px where that column folds away). While there are no
  * posts at all yet, a short list of the most active public Rees stands in
- * with the way to Rees, which alone has the whole list. A visitor's h1 is
+ * with the way to Rees, which alone has the whole list; once there are,
+ * the right column lists the most active ones instead. A visitor's h1 is
  * the welcome card's line.
+ *
+ * The feed streams in behind the route's loading state: this page has no
+ * loading.tsx of its own, and app/loading.tsx is gone so that public Ree and
+ * post pages can answer a real 404 (GSC review 2026-11, A8).
  */
-export default async function HomePage({ searchParams }: Props) {
+export default function HomePage(props: Props) {
+  return (
+    <Suspense fallback={<RouteLoading />}>
+      <Home {...props} />
+    </Suspense>
+  );
+}
+
+async function Home({ searchParams }: Props) {
   const [user, { t, locale }, params] = await Promise.all([currentUser(), serverMessages(), searchParams]);
   const q = searchOf(params);
   const tab: FeedTab = q ? 'latest' : feedTabOf(params.tab);
   const query = parseExploreQuery({});
-  const [feed, waiting] = await Promise.all([listFeed(tab, { viewerId: user?.id, q }), unansweredCount()]);
+  const [feed, waiting, active] = await Promise.all([
+    listFeed(tab, { viewerId: user?.id, q }),
+    unansweredCount(),
+    explore(query, { cursor: null, size: EXPLORE_BATCH_SIZES[0] }, { includeIntros: false }),
+  ]);
   /* 为你推荐 with nothing answered yet reads as 最新; no posts at all, a few Rees. */
   const shown = !q && tab === 'for_you' && feed.items.length === 0 ? await listFeed('latest', { viewerId: user?.id }) : feed;
   const showRees = !q && tab !== 'unanswered' && shown.items.length === 0;
-  const result = showRees ? await explore(query, { cursor: null, size: EXPLORE_BATCH_SIZES[0] }, { includeIntros: false }) : null;
+  const result = showRees ? active : null;
   const rees = result?.items.slice(0, HOME_REES) ?? [];
+  /* Without the stand-in list, the right column carries the Ree links. */
+  const popular = showRees ? undefined : active.items.slice(0, RAIL_REES);
   const [favoriteIds, coverVideos] = result
     ? await Promise.all([
         user ? favoriteReeIds(user.id, rees.map((ree) => ree.id)) : undefined,
@@ -84,7 +107,7 @@ export default async function HomePage({ searchParams }: Props) {
   return (
     <>
       <JsonLd data={siteJsonLd(t.site.seo.description)} />
-      <FeedColumns title={t.common.nav.homeFeed} heading={Boolean(user)} tabs={tabs} rail={<SiteRail search={{ action: '/', label: searchLabel, defaultValue: q ?? '' }} signedIn={Boolean(user)} />}>
+      <FeedColumns title={t.common.nav.homeFeed} heading={Boolean(user)} tabs={tabs} rail={<SiteRail search={{ action: '/', label: searchLabel, defaultValue: q ?? '' }} popular={popular} signedIn={Boolean(user)} />}>
         {/* Where the right column has folded away (under 1200px), its search sits here. */}
         <div className="xcol-search">
           <RailSearch action="/" label={searchLabel} defaultValue={q ?? ''} />
@@ -97,7 +120,7 @@ export default async function HomePage({ searchParams }: Props) {
                 <p>{v.welcomeBody}</p>
               </div>
               <div className="xwelcome-actions">
-                <Link href={`/login?returnTo=${encodeURIComponent('/?compose=public')}`} className="btn btn-sm">
+                <Link rel="nofollow" href={`/login?returnTo=${encodeURIComponent('/?compose=public')}`} className="btn btn-sm">
                   {v.introAsk}
                 </Link>
                 <Link href="/about" className="text-link">
