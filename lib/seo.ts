@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import { appBaseUrl } from '@/lib/http/cookies';
-import type { PricingView } from '@/lib/domain/pricing';
 import type { PublicRee } from '@/lib/services/public-rees';
 import { HTML_LANG, LOCALES, type Locale } from '@/i18n/locale';
 import { localeAlternates, localePath } from '@/i18n/paths';
@@ -174,45 +173,6 @@ export function reeJsonLd(ree: PublicRee, locale: Locale, labels: { home: string
         author: { '@type': ree.role === 'official' ? 'Organization' : 'Person', name: ree.ownerName, url: ree.ownerWebsite || undefined },
         dateModified: ree.updatedAt.toISOString(),
         publisher: { '@id': organizationId() },
-      },
-    ],
-  };
-}
-
-/**
- * `/pricing`: the two things for sale, at the prices the page shows (USD
- * cents in the catalogue). A Pack on promotion carries its promotional
- * price until the promotion ends; the Plan's promotion is first-period
- * only, so its offer is the regular monthly price.
- */
-export function pricingJsonLd(prices: PricingView, locale: Locale, description: string): JsonLd {
-  const usd = (minor: number) => (minor / 100).toFixed(2);
-  const pack = prices.pack;
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'Product',
-    name: `${SITE_NAME} credits`,
-    description,
-    brand: { '@type': 'Brand', name: SITE_NAME },
-    url: localeUrl(locale, '/pricing'),
-    offers: [
-      {
-        '@type': 'Offer',
-        name: `Plan · ${prices.plan.credits} credits / month`,
-        price: usd(prices.plan.priceMinor),
-        priceCurrency: 'USD',
-        priceSpecification: { '@type': 'UnitPriceSpecification', price: usd(prices.plan.priceMinor), priceCurrency: 'USD', billingDuration: 'P1M' },
-        availability: 'https://schema.org/InStock',
-        url: absoluteUrl('/checkout?kind=plan'),
-      },
-      {
-        '@type': 'Offer',
-        name: `Pack · ${pack.credits} credits`,
-        price: usd(pack.effectivePriceMinor),
-        priceCurrency: 'USD',
-        priceValidUntil: pack.promotional && pack.promotion ? pack.promotion.endsAt : undefined,
-        availability: 'https://schema.org/InStock',
-        url: absoluteUrl('/checkout?kind=pack'),
       },
     ],
   };

@@ -15,6 +15,7 @@ import { fill } from '@/i18n/format';
 import { FeedColumns } from '@/components/shell/feed-columns';
 import { ExploreView, SiteRail } from '@/components/discover/explore-view';
 import { EXPLORE_PAGE_SIZE, explorePageCount, explorePagePath, parseExplorePage } from '@/components/discover/explore-pages';
+import { ExploreJsonLd } from '@/components/site/structured-data';
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -91,6 +92,7 @@ export default async function ExplorePage({ searchParams }: Props) {
   const words = describe(t, listed, page);
   return (
     <FeedColumns title={t.common.nav.discover} heading={false} rail={<SiteRail saved={saved} signedIn={Boolean(user)} />}>
+      <ExploreJsonLd query={query} page={page} locale={locale} rees={items} name={words.title} description={words.body} />
       <ExploreView query={query} result={{ ...result, items }} limited={limited} signedIn={Boolean(user)} favoriteIds={favoriteIds} viewerId={user?.id} renderedAt={Date.now()} page={page} intro={{ title: words.heading, body: words.body }} />
     </FeedColumns>
   );

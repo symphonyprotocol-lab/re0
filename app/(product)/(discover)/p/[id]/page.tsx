@@ -10,6 +10,7 @@ import { FeedColumns } from '@/components/shell/feed-columns';
 import { PostDetail } from '@/components/posts/post-detail';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { Icon } from '@/components/ui/icons';
+import { PostJsonLd } from '@/components/site/structured-data';
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -89,6 +90,7 @@ export default async function PostPage({ params }: Props) {
   return (
     /* The question is the page's h1 (PostDetail); the head only names the kind of page. */
     <FeedColumns title={isPrivate ? p.privateTitle : p.back} heading={false} back={isPrivate ? '/me/posts?tab=private' : '/'} rail={rail}>
+      <PostJsonLd post={post} locale={locale} />
       <PostDetail initial={post} quoting={quoting} signedIn={Boolean(user)} now={Date.now()} loginHref={`/login?returnTo=${encodeURIComponent(`/p/${id}`)}`} />
     </FeedColumns>
   );
