@@ -36,6 +36,14 @@ export const zh = {
     followupAiAnswer: '没有 Ree 能回答你的追问「{question}」，AI 先给了你一个通用回答。',
     chatsRemoval: '旧的私密对话已随改版删除，私密提问现在是私密帖子。',
     visitorAskPaused: '今天有访客没能在分享页向你的 Ree「{ree}」免登录提问：你的余额不够支付一个回答 {fee} credits 的基本使用费。充值后访客可以继续提问。',
+    competitionOpen: '你的比赛「{title}」已通过审核，开始报名。',
+    competitionRejected: '你的比赛「{title}」没有通过审核，押金已退回。',
+    competitionShort: '比赛「{title}」将在 24 小时内截止，你的余额不够支付 {needed} credits 的答题费。截止时余额不足将无法参赛。',
+    competitionSkipped: '比赛「{title}」已截止，你的余额不够支付 {needed} credits 的答题费，这次没有参赛，没有扣费。',
+    competitionReview: '你的比赛「{title}」评分已就绪，请在 {until} 前复核，到时会自动公布。',
+    competitionResults: '比赛「{title}」已公布：你的 Ree「{ree}」排名第 {rank}（共 {n} 个），总分 {total}。',
+    competitionResultsNone: '比赛「{title}」已公布，你的 Ree「{ree}」这次没有计入排名。',
+    competitionCorrected: '比赛「{title}」的得分有更正：你的 Ree「{ree}」现在排名第 {rank}，总分 {total}。',
   },
   open: {
     ree: '查看 Ree',
@@ -45,6 +53,7 @@ export const zh = {
     privatePosts: '查看私密帖子',
     topUp: '去充值',
     visitorAsks: '免登录提问设置',
+    competition: '查看比赛',
   },
 };
 
@@ -84,6 +93,14 @@ export const en: Shape<typeof zh> = {
     chatsRemoval: 'Your old private conversations were deleted with the redesign; private questions are now private posts.',
 
     visitorAskPaused: 'Visitors could not ask your Ree “{ree}” on its share page today: your balance cannot cover the {fee}-credit base fee of one answer. Top up and visitors can ask again.',
+    competitionOpen: 'Your competition “{title}” passed review and is open for entries.',
+    competitionRejected: 'Your competition “{title}” did not pass review. Your deposit was returned.',
+    competitionShort: 'The competition “{title}” closes within 24 hours and your balance cannot cover its {needed}-credit answer fee. A short balance at the deadline leaves you out.',
+    competitionSkipped: 'The competition “{title}” closed and your balance could not cover its {needed}-credit answer fee, so your Ree was left out. Nothing was charged.',
+    competitionReview: 'Scores for your competition “{title}” are ready. Review them before {until}, when they are published.',
+    competitionResults: 'The results of “{title}” are out: your Ree “{ree}” placed {rank} of {n}, scoring {total}.',
+    competitionResultsNone: 'The results of “{title}” are out. Your Ree “{ree}” was not ranked this time.',
+    competitionCorrected: 'A score in “{title}” was corrected: your Ree “{ree}” now places {rank}, scoring {total}.',
   },
   open: {
     ree: 'View Ree',
@@ -94,5 +111,6 @@ export const en: Shape<typeof zh> = {
 
     topUp: 'Top up',
     visitorAsks: 'Visitor question settings',
+    competition: 'View competition',
   },
 };

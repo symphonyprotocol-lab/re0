@@ -73,10 +73,10 @@ export async function roleMetrics(executor: Executor, userId: string, now = new 
           where a.ree_id in (${rees}) and ${ASKED} and ${askedByPayingOthers(owner)}) as external_questions,
       (select coalesce(sum(ls.helpful), 0)::int from ${schema.reeLegacyStats} ls where ls.ree_id in (${rees}))
         + (select count(*)::int from ${schema.postAnswerVote} v join ${schema.postAnswer} a on a.id = v.answer_id join ${schema.post} p on p.id = a.post_id
-          where a.ree_id in (${rees}) and v.user_id <> ${owner} and p.source <> 'test') as helpful,
+          where a.ree_id in (${rees}) and v.user_id <> ${owner} and p.source not in ('test', 'competition')) as helpful,
       (select coalesce(sum(ls.unhelpful), 0)::int from ${schema.reeLegacyStats} ls where ls.ree_id in (${rees}))
         + (select count(*)::int from ${schema.postAnswerFeedback} v join ${schema.postAnswer} a on a.id = v.answer_id join ${schema.post} p on p.id = a.post_id
-          where a.ree_id in (${rees}) and v.user_id <> ${owner} and p.source <> 'test') as unhelpful`);
+          where a.ree_id in (${rees}) and v.user_id <> ${owner} and p.source not in ('test', 'competition')) as unhelpful`);
   const row = result.rows[0] as { public_rees: number; ready_sources: number; external_questions: number; helpful: number; unhelpful: number };
   const helpful = Number(row.helpful);
   const unhelpful = Number(row.unhelpful);

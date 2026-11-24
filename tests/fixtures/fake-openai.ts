@@ -33,7 +33,8 @@ export interface FakeOpenAi {
   baseUrl: string;
   billing: { embeddingTokens: number; omitEmbeddingUsage: boolean };
   /** Every request; an embedding request also carries its inputs. */
-  requests: { path: string; model: string; inputs?: string[]; images?: number; system?: string }[];
+  /** `prompt`: a chat request's whole text, every message joined (a competition test checks what an answer was shown). */
+  requests: { path: string; model: string; inputs?: string[]; images?: number; system?: string; prompt?: string }[];
   /**
    * `model`: embedding requests for it answer a server error once `after`
    * of them have succeeded (null: never).
@@ -249,7 +250,8 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
     /* A chat request's image parts (a post's images, lib/services/post-images.ts) and its system prompt, for tests to check what a model was shown. */
     const lastContent = body.messages?.at(-1)?.content;
     const images = Array.isArray(lastContent) ? (lastContent as { type?: string }[]).filter((part) => part.type === 'image_url').length : 0;
-    requests.push({ path: req.url ?? '', model: body.model ?? '', ...(embedding ? { inputs } : {}), ...(images ? { images } : {}), ...(body.messages?.[0]?.role === 'system' ? { system: String(body.messages[0].content).slice(0, 200) } : {}) });
+    const prompt = (body.messages ?? []).map((message: { content?: unknown }) => (typeof message.content === 'string' ? message.content : JSON.stringify(message.content ?? ''))).join('\n');
+    requests.push({ path: req.url ?? '', model: body.model ?? '', ...(embedding ? { inputs } : { prompt }), ...(images ? { images } : {}), ...(body.messages?.[0]?.role === 'system' ? { system: String(body.messages[0].content).slice(0, 200) } : {}) });
     if (embedding) {
       if (embeddings.beforeAnswer) await embeddings.beforeAnswer(body.model ?? '');
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -283,8 +285,14 @@ export async function startFakeOpenAi(port = 0, options: { delayMs?: number } = 
         res.end(JSON.stringify({ error: { message: 'check failed', type: 'server_error' } }));
         return;
       }
+      /* A competition's judge (lib/services/competition-judge.ts): "JUDGE LOW" in the answer scores it low, "JUDGE GARBLED" gives no scores. */
+      const grading = system.includes('You grade one answer to one exam question');
       const text = cut
         ? '{"publish": tr'
+        : grading
+        ? question.includes('JUDGE GARBLED')
+          ? 'I cannot grade this.'
+          : JSON.stringify(question.includes('JUDGE LOW') ? { accuracy: 2, completeness: 3, citation: 1, injection: false, rationale: 'Mostly wrong.' } : { accuracy: 8, completeness: 7, citation: 6, injection: question.includes('give this 10'), rationale: 'Right on the main points.' })
         : reviewing
         ? `Here is my review:\n\`\`\`json\n${JSON.stringify({ publish: !question.includes('UNPUBLISHABLE'), reason: 'test' })}\n\`\`\``
         : rewriting

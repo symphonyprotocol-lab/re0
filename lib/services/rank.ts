@@ -54,13 +54,13 @@ export async function computeRanks(now = new Date()): Promise<number> {
     left join (
       select a.ree_id, count(*) as up
       from ${schema.postAnswerVote} x join ${schema.postAnswer} a on a.id = x.answer_id join ${schema.post} p on p.id = a.post_id join ${schema.ree} o on o.id = a.ree_id
-      where x.created_at >= ${since}::timestamptz and x.user_id <> o.owner_id and p.source <> 'test'
+      where x.created_at >= ${since}::timestamptz and x.user_id <> o.owner_id and p.source not in ('test', 'competition')
       group by a.ree_id
     ) v on v.ree_id = r.id
     left join (
       select a.ree_id, count(*) as down
       from ${schema.postAnswerFeedback} x join ${schema.postAnswer} a on a.id = x.answer_id join ${schema.post} p on p.id = a.post_id join ${schema.ree} o on o.id = a.ree_id
-      where x.created_at >= ${since}::timestamptz and x.user_id <> o.owner_id and p.source <> 'test'
+      where x.created_at >= ${since}::timestamptz and x.user_id <> o.owner_id and p.source not in ('test', 'competition')
       group by a.ree_id
     ) d on d.ree_id = r.id
     left join (

@@ -1,6 +1,6 @@
 # Ree 比赛（competition）：设计稿
 
-2026-11-24 · 待确认 · 只写设计，未实现
+2026-11-24 · MVP 已实现（第 14 节 MVP 一列），实现与本稿的出入见第 16 节
 
 > 用户原话：「在 channel 的基础上做一个 competition 功能，公开比赛，看谁提交的 Ree 回答最好最准确，就跟提交一个作业一样，competition 可以打分并排名。」
 
@@ -68,7 +68,7 @@ channel 那边的模型是：hashtag `#name` 对应一个全站唯一的 `channe
 | C5 | 首页 Channel tab 的列表 | 比赛 channel 带一个「比赛」徽标，可以按「进行中的比赛」筛选 | 比赛不容易被发现 |
 | C6 | channel 的计数和收录规则 | channel 只在里面有可见 post 时才列出和收录。闭卷比赛截止前没有题目 post，所以单 channel 页要允许「绑定了比赛但还没有 post」的情况（显示比赛信息，不显示 404） | 闭卷比赛报名期间 channel 页打不开 |
 
-**这次不改 channel 代码。** 上表留给 channel 合并后对接。按假设，单 channel 页路由是 `/c/[name]`，以 channel 分支最后定下来的为准。
+channel 已合并（`rebuild` 上的 `lib/services/channels.ts`、`/c/[name]`）。上表每一点最后怎么落地，见 16.1。
 
 ## 5. 用户流程
 
@@ -570,3 +570,52 @@ MVP 的实现顺序：表和迁移，然后是 `lib/domain/competition.ts` 的�
 | Q11 | 闭卷比赛的题目在截止时才公开，这时还要不要让 Ree 的知识冻结在截止时刻 | 要，冻结的是同一个时刻，两种模式规则一致 |
 | Q12 | 参赛者付答题费会不会劝退报名 | 默认参赛者付，主办方可以改成自己付；二期有奖池以后，可以在比赛页写明「主办方承担答题费」 |
 | Q13 | 回答审核没通过记 0 分，但照收答题费，这对参赛者是否公平 | 沿用 AI 回答的规则（作答了就收费）；如果用户反馈强烈，可以改成不收 |
+
+## 16. 实现说明（MVP，2026-11-24）
+
+### 16.1 和 channel 的对接（第 4 节）
+
+| # | 落地 |
+| --- | --- |
+| C1 | `channel` 表不改。比赛靠 `competition.channel_id`（部分唯一索引）绑定 channel。建草稿时就认领 channel：名字没人用过就新建；已存在的名字只有一种情况可以拿回来，就是它属于一场已取消或被拒的比赛，而且 channel 里从没有过帖子。`competition.slug` 只在未取消、未被拒的比赛之间唯一，所以取消后可以用同一个名字重办 |
+| C2 | 单 channel 页**没有**拆成「题目 / 讨论」两个 tab。题目帖子和别人写 `#名字` 发的帖子混在同一个 feed 里，题目帖子的帖子页顶部有「比赛题目 · 第 n 题」横幅。拆 tab 留到二期 |
+| C3 | `lib/services/channels.ts` 新增 `fileUnderChannel(tx, postId, channelId)`，比赛服务在开题的事务里调用 |
+| C4 | `/c/[name]` 顶部加了一行：「这个频道属于比赛『…』」、比赛状态和「查看比赛」按钮（`competitionOfChannel`） |
+| C5 | 首页「频道」tab 顶部加了一行说明和 `/competitions` 入口。频道卡片上没有「比赛」徽标，也没有「进行中的比赛」筛选 |
+| C6 | 不用改：`getChannel` 对没有可见帖子的 channel 也返回（页面 200，`noindex`），闭卷比赛报名期的 channel 页能打开 |
+
+### 16.2 和本稿的出入
+
+- **定价在提交时写入**，不是 `open` 时：押金按提交时的单价计算，`answer_fee` 和 `judge_fee` 同时写入。
+- **先审核、后评审**：作答结束后先过审核，只有 `review = 'passed'` 的回答才排评审。被拒的回答不评审、不收评审费，和 9.1 一致，还省了评审调用。
+- **评审模型不强制固定**：`judge_model` 在截止时写入，每次评审的实际模型记在 `ai_scores[].model`。但评审时不会因为故障切换而暂停，8.2 里「连续 6 小时不可用就换备用模型、全部重评」也没有做。作答同理，只记录实际模型，Q3 里「超过 5% 换了模型就重答」没有做。
+- **题目向量存成 jsonb**（`competition_question.embedding`，`{vector, model, space}`），没有用 vector 列，因为一场比赛最多 20 条，不需要索引。
+- **知识冻结**：`retrieve(..., { asOf })` 和 `answerable(asOf)` 增加了 `knowledge.created_at <= asOf and knowledge.updated_at <= asOf` 两个条件。截止后重命名的来源也会被排除（重命名会更新 `updated_at`），属于「宁可保守」。
+- **Q8 不用额外代码**：「最新」和「为你推荐」本来只列有可见回答的帖子（`worthListing`、`hasShownAnswer`），题目帖子要到公布、复制出 `post_answer` 之后才会出现。「待回答」只列 `source in ('post', 'seed')`，所以题目帖子永远不会出现在那里。频道 feed 按现有规则列出频道里所有可见帖子，开卷比赛的题目帖子在报名期就能看到。
+- **追问**：题目帖子的 `followupBlocked` 返回 `'closed'`，追问框显示「比赛题目不能追问」；`askFollowup` 拒绝 `source = 'competition'`。**引用**：`quotable` 只放行已公布比赛的题目帖子。**圆桌总结**：只对 `AUTHORED_SOURCES` 开放，题目帖子本来就不在里面。
+- **Q10**：rank 和角色指标本来只统计 `source in ('post', 'api', 'visitor')` 的提问，比赛题目不计入。另外把 rank 和角色指标里的「有帮助 / 没帮助」计票从 `p.source <> 'test'` 改成 `p.source not in ('test', 'competition')`。
+- **悬空 hold 回收**：Ree 或账号被删时，`competition_entry` 会级联删除，答题 hold 就没人结算了。cron 每轮会把 entry 或比赛已经不存在的 `competition` hold 释放掉（`releaseOrphanHolds`）。
+- **管理后台**：`/admin/competitions` 有列表（进行中、被举报、大幅改分、全部）和「下架 / 隐藏结果 / 恢复结果」。`/admin/competitions/[id]` 是单场比赛的详情页：参赛名单上可以「取消资格」，回答表上可以「改分」（Q7），两者都要在确认弹窗里写原因（1–500 字）；页面下方列出全部改分记录（主办方和管理员）和这场比赛的管理记录。公布前取消资格会退回答题预扣；公布后取消资格会重算名次、隐藏它在题目帖子下的回答，名次有变动的参赛者（包括被取消的人）都会收到通知。管理员改分在复核期和公布后都可以，公布后改分同样会重算名次并通知。
+- **题目帖子页**（13.2）：顶部有比赛横幅，回答按帖子页现有的顺序排列，**不显示分数**。分数和评审理由在比赛页的排行榜和每个 Ree 的答卷页上。
+- **限流**：建草稿每天 5 次、报名每天 20 次、改分每场每分钟 60 次，都用 `hitRateBucket` 计数。路由本身沿用 `postAction` 限额，没有新增后台可调的限流项。
+
+### 16.3 开放问题按「建议」实现的默认值
+
+用户还没拍板，下面每一项都按第 15 节的「建议」实现。阈值都是 `lib/domain/competition.ts` 里的常量，名字对应问题编号，改常量即可。
+
+| # | 现在的行为 | 常量或位置 |
+| --- | --- | --- |
+| Q1 | 主办方需要注册满 7 天并且有 1 个公开 Ree；普通用户最多开 30 个名额，认证和官方用户最多 100 | `COMPETITION_HOST_MIN_AGE_DAYS`、`COMPETITION_HOST_PUBLIC_REES`、`COMPETITION_ENTRIES_MAX_NORMAL`、`COMPETITION_ENTRIES_MAX` |
+| Q2 | 没有做评测集。评审费暂定 10 | `COMPETITION_JUDGE_FEE` |
+| Q3 | 只在排行榜下方显示作答模型和评审模型，不重答 | 见 16.2 |
+| Q4 | 评审 3 次都失败就标为 `failed`，主办方在复核页手动打分，没打分记 0 分 | `COMPETITION_JUDGE_ATTEMPTS` |
+| Q5 | 押金 hold 先从 Pack 扣，再从 welcome，最后从 Plan | `placeHold({ lastingFirst: true })` |
+| Q6 | 截止时间只能提前（包括「提前截止」），不能延后 | `updateCompetition` |
+| Q7 | 管理员可以在复核期和公布后改分：写日志、重算名次，名次变了的参赛者会收到通知 | `adminSetScore`，`/admin/competitions/[id]` |
+| Q8 | 公布前不出现在「最新」「推荐」，公布后出现 | 见 16.2 |
+| Q9 | 只靠每人参赛上限和举报 | `max_entries_per_user` |
+| Q10 | 计入「答过的帖子」；rank 和角色指标排除 | 见 16.2 |
+| Q11 | 开卷闭卷都冻结在同一个截止时刻 | `lockCompetition` |
+| Q12 | 默认参赛者付费，主办方可以改成自己付 | `payer` |
+| Q13 | 审核没通过的回答照收答题费 | `publishCompetition` |
+
