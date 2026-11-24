@@ -40,7 +40,7 @@ export function AdminCompetitionsTable({ rows }: { rows: AdminCompetition[] }) {
       head={[a.columns.created, a.columns.title, a.columns.status, a.columns.entries, a.columns.reports, a.columns.changes, a.columns.actions]}
       rows={rows.map((row) => [
         formatDateTime(row.createdAt, locale),
-        <a key="t" href={`/competitions/${row.slug}`} target="_blank" rel="noreferrer" className="block max-w-[360px] whitespace-normal hover:underline">
+        <a key="t" href={`/admin/competitions/${row.id}`} className="block max-w-[360px] whitespace-normal hover:underline">
           {row.title}
           <span className="block text-[11px] text-muted">#{row.slug}</span>
         </a>,
@@ -52,6 +52,9 @@ export function AdminCompetitionsTable({ rows }: { rows: AdminCompetition[] }) {
         <span key="r" className="mono">{row.reports}</span>,
         <span key="c" className="mono">{row.bigChanges}</span>,
         <span key="act" className="flex flex-wrap gap-1">
+          <a href={`/admin/competitions/${row.id}`} className="btn ghost sm">
+            {a.open}
+          </a>
           {live(row) && (
             <button type="button" className="btn ghost sm" disabled={busy === row.id} onClick={() => void act(row, 'cancel')}>
               {a.cancel}

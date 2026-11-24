@@ -595,7 +595,7 @@ MVP 的实现顺序：表和迁移，然后是 `lib/domain/competition.ts` 的�
 - **追问**：题目帖子的 `followupBlocked` 返回 `'closed'`，追问框显示「比赛题目不能追问」；`askFollowup` 拒绝 `source = 'competition'`。**引用**：`quotable` 只放行已公布比赛的题目帖子。**圆桌总结**：只对 `AUTHORED_SOURCES` 开放，题目帖子本来就不在里面。
 - **Q10**：rank 和角色指标本来只统计 `source in ('post', 'api', 'visitor')` 的提问，比赛题目不计入。另外把 rank 和角色指标里的「有帮助 / 没帮助」计票从 `p.source <> 'test'` 改成 `p.source not in ('test', 'competition')`。
 - **悬空 hold 回收**：Ree 或账号被删时，`competition_entry` 会级联删除，答题 hold 就没人结算了。cron 每轮会把 entry 或比赛已经不存在的 `competition` hold 释放掉（`releaseOrphanHolds`）。
-- **管理后台**：`/admin/competitions` 有列表（进行中、被举报、大幅改分、全部）和「下架 / 隐藏结果 / 恢复结果」三个操作。「取消参赛资格」和管理员改分（Q7）只有接口（`/api/admin/competitions/entries/[entryId]`、`/api/admin/competitions/answers/[answerId]/score`），都写审计日志，还没有页面。
+- **管理后台**：`/admin/competitions` 有列表（进行中、被举报、大幅改分、全部）和「下架 / 隐藏结果 / 恢复结果」。`/admin/competitions/[id]` 是单场比赛的详情页：参赛名单上可以「取消资格」，回答表上可以「改分」（Q7），两者都要在确认弹窗里写原因（1–500 字）；页面下方列出全部改分记录（主办方和管理员）和这场比赛的管理记录。公布前取消资格会退回答题预扣；公布后取消资格会重算名次、隐藏它在题目帖子下的回答，名次有变动的参赛者（包括被取消的人）都会收到通知。管理员改分在复核期和公布后都可以，公布后改分同样会重算名次并通知。
 - **题目帖子页**（13.2）：顶部有比赛横幅，回答按帖子页现有的顺序排列，**不显示分数**。分数和评审理由在比赛页的排行榜和每个 Ree 的答卷页上。
 - **限流**：建草稿每天 5 次、报名每天 20 次、改分每场每分钟 60 次，都用 `hitRateBucket` 计数。路由本身沿用 `postAction` 限额，没有新增后台可调的限流项。
 
@@ -611,7 +611,7 @@ MVP 的实现顺序：表和迁移，然后是 `lib/domain/competition.ts` 的�
 | Q4 | 评审 3 次都失败就标为 `failed`，主办方在复核页手动打分，没打分记 0 分 | `COMPETITION_JUDGE_ATTEMPTS` |
 | Q5 | 押金 hold 先从 Pack 扣，再从 welcome，最后从 Plan | `placeHold({ lastingFirst: true })` |
 | Q6 | 截止时间只能提前（包括「提前截止」），不能延后 | `updateCompetition` |
-| Q7 | 管理员可以在复核期和公布后改分：写日志、重算名次，名次变了的参赛者会收到通知 | `adminSetScore`（只有接口） |
+| Q7 | 管理员可以在复核期和公布后改分：写日志、重算名次，名次变了的参赛者会收到通知 | `adminSetScore`，`/admin/competitions/[id]` |
 | Q8 | 公布前不出现在「最新」「推荐」，公布后出现 | 见 16.2 |
 | Q9 | 只靠每人参赛上限和举报 | `max_entries_per_user` |
 | Q10 | 计入「答过的帖子」；rank 和角色指标排除 | 见 16.2 |

@@ -1071,18 +1071,47 @@ export async function adminHideCompetition(administratorId: string, id: string, 
 }
 
 /**
- * 取消参赛资格: before the results, the entry's hold given back and its
- * unanswered questions dropped; after them, it leaves the ranking (the
- * ranks recomputed) and its credits stay settled. Logged.
+ * Tells the entrants whose rank changed, after the results, that it did
+ * (Q7): a score correction or a disqualification moves the others.
  */
-export async function adminDisqualify(administratorId: string, entryId: string, reason: string, now = new Date()): Promise<boolean> {
-  if (!isUuid(entryId)) return false;
+async function tellMovers(tx: Tx, row: Pick<CompetitionRow, 'id' | 'title' | 'slug'>, before: Map<string, number | null>, ranked: { entryId: string; rank: number; total: number }[]): Promise<void> {
+  for (const item of ranked) {
+    if (before.get(item.entryId) === item.rank) continue;
+    const [who] = await tx.select({ userId: entry.userId, ree: ree.name }).from(entry).innerJoin(ree, eq(ree.id, entry.reeId)).where(eq(entry.id, item.entryId)).limit(1);
+    if (who) await notify(tx, { userId: who.userId, kind: 'competition_results', params: { title: row.title, slug: row.slug, ree: who.ree, rank: item.rank, total: item.total, entries: ranked.length, corrected: 1 }, refId: row.id });
+  }
+}
+
+async function ranksOf(tx: Tx, competitionId: string): Promise<Map<string, number | null>> {
+  return new Map((await tx.select({ id: entry.id, rank: entry.rank }).from(entry).where(eq(entry.competitionId, competitionId))).map((item) => [item.id, item.rank]));
+}
+
+/** A console reason: required, as a score note is (1–500 characters). */
+function reasonOf(value: unknown): string | null {
+  const reason = typeof value === 'string' ? value.trim() : '';
+  return reason && [...reason].length <= COMPETITION_REASON_MAX ? reason : null;
+}
+
+export type DisqualifyOutcome = { ok: true } | { ok: false; error: 'not_found' | 'stale' | 'invalid_reason' };
+
+/**
+ * 取消参赛资格, with a reason: before the results, the entry's hold given
+ * back and its unanswered questions dropped; after them, it leaves the
+ * ranking (ranks recomputed, its answers hidden from the question posts),
+ * its credits stay settled, and the entrants whose rank moved -- it
+ * included -- are told. Not on a cancelled or refused competition. Logged.
+ */
+export async function adminDisqualify(administratorId: string, entryId: string, input: unknown, now = new Date()): Promise<DisqualifyOutcome> {
+  if (!isUuid(entryId)) return { ok: false, error: 'not_found' };
+  const reason = reasonOf(input);
+  if (!reason) return { ok: false, error: 'invalid_reason' };
   return db().transaction(async (tx) => {
-    const [item] = await tx.select().from(entry).where(and(eq(entry.id, entryId), inArray(entry.status, ['entered', 'locked']))).for('update');
-    if (!item) return false;
+    const [item] = await tx.select().from(entry).where(eq(entry.id, entryId)).for('update');
+    if (!item) return { ok: false as const, error: 'not_found' as const };
     const [row] = await tx.select().from(comp).where(eq(comp.id, item.competitionId)).for('update');
-    if (!row) return false;
-    await tx.update(entry).set({ status: 'disqualified', disqualifiedReason: reason.slice(0, COMPETITION_REASON_MAX) || 'admin', rank: null, totalScore: null }).where(eq(entry.id, entryId));
+    if (!row || !['entered', 'locked'].includes(item.status) || ['cancelled', 'rejected'].includes(row.status)) return { ok: false as const, error: 'stale' as const };
+    const before = row.status === 'published' ? await ranksOf(tx, row.id) : new Map<string, number | null>();
+    await tx.update(entry).set({ status: 'disqualified', disqualifiedReason: reason, rank: null, totalScore: null }).where(eq(entry.id, entryId));
     if (row.status === 'open' && item.status === 'entered') await tx.update(comp).set({ entryCount: sql`greatest(${comp.entryCount} - 1, 0)` }).where(eq(comp.id, row.id));
     if (row.status !== 'published') {
       if (item.holdId) await releaseHold(tx, item.holdId, { note: NOTE, ledger: 'competition_answer', reeId: item.reeId }, now);
@@ -1090,41 +1119,113 @@ export async function adminDisqualify(administratorId: string, entryId: string, 
       await tx.update(answer).set({ state: 'failed', judgeState: null, review: null }).where(and(eq(answer.entryId, entryId), inArray(answer.state, ['queued', 'answering'])));
       await tx.update(answer).set({ judgeState: null }).where(and(eq(answer.entryId, entryId), inArray(answer.judgeState, ['pending', 'running'])));
     } else {
-      await writeTotals(tx, row.id);
+      const ranked = await writeTotals(tx, row.id);
       await tx.update(postAnswer).set({ hiddenBy: 'admin' }).where(sql`${postAnswer.id} in (select ${answer.postAnswerId} from ${answer} where ${answer.entryId} = ${entryId})`);
+      await tx.update(post).set({ answerCount: sql`(select count(*)::int from ${postAnswer} a where a.post_id = ${post.id} and a.followup_id is null and a.state = 'answered' and a.hidden_by is null)` }).where(sql`${post.id} in (select ${question.postId} from ${question} where ${question.competitionId} = ${row.id})`);
+      await tellMovers(tx, row, before, ranked);
+      const [who] = await tx.select({ ree: ree.name }).from(ree).where(eq(ree.id, item.reeId)).limit(1);
+      await notify(tx, { userId: item.userId, kind: 'competition_results', params: { title: row.title, slug: row.slug, ree: who?.ree ?? '', rank: null, total: null, entries: ranked.length, corrected: 1 }, refId: row.id });
     }
-    await audit(tx, { administratorId, action: 'competition.disqualify', target: entryId, before: { competition: row.id, status: item.status } });
-    return true;
+    await audit(tx, { administratorId, action: 'competition.disqualify', target: entryId, before: { competition: row.id, status: item.status, rank: item.rank }, after: { reason } });
+    return { ok: true as const };
   });
 }
 
 /**
  * Q7: an administrator's score correction, in review or after the
- * results: logged, totals and ranks recomputed; after the results the
- * entrants whose rank moved are told again.
+ * results: logged with its reason, totals and ranks recomputed; after the
+ * results the entrants whose rank moved are told again.
  */
 export async function adminSetScore(administratorId: string, answerId: string, input: { score: unknown; note: unknown }, now = new Date()): Promise<ScoreOutcome> {
   if (!isUuid(answerId)) return { ok: false, error: 'not_found' };
   const checked = checkScore(input.score, input.note);
   if (typeof checked === 'string') return { ok: false, error: checked };
   return db().transaction(async (tx) => {
-    const [target] = await tx.select({ answer, status: comp.status, title: comp.title, slug: comp.slug }).from(answer).innerJoin(comp, eq(comp.id, answer.competitionId)).where(eq(answer.id, answerId)).for('update', { of: answer });
+    const [target] = await tx.select({ answer, status: comp.status, title: comp.title, slug: comp.slug, entryStatus: entry.status }).from(answer).innerJoin(comp, eq(comp.id, answer.competitionId)).innerJoin(entry, eq(entry.id, answer.entryId)).where(eq(answer.id, answerId)).for('update', { of: answer });
     if (!target) return { ok: false as const, error: 'not_found' as const };
-    if (target.status !== 'review' && target.status !== 'published') return { ok: false as const, error: 'locked' as const };
+    if ((target.status !== 'review' && target.status !== 'published') || target.entryStatus !== 'locked') return { ok: false as const, error: 'locked' as const };
     if (target.answer.state !== 'answered' || target.answer.review === 'rejected') return { ok: false as const, error: 'not_answered' as const };
+    const before = target.status === 'published' ? await ranksOf(tx, target.answer.competitionId) : new Map<string, number | null>();
     await writeScore(tx, answerId, 'admin', administratorId, checked.score, checked.note, now, target.answer.hostScore ?? target.answer.aiScore);
-    await audit(tx, { administratorId, action: 'competition.score', target: answerId, before: { ai: target.answer.aiScore, host: target.answer.hostScore }, after: { score: checked.score } });
-    if (target.status === 'published') {
-      const before = new Map((await tx.select({ id: entry.id, rank: entry.rank }).from(entry).where(eq(entry.competitionId, target.answer.competitionId))).map((item) => [item.id, item.rank]));
-      const ranked = await writeTotals(tx, target.answer.competitionId);
-      const moved = ranked.filter((item) => before.get(item.entryId) !== item.rank);
-      for (const item of moved) {
-        const [who] = await tx.select({ userId: entry.userId, ree: ree.name }).from(entry).innerJoin(ree, eq(ree.id, entry.reeId)).where(eq(entry.id, item.entryId)).limit(1);
-        if (who) await notify(tx, { userId: who.userId, kind: 'competition_results', params: { title: target.title, slug: target.slug, ree: who.ree, rank: item.rank, total: item.total, entries: ranked.length, corrected: 1 }, refId: target.answer.competitionId });
-      }
-    }
+    await audit(tx, { administratorId, action: 'competition.score', target: answerId, before: { ai: target.answer.aiScore, host: target.answer.hostScore }, after: { score: checked.score, note: checked.note } });
+    if (target.status === 'published') await tellMovers(tx, { id: target.answer.competitionId, title: target.title, slug: target.slug }, before, await writeTotals(tx, target.answer.competitionId));
     return { ok: true as const, score: checked.score };
   });
+}
+
+/* --------------------------------------------------------- console detail */
+
+export interface AdminCompetitionDetail {
+  competition: AdminCompetition & { reviewEndsAt: string | null; channel: string | null; weights: CompetitionWeights; payer: CompetitionPayer };
+  entries: { id: string; reeId: string; reeName: string; ownerId: string; ownerName: string | null; status: EntryStatus; rank: number | null; total: number | null; answered: number; reason: string | null; createdAt: string }[];
+  answers: { id: string; entryId: string; reeName: string; entryStatus: EntryStatus; ordinal: number; question: string; state: string; review: string | null; judgeState: string | null; aiScore: number | null; hostScore: number | null; finalScore: number | null; excerpt: string }[];
+  scoreLog: { id: string; answerId: string; reeName: string; ordinal: number; actor: 'host' | 'admin'; actorName: string | null; from: number | null; to: number; note: string; at: string }[];
+  audit: { id: string; action: string; target: string | null; administrator: string | null; createdAt: Date }[];
+  /** What the console may do now: score changes in review or after the results; disqualifying before a cancel or refusal. */
+  canScore: boolean;
+  canDisqualify: boolean;
+}
+
+/** `/admin/competitions/[id]`: the entries, every answer's scores, every score change and the console's actions on it. */
+export async function adminCompetitionDetail(id: string): Promise<AdminCompetitionDetail | null> {
+  if (!isUuid(id)) return null;
+  const [found] = await db().select({ ...cardColumns, bigChanges }).from(comp).innerJoin(user, eq(user.id, comp.hostId)).where(eq(comp.id, id)).limit(1);
+  if (!found) return null;
+  const row = found.row;
+  const entries = await db()
+    .select({ entry, reeName: ree.name, ownerName: user.name })
+    .from(entry)
+    .innerJoin(ree, eq(ree.id, entry.reeId))
+    .innerJoin(user, eq(user.id, entry.userId))
+    .where(eq(entry.competitionId, id))
+    .orderBy(sql`${entry.rank} asc nulls last`, asc(entry.createdAt));
+  const answers = await db()
+    .select({ answer, reeName: ree.name, entryStatus: entry.status, ordinal: question.ordinal, question: question.question })
+    .from(answer)
+    .innerJoin(question, eq(question.id, answer.questionId))
+    .innerJoin(entry, eq(entry.id, answer.entryId))
+    .innerJoin(ree, eq(ree.id, answer.reeId))
+    .where(eq(answer.competitionId, id))
+    .orderBy(asc(question.ordinal), asc(ree.name));
+  const answerIds = answers.map((item) => item.answer.id);
+  const logs = answerIds.length
+    ? await db()
+        .select({ log: scoreLog, adminName: schema.administrator.name, hostName: user.name })
+        .from(scoreLog)
+        .leftJoin(schema.administrator, and(eq(scoreLog.actor, 'admin'), sql`${schema.administrator.id} = ${scoreLog.actorId}`))
+        .leftJoin(user, and(eq(scoreLog.actor, 'host'), sql`${user.id} = ${scoreLog.actorId}`))
+        .where(inArray(scoreLog.answerId, answerIds))
+        .orderBy(desc(scoreLog.createdAt))
+    : [];
+  const byAnswer = new Map(answers.map((item) => [item.answer.id, item]));
+  const targets = [id, ...entries.map((item) => item.entry.id), ...answerIds];
+  const audits = await db()
+    .select({ audit: schema.adminAudit, administrator: schema.administrator.email })
+    .from(schema.adminAudit)
+    .leftJoin(schema.administrator, eq(schema.administrator.id, schema.adminAudit.administratorId))
+    .where(and(sql`${schema.adminAudit.action} like 'competition.%'`, inArray(schema.adminAudit.target, targets)))
+    .orderBy(desc(schema.adminAudit.createdAt))
+    .limit(200);
+  return {
+    competition: {
+      ...cardOf(row, found.hostName, found.questions),
+      hostId: row.hostId,
+      reports: row.reportCount,
+      bigChanges: found.bigChanges,
+      hidden: Boolean(row.hiddenBy),
+      createdAt: row.createdAt.toISOString(),
+      reviewEndsAt: row.reviewEndsAt?.toISOString() ?? null,
+      channel: row.channelId ? row.slug : null,
+      weights: row.weights,
+      payer: row.payer,
+    },
+    entries: entries.map(({ entry: item, reeName, ownerName }) => ({ id: item.id, reeId: item.reeId, reeName, ownerId: item.userId, ownerName, status: item.status, rank: item.rank, total: item.totalScore, answered: item.answered, reason: item.disqualifiedReason, createdAt: item.createdAt.toISOString() })),
+    answers: answers.map(({ answer: a, reeName, entryStatus, ordinal, question: asked }) => ({ id: a.id, entryId: a.entryId, reeName, entryStatus, ordinal, question: asked, state: a.state, review: a.review, judgeState: a.judgeState, aiScore: a.aiScore, hostScore: a.hostScore, finalScore: a.finalScore, excerpt: a.text.slice(0, 280) })),
+    scoreLog: logs.map(({ log, adminName, hostName }) => ({ id: log.id, answerId: log.answerId, reeName: byAnswer.get(log.answerId)?.reeName ?? '', ordinal: byAnswer.get(log.answerId)?.ordinal ?? 0, actor: log.actor, actorName: log.actor === 'admin' ? adminName : hostName, from: log.fromScore, to: log.toScore, note: log.note, at: log.createdAt.toISOString() })),
+    audit: audits.map(({ audit: item, administrator }) => ({ id: item.id, action: item.action, target: item.target, administrator, createdAt: item.createdAt })),
+    canScore: row.status === 'review' || row.status === 'published',
+    canDisqualify: !['draft', 'pending', 'cancelled', 'rejected'].includes(row.status),
+  };
 }
 
 /* ------------------------------------------------------------- 试评 */
