@@ -26,7 +26,7 @@ const base: PostView = {
   author: { kind: 'user', name: 'Lin', avatar: null, mine: false }, status: 'published', answerState: 'done', answered: 2, candidates: 6, skipped: 0,
   helpful: 4, voted: false, saved: false, createdAt: '2026-11-20T00:00:00.000Z',
   answers: [answer('1', '个税顾问'), answer('2', '社保公积金')],
-  summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, images: [], paidRequests: [], spent: null, aiAnswer: null, followupCount: 0, followups: [],
+  summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, images: [], channels: [], paidRequests: [], spent: null, aiAnswer: null, followupCount: 0, followups: [],
   followupCandidates: [candidate('1', '个税顾问', 20), candidate('2', '社保公积金', 50)], followupBlocked: null, followupAiOnly: false, deleted: false,
 };
 const privatePost: PostView = {

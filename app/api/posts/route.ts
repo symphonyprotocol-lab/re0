@@ -7,13 +7,13 @@ import { listFeed, processPost, publishPost } from '@/lib/services/posts';
 
 export const maxDuration = 300;
 
-/** `GET ?tab=for_you|latest|unanswered&cursor=&q=` → `{items, next}`: one page of the public posts feed, anyone; `?quotes=<id>`: the visible posts quoting that one. */
+/** `GET ?tab=for_you|latest|unanswered&cursor=&q=` → `{items, next}`: one page of the public posts feed, anyone; `?quotes=<id>`: the visible posts quoting that one; `?channel=<name>`: the visible posts in that channel (`#name`). */
 export async function GET(request: NextRequest) {
   const viewer = await currentUser();
   const limited = await rateLimited('browse', { userId: viewer?.id ?? null, headers: request.headers });
   if (limited) return limited;
   const params = request.nextUrl.searchParams;
-  return json(await listFeed(feedTabOf(params.get('tab')), { cursor: params.get('cursor'), q: params.get('q')?.slice(0, 200), quotesOf: params.get('quotes'), viewerId: viewer?.id }));
+  return json(await listFeed(feedTabOf(params.get('tab')), { cursor: params.get('cursor'), q: params.get('q')?.slice(0, 200), quotesOf: params.get('quotes'), channel: params.get('channel')?.slice(0, 64), viewerId: viewer?.id }));
 }
 
 /**

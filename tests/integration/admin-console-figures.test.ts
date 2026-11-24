@@ -17,6 +17,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import type { ProcessDeps } from '@/lib/services/posts';
+import { VISITOR_ASK_PLATFORM_DAILY } from '@/lib/domain/visitor-ask';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
@@ -237,6 +238,7 @@ describeWithDb('console rate limits', () => {
       { key: 'followupsPerDay', value: FOLLOWUP_DAILY_LIMIT, defaultValue: FOLLOWUP_DAILY_LIMIT, per: 'day', overridden: false },
       { key: 'followupsPerPostPerDay', value: FOLLOWUP_POST_DAILY_LIMIT, defaultValue: FOLLOWUP_POST_DAILY_LIMIT, per: 'day', overridden: false },
       { key: 'exploreQuestions', value: EXPLORE_RATE_LIMIT.perUser, defaultValue: EXPLORE_RATE_LIMIT.perUser, per: 'minute', overridden: false },
+      { key: 'visitorAsksPerDay', value: VISITOR_ASK_PLATFORM_DAILY, defaultValue: VISITOR_ASK_PLATFORM_DAILY, per: 'day', overridden: false },
     ]);
   });
 

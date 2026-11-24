@@ -14,6 +14,7 @@ import { AiPreview } from '@/components/posts/ai-answer';
 import './posts.css';
 import { Pending } from '@/components/posts/pending';
 import { PostImageThumb } from '@/components/posts/post-images';
+import { ChannelChips } from '@/components/posts/hashtags';
 
 export function authorName(t: Messages, author: PostAuthor): string {
   const c = t.posts.card;
@@ -221,6 +222,7 @@ export function PostCard({ post: initial, now, signedIn, footer }: { post: PostV
         <p className="post-question">
           <Link href={href}>{(isPrivate && post.title) || post.question}</Link>
         </p>
+        <ChannelChips channels={post.channels} label={(name) => fill(t.posts.channels.label, { name })} />
         <PostImageThumb images={post.images} />
         {post.quote && (
           <div className="post-quote-slot">

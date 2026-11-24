@@ -27,7 +27,7 @@ import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 export { InsufficientCredits } from '@/lib/domain/credits';
 
 /* `chat` holds (the conversations' questions): nothing places one since migration 0070; `releaseLegacyChatHolds` gives back any the release left open. */
-type HoldKind = 'knowledge' | 'video' | 'payout' | 'post' | 'deduction';
+type HoldKind = 'knowledge' | 'video' | 'payout' | 'post' | 'deduction' | 'competition';
 
 /**
  * The reasons each hold kind writes when it is taken, settled and released.
@@ -36,7 +36,7 @@ type HoldKind = 'knowledge' | 'video' | 'payout' | 'post' | 'deduction';
  * first wrote it), so the ledger shows the two as `query_base` and
  * `query_fee_paid` (2.3).
  */
-const REASONS: Record<'knowledge' | 'chat' | 'chat_fee' | 'chat_verify' | 'chat_synthesis' | 'payout' | 'deduction' | 'post' | 'post_summary' | 'post_answer' | 'ai_answer' | VideoLedger, { hold: CreditEntryReason; settle: CreditEntryReason; release: CreditEntryReason }> = {
+const REASONS: Record<'knowledge' | 'chat' | 'chat_fee' | 'chat_verify' | 'chat_synthesis' | 'payout' | 'deduction' | 'post' | 'post_summary' | 'post_answer' | 'ai_answer' | CompetitionLedger | VideoLedger, { hold: CreditEntryReason; settle: CreditEntryReason; release: CreditEntryReason }> = {
   /* The conversations' own holds: only ever released now, by `releaseLegacyChatHolds`. */
   chat: { hold: 'query_hold', settle: 'query_base', release: 'query_refund' },
   chat_verify: { hold: 'verify_hold', settle: 'verify_settle', release: 'verify_refund' },
@@ -55,6 +55,12 @@ const REASONS: Record<'knowledge' | 'chat' | 'chat_fee' | 'chat_verify' | 'chat_
   payout: { hold: 'payout_hold', settle: 'payout_paid', release: 'payout_release' },
   /* Earned credits paying for a Plan or Pack: held with the checkout, paid when the purchase is credited, released if it never is. */
   deduction: { hold: 'deduction_hold', settle: 'deduction_paid', release: 'deduction_release' },
+  /* Ree 比赛 (docs/design/competitions.md 9.2): the host's deposit, submitting → deadline; always released (the real holds replace it). */
+  competition_deposit: { hold: 'competition_deposit_hold', settle: 'competition_deposit_settle', release: 'competition_deposit_release' },
+  /* An entry's answers: written like a post answer's base fee, so each answered question counts as one to that Ree (`query_base`). */
+  competition_answer: { hold: 'query_hold', settle: 'query_base', release: 'query_refund' },
+  /* The judge's fee (and a draft's 试评), the host's, to the platform. */
+  competition_judge: { hold: 'judge_hold', settle: 'judge_settle', release: 'judge_refund' },
   /* Step 7: a `video` hold is a script or an export; both are given back as `video_refund`. */
   video_script: { hold: 'video_script', settle: 'video_script', release: 'video_refund' },
   video_export: { hold: 'video_export', settle: 'video_export', release: 'video_refund' },
@@ -63,7 +69,9 @@ const REASONS: Record<'knowledge' | 'chat' | 'chat_fee' | 'chat_verify' | 'chat_
 type Ledger = keyof typeof REASONS;
 /** Which ledger a `video` hold writes; every video hold, settlement and release names one. */
 type VideoLedger = 'video_script' | 'video_export';
-type SubLedger = 'chat_fee' | 'post_summary' | 'post_answer' | 'ai_answer' | VideoLedger;
+/** Which ledger a `competition` hold writes; every one names one. */
+type CompetitionLedger = 'competition_deposit' | 'competition_answer' | 'competition_judge';
+type SubLedger = 'chat_fee' | 'post_summary' | 'post_answer' | 'ai_answer' | CompetitionLedger | VideoLedger;
 
 function reasonsFor(kind: string, ledger?: SubLedger) {
   return REASONS[(ledger ?? kind) as Ledger];
@@ -363,6 +371,12 @@ export interface HoldInput {
   withdrawableOnly?: boolean;
   /** Only earned grants a payout could draw on may pay (a Plan or Pack deduction, review B1). */
   deductibleOnly?: boolean;
+  /**
+   * Spend what lasts first -- Pack, then welcome, then the Plan -- for a long
+   * hold that is always given back (a competition's deposit, Q5): released
+   * into a Plan grant that expired meanwhile, credits would be written off.
+   */
+  lastingFirst?: boolean;
 }
 
 /**
@@ -375,7 +389,7 @@ export async function placeHold(tx: Tx, input: HoldInput, now = new Date()): Pro
   const grants = (await grantsOf(tx, input.userId, true)).filter(
     (grant) => (!input.withdrawableOnly || isWithdrawable(grant, now)) && (!input.deductibleOnly || isDeductible(grant, now)),
   );
-  const allocations = allocate(grants, input.amount, now, sources);
+  const allocations = allocate(grants, input.amount, now, sources, input.lastingFirst ? LASTING_FIRST : undefined);
   await moveGrants(tx, allocations, -1);
   const [hold] = await tx
     .insert(schema.creditHold)
@@ -402,6 +416,9 @@ export async function placeHold(tx: Tx, input: HoldInput, now = new Date()): Pro
   });
   return hold!.id;
 }
+
+/** `lastingFirst`'s order: Pack never expires, welcome credits rarely, a Plan's at its period's end. */
+const LASTING_FIRST = ['pack', 'welcome', 'plan', 'earned'] as const satisfies readonly GrantSource[];
 
 async function openHold(tx: Tx, holdId: string) {
   const [hold] = await tx

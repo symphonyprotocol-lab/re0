@@ -1384,6 +1384,70 @@ a.post-quote:hover {
 .ask-chip {
   padding: 3px 10px 3px 8px;
 }
+/* 免登录提问 (visitor-ask.tsx): a signed-out visitor's question on a share page, and what became of the ones they asked. */
+.visitor-ask-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.visitor-ask textarea:disabled {
+  opacity: 0.6;
+}
+.visitor-asked {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-line);
+}
+.visitor-asked h3 {
+  margin-bottom: 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.visitor-asked ul {
+  display: grid;
+  gap: 10px;
+}
+.visitor-asked-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--color-wash);
+}
+.visitor-asked-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.visitor-asked-question {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.visitor-asked-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.visitor-asked-item.is-answered .visitor-asked-state {
+  color: var(--color-blue);
+}
+.visitor-asked-answer {
+  margin: 6px 0 4px;
+  color: var(--color-ink);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
 /* A share page's and a Ree page's answered posts: the cards run to the edges of their column. */
 .ree-post-feed .post-card {
   padding-left: 0;
@@ -1776,4 +1840,122 @@ a.post-quote:hover {
   color: #fff;
   font-size: 10px;
   line-height: 16px;
+}
+
+/* ------------------------------------------------------------- channels */
+
+/* A post's `#tags` in its text (HashtagText), and a card's channels under its question (ChannelChips). */
+.post-hashtag {
+  color: var(--color-blue);
+  font-weight: inherit;
+}
+.post-hashtag:hover {
+  text-decoration: underline;
+}
+.post-channels {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+.post-channels a {
+  color: var(--color-blue);
+}
+.post-channels a:hover {
+  text-decoration: underline;
+}
+
+/* 首页's 频道 tab. */
+.channel-tab {
+  padding: 12px 0 0;
+}
+.channel-search {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  margin: 0 18px;
+  padding: 0 12px;
+  border: 1px solid #dfe4ef;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #8a94ae;
+  font-size: 13px;
+}
+.channel-search:focus-within {
+  border-color: var(--color-blue);
+}
+.channel-search input {
+  color: var(--color-ink);
+}
+.channel-hint {
+  margin: 10px 18px 2px;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.channel-list {
+  margin: 8px 0 0;
+  padding: 0 18px;
+  list-style: none;
+}
+.channel-list li + li {
+  border-top: 1px solid var(--color-line);
+}
+.channel-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 2px;
+}
+.channel-row strong {
+  display: block;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 14.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.channel-row small {
+  display: block;
+  margin-top: 1px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.channel-row:hover strong {
+  color: var(--color-blue);
+}
+.channel-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: var(--color-soft);
+  color: var(--color-blue);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+/* One channel's page (/c/[name]): its name, count and the way to post in it, above its feed. */
+.channel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 16px 18px 6px;
+}
+.channel-head p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
 }

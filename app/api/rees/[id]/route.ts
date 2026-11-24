@@ -1,5 +1,6 @@
 import { closeUnavailableRequests } from '@/lib/services/posts';
 import { after, type NextRequest } from 'next/server';
+import { parseVisitorAskSettings } from '@/lib/domain/visitor-ask';
 import { body, fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
@@ -22,6 +23,9 @@ export async function PATCH(request: NextRequest, context: Context) {
   const input = await body(request);
   const coverBlob = input.coverBlob;
   if (coverBlob !== undefined && coverBlob !== null && typeof coverBlob !== 'string') return fail('invalid_cover', 422);
+  /* Visitor asks on the share page (lib/domain/visitor-ask.ts): left as they are when not sent. */
+  const visitorAskSettings = input.visitorAskSettings === undefined ? undefined : parseVisitorAskSettings(input.visitorAskSettings);
+  if (typeof visitorAskSettings === 'string') return fail(visitorAskSettings, 422);
   try {
     const ree = await updateRee(user.id, (await context.params).id, {
       name: String(input.name ?? ''),
@@ -37,6 +41,7 @@ export async function PATCH(request: NextRequest, context: Context) {
       coverBlob,
       publicQaEnabled: typeof input.publicQaEnabled === 'boolean' ? input.publicQaEnabled : undefined,
       answersPosts: typeof input.answersPosts === 'boolean' ? input.answersPosts : undefined,
+      visitorAskSettings,
     });
     /* What the profile is made of may have changed: a public Ree's is rebuilt, free (2.4). */
     if (ree?.isPublished) after(() => refreshProfile(ree.id).catch(() => undefined));

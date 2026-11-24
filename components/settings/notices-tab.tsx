@@ -28,7 +28,7 @@ const ROLES = ['normal', 'verified', 'official'] as const;
 const roleName = (t: Messages, value: unknown) => ((ROLES as readonly unknown[]).includes(value) ? t.roles.roles[value as (typeof ROLES)[number]] : String(value ?? ''));
 
 /** One notice in the reader's language, from its kind and params; the administrator's words follow it. */
-function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: string; icon: IconName; href: string | null; action: string | null; reason: string | null } {
+function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: string; icon: IconName; href: string | null; action: string | null; reason: string | null; more?: { href: string; action: string } } {
   const l = t.notices.lines;
   const o = t.notices.open;
   const p = notice.params;
@@ -138,6 +138,41 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
         action: o.post,
         reason: null,
       };
+    case 'visitor_ask_paused':
+      /* Visitors could not ask the reader's Ree on its share page today: the balance cannot cover one answer's base fee (once a day per Ree). */
+      return {
+        line: fill(l.visitorAskPaused, { ree: String(p.ree ?? ''), fee: formatNumber(Number(p.fee) || 0, locale) }),
+        icon: 'layers',
+        href: '/settings?tab=balance',
+        action: o.topUp,
+        reason: null,
+        more: reeId ? { href: `/rees/${reeId}/settings#visitor-asks`, action: o.visitorAsks } : undefined,
+      };
+    case 'competition_published':
+      /* Ree 比赛: the host hears how the review of their competition went. */
+      return { line: fill(Number(p.ok) ? l.competitionOpen : l.competitionRejected, { title: String(p.title ?? '') }), icon: 'sparkle', href: p.slug ? `/competitions/${String(p.slug)}` : null, action: o.competition, reason: null };
+    case 'competition_balance_short':
+      /* An entrant who pays: short a day before the deadline, or left out at it (`skipped`). */
+      return {
+        line: fill(Number(p.skipped) ? l.competitionSkipped : l.competitionShort, { title: String(p.title ?? ''), needed: formatNumber(Number(p.needed) || 0, locale) }),
+        icon: 'layers',
+        href: Number(p.skipped) && p.slug ? `/competitions/${String(p.slug)}` : '/settings?tab=balance',
+        action: Number(p.skipped) ? o.competition : o.topUp,
+        reason: null,
+      };
+    case 'competition_review_ready':
+      return { line: fill(l.competitionReview, { title: String(p.title ?? ''), until: p.until ? formatDateTime(String(p.until), locale) : '' }), icon: 'sparkle', href: notice.refId ? `/workspace/competitions/${notice.refId}` : null, action: o.competition, reason: null };
+    case 'competition_results': {
+      const ranked = p.rank !== null && p.rank !== undefined;
+      const line = !ranked ? l.competitionResultsNone : Number(p.corrected) ? l.competitionCorrected : l.competitionResults;
+      return {
+        line: fill(line, { title: String(p.title ?? ''), ree: String(p.ree ?? ''), rank: formatNumber(Number(p.rank) || 0, locale), n: formatNumber(Number(p.entries) || 0, locale), total: String(p.total ?? 0) }),
+        icon: 'sparkle',
+        href: p.slug ? `/competitions/${String(p.slug)}` : null,
+        action: o.competition,
+        reason: null,
+      };
+    }
     case 'chats_removal':
       /* Once, by migration 0067: private conversations became private posts, and the old ones go a week later. */
       return { line: l.chatsRemoval, icon: 'info', href: '/me/posts?tab=private', action: o.privatePosts, reason: null };
@@ -231,6 +266,12 @@ export function NoticesTab({ items, total, page, size, unread }: { items: Notice
                     {notice.href && notice.action && (
                       <Link href={notice.href} className="text-link">
                         {notice.action}
+                        <I name="arrow" />
+                      </Link>
+                    )}
+                    {notice.more && (
+                      <Link href={notice.more.href} className="text-link">
+                        {notice.more.action}
                         <I name="arrow" />
                       </Link>
                     )}

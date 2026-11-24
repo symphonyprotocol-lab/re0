@@ -13,6 +13,7 @@ import { asc, eq, sql } from 'drizzle-orm';
 import { EXPLORE_RATE_LIMIT, RATE_LIMIT_EXEMPT_DEFAULT, USER_RATE_LIMITS } from '@/lib/constants';
 import { FOLLOWUP_DAILY_LIMIT, FOLLOWUP_POST_DAILY_LIMIT, POST_DAILY_LIMIT } from '@/lib/domain/post';
 import { isUuid } from '@/lib/domain/list';
+import { VISITOR_ASK_PLATFORM_DAILY } from '@/lib/domain/visitor-ask';
 import { db, schema } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
 
@@ -80,7 +81,7 @@ function knownLimits(values: readonly string[]): RateLimitName[] {
   return RATE_LIMIT_NAMES.filter((name) => values.includes(name));
 }
 
-export const CEILING_KEYS = ['postsPerDay', 'followupsPerDay', 'followupsPerPostPerDay', 'exploreQuestions'] as const;
+export const CEILING_KEYS = ['postsPerDay', 'followupsPerDay', 'followupsPerPostPerDay', 'exploreQuestions', 'visitorAsksPerDay'] as const;
 export type CeilingKey = (typeof CEILING_KEYS)[number];
 /** Bounds of a ceiling's value, as `limit_ceiling_setting`'s check holds them. */
 export const CEILING_VALUE_BOUNDS = { min: 1, max: 100_000 } as const;
@@ -90,7 +91,8 @@ export const CEILING_VALUE_BOUNDS = { min: 1, max: 100_000 } as const;
  * itself: posts a day (public and private together,
  * not 试问 or MCP asks; posts.ts and private-posts.ts), follow-ups a day and
  * per post a day (post-followups.ts), and Explore's questions a minute per
- * account and per client address (explore.ts). A day starts at
+ * account and per client address (explore.ts), and share-page visitor
+ * questions a day over all Rees (visitor-asks.ts). A day starts at
  * 00:00 UTC (`postDayStart`). The code values are the defaults; the console
  * stores others in `limit_ceiling_setting`. An exemption from `post` lifts
  * the three daily ones (`CEILING_EXEMPTED_BY`).
@@ -100,6 +102,7 @@ export const CEILING_DEFAULTS: Record<CeilingKey, { value: number; per: 'day' | 
   followupsPerDay: { value: FOLLOWUP_DAILY_LIMIT, per: 'day' },
   followupsPerPostPerDay: { value: FOLLOWUP_POST_DAILY_LIMIT, per: 'day' },
   exploreQuestions: { value: EXPLORE_RATE_LIMIT.perUser, per: 'minute' },
+  visitorAsksPerDay: { value: VISITOR_ASK_PLATFORM_DAILY, per: 'day' },
 };
 
 export interface CeilingRow {
@@ -201,6 +204,7 @@ export const CEILING_EXEMPTED_BY: Record<CeilingKey, RateLimitName | null> = {
   followupsPerDay: 'post',
   followupsPerPostPerDay: 'post',
   exploreQuestions: null,
+  visitorAsksPerDay: null,
 };
 
 /** A ceiling's value now: the console's, else the code default. */

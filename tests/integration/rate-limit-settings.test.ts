@@ -340,7 +340,7 @@ suite('console rate limits and exemptions', () => {
     await addRateLimitExemption(administratorId, { userId: id, limits: Object.keys(USER_RATE_LIMITS) });
     expect(await ceilingFor('exploreQuestions', id)).toBe(EXPLORE_RATE_LIMIT.perUser);
     expect((await listCeilings()).map((row) => [row.key, row.exemptedBy])).toEqual([
-      ['postsPerDay', 'post'], ['followupsPerDay', 'post'], ['followupsPerPostPerDay', 'post'], ['exploreQuestions', null],
+      ['postsPerDay', 'post'], ['followupsPerDay', 'post'], ['followupsPerPostPerDay', 'post'], ['exploreQuestions', null], ['visitorAsksPerDay', null],
     ]);
   });
 

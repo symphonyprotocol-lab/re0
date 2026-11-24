@@ -27,7 +27,7 @@ import type { VerificationsView } from '@/lib/domain/admin-lists';
 import { db, schema, type Executor } from '@/lib/infra/db';
 import { AdminInputError, audit } from '@/lib/services/admin';
 import { notify } from '@/lib/services/notices';
-import { ASKED, askedByOthers } from '@/lib/services/ree-counts';
+import { ASKED, askedByPayingOthers } from '@/lib/services/ree-counts';
 
 export type VerificationRow = typeof schema.verificationRequest.$inferSelect;
 
@@ -60,7 +60,8 @@ export async function roleMetrics(executor: Executor, userId: string, now = new 
    * Other people's questions (answered or not) and votes: the conversations'
    * frozen figures of the counted Rees (`ree_legacy_stats`, per Ree, so a Ree
    * going private still takes its share out) plus the same from posts
-   * (ree-counts.ts).
+   * (ree-counts.ts `askedByPayingOthers`): without share-page visitor
+   * questions, which their owner pays for, so a role cannot be bought.
    */
   const result = await executor.execute(sql`
     select
@@ -69,13 +70,13 @@ export async function roleMetrics(executor: Executor, userId: string, now = new 
         where k.ree_id in (${rees}) and k.deleted_at is null and k.status = 'ready') as ready_sources,
       (select coalesce(sum(ls.questions_by_others), 0)::int from ${schema.reeLegacyStats} ls where ls.ree_id in (${rees}))
         + (select count(*)::int from ${schema.postAnswer} a join ${schema.post} p on p.id = a.post_id
-          where a.ree_id in (${rees}) and ${ASKED} and ${askedByOthers(owner)}) as external_questions,
+          where a.ree_id in (${rees}) and ${ASKED} and ${askedByPayingOthers(owner)}) as external_questions,
       (select coalesce(sum(ls.helpful), 0)::int from ${schema.reeLegacyStats} ls where ls.ree_id in (${rees}))
         + (select count(*)::int from ${schema.postAnswerVote} v join ${schema.postAnswer} a on a.id = v.answer_id join ${schema.post} p on p.id = a.post_id
-          where a.ree_id in (${rees}) and v.user_id <> ${owner} and p.source <> 'test') as helpful,
+          where a.ree_id in (${rees}) and v.user_id <> ${owner} and p.source not in ('test', 'competition')) as helpful,
       (select coalesce(sum(ls.unhelpful), 0)::int from ${schema.reeLegacyStats} ls where ls.ree_id in (${rees}))
         + (select count(*)::int from ${schema.postAnswerFeedback} v join ${schema.postAnswer} a on a.id = v.answer_id join ${schema.post} p on p.id = a.post_id
-          where a.ree_id in (${rees}) and v.user_id <> ${owner} and p.source <> 'test') as unhelpful`);
+          where a.ree_id in (${rees}) and v.user_id <> ${owner} and p.source not in ('test', 'competition')) as unhelpful`);
   const row = result.rows[0] as { public_rees: number; ready_sources: number; external_questions: number; helpful: number; unhelpful: number };
   const helpful = Number(row.helpful);
   const unhelpful = Number(row.unhelpful);

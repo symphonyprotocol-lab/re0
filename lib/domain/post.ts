@@ -69,9 +69,13 @@ export const POST_WAITING_STALE_MS = 2 * 60_000;
 
 /**
  * `test`: a Ree owner's 试问 to their own Ree; `api`: a question asked through
- * the MCP server. Both are always private posts.
+ * the MCP server. Both are always private posts. `visitor`: a signed-out
+ * visitor's question on a share page, paid for by the Ree's owner
+ * (lib/domain/visitor-ask.ts); always public. `competition`: one question of a
+ * Ree competition (docs/design/competitions.md), written by the server under
+ * its host and channel, never matched or answered by the posts' pipeline.
  */
-export const POST_SOURCES = ['post', 'anonymous', 'share', 'conversation', 'seed', 'test', 'api'] as const;
+export const POST_SOURCES = ['post', 'anonymous', 'share', 'conversation', 'seed', 'test', 'api', 'visitor', 'competition'] as const;
 export type PostSource = (typeof POST_SOURCES)[number];
 /**
  * Private posts (私密提问, design 稿 2) replace private conversations: only
@@ -364,6 +368,8 @@ export interface PostView {
   /** The post's images, in order, where `/media` serves them to whoever reads the post (lib/domain/post-images.ts). */
   /** `thumbUrl`: the feed's small copy (the image itself when it has none). */
   images: { url: string; thumbUrl: string }[];
+  /** The channels its `#tags` filed it under (a public post only), whose tags its text links (lib/domain/hashtags.ts). */
+  channels: string[];
   /** Published follow-ups (追问), for the cards. */
   followupCount: number;
   /** The thread under the first round, on the post's page only (oldest first); empty in feeds. */
@@ -371,7 +377,8 @@ export interface PostView {
   /** Who a follow-up may @ (the first round's answerers that still take posts), on the post's page only. */
   followupCandidates: FollowupCandidate[];
   /** Why the viewer cannot ask a follow-up now, on the post's page: null when they can. */
-  followupBlocked: 'full' | null;
+  /** `closed`: a competition's question post, which takes no follow-ups. */
+  followupBlocked: 'full' | 'closed' | null;
   /**
    * The viewer, its author, may ask on under their AI answer (继续问 AI): a
    * public post no Ree answered, whose follow-ups the AI answers, seen by

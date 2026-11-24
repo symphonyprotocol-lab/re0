@@ -24,6 +24,8 @@ export interface ReeFormState {
   publicQaEnabled?: boolean;
   /** v5: answer public posts; null follows the default (free Rees answer, paid ones do not). Only in settings. */
   answersPosts?: boolean | null;
+  /** Settings only: visitor asks on the share page (lib/domain/visitor-ask.ts). */
+  visitorAskSettings?: { enabled: boolean; perVisitor: number; perDay: number | null };
 }
 
 type Change = (patch: Partial<ReeFormState>) => void;

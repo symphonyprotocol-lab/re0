@@ -90,6 +90,8 @@ import { questionRewriter } from '@/lib/services/question-rewrite';
 import { parsePostImages, postSubject } from '@/lib/domain/post-images';
 import { attachImages, checkedImages, hasSameImages, imagesReadableFor, ensureImageText, imageParts, imagesFor, type ImageDescriber, type ImagePart } from '@/lib/services/post-images';
 import { ceilingFor } from '@/lib/services/rate-limit-settings';
+import { VISITOR_ASK_NOTE } from '@/lib/domain/visitor-ask';
+import { channelIdOf, channelsFor, fileUnderChannels } from '@/lib/services/channels';
 
 const { post, postVote, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user } = schema;
 
@@ -281,6 +283,8 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
         createdAt: now,
       });
       await attachImages(tx, id, images);
+      /* `#tags` file it under their channels, made here when new; only what it shows once published is listed there. */
+      await fileUnderChannels(tx, id, userId, question, detail);
       return { ok: true, id } as const;
     });
   } catch (error) {
@@ -294,7 +298,9 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
 /** A post (and answer) that may be quoted now: visible, published, the answer shown. */
 async function quotable(postId: string, answerId: string | null): Promise<{ kind: 'post' | 'answer'; postId: string; answerId: string | null; reeId: string | null } | null> {
   if (!isUuid(postId) || (answerId !== null && !isUuid(answerId))) return null;
-  const [target] = await db().select({ id: post.id }).from(post).where(and(eq(post.id, postId), visiblePost())).limit(1);
+  /* A competition's question is quoted once its results are out, never before (docs/design/competitions.md 10). */
+  const resultsOut = sql`(${post.source} <> 'competition' or exists (select 1 from ${schema.competitionQuestion} cq join ${schema.competition} c on c.id = cq.competition_id where cq.post_id = ${post.id} and c.status = 'published'))`;
+  const [target] = await db().select({ id: post.id }).from(post).where(and(eq(post.id, postId), visiblePost(), resultsOut)).limit(1);
   if (!target) return null;
   if (!answerId) return { kind: 'post', postId, answerId: null, reeId: null };
   const [quoted] = await db()
@@ -402,7 +408,10 @@ export async function moderatePost(id: string, judge: Judge = modelJudge, now = 
      */
     const images = await imageParts(id, { strict: true });
     const imageText = images.length ? await ensureImageText(id, { images, describe }) : null;
-    verdict = (await judge([row.question, row.detail, imageText ? `[Images] ${imageText}` : ''].filter(Boolean).join('\n\n'), copied.map((entry) => entry.text).join('\n\n'), images)).publish;
+    const decided = await judge([row.question, row.detail, imageText ? `[Images] ${imageText}` : ''].filter(Boolean).join('\n\n'), copied.map((entry) => entry.text).join('\n\n'), images);
+    verdict = decided.publish;
+    /* A refusal is final and nothing else records why: the reason goes to the log (2026-11-24, ordinary book questions refused with no trace). */
+    if (!verdict) console.warn(`post ${id} refused by review: ${(decided.reason ?? '').slice(0, 200) || 'no reason given'}`);
   } catch (error) {
     console.warn(`post ${id} review failed: ${error instanceof Error ? error.message : 'unknown'}`);
   }
@@ -426,10 +435,22 @@ export async function moderatePost(id: string, judge: Judge = modelJudge, now = 
   return (await rejectPost(id, now)) ? 'rejected' : 'gone';
 }
 
-/** A pending post refused (or whose review never finished): not public; nothing was charged. Not while in the trash (`moderatePost`). */
+/**
+ * A pending post refused (or whose review never finished): not public;
+ * nothing was charged -- a visitor's question gives its owner's hold back.
+ * Not while in the trash (`moderatePost`).
+ */
 async function rejectPost(id: string, now: Date): Promise<boolean> {
-  const rows = await db().update(post).set({ status: 'rejected', answerState: 'done', answeredAt: now }).where(and(eq(post.id, id), eq(post.status, 'pending'), isNull(post.deletedAt))).returning({ id: post.id });
-  return rows.length > 0;
+  return db().transaction(async (tx) => {
+    const rows = await tx
+      .update(post)
+      .set({ status: 'rejected', answerState: 'done', answeredAt: now })
+      .where(and(eq(post.id, id), eq(post.status, 'pending'), isNull(post.deletedAt)))
+      .returning({ sponsorHoldId: post.sponsorHoldId, reeId: post.mentionReeId });
+    const [rejected] = rows;
+    if (rejected?.sponsorHoldId) await releaseHold(tx, rejected.sponsorHoldId, { reeId: rejected.reeId, ledger: 'post_answer', note: VISITOR_ASK_NOTE }, now);
+    return rows.length > 0;
+  });
 }
 
 /* ---------------------------------------------------------------- matching */
@@ -509,6 +530,28 @@ export const groundedAnswer: AnswerOne = async ({ reeId, subject, lang, vector, 
   }
 };
 
+/**
+ * A visitor's question is answered by the Ree it was asked on alone, never
+ * matched: only while that Ree is public and still its sponsor's (the owner
+ * paying). Without it nobody answers, and the hold is given back.
+ */
+async function visitorMatch(row: typeof post.$inferSelect): Promise<Match> {
+  if (!row.mentionReeId || !row.sponsorId) return { answerers: [], candidates: 0, skipped: 0, vector: null };
+  const [target] = await db().select({ id: ree.id }).from(ree).where(and(eq(ree.id, row.mentionReeId), eq(ree.ownerId, row.sponsorId), publicRee())).limit(1);
+  return target ? { answerers: [{ reeId: target.id, similarity: null, mentioned: true }], candidates: 1, skipped: 0, vector: null } : { answerers: [], candidates: 0, skipped: 0, vector: null };
+}
+
+/** Puts a visitor question's hold on its answer, while the answer is running and the hold still open; false otherwise (the post's settlement gives it back). */
+async function takeSponsorHold(holdId: string | null, answerId: string): Promise<boolean> {
+  if (!holdId) return false;
+  const moved = await db()
+    .update(answer)
+    .set({ baseHoldId: holdId, price: QUERY_BASE_FEE })
+    .where(and(eq(answer.id, answerId), eq(answer.state, 'answering'), sql`exists (select 1 from ${schema.creditHold} h where h.id = ${holdId} and h.status = 'held')`))
+    .returning({ id: answer.id });
+  return moved.length > 0;
+}
+
 export interface ProcessDeps {
   judge?: Judge;
   match?: Matcher;
@@ -546,8 +589,12 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
   /* The quote, if it can still be seen: its question also steers which Rees are asked. */
   const context = await quoteContext(row);
   try {
-    const author = row.source === 'post' ? row.userId : null;
-    const match = await (deps.match ?? searchMatcher)({ question: context ? `${subject}\n${context.question}` : subject, mentionReeId: row.mentionReeId, authorId: row.userId, excludePaid: !author });
+    /* Who pays for the answers: the author; for a visitor's question, the Ree's owner who let visitors ask (visitor-asks.ts). */
+    const visitor = row.source === 'visitor';
+    const author = row.source === 'post' ? row.userId : visitor ? row.sponsorId : null;
+    const match = visitor
+      ? await visitorMatch(row)
+      : await (deps.match ?? searchMatcher)({ question: context ? `${subject}\n${context.question}` : subject, mentionReeId: row.mentionReeId, authorId: row.userId, excludePaid: !author });
     const found = match.answerers.slice(0, POST_MAX_ANSWERS);
     const categories = found.length
       ? await db().select({ id: ree.id, category: ree.category, queryFee: ree.queryFee, ownerId: ree.ownerId }).from(ree).where(inArray(ree.id, found.map((entry) => entry.reeId)))
@@ -559,7 +606,7 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
      * below, most relevant first (2026-11-19 review: own Rees pay the base
      * fee too; only an own Ree's query fee is waived, never paid to oneself).
      */
-    const paidIds = new Set(categories.filter((entry) => entry.queryFee > 0 && entry.ownerId !== row!.userId).map((entry) => entry.id));
+    const paidIds = new Set(categories.filter((entry) => entry.queryFee > 0 && entry.ownerId !== author).map((entry) => entry.id));
     const answerers = author ? found : found.filter((entry) => !paidIds.has(entry.reeId));
     await db()
       .update(post)
@@ -577,7 +624,8 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
     for (const entry of answerers) {
       const inserted = rows.find((other) => other.reeId === entry.reeId);
       if (!inserted || inserted.state !== 'answering') continue;
-      if (author !== null && !(await holdBaseFee(author, inserted.id, entry.reeId, now()))) continue;
+      /* A visitor's question was paid for when it was asked: that hold moves onto the answer. */
+      if (author !== null && !(visitor ? await takeSponsorHold(row.sponsorHoldId, inserted.id) : await holdBaseFee(author, inserted.id, entry.reeId, now()))) continue;
       answering.push(inserted);
     }
     await Promise.all(
@@ -615,10 +663,13 @@ export async function finishPost(id: string, now = new Date()): Promise<void> {
       .set({ state: 'failed' })
       .where(and(eq(answer.postId, id), firstRound(), inArray(answer.state, ['queued', 'answering'])))
       .returning({ reeId: answer.reeId, baseHoldId: answer.baseHoldId, feeHoldId: answer.feeHoldId });
+    const note = target.source === 'visitor' ? VISITOR_ASK_NOTE : undefined;
     for (const entry of running) {
-      if (entry.baseHoldId) await releaseHold(tx, entry.baseHoldId, { reeId: entry.reeId, ledger: 'post_answer' }, now);
+      if (entry.baseHoldId) await releaseHold(tx, entry.baseHoldId, { reeId: entry.reeId, ledger: 'post_answer', note }, now);
       if (entry.feeHoldId) await releaseHold(tx, entry.feeHoldId, { reeId: entry.reeId, ledger: 'chat_fee' }, now);
     }
+    /* A visitor's question its Ree never took up (gone private, or the run died before it): the owner's hold back. One settled or given back already is left alone. */
+    if (target.sponsorHoldId) await releaseHold(tx, target.sponsorHoldId, { reeId: target.mentionReeId, ledger: 'post_answer', note }, now);
     const [counted] = await tx.select({ n: sql<number>`count(*)::int` }).from(answer).where(and(eq(answer.postId, id), firstRound(), eq(answer.state, 'answered')));
     const answered = counted?.n ?? 0;
     const [waiting] = await tx.select({ n: sql<number>`count(*)::int` }).from(answer).where(and(eq(answer.postId, id), firstRound(), eq(answer.state, 'awaiting')));
@@ -678,6 +729,7 @@ export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOp
     full = stuck.length === 100;
   }
   if (left() > 0) handled += await sweepPaidRequests(now);
+  if (left() > 0) handled += await releaseHiddenVisitorHolds(now);
   /* Runs that died while answering, oldest claim first: each settled and given the AI answer it never got to, one post at a time. */
   for (let full = true; full && left() > 0; ) {
     const dead = await db()
@@ -723,6 +775,29 @@ export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOp
   return handled;
 }
 
+/**
+ * Visitor questions taken down (by an administrator, or by reports) after
+ * review published them but before their Ree took them up: nothing will
+ * answer them while hidden -- `processPost` and the sweep pass over a post
+ * that is not published -- so the owner's hold is given back here, by the
+ * posts sweep. Restored later, the post runs as usual but its Ree no longer
+ * holds anything to answer with: it settles with no answer and nobody pays.
+ */
+export async function releaseHiddenVisitorHolds(now = new Date()): Promise<number> {
+  const rows = await db()
+    .select({ id: post.id, holdId: post.sponsorHoldId, reeId: post.mentionReeId })
+    .from(post)
+    .innerJoin(schema.creditHold, eq(schema.creditHold.id, post.sponsorHoldId))
+    .where(and(eq(post.source, 'visitor'), eq(post.status, 'hidden'), eq(post.answerState, 'waiting'), eq(schema.creditHold.status, 'held')))
+    .limit(100);
+  let released = 0;
+  for (const row of rows) {
+    const amount = await db().transaction((tx) => releaseHold(tx, row.holdId!, { reeId: row.reeId, ledger: 'post_answer', note: VISITOR_ASK_NOTE }, now));
+    if (amount !== null) released += 1;
+  }
+  return released;
+}
+
 /* ------------------------------------------------------------------ reading */
 
 export type PostRow = typeof post.$inferSelect & { authorName: string | null; authorAvatar: string | null };
@@ -730,7 +805,7 @@ export type PostRow = typeof post.$inferSelect & { authorName: string | null; au
 export function authorOf(row: PostRow, viewerId: string | undefined): PostAuthor {
   const mine = Boolean(viewerId && row.userId === viewerId);
   if (row.source === 'seed') return { kind: 'example' };
-  if (row.source === 'anonymous' || row.source === 'share') return { kind: 'visitor' };
+  if (row.source === 'anonymous' || row.source === 'share' || row.source === 'visitor') return { kind: 'visitor' };
   if (row.anonymous || row.source === 'conversation' || !row.authorName) return { kind: 'hidden', mine };
   return { kind: 'user', name: row.authorName, avatar: row.authorAvatar, mine };
 }
@@ -871,7 +946,7 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
   /* A private post is only ever read by its author (the queries above made sure). */
   const ownPrivate = new Set(rows.filter((row) => row.visibility === 'private' && viewerId && row.userId === viewerId).map((row) => row.id));
   const unvoted = ownPrivate.size ? await unvotedBy(viewerId, answers.filter((row) => ownPrivate.has(row.postId)).map((row) => row.id)) : new Set<string>();
-  const [quotes, quoteCounts, images] = await Promise.all([quotesFor(rows, viewerId), quoteCountsFor(ids), imagesFor(ids)]);
+  const [quotes, quoteCounts, images, channels] = await Promise.all([quotesFor(rows, viewerId), quoteCountsFor(ids), imagesFor(ids), channelsFor(rows.filter((row) => row.visibility === 'public').map((row) => row.id))]);
   const authorView = options.whole && viewerId && rows.length === 1 && rows[0]!.userId === viewerId && (AUTHORED_SOURCES as readonly string[]).includes(rows[0]!.source);
   /* A private post has no requests: its author chose and paid for every Ree when asking. */
   const requests = authorView && rows[0]!.visibility === 'public' ? await paidRequestsFor(rows[0]!.id, viewerId) : [];
@@ -923,6 +998,7 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
       quote: row.quoteKind ? (quotes.get(row.id) ?? { kind: row.quoteKind, available: false }) : null,
       quotes: quoteCounts.get(row.id) ?? 0,
       images: images.get(row.id) ?? [],
+      channels: channels.get(row.id) ?? [],
       summary: row.summaryState === 'done' && row.summaryContent && !summaryStale(row.summaryAnswers, new Set(shown.map((entry) => entry.id)))
         ? { state: 'done', content: row.summaryContent, sources: row.summarySources ?? [] }
         : row.summaryState === 'running' ? { state: 'running', content: '', sources: [] } : null,
@@ -998,10 +1074,13 @@ const searchable = sql`(${post.question} || ' ' || ${post.detail})`;
  * ranks answered posts by helpful votes and answers, decaying with age, and
  * pages by offset (its cursor is a number).
  */
-export async function listFeed(tab: FeedTab, options: { cursor?: string | null; viewerId?: string; size?: number; q?: string | null; quotesOf?: string | null } = {}): Promise<PostPage> {
+export async function listFeed(tab: FeedTab, options: { cursor?: string | null; viewerId?: string; size?: number; q?: string | null; quotesOf?: string | null; channel?: string | null } = {}): Promise<PostPage> {
   if (options.quotesOf !== undefined && options.quotesOf !== null && !isUuid(options.quotesOf)) return { items: [], next: null };
-  /* The posts quoting one post are listed newest first whatever tab was asked for. */
-  if (options.quotesOf) tab = 'latest';
+  /* A channel's posts (`#name`): every visible one in it, newest first. */
+  const channelId = options.channel ? await channelIdOf(options.channel) : null;
+  if (options.channel && !channelId) return { items: [], next: null };
+  /* The posts quoting one post, or in one channel, are listed newest first whatever tab was asked for. */
+  if (options.quotesOf || channelId) tab = 'latest';
   const size = options.size ?? POST_PAGE_SIZE;
   /* One ILIKE over the indexed expression (pg_trgm), not two over separate columns. */
   const search = options.q?.trim() ? sql`${searchable} ilike ${`%${options.q.trim().replace(/[%_\\]/g, '\\$&')}%`}` : undefined;
@@ -1024,7 +1103,11 @@ export async function listFeed(tab: FeedTab, options: { cursor?: string | null; 
     boundary = sql`(${post.publishedAt}, ${post.id}) < (${cursor.at.toISOString()}::timestamptz, ${cursor.id}::uuid)`;
   }
   /* The posts quoting one post: every visible one, answered or not. */
-  const scope = options.quotesOf ? eq(post.quotePostId, options.quotesOf) : tab === 'unanswered' ? unanswered() : worthListing;
+  const scope = options.quotesOf
+    ? eq(post.quotePostId, options.quotesOf)
+    : channelId
+      ? sql`exists (select 1 from ${schema.postChannel} pc where pc.post_id = ${post.id} and pc.channel_id = ${channelId}::uuid)`
+      : tab === 'unanswered' ? unanswered() : worthListing;
   const rows = await selectPosts(and(visiblePost(), scope, boundary, search), [desc(post.publishedAt), desc(post.id)], size + 1);
   return { items: await viewsOf(rows.slice(0, size), options.viewerId, { whole: false }), next: rows.length > size ? rows[size - 1]!.id : null };
 }
@@ -1650,14 +1733,15 @@ export async function answerPaid(id: string, deps: { answerOne?: AnswerOne; now?
 export async function closeAnswer(id: string, result: AnswerResult, now: Date): Promise<void> {
   await db().transaction(async (tx) => {
     const [target] = await tx
-      .select({ id: answer.id, postId: answer.postId, reeId: answer.reeId, baseHoldId: answer.baseHoldId, feeHoldId: answer.feeHoldId, price: answer.price, reeName: ree.name, ownerId: ree.ownerId })
+      .select({ id: answer.id, postId: answer.postId, reeId: answer.reeId, baseHoldId: answer.baseHoldId, feeHoldId: answer.feeHoldId, price: answer.price, reeName: ree.name, ownerId: ree.ownerId, source: post.source, followupId: answer.followupId })
       .from(answer)
       .innerJoin(ree, eq(ree.id, answer.reeId))
+      .innerJoin(post, eq(post.id, answer.postId))
       .where(and(eq(answer.id, id), eq(answer.state, 'answering')))
       .for('update', { of: answer });
     if (!target) return;
-    /* The ledger shows the Ree's name, marked as a post answer ('post answer' is read into the reader's language). */
-    const holds = { reeId: target.reeId, note: 'post answer' };
+    /* The ledger shows the Ree's name, marked as a post answer, or a visitor's question its owner paid for -- the first round only; a follow-up under it is its asker's own (read into the reader's language). */
+    const holds = { reeId: target.reeId, note: target.source === 'visitor' && target.followupId === null ? VISITOR_ASK_NOTE : 'post answer' };
     if (result.state === 'answered') {
       if (target.baseHoldId) await settleHold(tx, target.baseHoldId, QUERY_BASE_FEE, { ...holds, ledger: 'post_answer' }, now);
       const paid = target.feeHoldId ? await settleHold(tx, target.feeHoldId, Math.max(0, (target.price ?? 0) - QUERY_BASE_FEE), { ...holds, ledger: 'chat_fee' }, now) : null;
