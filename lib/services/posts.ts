@@ -406,7 +406,10 @@ export async function moderatePost(id: string, judge: Judge = modelJudge, now = 
      */
     const images = await imageParts(id, { strict: true });
     const imageText = images.length ? await ensureImageText(id, { images, describe }) : null;
-    verdict = (await judge([row.question, row.detail, imageText ? `[Images] ${imageText}` : ''].filter(Boolean).join('\n\n'), copied.map((entry) => entry.text).join('\n\n'), images)).publish;
+    const decided = await judge([row.question, row.detail, imageText ? `[Images] ${imageText}` : ''].filter(Boolean).join('\n\n'), copied.map((entry) => entry.text).join('\n\n'), images);
+    verdict = decided.publish;
+    /* A refusal is final and nothing else records why: the reason goes to the log (2026-11-24, ordinary book questions refused with no trace). */
+    if (!verdict) console.warn(`post ${id} refused by review: ${(decided.reason ?? '').slice(0, 200) || 'no reason given'}`);
   } catch (error) {
     console.warn(`post ${id} review failed: ${error instanceof Error ? error.message : 'unknown'}`);
   }

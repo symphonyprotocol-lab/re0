@@ -38,6 +38,14 @@ export async function readyRees(ids: readonly string[]): Promise<Set<string>> {
   return new Set(rows.map((row) => row.reeId));
 }
 
+/** A reply that reached the output limit before any text (a reasoning model's thinking took it all): the answer failed. */
+export class OutputLimitBeforeText extends Error {
+  constructor(model: string) {
+    super(`output limit reached before any text (model=${model})`);
+    this.name = 'OutputLimitBeforeText';
+  }
+}
+
 /** What an answer reports while it is written: its text, as it streams (MCP's progress). */
 export type AnswerEvent =
   | { type: 'text-start'; reeId: string }
@@ -75,6 +83,7 @@ export async function streamGroundedAnswer(
       abortSignal: AbortSignal.timeout(Math.min(Math.max(generation.endpoint.timeoutMs, 30_000) * 2, ANSWER_STREAM_TIMEOUT_MAX_MS)),
     });
     let decided: boolean | null = null;
+    let finishReason: string | null = null;
     let pending = '';
     let streamed = '';
     /* Everything the model wrote, sentinels included: a reply that ends on one is still no answer. */
@@ -99,6 +108,7 @@ export async function streamGroundedAnswer(
       if (part.type === 'error') throw part.error instanceof Error ? part.error : new Error(`stream error: ${String(part.error)}`);
       if (part.type === 'abort') throw new Error(`stream aborted${part.reason ? `: ${part.reason}` : ''}`);
       if (part.type === 'finish' && part.finishReason === 'error') throw new Error('stream finished with an error');
+      if (part.type === 'finish') finishReason = part.finishReason;
       if (part.type !== 'text-delta') continue;
       const delta = part.text;
       if (decided === true) continue;
@@ -119,9 +129,17 @@ export async function streamGroundedAnswer(
     /* The entry that answered: a backup when the primary failed before writing (lib/infra/ai/failover.ts). */
     const answered = await Promise.resolve(result.response).then((response) => response.modelId || model, () => model);
     void Promise.resolve(result.usage).then(
-      (usage) => console.info(`answer usage ree=${ree.id} model=${answered} in=${usage.inputTokens ?? 0} out=${usage.outputTokens ?? 0}`),
+      (usage) => console.info(`answer usage ree=${ree.id} model=${answered} in=${usage.inputTokens ?? 0} out=${usage.outputTokens ?? 0} reasoning=${usage.outputTokenDetails?.reasoningTokens ?? 0} finish=${finishReason ?? 'unknown'}`),
       () => undefined,
     );
+    /*
+     * Cut off at the output limit before it wrote a word: a reasoning model
+     * (the generation list's backup, zai/glm-5.3-flash) can spend the whole
+     * budget thinking. That is a failure, never the Ree declining: it was
+     * read as no answer, unlogged, and the mentioned Ree silently missing
+     * (2026-11-24, while agnes cooled down after 429s).
+     */
+    if (finishReason === 'length' && decided !== true && !raw.trim()) throw new OutputLimitBeforeText(answered);
     return { declined: decided === true || settlesAsNoAnswer(raw, streamed, NO_ANSWER_REFUSAL_CHARS), text: streamed, model: answered };
   } catch (error) {
     if (textOpen) emit({ type: 'text-end', reeId: ree.id });
