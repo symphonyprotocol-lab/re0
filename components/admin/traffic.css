@@ -22,3 +22,16 @@
 @media (max-width: 1100px) {
   :where(.console-app) .traffic-grid { grid-template-columns: minmax(0, 1fr); }
 }
+:where(.console-app) .crawler-claude > i { background: #d97757; }
+:where(.console-app) .crawler-openai > i { background: #12a37a; }
+:where(.console-app) .crawler-google > i { background: #127ee3; }
+:where(.console-app) .crawler-bing > i { background: #0aa5b8; }
+:where(.console-app) .crawler-meta > i { background: #7c5cff; }
+:where(.console-app) .crawler-bot > i { background: #8ea2bf; }
+:where(.console-app) .crawler-human > i { background: #e0a100; }
+:where(.console-app) .crawler-head { margin-top: 12px; padding-top: 20px; border-top: 1px solid #e3e8f2; }
+:where(.console-app) .crawler-head h2 { margin-top: 4px; font-size: 18px; color: #253858; }
+:where(.console-app) .crawler-head p:not(.eyebrow) { margin-top: 4px; font-size: 12px; line-height: 1.6; color: #75869e; max-width: 880px; }
+:where(.console-app) .crawler-notice { padding: 14px 20px; font-size: 12px; line-height: 1.7; color: #8a5a00; background: #fff8e6; border-color: #f4dfa6; }
+:where(.console-app) .crawler-page .traffic-tabs { margin-bottom: 0; padding: 0; }
+:where(.console-app) .crawler-agents { font-size: 11px; color: #75869e; overflow-wrap: anywhere; }
