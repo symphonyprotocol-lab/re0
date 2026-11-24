@@ -3,7 +3,7 @@
  * meaning and by keyword, fused; and the question's embedding, shared by
  * posts, follow-ups, private posts, 试问, MCP and discovery.
  */
-import { and, desc, eq, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { RETRIEVAL_KEYWORD_ROWS, RETRIEVAL_OVERVIEWS_MAX, RETRIEVAL_RECALL, RETRIEVAL_TOP_K } from '@/lib/constants';
 import type { Passage } from '@/lib/domain/answer';
 import { rewriteTarget, scriptOf } from '@/lib/domain/cross-lingual';
@@ -23,15 +23,9 @@ export interface Retrieval {
   rewrite: string | null;
 }
 
-/**
- * Passages answers may use: ready, enabled ("参与回答") and not in the trash
- * (8.2). Explore's second level uses the same. `asOf`: only sources neither
- * added nor changed since then -- a competition's answers read a Ree's
- * knowledge as it stood at the deadline (docs/design/competitions.md 7.3).
- */
-export function answerable(asOf?: Date | null): SQL[] {
-  const base = [eq(schema.knowledge.status, 'ready'), eq(schema.knowledge.enabled, true), isNull(schema.knowledge.deletedAt)];
-  return asOf ? [...base, lte(schema.knowledge.createdAt, asOf), lte(schema.knowledge.updatedAt, asOf)] : base;
+/** Passages answers may use: ready, enabled ("参与回答") and not in the trash (8.2). Explore's second level uses the same. */
+export function answerable(): SQL[] {
+  return [eq(schema.knowledge.status, 'ready'), eq(schema.knowledge.enabled, true), isNull(schema.knowledge.deletedAt)];
 }
 
 type Recalled = Omit<Passage, 'chunkId' | 'similarity'> & { id: string };
@@ -41,7 +35,7 @@ type Recalled = Omit<Passage, 'chunkId' | 'similarity'> & { id: string };
  * the planner off the global HNSW index, which filters after it searches
  * and can miss a small Ree's rows entirely), nearest first.
  */
-async function semanticRecall(reeId: string, embedded: QuestionVector, asOf?: Date | null): Promise<(Recalled & { similarity: number })[]> {
+async function semanticRecall(reeId: string, embedded: QuestionVector): Promise<(Recalled & { similarity: number })[]> {
   const literal = `[${embedded.vector.join(',')}]`;
   /* Only passages with a vector in the question's space: never a comparison across models (embedding-space.ts). */
   const stored = chunkVector(embedded.space);
@@ -57,7 +51,7 @@ async function semanticRecall(reeId: string, embedded: QuestionVector, asOf?: Da
     })
     .from(schema.chunk)
     .innerJoin(schema.knowledge, eq(schema.knowledge.id, schema.chunk.knowledgeId))
-    .where(and(eq(schema.chunk.reeId, reeId), ...answerable(asOf), sql`${stored} is not null`))
+    .where(and(eq(schema.chunk.reeId, reeId), ...answerable(), sql`${stored} is not null`))
     /* Equal distances by id, so a tie across the limit reads the same rows every time. */
     .orderBy(sql`(${stored} <=> ${literal}::vector) + 0`, schema.chunk.id)
     .limit(RETRIEVAL_RECALL);
@@ -83,7 +77,7 @@ async function semanticRecall(reeId: string, embedded: QuestionVector, asOf?: Da
  * transaction, where `create index concurrently` cannot, and a plain build
  * would hold up writes to `chunk` for the whole build.
  */
-async function keywordRecall(reeId: string, terms: readonly string[], asOf?: Date | null): Promise<(Recalled & { coverage: number })[]> {
+async function keywordRecall(reeId: string, terms: readonly string[]): Promise<(Recalled & { coverage: number })[]> {
   if (terms.length === 0) return [];
   const c = schema.chunk;
   const k = schema.knowledge;
@@ -98,7 +92,7 @@ async function keywordRecall(reeId: string, terms: readonly string[], asOf?: Dat
       from ${c}
       inner join ${k} on ${k.id} = ${c.knowledgeId}
       cross join lateral (select lower(${c.content}) as text offset 0) as lowered
-      where ${and(eq(c.reeId, reeId), ...answerable(asOf))} and (${sql.join(terms.map(present), sql` or `)})
+      where ${and(eq(c.reeId, reeId), ...answerable())} and (${sql.join(terms.map(present), sql` or `)})
     ) as matched
     where hits > 0
     order by hits desc, id
@@ -141,17 +135,16 @@ function ownMatches<T extends { content: string }>(question: string, terms: read
  * asked still is, and the question's own legs stand in should both of the
  * rewrite's come back empty.
  */
-export async function retrieve(reeId: string, question: string, embedded?: QuestionVector, options: { rewrite?: Rewriter; asOf?: Date | null } = {}): Promise<Retrieval> {
-  const asOf = options.asOf ?? null;
+export async function retrieve(reeId: string, question: string, embedded?: QuestionVector, options: { rewrite?: Rewriter } = {}): Promise<Retrieval> {
   const asked = embedded ?? (await embedQuestion(question));
   const terms = searchTerms(question);
-  const [semantic, keyword] = await Promise.all([semanticRecall(reeId, asked, asOf), keywordRecall(reeId, terms, asOf)]);
+  const [semantic, keyword] = await Promise.all([semanticRecall(reeId, asked), keywordRecall(reeId, terms)]);
 
   const target = options.rewrite ? rewriteTarget(question, semantic.map((row) => row.content)) : null;
   const rewrite = target ? await options.rewrite!(target) : null;
   /* A model switch between the two embeddings leaves the rewrite's vector in another space: its keyword leg still counts. */
   const [again, rewriteKeyword] = rewrite
-    ? await Promise.all([rewrite.vector && rewrite.vector.space === asked.space ? semanticRecall(reeId, rewrite.vector, asOf) : [], keywordRecall(reeId, rewrite.terms, asOf)])
+    ? await Promise.all([rewrite.vector && rewrite.vector.space === asked.space ? semanticRecall(reeId, rewrite.vector) : [], keywordRecall(reeId, rewrite.terms)])
     : [[], []];
   const searched = rewrite && (again.length > 0 || rewriteKeyword.length > 0) ? rewrite : null;
   const own = searched ? ownMatches(question, terms, keyword) : [];
@@ -192,7 +185,7 @@ export async function retrieve(reeId: string, question: string, embedded?: Quest
   const rewritten = searched ? searched.query || searched.terms.join(' ') : null;
   /* A question about the sources themselves also sees each source whole, the closest sources first. */
   if (isLibraryQuestion(question)) {
-    const overviews = await sourceOverviews(reeId, [...new Set([...semantic, ...again].map((row) => row.knowledgeId))], asOf);
+    const overviews = await sourceOverviews(reeId, [...new Set([...semantic, ...again].map((row) => row.knowledgeId))]);
     if (overviews.length) return { passages: [...overviews, ...passages], bestSimilarity, evidence: true, model, rewrite: rewritten };
   }
   return { passages, bestSimilarity, evidence, model, rewrite: rewritten };
@@ -206,7 +199,7 @@ const OVERVIEW_READ_CHARS = 2000;
  * question time (nothing to keep in sync, nothing to backfill): the sources
  * recall ranked first, then the most recently updated.
  */
-export async function sourceOverviews(reeId: string, ranked: readonly string[], asOf?: Date | null): Promise<Passage[]> {
+export async function sourceOverviews(reeId: string, ranked: readonly string[]): Promise<Passage[]> {
   const k = schema.knowledge;
   const rows = await db()
     .select({
@@ -221,7 +214,7 @@ export async function sourceOverviews(reeId: string, ranked: readonly string[], 
       labels: sql<string[] | null>`case when ${k.kind} in ('github', 'site') then (select jsonb_agg(c ->> 'label') from (select jsonb_array_elements(${k.children}) as c limit 20) as first) end`,
     })
     .from(k)
-    .where(and(eq(k.reeId, reeId), ...answerable(asOf)))
+    .where(and(eq(k.reeId, reeId), ...answerable()))
     .orderBy(ranked.length ? sql`case when ${inArray(k.id, [...ranked])} then 0 else 1 end` : sql`1`, desc(k.updatedAt))
     .limit(RETRIEVAL_OVERVIEWS_MAX);
   const rank = (id: string) => (ranked.includes(id) ? ranked.indexOf(id) : ranked.length);

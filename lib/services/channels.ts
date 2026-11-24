@@ -43,16 +43,6 @@ export async function fileUnderChannels(tx: Executor, postId: string, createdBy:
   return names;
 }
 
-/**
- * Files one post under one channel by id, in the caller's transaction,
- * whatever its text says: a competition's question posts go into the
- * competition's channel without a `#name` written in them
- * (docs/design/competitions.md C3).
- */
-export async function fileUnderChannel(tx: Executor, postId: string, channelId: string): Promise<void> {
-  await tx.insert(postChannel).values({ postId, channelId }).onConflictDoNothing();
-}
-
 /** A visible post in the channel: what every count and list here is about. */
 function inChannel(): SQL {
   return and(eq(postChannel.channelId, channel.id), visiblePost())!;
