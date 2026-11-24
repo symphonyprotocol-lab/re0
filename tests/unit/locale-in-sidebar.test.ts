@@ -2,7 +2,8 @@
  * The language switch has one place on every user page (v6): the sidebar's
  * last line, 隐私 · 条款 · the language, signed in or not, as a quiet link
  * with no caret. The top bar has neither the language nor 返回官网; a
- * visitor's phone, which has no sidebar, has the globe in the column head.
+ * visitor's phone, which has no sidebar, has the globe in the phone's head
+ * line (`MobileTop`), above the column head or the top bar alike.
  */
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -40,13 +41,30 @@ describe('the language switch', () => {
     expect(links).toMatch(/href="(\/zh)?\/legal\/terms"[^>]*>条款/);
   });
 
+  // The top bar is the `<header data-topbar>`; the phone's brand line above it
+  // (`MobileTop`, shared with `FeedColumns`) is not part of it.
+  const topbar = (html: string) => {
+    const start = html.indexOf('<header data-topbar');
+    return html.slice(start, html.indexOf('</header>', start) + '</header>'.length);
+  };
+
   it('the top bar has no language and no 返回官网', () => {
     for (const locale of ['zh', 'en'] as const) {
-      const html = render(locale, createElement(Topbar, { crumbs: [{ label: 'x' }] }));
+      const html = topbar(render(locale, createElement(Topbar, { crumbs: [{ label: 'x' }] })));
+      expect(html).toContain('data-topbar');
       expect(triggers(html)).toHaveLength(0);
       expect(html).not.toContain('返回官网');
       expect(html).not.toContain('>Website<');
     }
+  });
+
+  it('a visitor on a top-bar page: the sidebar line, and the phone head line, as on the feed pages', () => {
+    const html = render('en', createElement(VisitorShell, { children: createElement(Topbar, { crumbs: [{ label: 'x' }] }) }));
+    const found = triggers(html);
+    expect(found).toHaveLength(2);
+    expect(found.filter((b) => b.includes('xnav-language'))).toHaveLength(1);
+    expect(found.filter((b) => b.includes('xtop-language'))).toHaveLength(1);
+    expect(triggers(topbar(html))).toHaveLength(0);
   });
 
   it('a visitor: the sidebar line, and the column head for phones where there is no sidebar', () => {
