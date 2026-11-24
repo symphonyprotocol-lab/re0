@@ -1,5 +1,5 @@
 {
-  "id": "cee8e15e-db9f-4fb6-8c04-0dad94338efa",
+  "id": "7fd82b22-9bf1-4bb4-8320-19de4c096d11",
   "prevId": "6b9d8e75-e3cf-409a-9276-a1c5a9924d34",
   "version": "7",
   "dialect": "postgresql",
@@ -5162,24 +5162,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "sponsor_id": {
-          "name": "sponsor_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sponsor_hold_id": {
-          "name": "sponsor_hold_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "visitor_key": {
-          "name": "visitor_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "anonymous": {
           "name": "anonymous",
           "type": "boolean",
@@ -5559,34 +5541,6 @@
           "concurrently": false,
           "method": "gin",
           "with": {}
-        },
-        "post_visitor_idx": {
-          "name": "post_visitor_idx",
-          "columns": [
-            {
-              "expression": "mention_ree_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "visitor_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "visitor_key is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -5635,19 +5589,6 @@
           "tableTo": "ree_public_qa",
           "columnsFrom": [
             "legacy_qa_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "post_sponsor_id_user_id_fk": {
-          "name": "post_sponsor_id_user_id_fk",
-          "tableFrom": "post",
-          "tableTo": "user",
-          "columnsFrom": [
-            "sponsor_id"
           ],
           "columnsTo": [
             "id"
@@ -5705,7 +5646,7 @@
         },
         "post_source_check": {
           "name": "post_source_check",
-          "value": "source in ('post', 'anonymous', 'share', 'conversation', 'seed', 'test', 'api', 'visitor')"
+          "value": "source in ('post', 'anonymous', 'share', 'conversation', 'seed', 'test', 'api')"
         },
         "post_status_check": {
           "name": "post_status_check",
@@ -5750,10 +5691,6 @@
         "post_private_source_check": {
           "name": "post_private_source_check",
           "value": "source not in ('test', 'api') or visibility = 'private'"
-        },
-        "post_visitor_source_check": {
-          "name": "post_visitor_source_check",
-          "value": "source <> 'visitor' or (visibility = 'public' and user_id is null)"
         }
       },
       "isRLSEnabled": false
@@ -7014,6 +6951,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "thumb_pathname": {
+          "name": "thumb_pathname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -7049,6 +6992,21 @@
           "columns": [
             {
               "expression": "pathname",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "post_image_thumb_pathname_idx": {
+          "name": "post_image_thumb_pathname_idx",
+          "columns": [
+            {
+              "expression": "thumb_pathname",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -8653,26 +8611,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "visitor_asks": {
-          "name": "visitor_asks",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "visitor_asks_per_visitor": {
-          "name": "visitor_asks_per_visitor",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 3
-        },
-        "visitor_asks_per_day": {
-          "name": "visitor_asks_per_day",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "deleted_at": {
           "name": "deleted_at",
           "type": "timestamp with time zone",
@@ -8800,10 +8738,6 @@
         "ree_published_public_check": {
           "name": "ree_published_public_check",
           "value": "not is_published or (is_public and moderated_at is null and deleted_at is null)"
-        },
-        "ree_visitor_asks_check": {
-          "name": "ree_visitor_asks_check",
-          "value": "visitor_asks_per_visitor between 1 and 50 and (visitor_asks_per_day is null or visitor_asks_per_day between 1 and 1000)"
         }
       },
       "isRLSEnabled": false

@@ -11,6 +11,8 @@ import { ImageButton, ImageTray, usePostImages } from '@/components/posts/post-i
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { useI18n } from '@/i18n/client';
 import { fill, formatNumber } from '@/i18n/format';
+import type { Locale } from '@/i18n/locale';
+import { localizeHref } from '@/i18n/paths';
 import { Icon } from '@/components/ui/icons';
 import { useToast } from '@/components/ui/toast';
 import './posts.css';
@@ -53,6 +55,16 @@ export function composeHref(pathname: string, current: URLSearchParams | string,
   next.set('compose', extra.compose ?? 'public');
   for (const [key, value] of Object.entries(extra)) if (key !== 'compose') next.set(key, value);
   return `${pathname}?${next.toString()}`;
+}
+
+/**
+ * Where a new post opens: its page in the language of the page it was
+ * written on (`/en/p/<id>`). The plain `/p/<id>` would let the middleware
+ * pick the language from the cookie or Accept-Language, so a post written
+ * on an English page could open in Chinese.
+ */
+export function publishedPostHref(locale: Locale, id: string): string {
+  return localizeHref(locale, `/p/${id}`);
 }
 
 /** `composeHref` for the page being shown. Reads the address's parameters: render it inside a Suspense boundary (`ComposeLink` does). */
@@ -230,7 +242,8 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
         images.clear();
         setToken(crypto.randomUUID());
         onPublished?.(body.id);
-        const go = () => router.push(`/p/${body.id}`);
+        const href = publishedPostHref(locale, body.id);
+        const go = () => router.push(href);
         if (leave) leave(go);
         else go();
         return;
@@ -454,7 +467,8 @@ export function PrivatePostForm({ reeIds = null, rees = null, question: initialQ
         /* Asked: the form stays busy until the post's page opens, so nothing is held twice. */
         setToken(crypto.randomUUID());
         onPublished?.(body.id);
-        const go = () => router.push(`/p/${body.id}`);
+        const href = publishedPostHref(locale, body.id);
+        const go = () => router.push(href);
         if (leave) leave(go);
         else go();
         return;

@@ -1572,11 +1572,14 @@ export const postImage = pgTable(
     pathname: text('pathname').notNull(),
     contentType: text('content_type').notNull(),
     bytes: integer('bytes').notNull(),
+    /** The feed's small copy beside the image (`<image>.thumb.jpg`, lib/domain/post-images.ts); null when the composer made none. */
+    thumbPathname: text('thumb_pathname'),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('post_image_position_key').on(t.postId, t.position),
     index('post_image_pathname_idx').on(t.pathname),
+    index('post_image_thumb_pathname_idx').on(t.thumbPathname),
     check('post_image_position_check', sql`position between 0 and 3`),
     check('post_image_content_type_check', oneOf('content_type', ['image/jpeg', 'image/png', 'image/webp'])),
   ],

@@ -23,6 +23,9 @@ import {
   postImageOwner,
   postImagePath,
   POST_IMAGE_TEXT_OUTPUT_TOKENS,
+  POST_IMAGE_THUMB_MAX_BYTES,
+  POST_IMAGE_THUMB_TYPE,
+  postImageThumbPath,
   type PostImageType,
 } from '@/lib/domain/post-images';
 import { uploadTicket, readBlob, type UploadTicket } from '@/lib/infra/blob';
@@ -40,11 +43,14 @@ export interface PostImageRow {
   pathname: string;
   contentType: PostImageType;
   bytes: number;
+  /** The feed's small copy, when the composer uploaded one. */
+  thumbPathname: string | null;
 }
 
-/** What a page shows for one image: where `/media` serves it. */
+/** What a page shows for one image: where `/media` serves it, and its small copy for the feed (the image itself when it has none). */
 export interface PostImageView {
   url: string;
+  thumbUrl: string;
 }
 
 /* --------------------------------------------------------- who can read them */
@@ -80,24 +86,43 @@ export async function postImageTicket(userId: string, input: { contentType?: unk
 }
 
 /**
+ * A Blob token for the thumbnail of one of this user's uploads (`of`): beside
+ * it, JPEG, at most `POST_IMAGE_THUMB_MAX_BYTES`. The pathname is the
+ * image's, so a thumbnail can only ever stand for its own image.
+ */
+export async function postImageThumbTicket(userId: string, input: { of?: unknown; size?: unknown }): Promise<(UploadTicket & { contentType: string }) | null> {
+  const size = Number(input.size ?? 0);
+  if (typeof input.of !== 'string' || postImageOwner(input.of) !== userId.toLowerCase()) return null;
+  const pathname = postImageThumbPath(input.of);
+  if (!pathname || !Number.isSafeInteger(size) || size <= 0 || size > POST_IMAGE_THUMB_MAX_BYTES) return null;
+  const ticket = await uploadTicket(pathname, { contentTypes: [POST_IMAGE_THUMB_TYPE], maxBytes: POST_IMAGE_THUMB_MAX_BYTES });
+  return { ...ticket, contentType: POST_IMAGE_THUMB_TYPE };
+}
+
+/**
  * The uploads a publish names, checked in Blob: there, an allowed type
- * matching the extension, at most `POST_IMAGE_UPLOAD_MAX_BYTES`. Null when any is not.
+ * matching the extension, at most `POST_IMAGE_UPLOAD_MAX_BYTES`. Null when
+ * any is not. Each one's thumbnail is kept when it is there and well formed;
+ * without it the feed shows the image.
  */
 export async function checkedImages(userId: string, pathnames: readonly string[]): Promise<PostImageRow[] | null> {
-  const rows: PostImageRow[] = [];
-  for (const pathname of pathnames) {
-    if (postImageOwner(pathname) !== userId.toLowerCase()) return null;
-    const info = await blobInfo(pathname);
-    if (!info || info.size <= 0 || info.size > POST_IMAGE_UPLOAD_MAX_BYTES || !isPostImageType(info.contentType)) return null;
-    if (!pathname.endsWith(`.${POST_IMAGE_TYPES[info.contentType]}`)) return null;
-    rows.push({ pathname, contentType: info.contentType, bytes: info.size });
-  }
-  return rows;
+  if (pathnames.some((pathname) => postImageOwner(pathname) !== userId.toLowerCase())) return null;
+  const rows = await Promise.all(
+    pathnames.map(async (pathname): Promise<PostImageRow | null> => {
+      const thumbPathname = postImageThumbPath(pathname)!;
+      const [info, thumb] = await Promise.all([blobInfo(pathname), blobInfo(thumbPathname)]);
+      if (!info || info.size <= 0 || info.size > POST_IMAGE_UPLOAD_MAX_BYTES || !isPostImageType(info.contentType)) return null;
+      if (!pathname.endsWith(`.${POST_IMAGE_TYPES[info.contentType]}`)) return null;
+      const thumbOk = thumb && thumb.size > 0 && thumb.size <= POST_IMAGE_THUMB_MAX_BYTES && thumb.contentType === POST_IMAGE_THUMB_TYPE;
+      return { pathname, contentType: info.contentType, bytes: info.size, thumbPathname: thumbOk ? thumbPathname : null };
+    }),
+  );
+  return rows.every((row) => row !== null) ? rows : null;
 }
 
 export async function attachImages(tx: Executor, postId: string, images: readonly PostImageRow[]): Promise<void> {
   if (images.length === 0) return;
-  await tx.insert(postImage).values(images.map((image, position) => ({ postId, position, pathname: image.pathname, contentType: image.contentType, bytes: image.bytes })));
+  await tx.insert(postImage).values(images.map((image, position) => ({ postId, position, pathname: image.pathname, contentType: image.contentType, bytes: image.bytes, thumbPathname: image.thumbPathname })));
 }
 
 /**
@@ -117,7 +142,7 @@ export async function copyImages(tx: Executor, fromPostId: string, toPostId: str
 }
 
 async function imageRows(postId: string, executor: Executor = db()): Promise<PostImageRow[]> {
-  const rows = await executor.select({ pathname: postImage.pathname, contentType: postImage.contentType, bytes: postImage.bytes }).from(postImage).where(eq(postImage.postId, postId)).orderBy(asc(postImage.position));
+  const rows = await executor.select({ pathname: postImage.pathname, contentType: postImage.contentType, bytes: postImage.bytes, thumbPathname: postImage.thumbPathname }).from(postImage).where(eq(postImage.postId, postId)).orderBy(asc(postImage.position));
   return rows.map((row) => ({ ...row, contentType: row.contentType as PostImageType }));
 }
 
@@ -131,13 +156,20 @@ async function imageRows(postId: string, executor: Executor = db()): Promise<Pos
 export async function imagesFor(postIds: readonly string[]): Promise<Map<string, PostImageView[]>> {
   const found = new Map<string, PostImageView[]>();
   if (postIds.length === 0) return found;
-  const rows = await db().select({ id: postImage.id, postId: postImage.postId }).from(postImage).where(inArray(postImage.postId, [...postIds])).orderBy(asc(postImage.postId), asc(postImage.position));
-  for (const row of rows) found.set(row.postId, [...(found.get(row.postId) ?? []), { url: postImageUrl(row.id) }]);
+  const rows = await db()
+    .select({ id: postImage.id, postId: postImage.postId, thumbPathname: postImage.thumbPathname })
+    .from(postImage)
+    .where(inArray(postImage.postId, [...postIds]))
+    .orderBy(asc(postImage.postId), asc(postImage.position));
+  for (const row of rows) {
+    const url = postImageUrl(row.id);
+    found.set(row.postId, [...(found.get(row.postId) ?? []), { url, thumbUrl: row.thumbPathname ? postImageUrl(row.id, 'thumb') : url }]);
+  }
   return found;
 }
 
-export function postImageUrl(id: string): string {
-  return `/media/post-images/${id}`;
+export function postImageUrl(id: string, size?: 'thumb'): string {
+  return `/media/post-images/${id}${size ? `?size=${size}` : ''}`;
 }
 
 /**
@@ -147,10 +179,10 @@ export function postImageUrl(id: string): string {
  * for an administrator, to any public post (reports and take-downs are
  * reviewed with the images). Null otherwise.
  */
-export async function visiblePostImage(id: string, viewerId: string | null, administrator = false): Promise<{ pathname: string; contentType: string } | null> {
+export async function visiblePostImage(id: string, viewerId: string | null, administrator = false): Promise<{ pathname: string; contentType: string; thumbPathname: string | null } | null> {
   if (!isUuid(id)) return null;
   const [row] = await db()
-    .select({ pathname: postImage.pathname, contentType: postImage.contentType })
+    .select({ pathname: postImage.pathname, contentType: postImage.contentType, thumbPathname: postImage.thumbPathname })
     .from(postImage)
     .innerJoin(post, eq(post.id, postImage.postId))
     .where(
@@ -164,7 +196,9 @@ export async function visiblePostImage(id: string, viewerId: string | null, admi
       ),
     )
     .limit(1);
-  return row && postImageOwner(row.pathname) ? row : null;
+  if (!row || !postImageOwner(row.pathname)) return null;
+  /* Only ever the image's own thumbnail, whatever the row says. */
+  return { ...row, thumbPathname: row.thumbPathname && row.thumbPathname === postImageThumbPath(row.pathname) ? row.thumbPathname : null };
 }
 
 /* ------------------------------------------------------------ for models */

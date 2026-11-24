@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanImageText, fitWithin, parsePostImages, pastedImages, postImageOwner, postImagePath, postSubject, POST_IMAGE_EDGE, POST_IMAGE_TEXT_MAX_CHARS } from '@/lib/domain/post-images';
+import { cleanImageText, fitWithin, parsePostImages, pastedImages, postImageOwner, postImagePath, postImageThumbPath, postSubject, thumbSize, POST_IMAGE_EDGE, POST_IMAGE_TEXT_MAX_CHARS } from '@/lib/domain/post-images';
 import { parseModelConfig, readsImages } from '@/lib/domain/models';
 
 const user = '6f1c3a52-6c55-4a8e-9d0e-2f6ad0c1a111';
@@ -39,6 +39,22 @@ describe('preparing images', () => {
     expect(fitWithin(4032, 3024)).toEqual({ width: POST_IMAGE_EDGE, height: 1176 });
     expect(fitWithin(1000, 6000)).toEqual({ width: 261, height: POST_IMAGE_EDGE });
     expect(fitWithin(800, 600)).toEqual({ width: 800, height: 600 });
+  });
+
+  it('draws the feed\'s thumbnail with its short edge at 256 (a panorama\'s long edge at most 768), never up', () => {
+    expect(thumbSize(1513, 1110)).toEqual({ width: 349, height: 256 });
+    expect(thumbSize(1110, 1568)).toEqual({ width: 256, height: 362 });
+    expect(thumbSize(1568, 200)).toEqual({ width: 768, height: 98 });
+    expect(thumbSize(200, 120)).toEqual({ width: 200, height: 120 });
+  });
+
+  it('puts a thumbnail beside its own image only', () => {
+    expect(postImageThumbPath(`post-images/${user}/${file}.png`)).toBe(`post-images/${user}/${file}.thumb.jpg`);
+    expect(postImageThumbPath(`post-images/${user}/${file}.webp`)).toBe(`post-images/${user}/${file}.thumb.jpg`);
+    expect(postImageThumbPath(`post-images/${user}/${file}.thumb.jpg`)).toBeNull();
+    expect(postImageThumbPath(`avatars/${user}/${file}.png`)).toBeNull();
+    /* A thumbnail's pathname is never an image a publish may name. */
+    expect(postImageOwner(`post-images/${user}/${file}.thumb.jpg`)).toBeNull();
   });
 
   it('takes images from a paste only when it carries no text (spreadsheet cells paste as text)', () => {
