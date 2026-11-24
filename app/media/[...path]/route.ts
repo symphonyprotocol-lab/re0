@@ -24,14 +24,17 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pat
   /*
    * A post's image: `/media/post-images/<post_image id>` -- the row, not the
    * stored pathname (it names the author), to whoever may read the post
-   * (lib/services/post-images.ts); never cached for long.
+   * (lib/services/post-images.ts); never cached for long. `?size=thumb` is
+   * its small copy for the feed, behind the same check, or the image itself
+   * when it has none (older posts) or that copy cannot be read.
    */
   if (segments[0] === 'post-images') {
     if (segments.length !== 2 || !ID.test(segments[1]!)) return new Response(null, { status: 404 });
     const [viewer, administrator] = await Promise.all([currentUser(), currentAdministrator()]);
     const image = await visiblePostImage(segments[1]!, viewer?.id ?? null, Boolean(administrator));
     if (!image) return new Response(null, { status: 404 });
-    const blob = await streamBlob(image.pathname);
+    const thumb = request.nextUrl.searchParams.get('size') === 'thumb' && image.thumbPathname ? await streamBlob(image.thumbPathname) : null;
+    const blob = thumb ?? (await streamBlob(image.pathname));
     if (!blob?.contentType || !Object.hasOwn(REE_IMAGE_EXTENSIONS, blob.contentType)) return new Response(null, { status: 404 });
     return new Response(blob.stream, {
       headers: {
