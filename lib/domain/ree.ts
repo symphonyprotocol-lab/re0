@@ -69,8 +69,16 @@ export const CATEGORY_TAGS: Record<ReeCategory, { zh: string[]; en: string[] }> 
     en: ['Finance', 'Law', 'Health', 'Engineering', 'Architecture', 'Industry research', 'Accounting', 'Supply chain'],
   },
   life: {
-    zh: ['生活方式', '旅行文化', '艺术鉴赏', '运动健身', '个人成长', '效率工具', '烹饪', '音乐'],
-    en: ['Lifestyle', 'Travel', 'Arts', 'Fitness', 'Personal growth', 'Productivity', 'Cooking', 'Music'],
+    zh: ['生活方式', '家居园艺', '艺术鉴赏', '运动健身', '个人成长', '效率工具', '烹饪', '音乐'],
+    en: ['Lifestyle', 'Home & garden', 'Arts', 'Fitness', 'Personal growth', 'Productivity', 'Cooking', 'Music'],
+  },
+  travel: {
+    zh: ['旅行攻略', '目的地', '城市指南', '交通出行', '美食', '户外徒步', '签证出入境', '文化体验'],
+    en: ['Travel tips', 'Destinations', 'City guides', 'Getting around', 'Food', 'Hiking', 'Visas', 'Culture'],
+  },
+  literature: {
+    zh: ['小说', '诗歌', '戏剧', '短篇小说', '科幻', '推理', '经典名著', '儿童文学'],
+    en: ['Novel', 'Poetry', 'Drama', 'Short stories', 'Science fiction', 'Mystery', 'Classics', 'Children'],
   },
   other: { zh: [], en: [] },
 };
