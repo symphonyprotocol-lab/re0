@@ -7,12 +7,20 @@
  * From posts, a question to a Ree is one of its `post_answer` rows, first
  * round or follow-up, on a published post someone other than its owner
  * asked: the post's author for the first round, the follow-up's for a
- * follow-up. Only real questions count -- `post` (public and private) and
- * `api` (MCP) -- never the owner's 试问 (`test`), RE0's examples, copied
- * Q&A, a visitor's published answer (anonymous answers are counted apart,
- * explore.ts) or a 转为公开 copy, whose answers were already counted on the
- * private post. 有帮助 is `post_answer_vote`, 没帮助 `post_answer_feedback`,
- * both by anyone but the owner.
+ * follow-up. Only real questions count -- `post` (public and private),
+ * `api` (MCP) and `visitor` (a signed-out visitor's question on the share
+ * page, which has no author and so is always someone else's) -- never the
+ * owner's 试问 (`test`), RE0's examples, copied Q&A, a visitor's published
+ * answer from before the redesign (`anonymous` / `share`; anonymous answers
+ * are counted apart, explore.ts) or a 转为公开 copy, whose answers were
+ * already counted on the private post. 有帮助 is `post_answer_vote`, 没帮助
+ * `post_answer_feedback`, both by anyone but the owner.
+ *
+ * Visitor questions count in the public answer count and everything ranked
+ * from it -- Explore's orders, the hourly rank -- like any question (the
+ * user's decision, 2026-11-24), although their owner pays for them and so
+ * could raise their own Ree's figures. The role metrics leave them out
+ * (`visitors: false`): a role is earned from questions people paid for.
  *
  * The fragments read the post answer as `a` and its post as `p`.
  */
@@ -22,9 +30,10 @@ import { db, schema } from '@/lib/infra/db';
 
 const { post, postAnswer, postFollowup, postAnswerVote, postAnswerFeedback, reeLegacyStats } = schema;
 
-/** The post answer `a` on post `p` is a question someone other than `owner` asked (see above). */
-export function askedByOthers(owner: SQL): SQL {
-  return sql`(p.source in ('post', 'api') and p.status = 'published' and a.legacy_qa_id is null
+/** The post answer `a` on post `p` is a question someone other than `owner` asked (see above); `visitors: false` leaves share-page visitor questions out. */
+export function askedByOthers(owner: SQL, { visitors = true }: { visitors?: boolean } = {}): SQL {
+  const sources = sql.raw(visitors ? `('post', 'api', 'visitor')` : `('post', 'api')`);
+  return sql`(p.source in ${sources} and p.status = 'published' and a.legacy_qa_id is null
     and not exists (select 1 from ${post} cp where cp.published_copy_id = p.id)
     and case when a.followup_id is null then p.user_id is distinct from ${owner}
       else exists (select 1 from ${postFollowup} f where f.id = a.followup_id and f.status = 'published' and f.user_id <> ${owner}) end)`;

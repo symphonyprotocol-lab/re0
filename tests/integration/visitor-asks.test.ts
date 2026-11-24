@@ -35,6 +35,11 @@ const { forgetModelCache } = await import('@/lib/infra/ai/models');
 const { QUERY_BASE_FEE } = await import('@/lib/constants');
 const { VISITOR_ASK_NOTE } = await import('@/lib/domain/visitor-ask');
 const askRoute = await import('@/app/api/share/[slug]/ask/route');
+const { answersByOthers, reeCards } = await import('@/lib/services/explore');
+const { publicReeBySlug } = await import('@/lib/services/public-rees');
+const { computeRanks } = await import('@/lib/services/rank');
+const { savedCounts } = await import('@/lib/services/statistics');
+const { roleMetrics } = await import('@/lib/services/roles');
 const reeRoute = await import('@/app/api/rees/[id]/route');
 
 let fake: FakeOpenAi;
@@ -193,6 +198,27 @@ describeWithDb('visitor asks on the share page', () => {
     await posts.processPost(asked.id, { judge: approve, answerOne: answered });
     expect(await postRow(asked.id)).toMatchObject({ answerState: 'done', answerCount: 0 });
     expect(await balanceOf(db(), ree.ownerId)).toBe(500);
+  });
+
+  it("counts an answered visitor question in the Ree's public answers, its cards, the hourly rank and the owner's records, but not its role metrics", async () => {
+    const ree = await shared(500, { perVisitor: 5 });
+    const answeredOne = await ask(ree.slug);
+    const unanswered = await ask(ree.slug);
+    if (!answeredOne.ok || !unanswered.ok) throw new Error('not asked');
+    await posts.processPost(answeredOne.id, { judge: approve, answerOne: answered });
+    await posts.processPost(unanswered.id, { judge: approve, answerOne: async () => ({ state: 'no_answer', model: 'stub' }) });
+    const [counted] = await db().select({ answers: answersByOthers }).from(schema.ree).where(eq(schema.ree.id, ree.reeId));
+    expect(counted?.answers).toBe(1);
+    expect((await reeCards([ree.reeId]))[0]?.answers).toBe(1);
+    expect((await publicReeBySlug(ree.slug))?.answers).toBe(1);
+    /* The hourly rank counts it like any other question: asked twice, answered once. */
+    await computeRanks();
+    const [ranked] = await db().select({ rank: schema.ree.rank }).from(schema.ree).where(eq(schema.ree.id, ree.reeId));
+    expect(ranked?.rank).toMatchObject({ asked30: 2, answered30: 1, answersAll: 1, asked7: 2 });
+    /* The owner's statistics keep it as a record on file. */
+    expect((await savedCounts([ree.reeId], null)).get(ree.reeId)).toBe(1);
+    /* A role is earned from questions people paid for. */
+    expect((await roleMetrics(db(), ree.ownerId)).externalQuestions).toBe(0);
   });
 
   it("charges the owner's own paid Ree the base fee only, never its query fee", async () => {
