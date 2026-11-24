@@ -153,7 +153,11 @@ describeWithDb('starter tasks: the first post and the first 有帮助', () => {
     if (!posted.ok) throw new Error(posted.error);
     /* Pending: nothing yet. Refused: nothing ever. */
     expect(await entries(refused, 'task_first_post')).toHaveLength(0);
-    expect(await posts.moderatePost(posted.id, async () => ({ publish: false }))).toBe('rejected');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(await posts.moderatePost(posted.id, async () => ({ publish: false, reason: 'looks like spam' }))).toBe('rejected');
+    /* Nothing else keeps why a post was refused: the log does. */
+    expect(warn).toHaveBeenCalledWith(`post ${posted.id} refused by review: looks like spam`);
+    warn.mockRestore();
     expect(await entries(refused, 'task_first_post')).toHaveLength(0);
 
     const one = await publicRee();
