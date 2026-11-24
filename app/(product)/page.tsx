@@ -152,6 +152,15 @@ async function Home({ searchParams }: Props) {
           </div>
         )}
         {user && !q && <HomeComposer signedIn />}
+        {channels && (
+          /* Ree 比赛 are channels with rules (docs/design/competitions.md C5): the way to them from the channel list. */
+          <div className="channel-head">
+            <p>{t.competitions.lede}</p>
+            <Link href="/competitions" className="btn-secondary btn-sm">
+              {t.competitions.title}
+            </Link>
+          </div>
+        )}
         {channels ? (
           <ChannelList key={q ?? ''} q={q} initial={channels} now={now} />
         ) : (

@@ -3,6 +3,7 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { currentUser } from '@/lib/http/session';
 import { getChannel } from '@/lib/services/channels';
+import { competitionOfChannel } from '@/lib/services/competitions';
 import { listFeed } from '@/lib/services/posts';
 import { channelHref } from '@/lib/domain/hashtags';
 import { publicPage, SITE_NAME, UNLISTED_ROBOTS } from '@/lib/seo';
@@ -52,7 +53,7 @@ export default async function ChannelPage({ params }: Props) {
   const channel = await getChannel(written);
   if (!channel) notFound();
   if (written !== channel.name) permanentRedirect(localizeHref(locale, channelHref(channel.name)));
-  const feed = await listFeed('latest', { channel: channel.name, viewerId: user?.id });
+  const [feed, contest] = await Promise.all([listFeed('latest', { channel: channel.name, viewerId: user?.id }), competitionOfChannel(channel.id)]);
   const c = t.posts.channels;
   const href = channelHref(channel.name);
   /* The composer over this page, the tag written in (composer.tsx `composeHref`, a client module). */
@@ -82,6 +83,17 @@ export default async function ChannelPage({ params }: Props) {
   );
   return (
     <FeedColumns title={`#${channel.name}`} back="/?tab=channels" rail={rail}>
+      {/* A competition's channel (docs/design/competitions.md C4): its state and the way to it, above the posts. */}
+      {contest && (
+        <div className="channel-head">
+          <p>
+            {fill(t.competitions.channel.banner, { title: contest.title })} · {t.competitions.status[contest.status]}
+          </p>
+          <Link href={`/competitions/${contest.slug}`} className="btn btn-sm">
+            {t.competitions.channel.go}
+          </Link>
+        </div>
+      )}
       <div className="channel-head">
         <p>{fill(c.count, { n: formatNumber(channel.posts, locale) })}</p>
         {post}

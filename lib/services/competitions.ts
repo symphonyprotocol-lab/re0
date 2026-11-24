@@ -1182,3 +1182,19 @@ export async function slugOf(id: string): Promise<string | null> {
   const [row] = await db().select({ slug: comp.slug }).from(comp).where(eq(comp.id, id)).limit(1);
   return row?.slug ?? null;
 }
+
+/** The user's Rees that may enter (5.2): public, published, not taken down, with a ready source -- and not in this competition already. */
+export async function enterableRees(userId: string, competitionId: string): Promise<{ id: string; name: string }[]> {
+  return db()
+    .select({ id: ree.id, name: ree.name })
+    .from(ree)
+    .where(
+      and(
+        eq(ree.ownerId, userId),
+        publicRee(),
+        sql`exists (select 1 from ${schema.knowledge} k where k.ree_id = ${ree.id} and k.status = 'ready' and k.enabled and k.deleted_at is null)`,
+        sql`not exists (select 1 from ${entry} e where e.competition_id = ${competitionId}::uuid and e.ree_id = ${ree.id} and e.status <> 'withdrawn')`,
+      ),
+    )
+    .orderBy(asc(ree.name));
+}

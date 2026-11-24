@@ -148,6 +148,31 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
         reason: null,
         more: reeId ? { href: `/rees/${reeId}/settings#visitor-asks`, action: o.visitorAsks } : undefined,
       };
+    case 'competition_published':
+      /* Ree 比赛: the host hears how the review of their competition went. */
+      return { line: fill(Number(p.ok) ? l.competitionOpen : l.competitionRejected, { title: String(p.title ?? '') }), icon: 'sparkle', href: p.slug ? `/competitions/${String(p.slug)}` : null, action: o.competition, reason: null };
+    case 'competition_balance_short':
+      /* An entrant who pays: short a day before the deadline, or left out at it (`skipped`). */
+      return {
+        line: fill(Number(p.skipped) ? l.competitionSkipped : l.competitionShort, { title: String(p.title ?? ''), needed: formatNumber(Number(p.needed) || 0, locale) }),
+        icon: 'layers',
+        href: Number(p.skipped) && p.slug ? `/competitions/${String(p.slug)}` : '/settings?tab=balance',
+        action: Number(p.skipped) ? o.competition : o.topUp,
+        reason: null,
+      };
+    case 'competition_review_ready':
+      return { line: fill(l.competitionReview, { title: String(p.title ?? ''), until: p.until ? formatDateTime(String(p.until), locale) : '' }), icon: 'sparkle', href: notice.refId ? `/workspace/competitions/${notice.refId}` : null, action: o.competition, reason: null };
+    case 'competition_results': {
+      const ranked = p.rank !== null && p.rank !== undefined;
+      const line = !ranked ? l.competitionResultsNone : Number(p.corrected) ? l.competitionCorrected : l.competitionResults;
+      return {
+        line: fill(line, { title: String(p.title ?? ''), ree: String(p.ree ?? ''), rank: formatNumber(Number(p.rank) || 0, locale), n: formatNumber(Number(p.entries) || 0, locale), total: String(p.total ?? 0) }),
+        icon: 'sparkle',
+        href: p.slug ? `/competitions/${String(p.slug)}` : null,
+        action: o.competition,
+        reason: null,
+      };
+    }
     case 'chats_removal':
       /* Once, by migration 0067: private conversations became private posts, and the old ones go a week later. */
       return { line: l.chatsRemoval, icon: 'info', href: '/me/posts?tab=private', action: o.privatePosts, reason: null };

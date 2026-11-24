@@ -96,6 +96,8 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
     },
   }), [candidates, isPrivate]);
 
+  /* A competition's question post (docs/design/competitions.md 10): up to a hundred Rees answered it; follow-ups stay off, signed in or not. */
+  if (blocked === 'closed') return <div className="post-state is-unmatched" id="followup">{f.closed}</div>;
   if (!signedIn) {
     return (
       <div className="fu-composer is-visitor" id="followup">
@@ -113,8 +115,6 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
     );
   }
   if (blocked === 'full') return <div className="post-state is-unmatched" id="followup">{f.full}</div>;
-  /* A competition's question post (docs/design/competitions.md 10): up to a hundred Rees answered it; follow-ups stay off. */
-  if (blocked === 'closed') return <div className="post-state is-unmatched" id="followup">{f.closed}</div>;
   if (candidates.length === 0 && !isPrivate && !publicAi) return null;
 
   const paidNames = picked.filter((entry) => entry.paid).map((entry) => entry.reeName);
