@@ -1,7 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'react';
-import { fitWithin, isPostImageType, pastedImages, POST_IMAGE_EDGE, POST_IMAGE_MAX, POST_IMAGE_MAX_BYTES, POST_IMAGE_TYPES, POST_IMAGE_UPLOAD_MAX_BYTES } from '@/lib/domain/post-images';
+import {
+  fitWithin,
+  isPostImageType,
+  pastedImages,
+  POST_IMAGE_EDGE,
+  POST_IMAGE_MAX,
+  POST_IMAGE_MAX_BYTES,
+  POST_IMAGE_THUMB_MAX_BYTES,
+  POST_IMAGE_TYPES,
+  POST_IMAGE_UPLOAD_MAX_BYTES,
+  thumbSize,
+} from '@/lib/domain/post-images';
 import { uploadToBlob } from '@/lib/client/upload';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
@@ -21,22 +32,54 @@ async function preparedImage(file: File): Promise<Blob> {
   try {
     const size = fitWithin(bitmap.width, bitmap.height, POST_IMAGE_EDGE);
     if (size.width === bitmap.width && size.height === bitmap.height && file.size <= POST_IMAGE_UPLOAD_MAX_BYTES) return file;
-    const canvas = document.createElement('canvas');
-    canvas.width = size.width;
-    canvas.height = size.height;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('no canvas');
-    context.fillStyle = '#fff';
-    context.fillRect(0, 0, size.width, size.height);
-    context.drawImage(bitmap, 0, 0, size.width, size.height);
-    for (const quality of [0.85, 0.72, 0.6, 0.5]) {
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
-      if (blob && blob.size <= POST_IMAGE_UPLOAD_MAX_BYTES) return blob;
-    }
-    throw new Error('image too large after scaling');
+    const blob = await jpegWithin(bitmap, size, POST_IMAGE_UPLOAD_MAX_BYTES, [0.85, 0.72, 0.6, 0.5]);
+    if (!blob) throw new Error('image too large after scaling');
+    return blob;
   } finally {
     bitmap.close();
   }
+}
+
+/** The feed's small copy of a prepared image (lib/domain/post-images.ts `thumbSize`), or null when it cannot be drawn small enough. */
+async function thumbnailOf(image: Blob): Promise<Blob | null> {
+  const bitmap = await createImageBitmap(image);
+  try {
+    return await jpegWithin(bitmap, thumbSize(bitmap.width, bitmap.height), POST_IMAGE_THUMB_MAX_BYTES, [0.8, 0.65, 0.5]);
+  } finally {
+    bitmap.close();
+  }
+}
+
+/** `bitmap` drawn at `size` on white (transparent PNGs) as JPEG, at the first quality that fits `maxBytes`. */
+async function jpegWithin(bitmap: ImageBitmap, size: { width: number; height: number }, maxBytes: number, qualities: readonly number[]): Promise<Blob | null> {
+  const canvas = document.createElement('canvas');
+  canvas.width = size.width;
+  canvas.height = size.height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('no canvas');
+  context.fillStyle = '#fff';
+  context.fillRect(0, 0, size.width, size.height);
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(bitmap, 0, 0, size.width, size.height);
+  for (const quality of qualities) {
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    if (blob && blob.size <= maxBytes) return blob;
+  }
+  return null;
+}
+
+/**
+ * Uploads the image, then its thumbnail beside it. The thumbnail is a
+ * nicety: when it cannot be made or sent, the image still counts and the
+ * feed shows the image itself.
+ */
+async function uploadPostImage(file: File): Promise<{ pathname: string } | { error: string }> {
+  const image = await preparedImage(file);
+  const uploaded = await uploadToBlob(image, { purpose: 'post-image', contentType: image.type, size: image.size });
+  if (!('pathname' in uploaded)) return uploaded;
+  const thumb = await thumbnailOf(image).catch(() => null);
+  if (thumb) await uploadToBlob(thumb, { purpose: 'post-image-thumb', of: uploaded.pathname, size: thumb.size });
+  return uploaded;
 }
 
 interface Attachment {
@@ -81,8 +124,7 @@ export function usePostImages() {
         const key = crypto.randomUUID();
         const preview = URL.createObjectURL(file);
         setItems((current) => [...current, { key, preview, state: 'uploading', pathname: null }]);
-        void preparedImage(file)
-          .then((image) => uploadToBlob(image, { purpose: 'post-image', contentType: image.type, size: image.size }))
+        void uploadPostImage(file)
           .catch(() => ({ error: 'prepare' }))
           .then((result) => {
             setItems((current) => current.map((item) => (item.key !== key ? item : 'pathname' in result ? { ...item, state: 'done', pathname: result.pathname } : { ...item, state: 'failed' })));
@@ -215,14 +257,14 @@ export function PostImageGallery({ images }: { images: readonly { url: string }[
   );
 }
 
-/** A card's thumbnail: the first image, with how many there are. */
-export function PostImageThumb({ images }: { images: readonly { url: string }[] }) {
+/** A card's thumbnail: the first image's small copy, with how many there are. */
+export function PostImageThumb({ images }: { images: readonly { url: string; thumbUrl: string }[] }) {
   const { t } = useI18n();
   if (images.length === 0) return null;
   return (
     <span className="post-image-thumb" title={fill(t.posts.images.count, { n: images.length })}>
       {/* eslint-disable-next-line @next/next/no-img-element -- private media, served per viewer */}
-      <img src={images[0]!.url} alt={fill(t.posts.images.alt, { n: 1 })} loading="lazy" />
+      <img src={images[0]!.thumbUrl} alt={fill(t.posts.images.alt, { n: 1 })} loading="lazy" />
       {images.length > 1 && <small>{images.length}</small>}
     </span>
   );

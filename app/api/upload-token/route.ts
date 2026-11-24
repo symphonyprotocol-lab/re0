@@ -8,7 +8,7 @@ import { apiUser } from '@/lib/http/session';
 import { uploadTicket } from '@/lib/infra/blob';
 import { db } from '@/lib/infra/db';
 import { ownedRee } from '@/lib/services/rees';
-import { postImageTicket } from '@/lib/services/post-images';
+import { postImageThumbTicket, postImageTicket } from '@/lib/services/post-images';
 
 /** A cropped 512×512 avatar is far below this. */
 const AVATAR_MAX_BYTES = 1024 * 1024;
@@ -90,6 +90,13 @@ export async function POST(request: NextRequest) {
     const ticket = await postImageTicket(user.id, { contentType: input.contentType, size: input.size });
     if (!ticket) return fail('invalid_image', 422);
     /* Previewed from the file in the browser: `/media` serves it only once a post names it. */
+    return json(ticket);
+  }
+
+  /* Its small copy for the feed, beside it: `of` is the image's pathname (one of the caller's). */
+  if (input.purpose === 'post-image-thumb') {
+    const ticket = await postImageThumbTicket(user.id, { of: input.of, size: input.size });
+    if (!ticket) return fail('invalid_image', 422);
     return json(ticket);
   }
 

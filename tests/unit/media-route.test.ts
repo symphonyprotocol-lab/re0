@@ -13,22 +13,24 @@ vi.mock('next/headers', () => ({
  * the pathname pasted raw after the store host) and records the path the
  * fetch would actually request once URL parsing has normalised it.
  */
-const net = vi.hoisted(() => ({ fetched: [] as string[], contentType: 'image/webp' }));
+const net = vi.hoisted(() => ({ fetched: [] as string[], contentType: 'image/webp', missing: new Set<string>() }));
 const fetched = net.fetched;
 vi.mock('@vercel/blob', async (original) => ({
   ...(await original<typeof import('@vercel/blob')>()),
   get: async (pathname: string) => {
     net.fetched.push(new URL(`https://teststore.private.blob.vercel-storage.com/${pathname}`).pathname);
-    return { statusCode: 200, stream: new Response('bytes').body, headers: new Headers(), blob: { contentType: net.contentType } };
+    if (net.missing.has(pathname)) return null;
+    return { statusCode: 200, stream: new Response('bytes').body, headers: new Headers(), blob: { contentType: pathname.endsWith('.thumb.jpg') ? 'image/jpeg' : net.contentType } };
   },
 }));
 
 /* Who may see a post's image is the database's call (lib/services/post-images.ts): here, a switch. */
-const access = vi.hoisted(() => ({ visible: false, asked: [] as { id: string; viewer: string | null; administrator: boolean }[] }));
+const access = vi.hoisted(() => ({ visible: false, thumb: false, asked: [] as { id: string; viewer: string | null; administrator: boolean }[] }));
 vi.mock('@/lib/services/post-images', () => ({
   visiblePostImage: async (id: string, viewer: string | null, administrator: boolean) => {
     access.asked.push({ id, viewer, administrator });
-    return access.visible ? { pathname: `post-images/6f1c3a52-6c55-4a8e-9d0e-2f6ad0c1a111/${id}.png`, contentType: 'image/png' } : null;
+    const pathname = `post-images/6f1c3a52-6c55-4a8e-9d0e-2f6ad0c1a111/${id}`;
+    return access.visible ? { pathname: `${pathname}.png`, contentType: 'image/png', thumbPathname: access.thumb ? `${pathname}.thumb.jpg` : null } : null;
   },
 }));
 vi.mock('@/lib/http/admin', () => ({ currentAdministrator: async () => null }));
@@ -40,6 +42,8 @@ const reeId = '1d2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
 beforeEach(() => {
   fetched.length = 0;
   net.contentType = 'image/webp';
+  net.missing.clear();
+  access.thumb = false;
   vi.stubEnv('BLOB_READ_WRITE_TOKEN', 'vercel_blob_rw_teststore_secret');
 });
 afterEach(() => {
@@ -47,7 +51,11 @@ afterEach(() => {
 });
 
 function get(...segments: string[]) {
-  return GET(new NextRequest(`http://localhost:3000/media/${segments.map(encodeURIComponent).join('/')}`), {
+  return getWith('', ...segments);
+}
+
+function getWith(query: string, ...segments: string[]) {
+  return GET(new NextRequest(`http://localhost:3000/media/${segments.map(encodeURIComponent).join('/')}${query}`), {
     params: Promise.resolve({ path: segments }),
   });
 }
@@ -104,6 +112,39 @@ describe('/media post images', () => {
     const response = await get('post-images', file);
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, max-age=300');
+    expect(fetched).toEqual([`/post-images/${user}/${file}.png`]);
+  });
+
+  it('serves the small copy for ?size=thumb behind the same check, and the image itself when there is none', async () => {
+    access.visible = false;
+    access.thumb = true;
+    access.asked.length = 0;
+    expect((await getWith('?size=thumb', 'post-images', file)).status).toBe(404);
+    expect(access.asked).toEqual([{ id: file, viewer: null, administrator: false }]);
+    expect(fetched).toEqual([]);
+
+    access.visible = true;
+    const thumb = await getWith('?size=thumb', 'post-images', file);
+    expect(thumb.status).toBe(200);
+    expect(thumb.headers.get('content-type')).toBe('image/jpeg');
+    expect(thumb.headers.get('cache-control')).toBe('private, max-age=300');
+    expect(fetched).toEqual([`/post-images/${user}/${file}.thumb.jpg`]);
+
+    /* The full image unless the small one is asked for. */
+    fetched.length = 0;
+    expect((await get('post-images', file)).status).toBe(200);
+    expect(fetched).toEqual([`/post-images/${user}/${file}.png`]);
+
+    /* The copy gone from the store: the image instead. */
+    fetched.length = 0;
+    net.missing.add(`post-images/${user}/${file}.thumb.jpg`);
+    expect((await getWith('?size=thumb', 'post-images', file)).status).toBe(200);
+    expect(fetched).toEqual([`/post-images/${user}/${file}.thumb.jpg`, `/post-images/${user}/${file}.png`]);
+
+    /* An older image with no copy at all. */
+    fetched.length = 0;
+    access.thumb = false;
+    expect((await getWith('?size=thumb', 'post-images', file)).status).toBe(200);
     expect(fetched).toEqual([`/post-images/${user}/${file}.png`]);
   });
 

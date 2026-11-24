@@ -69,13 +69,16 @@ const PREFIXES: Prefix[] = [
     },
   },
   {
-    /* A post's image the composer uploaded but no post names (abandoned, or its post purged): post_image rows keep the rest. */
+    /* A post's image (or its `.thumb.jpg`) the composer uploaded but no post names (abandoned, or its post purged): post_image rows keep the rest. */
     prefix: 'post-images/',
-    owner: new RegExp(`^post-images/(${UUID})/${UUID}\\.(?:jpg|png|webp)$`),
+    owner: new RegExp(`^post-images/(${UUID})/${UUID}\\.(?:jpg|png|webp|thumb\\.jpg)$`),
     known: knownUsers,
     async referenced(pathnames) {
-      const rows = await db().selectDistinct({ pathname: schema.postImage.pathname }).from(schema.postImage).where(inArray(schema.postImage.pathname, pathnames));
-      return new Set(rows.map((row) => row.pathname));
+      const list = sql.join(pathnames.map((pathname) => sql`${pathname}`), sql`, `);
+      const rows = await db().execute<{ pathname: string }>(sql`
+        select pathname from ${schema.postImage} where pathname in (${list})
+        union select thumb_pathname from ${schema.postImage} where thumb_pathname in (${list})`);
+      return new Set(rows.rows.map((row) => row.pathname));
     },
   },
 ];

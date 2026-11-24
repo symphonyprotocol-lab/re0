@@ -25,6 +25,18 @@ export const POST_IMAGE_EDGE = 1568;
 export const POST_IMAGE_UPLOAD_MAX_BYTES = 1536 * 1024;
 export const POST_IMAGE_TYPES = REE_IMAGE_EXTENSIONS;
 export type PostImageType = keyof typeof POST_IMAGE_TYPES;
+/**
+ * The small copy the feed shows (an 84×64 box, `object-fit: cover`, at up to
+ * 3x): the browser draws it from the scaled image with its short edge at
+ * `POST_IMAGE_THUMB_SHORT_EDGE` (its long edge at most
+ * `POST_IMAGE_THUMB_LONG_EDGE`, for a panorama), JPEG, and uploads it beside
+ * the image as `<image>.thumb.jpg`. Optional: a post without one (older
+ * posts, a thumbnail that failed) shows the image itself.
+ */
+export const POST_IMAGE_THUMB_SHORT_EDGE = 256;
+export const POST_IMAGE_THUMB_LONG_EDGE = 768;
+export const POST_IMAGE_THUMB_MAX_BYTES = 128 * 1024;
+export const POST_IMAGE_THUMB_TYPE = 'image/jpeg';
 /** The description stored for the text-only steps: long enough for a screenshot's text, short enough for an embedding. */
 export const POST_IMAGE_TEXT_MAX_CHARS = 2_000;
 export const POST_IMAGE_TEXT_OUTPUT_TOKENS = 1_200;
@@ -46,6 +58,11 @@ export function postImageOwner(pathname: string): string | null {
   return PATH.exec(pathname)?.[1] ?? null;
 }
 
+/** Where the thumbnail of this upload goes (beside it), or null when `pathname` is not a post image as the uploader writes it. */
+export function postImageThumbPath(pathname: string): string | null {
+  return postImageOwner(pathname) ? pathname.replace(/\.(?:jpg|png|webp)$/, '.thumb.jpg') : null;
+}
+
 /**
  * The pathnames a publish names, in order: each this user's own upload
  * shape, no repeats, at most `POST_IMAGE_MAX`. Missing or empty is no images.
@@ -65,6 +82,12 @@ export function parsePostImages(raw: unknown, userId: string): string[] | 'inval
 /** The size an image is drawn at: scaled down to fit `edge` on its longest side, never up. */
 export function fitWithin(width: number, height: number, edge = POST_IMAGE_EDGE): { width: number; height: number } {
   const scale = Math.min(1, edge / Math.max(width, height, 1));
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
+/** The size a thumbnail is drawn at: the short edge down to `short` (the long one at most `long`), never up. */
+export function thumbSize(width: number, height: number, short = POST_IMAGE_THUMB_SHORT_EDGE, long = POST_IMAGE_THUMB_LONG_EDGE): { width: number; height: number } {
+  const scale = Math.min(1, short / Math.max(Math.min(width, height), 1), long / Math.max(width, height, 1));
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
