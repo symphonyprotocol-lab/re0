@@ -90,6 +90,7 @@ import { questionRewriter } from '@/lib/services/question-rewrite';
 import { parsePostImages, postSubject } from '@/lib/domain/post-images';
 import { attachImages, checkedImages, hasSameImages, imagesReadableFor, ensureImageText, imageParts, imagesFor, type ImageDescriber, type ImagePart } from '@/lib/services/post-images';
 import { ceilingFor } from '@/lib/services/rate-limit-settings';
+import { VISITOR_ASK_NOTE } from '@/lib/domain/visitor-ask';
 
 const { post, postVote, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user } = schema;
 
@@ -426,10 +427,22 @@ export async function moderatePost(id: string, judge: Judge = modelJudge, now = 
   return (await rejectPost(id, now)) ? 'rejected' : 'gone';
 }
 
-/** A pending post refused (or whose review never finished): not public; nothing was charged. Not while in the trash (`moderatePost`). */
+/**
+ * A pending post refused (or whose review never finished): not public;
+ * nothing was charged -- a visitor's question gives its owner's hold back.
+ * Not while in the trash (`moderatePost`).
+ */
 async function rejectPost(id: string, now: Date): Promise<boolean> {
-  const rows = await db().update(post).set({ status: 'rejected', answerState: 'done', answeredAt: now }).where(and(eq(post.id, id), eq(post.status, 'pending'), isNull(post.deletedAt))).returning({ id: post.id });
-  return rows.length > 0;
+  return db().transaction(async (tx) => {
+    const rows = await tx
+      .update(post)
+      .set({ status: 'rejected', answerState: 'done', answeredAt: now })
+      .where(and(eq(post.id, id), eq(post.status, 'pending'), isNull(post.deletedAt)))
+      .returning({ sponsorHoldId: post.sponsorHoldId, reeId: post.mentionReeId });
+    const [rejected] = rows;
+    if (rejected?.sponsorHoldId) await releaseHold(tx, rejected.sponsorHoldId, { reeId: rejected.reeId, ledger: 'post_answer', note: VISITOR_ASK_NOTE }, now);
+    return rows.length > 0;
+  });
 }
 
 /* ---------------------------------------------------------------- matching */
@@ -509,6 +522,28 @@ export const groundedAnswer: AnswerOne = async ({ reeId, subject, lang, vector, 
   }
 };
 
+/**
+ * A visitor's question is answered by the Ree it was asked on alone, never
+ * matched: only while that Ree is public and still its sponsor's (the owner
+ * paying). Without it nobody answers, and the hold is given back.
+ */
+async function visitorMatch(row: typeof post.$inferSelect): Promise<Match> {
+  if (!row.mentionReeId || !row.sponsorId) return { answerers: [], candidates: 0, skipped: 0, vector: null };
+  const [target] = await db().select({ id: ree.id }).from(ree).where(and(eq(ree.id, row.mentionReeId), eq(ree.ownerId, row.sponsorId), publicRee())).limit(1);
+  return target ? { answerers: [{ reeId: target.id, similarity: null, mentioned: true }], candidates: 1, skipped: 0, vector: null } : { answerers: [], candidates: 0, skipped: 0, vector: null };
+}
+
+/** Puts a visitor question's hold on its answer, while the answer is running and the hold still open; false otherwise (the post's settlement gives it back). */
+async function takeSponsorHold(holdId: string | null, answerId: string): Promise<boolean> {
+  if (!holdId) return false;
+  const moved = await db()
+    .update(answer)
+    .set({ baseHoldId: holdId, price: QUERY_BASE_FEE })
+    .where(and(eq(answer.id, answerId), eq(answer.state, 'answering'), sql`exists (select 1 from ${schema.creditHold} h where h.id = ${holdId} and h.status = 'held')`))
+    .returning({ id: answer.id });
+  return moved.length > 0;
+}
+
 export interface ProcessDeps {
   judge?: Judge;
   match?: Matcher;
@@ -546,8 +581,12 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
   /* The quote, if it can still be seen: its question also steers which Rees are asked. */
   const context = await quoteContext(row);
   try {
-    const author = row.source === 'post' ? row.userId : null;
-    const match = await (deps.match ?? searchMatcher)({ question: context ? `${subject}\n${context.question}` : subject, mentionReeId: row.mentionReeId, authorId: row.userId, excludePaid: !author });
+    /* Who pays for the answers: the author; for a visitor's question, the Ree's owner who let visitors ask (visitor-asks.ts). */
+    const visitor = row.source === 'visitor';
+    const author = row.source === 'post' ? row.userId : visitor ? row.sponsorId : null;
+    const match = visitor
+      ? await visitorMatch(row)
+      : await (deps.match ?? searchMatcher)({ question: context ? `${subject}\n${context.question}` : subject, mentionReeId: row.mentionReeId, authorId: row.userId, excludePaid: !author });
     const found = match.answerers.slice(0, POST_MAX_ANSWERS);
     const categories = found.length
       ? await db().select({ id: ree.id, category: ree.category, queryFee: ree.queryFee, ownerId: ree.ownerId }).from(ree).where(inArray(ree.id, found.map((entry) => entry.reeId)))
@@ -559,7 +598,7 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
      * below, most relevant first (2026-11-19 review: own Rees pay the base
      * fee too; only an own Ree's query fee is waived, never paid to oneself).
      */
-    const paidIds = new Set(categories.filter((entry) => entry.queryFee > 0 && entry.ownerId !== row!.userId).map((entry) => entry.id));
+    const paidIds = new Set(categories.filter((entry) => entry.queryFee > 0 && entry.ownerId !== author).map((entry) => entry.id));
     const answerers = author ? found : found.filter((entry) => !paidIds.has(entry.reeId));
     await db()
       .update(post)
@@ -577,7 +616,8 @@ export async function processPost(id: string, deps: ProcessDeps = {}): Promise<v
     for (const entry of answerers) {
       const inserted = rows.find((other) => other.reeId === entry.reeId);
       if (!inserted || inserted.state !== 'answering') continue;
-      if (author !== null && !(await holdBaseFee(author, inserted.id, entry.reeId, now()))) continue;
+      /* A visitor's question was paid for when it was asked: that hold moves onto the answer. */
+      if (author !== null && !(visitor ? await takeSponsorHold(row.sponsorHoldId, inserted.id) : await holdBaseFee(author, inserted.id, entry.reeId, now()))) continue;
       answering.push(inserted);
     }
     await Promise.all(
@@ -615,10 +655,13 @@ export async function finishPost(id: string, now = new Date()): Promise<void> {
       .set({ state: 'failed' })
       .where(and(eq(answer.postId, id), firstRound(), inArray(answer.state, ['queued', 'answering'])))
       .returning({ reeId: answer.reeId, baseHoldId: answer.baseHoldId, feeHoldId: answer.feeHoldId });
+    const note = target.source === 'visitor' ? VISITOR_ASK_NOTE : undefined;
     for (const entry of running) {
-      if (entry.baseHoldId) await releaseHold(tx, entry.baseHoldId, { reeId: entry.reeId, ledger: 'post_answer' }, now);
+      if (entry.baseHoldId) await releaseHold(tx, entry.baseHoldId, { reeId: entry.reeId, ledger: 'post_answer', note }, now);
       if (entry.feeHoldId) await releaseHold(tx, entry.feeHoldId, { reeId: entry.reeId, ledger: 'chat_fee' }, now);
     }
+    /* A visitor's question its Ree never took up (gone private, or the run died before it): the owner's hold back. One settled or given back already is left alone. */
+    if (target.sponsorHoldId) await releaseHold(tx, target.sponsorHoldId, { reeId: target.mentionReeId, ledger: 'post_answer', note }, now);
     const [counted] = await tx.select({ n: sql<number>`count(*)::int` }).from(answer).where(and(eq(answer.postId, id), firstRound(), eq(answer.state, 'answered')));
     const answered = counted?.n ?? 0;
     const [waiting] = await tx.select({ n: sql<number>`count(*)::int` }).from(answer).where(and(eq(answer.postId, id), firstRound(), eq(answer.state, 'awaiting')));
@@ -730,7 +773,7 @@ export type PostRow = typeof post.$inferSelect & { authorName: string | null; au
 export function authorOf(row: PostRow, viewerId: string | undefined): PostAuthor {
   const mine = Boolean(viewerId && row.userId === viewerId);
   if (row.source === 'seed') return { kind: 'example' };
-  if (row.source === 'anonymous' || row.source === 'share') return { kind: 'visitor' };
+  if (row.source === 'anonymous' || row.source === 'share' || row.source === 'visitor') return { kind: 'visitor' };
   if (row.anonymous || row.source === 'conversation' || !row.authorName) return { kind: 'hidden', mine };
   return { kind: 'user', name: row.authorName, avatar: row.authorAvatar, mine };
 }
@@ -1650,14 +1693,15 @@ export async function answerPaid(id: string, deps: { answerOne?: AnswerOne; now?
 export async function closeAnswer(id: string, result: AnswerResult, now: Date): Promise<void> {
   await db().transaction(async (tx) => {
     const [target] = await tx
-      .select({ id: answer.id, postId: answer.postId, reeId: answer.reeId, baseHoldId: answer.baseHoldId, feeHoldId: answer.feeHoldId, price: answer.price, reeName: ree.name, ownerId: ree.ownerId })
+      .select({ id: answer.id, postId: answer.postId, reeId: answer.reeId, baseHoldId: answer.baseHoldId, feeHoldId: answer.feeHoldId, price: answer.price, reeName: ree.name, ownerId: ree.ownerId, source: post.source, followupId: answer.followupId })
       .from(answer)
       .innerJoin(ree, eq(ree.id, answer.reeId))
+      .innerJoin(post, eq(post.id, answer.postId))
       .where(and(eq(answer.id, id), eq(answer.state, 'answering')))
       .for('update', { of: answer });
     if (!target) return;
-    /* The ledger shows the Ree's name, marked as a post answer ('post answer' is read into the reader's language). */
-    const holds = { reeId: target.reeId, note: 'post answer' };
+    /* The ledger shows the Ree's name, marked as a post answer, or a visitor's question its owner paid for -- the first round only; a follow-up under it is its asker's own (read into the reader's language). */
+    const holds = { reeId: target.reeId, note: target.source === 'visitor' && target.followupId === null ? VISITOR_ASK_NOTE : 'post answer' };
     if (result.state === 'answered') {
       if (target.baseHoldId) await settleHold(tx, target.baseHoldId, QUERY_BASE_FEE, { ...holds, ledger: 'post_answer' }, now);
       const paid = target.feeHoldId ? await settleHold(tx, target.feeHoldId, Math.max(0, (target.price ?? 0) - QUERY_BASE_FEE), { ...holds, ledger: 'chat_fee' }, now) : null;

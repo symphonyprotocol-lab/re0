@@ -1384,6 +1384,70 @@ a.post-quote:hover {
 .ask-chip {
   padding: 3px 10px 3px 8px;
 }
+/* 免登录提问 (visitor-ask.tsx): a signed-out visitor's question on a share page, and what became of the ones they asked. */
+.visitor-ask-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.visitor-ask textarea:disabled {
+  opacity: 0.6;
+}
+.visitor-asked {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-line);
+}
+.visitor-asked h3 {
+  margin-bottom: 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.visitor-asked ul {
+  display: grid;
+  gap: 10px;
+}
+.visitor-asked-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--color-wash);
+}
+.visitor-asked-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.visitor-asked-question {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.visitor-asked-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.visitor-asked-item.is-answered .visitor-asked-state {
+  color: var(--color-blue);
+}
+.visitor-asked-answer {
+  margin: 6px 0 4px;
+  color: var(--color-ink);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
 /* A share page's and a Ree page's answered posts: the cards run to the edges of their column. */
 .ree-post-feed .post-card {
   padding-left: 0;

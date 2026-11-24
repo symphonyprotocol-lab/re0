@@ -5,6 +5,7 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { POST_QUESTION_MAX, type PrivateReeOption } from '@/lib/domain/post';
 import { PrivatePostForm, PublicPostForm } from '@/components/posts/composer';
+import { VisitorAsk } from '@/components/posts/visitor-ask';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
@@ -66,9 +67,11 @@ function writeDraft(slug: string, draft: AskDraft | null): void {
  * forms are the composer's own. A visitor sees the same box with
  * 登录后提问: what they wrote and chose waits in this tab's session storage
  * and is put back when they come back signed in. From a share page
- * (`share`), a published post is that page's conversion.
+ * (`share`), a published post is that page's conversion. On a share page
+ * whose owner lets visitors ask (`visitorAsk`), a visitor asks right here
+ * instead (visitor-ask.tsx), a public post by 访客 the owner pays for.
  */
-export function ReeAsk({ ree, option, takesPosts, signedIn, loginHref, share = null }: {
+export function ReeAsk({ ree, option, takesPosts, signedIn, loginHref, share = null, visitorAsk = false }: {
   ree: { id: string; slug: string; name: string };
   /** This Ree as the private form lists it, at the viewer's price. */
   option: PrivateReeOption;
@@ -78,6 +81,8 @@ export function ReeAsk({ ree, option, takesPosts, signedIn, loginHref, share = n
   loginHref: string;
   /** The share page's slug: report a published post as its conversion. */
   share?: string | null;
+  /** The share page of a Ree whose owner lets signed-out visitors ask (lib/domain/visitor-ask.ts). */
+  visitorAsk?: boolean;
 }) {
   const { t } = useI18n();
   const a = t.posts.ask;
@@ -153,7 +158,28 @@ export function ReeAsk({ ree, option, takesPosts, signedIn, loginHref, share = n
         <span className="grid size-10 place-items-center rounded-full bg-soft text-blue">
           <Icon name="chat" className="size-4" />
         </span>
-        {!signedIn ? (
+        {!signedIn && visitorAsk ? (
+          <VisitorAsk
+            slug={ree.slug}
+            name={ree.name}
+            text={text}
+            onTextChange={(value) => remember({ text: value, visibility: 'public' })}
+            loginHref={loginHref}
+            onSignIn={() => writeDraft(ree.slug, draft.current)}
+            head={
+              <div className="ree-pick">
+                <span className="fu-chip ask-chip">
+                  <Icon name="at" className="size-3.5" />
+                  {ree.name}
+                </span>
+                <span className="visitor-ask-badge">
+                  <Icon name="globe" className="size-3" />
+                  {t.posts.visitorAsk.badge}
+                </span>
+              </div>
+            }
+          />
+        ) : !signedIn ? (
           <div className="post-form">
             {head}
             <div className="ree-pick">

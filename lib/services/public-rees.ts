@@ -38,6 +38,8 @@ export interface PublicRee {
   takesPosts: boolean;
   /** The owner lets askers publish answers on the page (问答); off, the page offers no "回答后公开". */
   publicQaEnabled: boolean;
+  /** The owner lets signed-out visitors ask on the share page, paying for their answers (lib/domain/visitor-ask.ts). */
+  visitorAsks: boolean;
   price: number;
   sources: number;
   answers: number;
@@ -91,6 +93,7 @@ async function reeDetails(where: SQL): Promise<PublicRee | null> {
       queryFee: schema.ree.queryFee,
       takesPosts: sql<boolean>`coalesce(${schema.ree.answersPosts}, ${schema.ree.queryFee} = 0)`,
       publicQaEnabled: schema.ree.publicQaEnabled,
+      visitorAsks: schema.ree.visitorAsks,
       sources: readySources,
       answers: answersByOthers,
       up: votesByOthers('up'),
