@@ -283,6 +283,9 @@ async function askedBy(reeId: string, visitorKey: string, now: Date): Promise<Vi
 
 /* ------------------------------------------------------ telling the owner */
 
+/** Rolls the notice's transaction back: the owner topped up since the refusal. */
+class NothingToTell extends Error {}
+
 /** The day's key that a "visitors could not ask" notice to this Ree's owner takes, once. */
 function pausedNoticeKey(reeId: string): string {
   return `va:${reeId}:owner-notice`;
@@ -307,14 +310,19 @@ export async function tellOwnerVisitorsBlocked(reeId: string, now = new Date()):
       .where(and(eq(ree.id, reeId), publicRee(), eq(ree.visitorAsks, true)))
       .limit(1);
     if (!target) return false;
-    if ((await balanceOf(tx, target.ownerId, now)) >= QUERY_BASE_FEE) return false;
+    /* The day's place first: once taken, every later call stops here, before reading the balance. */
     const taken = await tx.execute(sql`
       insert into anonymous_chat_quota (key_hash, day, rounds, attempts) values (${pausedNoticeKey(target.id)}, ${anonymousDay(now)}, 1, 1)
       on conflict (key_hash, day) do nothing
       returning rounds`);
     if (!taken.rows.length) return false;
+    /* Topped up since: give the place back (the transaction rolls back) and say nothing. */
+    if ((await balanceOf(tx, target.ownerId, now)) >= QUERY_BASE_FEE) throw new NothingToTell();
     await notify(tx, { userId: target.ownerId, kind: 'visitor_ask_paused', params: { ree: target.name, reeId: target.id, fee: QUERY_BASE_FEE }, refId: target.id });
     return true;
+  }).catch((error: unknown) => {
+    if (error instanceof NothingToTell) return false;
+    throw error;
   });
 }
 

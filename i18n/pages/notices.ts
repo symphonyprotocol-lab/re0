@@ -4,7 +4,7 @@ import type { Shape } from '@/i18n/format';
 export const zh = {
   title: '通知',
   tab: '通知',
-  lede: '下架与恢复、credits 调整、认证审核结果与角色变更会通知到这里，不另发邮件。',
+  lede: '下架与恢复、credits 调整、认证审核结果、角色变更，以及余额不足导致访客无法免登录提问等，会通知到这里，不另发邮件。',
   markAll: '全部标为已读',
   unread: '未读',
   unreadCount: '{n} 条未读通知',
@@ -51,7 +51,7 @@ export const zh = {
 export const en: Shape<typeof zh> = {
   title: 'Notices',
   tab: 'Notices',
-  lede: 'Takedowns and restores, credit adjustments, verification decisions and role changes are reported here. No email is sent.',
+  lede: 'Takedowns and restores, credit adjustments, verification decisions, role changes and visitors turned away because your balance is low are reported here. No email is sent.',
   markAll: 'Mark all as read',
   unread: 'Unread',
   unreadCount: '{n} unread notices',
