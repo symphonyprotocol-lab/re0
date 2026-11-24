@@ -4,7 +4,8 @@ import { middleware } from '@/middleware';
 import { isLocalizedPath, LOCALE_HEADER, localeAlternates, localizeHref, PUBLIC_PAGES, splitLocale, stripLocale } from '@/i18n/paths';
 import { renderedLocale } from '@/components/shell/locale-boundary';
 import robots from '@/app/robots';
-import { CRAWL_DISALLOWED, WORKSPACE_PATHS } from '@/lib/http/private-paths';
+import { CRAWL_DISALLOWED, QUERY_VARIANTS_DISALLOWED, WORKSPACE_PATHS } from '@/lib/http/private-paths';
+import { crawlable } from '../fixtures/robots-match';
 import { safeReturnTo } from '@/lib/domain/auth';
 import { PATH_HEADER, SESSION_COOKIE } from '@/lib/http/cookies';
 
@@ -126,7 +127,7 @@ describe('middleware: language URLs', () => {
 describe('private paths: one list for the sign-in gate and robots.txt', () => {
   it('gates every workspace path and keeps crawlers out of it', () => {
     const disallowed = robots().rules;
-    expect(Array.isArray(disallowed) ? null : disallowed.disallow).toEqual([...CRAWL_DISALLOWED]);
+    expect(Array.isArray(disallowed) ? null : disallowed.disallow).toEqual([...CRAWL_DISALLOWED, ...QUERY_VARIANTS_DISALLOWED]);
     for (const path of WORKSPACE_PATHS) {
       /* robots.txt matches by prefix, so `/me` is listed as `/me/` and `/media` stays open. */
       expect(CRAWL_DISALLOWED).toContain(path === '/me' ? '/me/' : path);
@@ -138,6 +139,32 @@ describe('private paths: one list for the sign-in gate and robots.txt', () => {
     /* GSC 2026-11: 2,964 of 5.34k unindexed URLs were /login?returnTo=... */
     expect(CRAWL_DISALLOWED).toContain('/login?');
     expect(CRAWL_DISALLOWED).not.toContain('/login');
+  });
+
+  it('keeps crawlers off the query copies of Ree and post pages (ClaudeBot, 2026-11: 3.0M ?ap= fetches)', () => {
+    for (const url of [
+      '/en/r/ree-abc?ap=2',
+      '/zh/r/ree-abc?ap=730&tab=intro',
+      '/en/r/ree-abc?tab=intro&ap=3',
+      '/r/ree-abc?ap=2',
+      '/en/r/ree-abc?tab=comments',
+      '/en/r/ree-abc?compose=public&ree=9c74fe9f&name=RE0',
+      '/en/r/ree-abc?ap=2&compose=public',
+      '/en/p/ba7d7d4d?compose=public&quote=ba7d7d4d',
+      '/en/r/ree-abc?video=1',
+      '/login?returnTo=%2Fr%2Free-abc%3Fap%3D2',
+    ]) expect(crawlable(url), url).toBe(false);
+  });
+
+  it('leaves the pages themselves, Explore\'s lists and the preview images open', () => {
+    for (const url of [
+      '/', '/en', '/en?tab=latest', '/login',
+      '/en/r/ree-abc', '/zh/r/ree-abc', '/r/ree-abc', '/en/p/ba7d7d4d', '/s/ree-abc',
+      '/en/explore', '/en/explore?category=business', '/en/explore?category=business&page=2', '/en/explore?q=MCP', '/en/explore?q=ap', '/en/explore?q=x&apx=1',
+      /* Link previews: Next's metadata image URL carries a hash query, and preview bots read robots.txt too. */
+      '/r/ree-abc/opengraph-image-s043vs?b430b4340a13929f', '/en/r/ree-abc/opengraph-image-s043vs?b430b4340a13929f', '/og/p/ba7d7d4d?v=nJvZc8JDnqEE',
+      '/media/avatars/x.webp',
+    ]) expect(crawlable(url), url).toBe(true);
   });
 });
 
