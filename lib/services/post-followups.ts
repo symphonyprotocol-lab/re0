@@ -35,7 +35,7 @@
  * only (`firstRound`, posts.ts).
  */
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { InsufficientCredits } from '@/lib/domain/credits';
 import { isUuid } from '@/lib/domain/list';
 import {
@@ -167,7 +167,7 @@ export async function askFollowup(userId: string, postId: string, input: Followu
   const invalid = followupInputError(input.question);
   if (invalid) return { ok: false, error: invalid };
   if (!isUuid(postId)) return { ok: false, error: 'not_found' };
-  const [target] = await db().select({ id: post.id }).from(post).where(and(eq(post.id, postId), visiblePost())).limit(1);
+  const [target] = await db().select({ id: post.id }).from(post).where(and(eq(post.id, postId), visiblePost(), ne(post.source, 'competition'))).limit(1);
   if (!target) return { ok: false, error: 'not_found' };
   const candidates = await firstRoundRees(postId);
   /* No Ree in the first round: anyone asks on under its AI answer (once they can read it), and the AI answers (继续问 AI). */
@@ -544,7 +544,7 @@ export async function processWaitingFollowups(deps: FollowupDeps = {}, options: 
  * waiting for them and what they spent. `candidates`: who the viewer may @
  * (signed-in readers of a visible post only).
  */
-export async function threadFor(row: PostRow, viewerId: string | undefined): Promise<{ followups: FollowupView[]; candidates: FollowupCandidate[]; blocked: 'full' | null; aiOnly: boolean }> {
+export async function threadFor(row: PostRow, viewerId: string | undefined): Promise<{ followups: FollowupView[]; candidates: FollowupCandidate[]; blocked: 'full' | 'closed' | null; aiOnly: boolean }> {
   const rows = await db()
     .select({ followup, name: user.name, avatar: user.avatarBlob })
     .from(followup)
@@ -566,7 +566,8 @@ export async function threadFor(row: PostRow, viewerId: string | undefined): Pro
   });
   /* No Ree in the first round: anyone who can read its AI answer may ask on under it (继续问 AI); a visitor, once signed in. */
   const aiOnly = Boolean(live && row.visibility === 'public' && candidates.length === 0 && (await aiFollowupsOpen(row.id, viewerId)));
-  const blocked = row.followupCount >= FOLLOWUP_POST_MAX ? ('full' as const) : null;
+  /* A competition's question post takes no follow-ups (docs/design/competitions.md 10). */
+  const blocked = row.source === 'competition' ? ('closed' as const) : row.followupCount >= FOLLOWUP_POST_MAX ? ('full' as const) : null;
   if (rows.length === 0) return { followups: [], candidates, blocked, aiOnly };
   /* Answers only where the viewer may read them: a published follow-up for anyone, any of their own for the asker. */
   const readable = rows.filter((entry) => entry.followup.status === 'published' || entry.followup.userId === viewerId).map((entry) => entry.followup.id);
