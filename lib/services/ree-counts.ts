@@ -19,8 +19,12 @@
  * Visitor questions count in the public answer count and everything ranked
  * from it -- Explore's orders, the hourly rank -- like any question (the
  * user's decision, 2026-11-24), although their owner pays for them and so
- * could raise their own Ree's figures. The role metrics leave them out
- * (`visitors: false`): a role is earned from questions people paid for.
+ * could raise their own Ree's figures. Two rules, then:
+ * - `askedByOthers`: every real question, share-page visitors' included --
+ *   the public counts and everything ranked from them;
+ * - `askedByPayingOthers`: only questions their askers paid for (`post`,
+ *   `api`) -- the role metrics, so an owner cannot buy a role by paying for
+ *   visitor answers.
  *
  * The fragments read the post answer as `a` and its post as `p`.
  */
@@ -30,9 +34,17 @@ import { db, schema } from '@/lib/infra/db';
 
 const { post, postAnswer, postFollowup, postAnswerVote, postAnswerFeedback, reeLegacyStats } = schema;
 
-/** The post answer `a` on post `p` is a question someone other than `owner` asked (see above); `visitors: false` leaves share-page visitor questions out. */
-export function askedByOthers(owner: SQL, { visitors = true }: { visitors?: boolean } = {}): SQL {
-  const sources = sql.raw(visitors ? `('post', 'api', 'visitor')` : `('post', 'api')`);
+/** The post answer `a` on post `p` is a question someone other than `owner` asked, share-page visitors' included: public counts and ranking (see above). */
+export function askedByOthers(owner: SQL): SQL {
+  return askedFrom(owner, sql.raw(`('post', 'api', 'visitor')`));
+}
+
+/** The same, but only questions their askers paid for -- no share-page visitor's, which the Ree's owner pays for: the role metrics (see above). */
+export function askedByPayingOthers(owner: SQL): SQL {
+  return askedFrom(owner, sql.raw(`('post', 'api')`));
+}
+
+function askedFrom(owner: SQL, sources: SQL): SQL {
   return sql`(p.source in ${sources} and p.status = 'published' and a.legacy_qa_id is null
     and not exists (select 1 from ${post} cp where cp.published_copy_id = p.id)
     and case when a.followup_id is null then p.user_id is distinct from ${owner}
