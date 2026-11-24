@@ -64,6 +64,7 @@ export const zh = {
       body: '发一个公开帖子点名它，它会先回答，其他人也能看到；也可以私密提问，只有你能看到。',
       privateOnly: '它只接受私密提问，回答只有你能看到。',
       cost: '只为成功的回答付费，没有回答不收费。',
+      visitor: '不用登录就能问它：问题会公开发布，回答的费用由 {owner} 承担。登录后还可以私密提问。',
     },
     powered: '由 RE0 提供',
     notFound: {
@@ -149,6 +150,7 @@ export const en: Shape<typeof zh> = {
       body: 'Post a public question that names it and it answers first, where everyone can see. Or ask privately, so only you can see it.',
       privateOnly: 'It takes private questions only. Only you can see the answer.',
       cost: 'You pay only for successful answers. No answer, no charge.',
+      visitor: 'Ask it without signing in: your question is published, and {owner} covers the cost of the answer. Sign in to ask privately too.',
     },
     powered: 'Powered by RE0',
     notFound: {

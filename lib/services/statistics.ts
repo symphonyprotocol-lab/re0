@@ -108,9 +108,10 @@ export async function answerCounts(reeIds: readonly string[], range: Range | nul
 
 /**
  * An answer still on file: one a Ree gave on a post (first round or
- * follow-up) to a real question -- `post` or `api`, not the owner's 试问 --
- * and not a copy (copied Q&A, a 转为公开 copy, a visitor's published
- * answer), hidden or not. Only where anyone may read the question: a
+ * follow-up) to a real question -- `post`, `api` or a share-page visitor's
+ * (`visitor`), not the owner's 试问 -- and not a copy (copied Q&A, a 转为公开
+ * copy, a visitor's published answer from before the redesign), hidden or
+ * not. Only where anyone may read the question: a
  * public, published post out of the trash, and a follow-up still published
  * and not deleted -- a private post's question is its author's alone, even
  * to the Ree's owner (as `visiblePost` and `shownFollowup` in the posts
@@ -120,7 +121,7 @@ const savedAnswers = (reeIds: readonly string[], range: Range | null) =>
   and(
     eq(schema.postAnswer.state, 'answered'),
     isNull(schema.postAnswer.legacyQaId),
-    inArray(schema.post.source, ['post', 'api']),
+    inArray(schema.post.source, ['post', 'api', 'visitor']),
     eq(schema.post.visibility, 'public'),
     eq(schema.post.status, 'published'),
     isNull(schema.post.deletedAt),

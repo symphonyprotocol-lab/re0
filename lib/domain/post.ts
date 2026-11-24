@@ -69,9 +69,11 @@ export const POST_WAITING_STALE_MS = 2 * 60_000;
 
 /**
  * `test`: a Ree owner's 试问 to their own Ree; `api`: a question asked through
- * the MCP server. Both are always private posts.
+ * the MCP server. Both are always private posts. `visitor`: a signed-out
+ * visitor's question on a share page, paid for by the Ree's owner
+ * (lib/domain/visitor-ask.ts); always public.
  */
-export const POST_SOURCES = ['post', 'anonymous', 'share', 'conversation', 'seed', 'test', 'api'] as const;
+export const POST_SOURCES = ['post', 'anonymous', 'share', 'conversation', 'seed', 'test', 'api', 'visitor'] as const;
 export type PostSource = (typeof POST_SOURCES)[number];
 /**
  * Private posts (私密提问, design 稿 2) replace private conversations: only

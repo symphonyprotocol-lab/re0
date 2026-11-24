@@ -28,7 +28,7 @@ const ROLES = ['normal', 'verified', 'official'] as const;
 const roleName = (t: Messages, value: unknown) => ((ROLES as readonly unknown[]).includes(value) ? t.roles.roles[value as (typeof ROLES)[number]] : String(value ?? ''));
 
 /** One notice in the reader's language, from its kind and params; the administrator's words follow it. */
-function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: string; icon: IconName; href: string | null; action: string | null; reason: string | null } {
+function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: string; icon: IconName; href: string | null; action: string | null; reason: string | null; more?: { href: string; action: string } } {
   const l = t.notices.lines;
   const o = t.notices.open;
   const p = notice.params;
@@ -138,6 +138,16 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
         action: o.post,
         reason: null,
       };
+    case 'visitor_ask_paused':
+      /* Visitors could not ask the reader's Ree on its share page today: the balance cannot cover one answer's base fee (once a day per Ree). */
+      return {
+        line: fill(l.visitorAskPaused, { ree: String(p.ree ?? ''), fee: formatNumber(Number(p.fee) || 0, locale) }),
+        icon: 'layers',
+        href: '/settings?tab=balance',
+        action: o.topUp,
+        reason: null,
+        more: reeId ? { href: `/rees/${reeId}/settings#visitor-asks`, action: o.visitorAsks } : undefined,
+      };
     case 'chats_removal':
       /* Once, by migration 0067: private conversations became private posts, and the old ones go a week later. */
       return { line: l.chatsRemoval, icon: 'info', href: '/me/posts?tab=private', action: o.privatePosts, reason: null };
@@ -231,6 +241,12 @@ export function NoticesTab({ items, total, page, size, unread }: { items: Notice
                     {notice.href && notice.action && (
                       <Link href={notice.href} className="text-link">
                         {notice.action}
+                        <I name="arrow" />
+                      </Link>
+                    )}
+                    {notice.more && (
+                      <Link href={notice.more.href} className="text-link">
+                        {notice.more.action}
                         <I name="arrow" />
                       </Link>
                     )}

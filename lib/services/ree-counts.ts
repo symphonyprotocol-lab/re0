@@ -7,12 +7,24 @@
  * From posts, a question to a Ree is one of its `post_answer` rows, first
  * round or follow-up, on a published post someone other than its owner
  * asked: the post's author for the first round, the follow-up's for a
- * follow-up. Only real questions count -- `post` (public and private) and
- * `api` (MCP) -- never the owner's 试问 (`test`), RE0's examples, copied
- * Q&A, a visitor's published answer (anonymous answers are counted apart,
- * explore.ts) or a 转为公开 copy, whose answers were already counted on the
- * private post. 有帮助 is `post_answer_vote`, 没帮助 `post_answer_feedback`,
- * both by anyone but the owner.
+ * follow-up. Only real questions count -- `post` (public and private),
+ * `api` (MCP) and `visitor` (a signed-out visitor's question on the share
+ * page, which has no author and so is always someone else's) -- never the
+ * owner's 试问 (`test`), RE0's examples, copied Q&A, a visitor's published
+ * answer from before the redesign (`anonymous` / `share`; anonymous answers
+ * are counted apart, explore.ts) or a 转为公开 copy, whose answers were
+ * already counted on the private post. 有帮助 is `post_answer_vote`, 没帮助
+ * `post_answer_feedback`, both by anyone but the owner.
+ *
+ * Visitor questions count in the public answer count and everything ranked
+ * from it -- Explore's orders, the hourly rank -- like any question (the
+ * user's decision, 2026-11-24), although their owner pays for them and so
+ * could raise their own Ree's figures. Two rules, then:
+ * - `askedByOthers`: every real question, share-page visitors' included --
+ *   the public counts and everything ranked from them;
+ * - `askedByPayingOthers`: only questions their askers paid for (`post`,
+ *   `api`, and follow-ups under a visitor's post) -- the role metrics, so an
+ *   owner cannot buy a role by paying for visitor answers.
  *
  * The fragments read the post answer as `a` and its post as `p`.
  */
@@ -22,9 +34,23 @@ import { db, schema } from '@/lib/infra/db';
 
 const { post, postAnswer, postFollowup, postAnswerVote, postAnswerFeedback, reeLegacyStats } = schema;
 
-/** The post answer `a` on post `p` is a question someone other than `owner` asked (see above). */
+/** The post answer `a` on post `p` is a question someone other than `owner` asked, share-page visitors' included: public counts and ranking (see above). */
 export function askedByOthers(owner: SQL): SQL {
-  return sql`(p.source in ('post', 'api') and p.status = 'published' and a.legacy_qa_id is null
+  return askedFrom(owner, sql.raw(`('post', 'api', 'visitor')`));
+}
+
+/**
+ * The same, but only questions their askers paid for: no share-page
+ * visitor's first round, which the Ree's owner pays for -- a follow-up under
+ * it is its signed-in asker's, paid by them, and counts. The role metrics
+ * (see above).
+ */
+export function askedByPayingOthers(owner: SQL): SQL {
+  return askedFrom(owner, sql.raw(`('post', 'api')`), sql`(p.source = 'visitor' and a.followup_id is not null)`);
+}
+
+function askedFrom(owner: SQL, sources: SQL, also: SQL = sql`false`): SQL {
+  return sql`((p.source in ${sources} or ${also}) and p.status = 'published' and a.legacy_qa_id is null
     and not exists (select 1 from ${post} cp where cp.published_copy_id = p.id)
     and case when a.followup_id is null then p.user_id is distinct from ${owner}
       else exists (select 1 from ${postFollowup} f where f.id = a.followup_id and f.status = 'published' and f.user_id <> ${owner}) end)`;

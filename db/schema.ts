@@ -40,6 +40,7 @@ import type { KnowledgeActivity, KnowledgeChild } from '@/lib/domain/knowledge';
 import type { RoleMetrics } from '@/lib/domain/roles';
 import type { ReeRank } from '@/lib/domain/explore';
 import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
+import { VISITOR_ASK_PER_DAY, VISITOR_ASK_PER_VISITOR } from '@/lib/domain/visitor-ask';
 import { TASK_KINDS, type TaskKind } from '@/lib/domain/invites';
 import { PAGE_KINDS, type PageKind } from '@/lib/domain/traffic';
 import { CRAWLER_FAMILIES, type ChargeScope, type CrawlerFamily } from '@/lib/domain/crawler-traffic';
@@ -164,6 +165,15 @@ export const ree = pgTable(
     publicQaEnabled: boolean('public_qa_enabled').notNull().default(true),
     /** Beyond 4 (v5): the owner's choice to answer public posts; null follows the default -- a free Ree answers, a paid one does not (P3). */
     answersPosts: boolean('answers_posts'),
+    /**
+     * Visitor asks on the share page (lib/domain/visitor-ask.ts): off by
+     * default; on, signed-out visitors may ask it there, the owner paying
+     * each answer's base fee. Questions per visitor a day, and the owner's
+     * optional total a day.
+     */
+    visitorAsks: boolean('visitor_asks').notNull().default(false),
+    visitorAsksPerVisitor: integer('visitor_asks_per_visitor').notNull().default(VISITOR_ASK_PER_VISITOR.default),
+    visitorAsksPerDay: integer('visitor_asks_per_day'),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
@@ -186,6 +196,7 @@ export const ree = pgTable(
     check('ree_moderated_private_check', sql`moderated_at is null or not is_public`),
     check('ree_pin_order_check', sql`pin_order is null or pin_order between 1 and 999`),
     check('ree_published_public_check', sql`not is_published or (is_public and moderated_at is null and deleted_at is null)`),
+    check('ree_visitor_asks_check', sql`visitor_asks_per_visitor between ${sql.raw(String(VISITOR_ASK_PER_VISITOR.min))} and ${sql.raw(String(VISITOR_ASK_PER_VISITOR.max))} and (visitor_asks_per_day is null or visitor_asks_per_day between ${sql.raw(String(VISITOR_ASK_PER_DAY.min))} and ${sql.raw(String(VISITOR_ASK_PER_DAY.max))})`),
   ],
 );
 
@@ -1452,6 +1463,16 @@ export const post = pgTable(
     apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
     /** The public Q&A row this post was copied from. */
     legacyQaId: uuid('legacy_qa_id').references(() => reePublicQa.id, { onDelete: 'set null' }),
+    /**
+     * A visitor's question from the share page (`source = 'visitor'`, no
+     * author): the Ree's owner who pays for its answer, the hold taken from
+     * them when it was asked (moved onto the answer, or given back), and an
+     * HMAC of the asking browser's `re0_visitor` id, so that browser can
+     * follow it there (lib/services/visitor-asks.ts). Never the raw id.
+     */
+    sponsorId: uuid('sponsor_id').references(() => user.id, { onDelete: 'set null' }),
+    sponsorHoldId: uuid('sponsor_hold_id'),
+    visitorKey: text('visitor_key'),
     /** The author chose "匿名发布": the page shows "一位用户". */
     anonymous: boolean('anonymous').notNull().default(false),
     question: text('question').notNull(),
@@ -1532,6 +1553,9 @@ export const post = pgTable(
     check('post_title_check', sql`title is null or char_length(title) between 1 and ${sql.raw(String(POST_TITLE_MAX))}`),
     /* 试问 and MCP asks are private by nature. */
     check('post_private_source_check', sql`source not in ('test', 'api') or visibility = 'private'`),
+    /* A visitor's question is always public and has no author. */
+    check('post_visitor_source_check', sql`source <> 'visitor' or (visibility = 'public' and user_id is null)`),
+    index('post_visitor_idx').on(t.mentionReeId, t.visitorKey, t.createdAt.desc()).where(sql`visitor_key is not null`),
   ],
 );
 
@@ -1871,7 +1895,7 @@ export const verificationRequest = pgTable(
   ],
 );
 
-export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal', 'post_ai_answer'] as const;
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal', 'post_ai_answer', 'visitor_ask_paused'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**

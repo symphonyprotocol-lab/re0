@@ -16,6 +16,8 @@ import { ConfirmModal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { IdentityFields, PersonalityFields, PublishingFields, ReeAvatarColors, type ReeFormState } from '@/components/rees/ree-fields';
 import { ReeCoverEditor } from '@/components/rees/ree-cover-editor';
+import { VisitorAskFields } from '@/components/rees/visitor-ask-fields';
+import { parseVisitorAskSettings } from '@/lib/domain/visitor-ask';
 import { ReeAvatarEditor } from '@/components/rees/ree-avatar-editor';
 import { ReeSettingsPreview } from '@/components/rees/ree-settings-preview-button';
 import { PIcon } from '@/components/rees/proto-icon';
@@ -39,6 +41,7 @@ function formOf(ree: Ree): ReeFormState {
     queryFee: ree.queryFee,
     publicQaEnabled: ree.publicQaEnabled,
     answersPosts: ree.answersPosts,
+    visitorAskSettings: { enabled: ree.visitorAsks, perVisitor: ree.visitorAsksPerVisitor, perDay: ree.visitorAsksPerDay },
   };
 }
 
@@ -47,7 +50,7 @@ function formOf(ree: Ree): ReeFormState {
  * pricing as three sections of one form. The summary follows edits as
  * they're made, while `sources` counts all live sources.
  */
-export function ReeSettings({ ree, sources, video, topbar }: { ree: Ree; sources: number; video: IntroProps | null; topbar: ReactNode }) {
+export function ReeSettings({ ree, sources, video, topbar, visitorAsksToday = 0 }: { ree: Ree; sources: number; video: IntroProps | null; topbar: ReactNode; visitorAsksToday?: number }) {
   const { t, locale } = useI18n();
   const s = t.reeSetup.settings;
   const router = useRouter();
@@ -99,6 +102,14 @@ export function ReeSettings({ ree, sources, video, topbar }: { ree: Ree; sources
       setError(t.reeSetup.messages[invalid.error]);
       return;
     }
+    /* Turned off, its hidden numbers are not checked: ones left invalid go back to what is saved. */
+    const asked = form.visitorAskSettings;
+    let visitorAskSettings = asked ? parseVisitorAskSettings(asked) : undefined;
+    if (asked && !asked.enabled && typeof visitorAskSettings === 'string') visitorAskSettings = parseVisitorAskSettings({ ...formOf(ree).visitorAskSettings, enabled: false });
+    if (typeof visitorAskSettings === 'string') {
+      setError(t.reeSetup.messages[visitorAskSettings]);
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -115,14 +126,17 @@ export function ReeSettings({ ree, sources, video, topbar }: { ree: Ree; sources
       }
       const result = await api<{ error?: ReeFieldError | 'invalid_cover' }>(`/api/rees/${ree.id}`, {
         method: 'PATCH',
-        json: { ...form, coverBlob },
+        json: { ...form, coverBlob, visitorAskSettings },
       });
       if (!result.ok) {
         const code = result.data.error;
         setError(code === 'invalid_cover' ? s.cover.failed : code && code in t.reeSetup.messages ? t.reeSetup.messages[code] : t.common.errors.generic);
         return;
       }
-      setBaseline(form);
+      /* What was saved: hidden visitor-ask numbers left invalid went back to the stored ones, and the form shows them. */
+      const sent = visitorAskSettings ? { ...form, visitorAskSettings } : form;
+      if (visitorAskSettings && JSON.stringify(visitorAskSettings) !== JSON.stringify(form.visitorAskSettings)) setForm((current) => ({ ...current, visitorAskSettings }));
+      setBaseline(sent);
       toast(s.saved);
       router.refresh();
     } catch {
@@ -221,6 +235,12 @@ export function ReeSettings({ ree, sources, video, topbar }: { ree: Ree; sources
                 <h2>{s.publishing}</h2>
                 <PublishingFields value={form} onChange={update} moderated={moderated} />
               </section>
+              {form.visitorAskSettings && (
+                <section id="visitor-asks" className="card setup-section scroll-mt-24" aria-labelledby="ree-visitor-asks-heading">
+                  <h2 id="ree-visitor-asks-heading">{t.reeSetup.visitorAsks.title}</h2>
+                  <VisitorAskFields value={form.visitorAskSettings} onChange={(visitorAskSettings) => update({ visitorAskSettings })} today={visitorAsksToday} />
+                </section>
+              )}
               <div className="setup-settings-actions">
                 <button type="button" className="btn secondary" disabled={saving} onClick={() => {
                   setForm(formOf(ree));
