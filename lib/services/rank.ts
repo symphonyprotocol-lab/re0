@@ -82,14 +82,14 @@ export async function computeRanks(now = new Date()): Promise<number> {
       group by a.ree_id
     ) a on a.ree_id = r.id
     left join (
-      /* Explore's activity line: other people's questions this week and the latest answer, signed in ... */
+      /* Explore's activity line: other people's questions this week and the latest answer, on posts (signed in, or a share-page visitor's) ... */
       select a.ree_id, count(*) as asked, max(a.answered_at) filter (where ${ANSWERED}) as last_at
       from ${schema.postAnswer} a join ${schema.post} p on p.id = a.post_id join ${schema.ree} o on o.id = a.ree_id
       where ${ASKED} and a.created_at >= ${week}::timestamptz and ${askedByOthers(owner)}
       group by a.ree_id
     ) w on w.ree_id = r.id
     left join (
-      /* ... and signed out. */
+      /* ... and the old anonymous chat's answers (signed out, until 2026-11). */
       select ree_id, count(*) as asked, max(created_at) as last_at
       from ${schema.anonymousAnswer}
       where created_at >= ${week}::timestamptz
