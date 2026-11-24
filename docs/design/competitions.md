@@ -357,7 +357,7 @@ Prompt（每条回答单独一次调用）：
 
 ## 12. 数据表
 
-迁移号在实现时取下一个可用的（channel 分支已经占了 `0087_post_channels`）。迁移按语句逐条自动提交，所以不要用 `BEGIN` 和 `ON COMMIT DROP`。
+迁移号在实现时取下一个可用的（channel 分支已经占了 `0088_post_channels`）。迁移按语句逐条自动提交，所以不要用 `BEGIN` 和 `ON COMMIT DROP`。
 
 ### 12.1 `competition`
 

@@ -47,6 +47,7 @@ import { redact } from '@/lib/domain/public-qa';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { maxCostFor, readyRees } from '@/lib/services/grounded-answer';
+import { fileUnderChannels } from '@/lib/services/channels';
 import { embedQuestion, type QuestionVector } from '@/lib/services/retrieval';
 import { balanceOf, placeHold } from '@/lib/services/credits';
 import { publicRee, searchRees } from '@/lib/services/explore';
@@ -643,6 +644,8 @@ export async function convertToPublic(userId: string, id: string, options: { ano
     }
     /* The same images (the same objects), reviewed with the copy. */
     await copyImages(tx, id, copyId);
+    /* Public now: its `#tags` file it under their channels, as a new post's do. */
+    await fileUnderChannels(tx, copyId, userId, target.question, target.detail);
     await tx.update(post).set({ publishedCopyId: copyId }).where(eq(post.id, id));
     return { ok: true, id: copyId } as const;
   });

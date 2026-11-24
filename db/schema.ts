@@ -1587,6 +1587,41 @@ export const postImage = pgTable(
 );
 
 /**
+ * A channel: the posts tagged `#name` (lib/domain/hashtags.ts says what a
+ * tag is). Made by the first public post that uses the tag, by whoever
+ * posted it; never deleted, but listed and indexed only while a visible
+ * post is in it -- its counts are read from `post_channel` at query time,
+ * so a post taken down, rejected or trashed leaves it at once.
+ */
+export const channel = pgTable(
+  'channel',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** NFKC, lower case, 1–32 characters (`channelNameOf`). */
+    name: text('name').notNull(),
+    createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('channel_name_key').on(t.name),
+    /* The Channel tab's search (ILIKE), as posts' (pg_trgm, migration 0057). */
+    index('channel_name_search_idx').using('gin', sql`name gin_trgm_ops`),
+    check('channel_name_check', sql`char_length(name) between 1 and 32`),
+  ],
+);
+
+/** A public post filed under a channel: written with the post, at most ten per post. */
+export const postChannel = pgTable(
+  'post_channel',
+  {
+    postId: uuid('post_id').notNull().references(() => post.id, { onDelete: 'cascade' }),
+    channelId: uuid('channel_id').notNull().references(() => channel.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.postId, t.channelId] }), index('post_channel_channel_idx').on(t.channelId, t.postId)],
+);
+
+/**
  * A follow-up (追问) under a public post: a signed-in reader asks on, and
  * only Rees that answered the post's first round answer it -- those it
  * @-mentions, or else the relevant ones (lib/services/post-followups.ts).

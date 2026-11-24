@@ -603,6 +603,13 @@
       "when": 1795501702947,
       "tag": "0087_visitor_asks",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1795519862226,
+      "tag": "0088_post_channels",
+      "breakpoints": true
     }
   ]
 }

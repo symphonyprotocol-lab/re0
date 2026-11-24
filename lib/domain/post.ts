@@ -366,6 +366,8 @@ export interface PostView {
   /** The post's images, in order, where `/media` serves them to whoever reads the post (lib/domain/post-images.ts). */
   /** `thumbUrl`: the feed's small copy (the image itself when it has none). */
   images: { url: string; thumbUrl: string }[];
+  /** The channels its `#tags` filed it under (a public post only), whose tags its text links (lib/domain/hashtags.ts). */
+  channels: string[];
   /** Published follow-ups (追问), for the cards. */
   followupCount: number;
   /** The thread under the first round, on the post's page only (oldest first); empty in feeds. */
