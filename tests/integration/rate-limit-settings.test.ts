@@ -292,11 +292,11 @@ suite('console rate limits and exemptions', () => {
     expect(audited.map((row) => row.action).sort()).toEqual(['rate_limit.exempt.add', 'rate_limit.exempt.remove']);
   });
 
-  /** `count` public posts by `userId`, made at `at`. */
+  /** `count` posts by `userId`, made at `at`: refused ones, so they count against the day but no sweep picks them up. */
   async function postsAt(userId: string, count: number, at: Date) {
     await db()
       .insert(schema.post)
-      .values(Array.from({ length: count }, (_, index) => ({ userId, source: 'post' as const, visibility: 'public' as const, question: `Ceiling ${index}`, lang: 'en' as const, status: 'published' as const, publishedAt: at, createdAt: at })));
+      .values(Array.from({ length: count }, (_, index) => ({ userId, source: 'post' as const, visibility: 'public' as const, question: `Ceiling ${index}`, lang: 'en' as const, status: 'rejected' as const, createdAt: at })));
   }
 
   it('daily ceilings: the code defaults while nothing is stored, everywhere they are shown', async () => {

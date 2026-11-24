@@ -251,7 +251,7 @@ describeWithDb('console rate limits', () => {
       for (const author of [exempt, plain]) {
         await db()
           .insert(schema.post)
-          .values(Array.from({ length: POST_DAILY_LIMIT }, (_, index) => ({ userId: author, source: 'post' as const, visibility: 'public' as const, question: `Ceiling ${index}`, lang: 'en' as const, status: 'published' as const, publishedAt: now, createdAt: now })));
+          .values(Array.from({ length: POST_DAILY_LIMIT }, (_, index) => ({ userId: author, source: 'post' as const, visibility: 'public' as const, question: `Ceiling ${index}`, lang: 'en' as const, status: 'rejected' as const, createdAt: now })));
       }
       const published = await posts.publishPost(exempt, { question: `Post number ${POST_DAILY_LIMIT + 1} today`, lang: 'en' });
       expect(published.ok).toBe(true);
