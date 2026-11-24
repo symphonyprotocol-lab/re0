@@ -69,15 +69,20 @@ suite('orphan upload reaper', () => {
     const postedImage = `post-images/${u}/${id()}.png`;
     await db().insert(schema.postImage).values({ postId: post!.id, position: 0, pathname: postedImage, contentType: 'image/png', bytes: 10 });
     const orphanImage = `post-images/${u}/${id()}.webp`;
+    /* Thumbnails go with their image: kept while a row names them, reaped when none does. */
+    const thumbed = id();
+    await db().insert(schema.postImage).values({ postId: post!.id, position: 1, pathname: `post-images/${u}/${thumbed}.jpg`, contentType: 'image/jpeg', bytes: 10, thumbPathname: `post-images/${u}/${thumbed}.thumb.jpg` });
+    const keptThumb = `post-images/${u}/${thumbed}.thumb.jpg`;
+    const orphanThumb = `post-images/${u}/${id()}.thumb.jpg`;
 
     blobs.listed.set('knowledge/', [registered, orphanFile, foreignFile].map((pathname) => ({ pathname, uploadedAt: old })).concat({ pathname: recentFile, uploadedAt: recent }));
     blobs.listed.set('avatars/', [avatar, reeAvatar, draftAvatar, orphanAvatar].map((pathname) => ({ pathname, uploadedAt: old })));
     blobs.listed.set('ree-covers/', [keptCover, orphanCover, foreignCover].map((pathname) => ({ pathname, uploadedAt: old })));
-    blobs.listed.set('post-images/', [postedImage, orphanImage].map((pathname) => ({ pathname, uploadedAt: old })));
+    blobs.listed.set('post-images/', [postedImage, orphanImage, keptThumb, orphanThumb].map((pathname) => ({ pathname, uploadedAt: old })));
     blobs.deleted = [];
 
     const removed = await purgeOrphanUploads(now);
-    expect(new Set(blobs.deleted)).toEqual(new Set([orphanFile, orphanAvatar, orphanCover, orphanImage]));
-    expect(removed).toEqual({ 'knowledge/': 1, 'avatars/': 1, 'ree-covers/': 1, 'post-images/': 1 });
+    expect(new Set(blobs.deleted)).toEqual(new Set([orphanFile, orphanAvatar, orphanCover, orphanImage, orphanThumb]));
+    expect(removed).toEqual({ 'knowledge/': 1, 'avatars/': 1, 'ree-covers/': 1, 'post-images/': 2 });
   });
 });

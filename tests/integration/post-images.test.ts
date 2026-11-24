@@ -31,6 +31,8 @@ vi.mock('@/lib/infra/blob-access', async (original) => ({
 vi.mock('@/lib/infra/blob', async (original) => ({
   ...(await original<typeof import('@/lib/infra/blob')>()),
   readBlob: async (pathname: string) => store.blobs.get(pathname)?.bytes ?? null,
+  /* No store to sign for: the ticket says what it was scoped to. */
+  uploadTicket: async (pathname: string, options: { contentTypes: string[]; maxBytes: number }) => ({ pathname, token: `${options.contentTypes.join(',')}:${options.maxBytes}` }),
 }));
 /* The gateway catalog, without the network: these two models are tagged. */
 vi.mock('@/lib/infra/ai/gateway-generation-pricing', async (original) => ({
@@ -46,7 +48,7 @@ const models = await import('@/lib/services/models');
 const { addGrant } = await import('@/lib/services/credits');
 const { db, schema } = await import('@/lib/infra/db');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
-const { POST_IMAGE_MAX_BYTES } = await import('@/lib/domain/post-images');
+const { POST_IMAGE_MAX_BYTES, POST_IMAGE_THUMB_MAX_BYTES } = await import('@/lib/domain/post-images');
 const { QUERY_BASE_FEE } = await import('@/lib/constants');
 const rees = await import('@/lib/services/rees');
 const knowledge = await import('@/lib/services/knowledge');
@@ -181,7 +183,8 @@ describeWithDb('post images', () => {
 
     /* The page shows them by row id, where /media serves them. */
     const view = await posts.getPost(made.id);
-    expect(view?.images).toEqual(rows.map((entry) => ({ url: `/media/post-images/${entry.id}` })));
+    /* No thumbnails uploaded: the feed shows the images themselves. */
+    expect(view?.images).toEqual(rows.map((entry) => ({ url: `/media/post-images/${entry.id}`, thumbUrl: `/media/post-images/${entry.id}` })));
   });
 
   it('never puts the author\'s id in an anonymous post\'s image URLs, nor ties two of their posts together', async () => {
@@ -264,7 +267,7 @@ describeWithDb('post images', () => {
     const made = await posts.publishPost(author, { question: 'Who may see this image?', lang: 'en', images: [pathname] });
     if (!made.ok) throw new Error(made.error);
     const id = await imageId(made.id);
-    const seen = { pathname, contentType: 'image/png' };
+    const seen = { pathname, contentType: 'image/png', thumbPathname: null };
     expect(await images.visiblePostImage(id, author)).toEqual(seen);
     expect(await images.visiblePostImage(id, reader)).toBeNull();
     expect(await images.visiblePostImage(id, null)).toBeNull();
@@ -277,11 +280,48 @@ describeWithDb('post images', () => {
     expect(await images.visiblePostImage('nope', author)).toBeNull();
   });
 
+  it('keeps each image\'s thumbnail when the composer uploaded a good one, and shows the image where there is none', async () => {
+    const author = await user('img-thumbs');
+    const other = await user('img-thumbs-other');
+    const withThumb = upload(author);
+    const thumbPath = withThumb.replace(/\.png$/, '.thumb.jpg');
+    store.blobs.set(thumbPath, { bytes: new Uint8Array(4_000), contentType: 'image/jpeg' });
+    const tooBig = upload(author);
+    store.blobs.set(tooBig.replace(/\.png$/, '.thumb.jpg'), { bytes: new Uint8Array(POST_IMAGE_THUMB_MAX_BYTES + 1), contentType: 'image/jpeg' });
+    const notJpeg = upload(author);
+    store.blobs.set(notJpeg.replace(/\.png$/, '.thumb.jpg'), { bytes: new Uint8Array(100), contentType: 'image/png' });
+    const none = upload(author);
+
+    const made = await posts.publishPost(author, { question: 'Which of these receipts is valid?', lang: 'en', images: [withThumb, tooBig, notJpeg, none] });
+    if (!made.ok) throw new Error(made.error);
+    const rows = await db().select().from(schema.postImage).where(eq(schema.postImage.postId, made.id)).orderBy(asc(schema.postImage.position));
+    expect(rows.map((row) => row.thumbPathname)).toEqual([thumbPath, null, null, null]);
+    /* Pending review: the author sees it. */
+    const view = await posts.getPost(made.id, author);
+    expect(view?.images).toEqual(rows.map((row, index) => ({ url: `/media/post-images/${row.id}`, thumbUrl: index === 0 ? `/media/post-images/${row.id}?size=thumb` : `/media/post-images/${row.id}` })));
+    /* The thumbnail is served behind the image's own check. */
+    expect(await images.visiblePostImage(rows[0]!.id, author)).toEqual({ pathname: withThumb, contentType: 'image/png', thumbPathname: thumbPath });
+    expect(await images.visiblePostImage(rows[0]!.id, other)).toBeNull();
+    /* A row naming some other object as its thumbnail is never served it. */
+    await db().update(schema.postImage).set({ thumbPathname: tooBig }).where(eq(schema.postImage.id, rows[1]!.id));
+    expect((await images.visiblePostImage(rows[1]!.id, author))?.thumbPathname).toBeNull();
+
+    /* Tickets: only beside one of the caller's own uploads, JPEG, small. */
+    expect(await images.postImageThumbTicket(author, { of: withThumb, size: 20_000 })).toEqual({ pathname: thumbPath, token: `image/jpeg:${POST_IMAGE_THUMB_MAX_BYTES}`, contentType: 'image/jpeg' });
+    expect(await images.postImageThumbTicket(other, { of: withThumb, size: 20_000 })).toBeNull();
+    expect(await images.postImageThumbTicket(author, { of: withThumb, size: POST_IMAGE_THUMB_MAX_BYTES + 1 })).toBeNull();
+    expect(await images.postImageThumbTicket(author, { of: thumbPath, size: 20_000 })).toBeNull();
+    expect(await images.postImageThumbTicket(author, { of: `avatars/${author}/${crypto.randomUUID()}.png`, size: 20_000 })).toBeNull();
+    expect(await images.postImageThumbTicket(author, { size: 20_000 })).toBeNull();
+  });
+
   it('gives a private post\'s images to its answers, with a description for retrieval, and copies them on 转为公开', async () => {
     const reeId = await publicRee();
     const author = await user('img-private', 500);
     const reader = await user('img-reader');
     const pathname = upload(author, 'image/webp');
+    const thumbPath = pathname.replace(/\.webp$/, '.thumb.jpg');
+    store.blobs.set(thumbPath, { bytes: new Uint8Array(3_000), contentType: 'image/jpeg' });
     const made = await privatePosts.publishPrivatePost(author, { question: 'Private: is this refund on time?', reeIds: [reeId], fees: { [reeId]: QUERY_BASE_FEE }, lang: 'en', images: [pathname] });
     if (!made.ok) throw new Error(made.error);
     const { deps, seen } = recording([reeId]);
@@ -296,7 +336,7 @@ describeWithDb('post images', () => {
     if (!copy.ok) throw new Error(copy.error);
     const [copied] = await db().select().from(schema.post).where(eq(schema.post.id, copy.id));
     expect(copied!.imageText).toContain('REFUND ISSUED 14 DAYS');
-    expect((await db().select().from(schema.postImage).where(eq(schema.postImage.postId, copy.id))).map((row) => row.pathname)).toEqual([pathname]);
+    expect((await db().select().from(schema.postImage).where(eq(schema.postImage.postId, copy.id))).map((row) => [row.pathname, row.thumbPathname])).toEqual([[pathname, thumbPath]]);
     /* Published after review: the copy shows the image to anyone; the private post's row stays private. */
     await posts.processPost(copy.id, {});
     expect((await db().select().from(schema.post).where(eq(schema.post.id, copy.id)))[0]!.status).toBe('published');

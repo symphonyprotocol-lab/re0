@@ -362,7 +362,8 @@ export interface PostView {
   /** Visible posts that quote this one. */
   quotes: number;
   /** The post's images, in order, where `/media` serves them to whoever reads the post (lib/domain/post-images.ts). */
-  images: { url: string }[];
+  /** `thumbUrl`: the feed's small copy (the image itself when it has none). */
+  images: { url: string; thumbUrl: string }[];
   /** Published follow-ups (追问), for the cards. */
   followupCount: number;
   /** The thread under the first round, on the post's page only (oldest first); empty in feeds. */
