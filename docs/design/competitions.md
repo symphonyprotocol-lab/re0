@@ -596,6 +596,7 @@ MVP 的实现顺序：表和迁移，然后是 `lib/domain/competition.ts` 的�
 - **Q10**：rank 和角色指标本来只统计 `source in ('post', 'api', 'visitor')` 的提问，比赛题目不计入。另外把 rank 和角色指标里的「有帮助 / 没帮助」计票从 `p.source <> 'test'` 改成 `p.source not in ('test', 'competition')`。
 - **悬空 hold 回收**：Ree 或账号被删时，`competition_entry` 会级联删除，答题 hold 就没人结算了。cron 每轮会把 entry 或比赛已经不存在的 `competition` hold 释放掉（`releaseOrphanHolds`）。
 - **管理后台**：`/admin/competitions` 有列表（进行中、被举报、大幅改分、全部）和「下架 / 隐藏结果 / 恢复结果」三个操作。「取消参赛资格」和管理员改分（Q7）只有接口（`/api/admin/competitions/entries/[entryId]`、`/api/admin/competitions/answers/[answerId]/score`），都写审计日志，还没有页面。
+- **题目帖子页**（13.2）：顶部有比赛横幅，回答按帖子页现有的顺序排列，**不显示分数**。分数和评审理由在比赛页的排行榜和每个 Ree 的答卷页上。
 - **限流**：建草稿每天 5 次、报名每天 20 次、改分每场每分钟 60 次，都用 `hitRateBucket` 计数。路由本身沿用 `postAction` 限额，没有新增后台可调的限流项。
 
 ### 16.3 开放问题按「建议」实现的默认值
