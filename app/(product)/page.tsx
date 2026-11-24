@@ -16,6 +16,8 @@ import { Icon } from '@/components/ui/icons';
 import { JsonLd } from '@/components/site/json-ld';
 import { feedTabOf, FEED_TABS, type FeedTab } from '@/lib/domain/post';
 import { listFeed, unansweredCount } from '@/lib/services/posts';
+import { listChannels } from '@/lib/services/channels';
+import { ChannelList } from '@/components/posts/channel-list';
 import { HomeComposer } from '@/components/posts/composer';
 import { PostFeed } from '@/components/posts/post-feed';
 import { RouteLoading } from '@/components/shell/route-loading';
@@ -27,6 +29,9 @@ const HOME_REES = 6;
 const RAIL_REES = 8;
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+/** 首页's tabs: the three feeds, then 频道 (the channels, `?tab=channels`, whose `?q=` searches channel names). */
+const HOME_TABS = [...FEED_TABS, 'channels'] as const;
 
 /** The words a post search on 首页 looks for (`?q=`, v6; was 发现's 帖子 tab), or null. */
 function searchOf(params: Record<string, string | string[] | undefined>): string | null {
@@ -47,8 +52,9 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
  * what RE0 does in a line, one button to sign in and ask, and the way to
  * 了解 RE0 (`/about`, the rest of the old home). The feed is public posts
  * under three tabs (为你推荐 / 最新 / 待回答, `?tab=`), rendered on the
- * server so the page carries indexable questions and answers; `?q=`
- * searches posts by their words (the right column's box, or the centre
+ * server so the page carries indexable questions and answers, and a fourth,
+ * 频道 (`?tab=channels`), lists the channels `#tags` made, its own `?q=`
+ * searching their names; elsewhere `?q=` searches posts by their words (the right column's box, or the centre
  * column's below 1200px where that column folds away). While there are no
  * posts at all yet, a short list of the most active public Rees stands in
  * with the way to Rees, which alone has the whole list; once there are,
@@ -70,16 +76,18 @@ export default function HomePage(props: Props) {
 async function Home({ searchParams }: Props) {
   const [user, { t, locale }, params] = await Promise.all([currentUser(), serverMessages(), searchParams]);
   const q = searchOf(params);
+  const channelsTab = params.tab === 'channels';
   const tab: FeedTab = q ? 'latest' : feedTabOf(params.tab);
   const query = parseExploreQuery({});
-  const [feed, waiting, active] = await Promise.all([
-    listFeed(tab, { viewerId: user?.id, q }),
+  const [feed, waiting, active, channels] = await Promise.all([
+    channelsTab ? { items: [], next: null } : listFeed(tab, { viewerId: user?.id, q }),
     unansweredCount(),
     explore(query, { cursor: null, size: EXPLORE_BATCH_SIZES[0] }, { includeIntros: false }),
+    channelsTab ? listChannels({ q }) : null,
   ]);
   /* 为你推荐 with nothing answered yet reads as 最新; no posts at all, a few Rees. */
-  const shown = !q && tab === 'for_you' && feed.items.length === 0 ? await listFeed('latest', { viewerId: user?.id }) : feed;
-  const showRees = !q && tab !== 'unanswered' && shown.items.length === 0;
+  const shown = !channelsTab && !q && tab === 'for_you' && feed.items.length === 0 ? await listFeed('latest', { viewerId: user?.id }) : feed;
+  const showRees = !channelsTab && !q && tab !== 'unanswered' && shown.items.length === 0;
   const result = showRees ? active : null;
   const rees = result?.items.slice(0, HOME_REES) ?? [];
   /* Without the stand-in list, the right column carries the Ree links. */
@@ -94,10 +102,12 @@ async function Home({ searchParams }: Props) {
   const ph = t.posts.home;
   const searchLabel = t.posts.explore.searchPosts;
   const now = Date.now();
+  /* The tab shown as current: 频道 even while searching it; no feed tab during a post search. */
+  const current = channelsTab ? 'channels' : q ? null : tab;
   const tabs = (
     <div className="cl-tabs" role="tablist" aria-label={t.posts.tabs.label}>
-      {FEED_TABS.map((key) => (
-        <Link key={key} href={key === 'for_you' ? '/' : `/?tab=${key}`} role="tab" aria-selected={!q && tab === key} className={`cl-tab${!q && tab === key ? ' active' : ''}`} scroll={false}>
+      {HOME_TABS.map((key) => (
+        <Link key={key} href={key === 'for_you' ? '/' : `/?tab=${key}`} role="tab" aria-selected={current === key} className={`cl-tab${current === key ? ' active' : ''}`} scroll={false}>
           {t.posts.tabs[key]}
           {key === 'unanswered' && waiting > 0 && <span>{formatNumber(waiting, locale)}</span>}
         </Link>
@@ -109,9 +119,11 @@ async function Home({ searchParams }: Props) {
       <JsonLd data={siteJsonLd(t.site.seo.description)} />
       <FeedColumns title={t.common.nav.homeFeed} heading={Boolean(user)} tabs={tabs} rail={<SiteRail search={{ action: '/', label: searchLabel, defaultValue: q ?? '' }} popular={popular} signedIn={Boolean(user)} />}>
         {/* Where the right column has folded away (under 1200px), its search sits here. */}
-        <div className="xcol-search">
-          <RailSearch action="/" label={searchLabel} defaultValue={q ?? ''} />
-        </div>
+        {!channelsTab && (
+          <div className="xcol-search">
+            <RailSearch action="/" label={searchLabel} defaultValue={q ?? ''} />
+          </div>
+        )}
         {!user && !q && (
           <div className="px-[18px]">
             <section className="xwelcome" aria-labelledby="home-intro">
@@ -131,7 +143,7 @@ async function Home({ searchParams }: Props) {
             </section>
           </div>
         )}
-        {q && (
+        {q && !channelsTab && (
           <div className="xsearch-head">
             <p>{fill(ph.searchResults, { q })}</p>
             <Link href="/" className="text-link">
@@ -140,15 +152,19 @@ async function Home({ searchParams }: Props) {
           </div>
         )}
         {user && !q && <HomeComposer signedIn />}
-        <PostFeed
-          key={`${tab}:${q ?? ''}`}
-          tab={shown === feed ? tab : 'latest'}
-          q={q}
-          initial={shown}
-          now={now}
-          signedIn={Boolean(user)}
-          empty={q ? <p className="px-[18px] py-10 text-center text-[13px] text-muted">{t.posts.explore.noPosts}</p> : tab === 'unanswered' ? <p className="px-[18px] py-10 text-center text-[13px] text-muted">{ph.emptyUnanswered}</p> : null}
-        />
+        {channels ? (
+          <ChannelList key={q ?? ''} q={q} initial={channels} now={now} />
+        ) : (
+          <PostFeed
+            key={`${tab}:${q ?? ''}`}
+            tab={shown === feed ? tab : 'latest'}
+            q={q}
+            initial={shown}
+            now={now}
+            signedIn={Boolean(user)}
+            empty={q ? <p className="px-[18px] py-10 text-center text-[13px] text-muted">{t.posts.explore.noPosts}</p> : tab === 'unanswered' ? <p className="px-[18px] py-10 text-center text-[13px] text-muted">{ph.emptyUnanswered}</p> : null}
+          />
+        )}
         {result && (
           <>
             <p className="px-[18px] pt-6 text-[13px] text-muted">{ph.empty}</p>

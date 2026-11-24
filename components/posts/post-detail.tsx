@@ -21,6 +21,7 @@ import { PostImageGallery } from '@/components/posts/post-images';
 import { PrivateReePicker } from '@/components/posts/ree-picker';
 import './posts.css';
 import { Pending } from '@/components/posts/pending';
+import { HashtagText } from '@/components/posts/hashtags';
 
 const POLL_MS = 2_500;
 /** A round just settled with no Ree may still get its AI answer (written right after): the page keeps asking this long. */
@@ -676,9 +677,13 @@ export function PostDetail({ initial, quoting, signedIn, now, loginHref }: { ini
         </div>
       </header>
       {/* The page's h1 (GSC review 2026-11, A12): the question itself, or a renamed private post's title, the question it asked following. */}
-      <h1 className="post-page-question">{(isPrivate && post.title) || post.question}</h1>
+      <h1 className="post-page-question">{isPrivate && post.title ? post.title : <HashtagText text={post.question} channels={post.channels} />}</h1>
       {isPrivate && post.title && <p className="post-page-detail">{post.question}</p>}
-      {post.detail && <p className="post-page-detail">{post.detail}</p>}
+      {post.detail && (
+        <p className="post-page-detail">
+          <HashtagText text={post.detail} channels={post.channels} />
+        </p>
+      )}
       <PostImageGallery images={post.images} />
       {post.quote && (
         <div className="mt-3">

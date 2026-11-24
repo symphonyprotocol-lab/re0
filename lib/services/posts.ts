@@ -90,6 +90,7 @@ import { questionRewriter } from '@/lib/services/question-rewrite';
 import { parsePostImages, postSubject } from '@/lib/domain/post-images';
 import { attachImages, checkedImages, hasSameImages, imagesReadableFor, ensureImageText, imageParts, imagesFor, type ImageDescriber, type ImagePart } from '@/lib/services/post-images';
 import { ceilingFor } from '@/lib/services/rate-limit-settings';
+import { channelIdOf, channelsFor, fileUnderChannels } from '@/lib/services/channels';
 
 const { post, postVote, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user } = schema;
 
@@ -281,6 +282,8 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
         createdAt: now,
       });
       await attachImages(tx, id, images);
+      /* `#tags` file it under their channels, made here when new; only what it shows once published is listed there. */
+      await fileUnderChannels(tx, id, userId, question, detail);
       return { ok: true, id } as const;
     });
   } catch (error) {
@@ -871,7 +874,7 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
   /* A private post is only ever read by its author (the queries above made sure). */
   const ownPrivate = new Set(rows.filter((row) => row.visibility === 'private' && viewerId && row.userId === viewerId).map((row) => row.id));
   const unvoted = ownPrivate.size ? await unvotedBy(viewerId, answers.filter((row) => ownPrivate.has(row.postId)).map((row) => row.id)) : new Set<string>();
-  const [quotes, quoteCounts, images] = await Promise.all([quotesFor(rows, viewerId), quoteCountsFor(ids), imagesFor(ids)]);
+  const [quotes, quoteCounts, images, channels] = await Promise.all([quotesFor(rows, viewerId), quoteCountsFor(ids), imagesFor(ids), channelsFor(rows.filter((row) => row.visibility === 'public').map((row) => row.id))]);
   const authorView = options.whole && viewerId && rows.length === 1 && rows[0]!.userId === viewerId && (AUTHORED_SOURCES as readonly string[]).includes(rows[0]!.source);
   /* A private post has no requests: its author chose and paid for every Ree when asking. */
   const requests = authorView && rows[0]!.visibility === 'public' ? await paidRequestsFor(rows[0]!.id, viewerId) : [];
@@ -923,6 +926,7 @@ async function viewsOf(rows: PostRow[], viewerId: string | undefined, options: {
       quote: row.quoteKind ? (quotes.get(row.id) ?? { kind: row.quoteKind, available: false }) : null,
       quotes: quoteCounts.get(row.id) ?? 0,
       images: images.get(row.id) ?? [],
+      channels: channels.get(row.id) ?? [],
       summary: row.summaryState === 'done' && row.summaryContent && !summaryStale(row.summaryAnswers, new Set(shown.map((entry) => entry.id)))
         ? { state: 'done', content: row.summaryContent, sources: row.summarySources ?? [] }
         : row.summaryState === 'running' ? { state: 'running', content: '', sources: [] } : null,
@@ -998,10 +1002,13 @@ const searchable = sql`(${post.question} || ' ' || ${post.detail})`;
  * ranks answered posts by helpful votes and answers, decaying with age, and
  * pages by offset (its cursor is a number).
  */
-export async function listFeed(tab: FeedTab, options: { cursor?: string | null; viewerId?: string; size?: number; q?: string | null; quotesOf?: string | null } = {}): Promise<PostPage> {
+export async function listFeed(tab: FeedTab, options: { cursor?: string | null; viewerId?: string; size?: number; q?: string | null; quotesOf?: string | null; channel?: string | null } = {}): Promise<PostPage> {
   if (options.quotesOf !== undefined && options.quotesOf !== null && !isUuid(options.quotesOf)) return { items: [], next: null };
-  /* The posts quoting one post are listed newest first whatever tab was asked for. */
-  if (options.quotesOf) tab = 'latest';
+  /* A channel's posts (`#name`): every visible one in it, newest first. */
+  const channelId = options.channel ? await channelIdOf(options.channel) : null;
+  if (options.channel && !channelId) return { items: [], next: null };
+  /* The posts quoting one post, or in one channel, are listed newest first whatever tab was asked for. */
+  if (options.quotesOf || channelId) tab = 'latest';
   const size = options.size ?? POST_PAGE_SIZE;
   /* One ILIKE over the indexed expression (pg_trgm), not two over separate columns. */
   const search = options.q?.trim() ? sql`${searchable} ilike ${`%${options.q.trim().replace(/[%_\\]/g, '\\$&')}%`}` : undefined;
@@ -1024,7 +1031,11 @@ export async function listFeed(tab: FeedTab, options: { cursor?: string | null; 
     boundary = sql`(${post.publishedAt}, ${post.id}) < (${cursor.at.toISOString()}::timestamptz, ${cursor.id}::uuid)`;
   }
   /* The posts quoting one post: every visible one, answered or not. */
-  const scope = options.quotesOf ? eq(post.quotePostId, options.quotesOf) : tab === 'unanswered' ? unanswered() : worthListing;
+  const scope = options.quotesOf
+    ? eq(post.quotePostId, options.quotesOf)
+    : channelId
+      ? sql`exists (select 1 from ${schema.postChannel} pc where pc.post_id = ${post.id} and pc.channel_id = ${channelId}::uuid)`
+      : tab === 'unanswered' ? unanswered() : worthListing;
   const rows = await selectPosts(and(visiblePost(), scope, boundary, search), [desc(post.publishedAt), desc(post.id)], size + 1);
   return { items: await viewsOf(rows.slice(0, size), options.viewerId, { whole: false }), next: rows.length > size ? rows[size - 1]!.id : null };
 }

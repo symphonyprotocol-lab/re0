@@ -9,11 +9,11 @@ import './posts.css';
 
 /**
  * A feed of posts: the first page from the server, more as it scrolls
- * (`/api/posts?tab=&cursor=&q=`). `empty` stands in when there is none.
+ * (`/api/posts?tab=&cursor=&q=`, `&channel=` for a channel's). `empty` stands in when there is none.
  * A new tab or search is a new feed (the page keys it), so the cursor and
  * the observer start again with it.
  */
-export function PostFeed({ tab, q = null, quotes = null, initial, now, signedIn, empty }: { tab: FeedTab; q?: string | null; quotes?: string | null; initial: PostPage; now: number; signedIn: boolean; empty?: ReactNode }) {
+export function PostFeed({ tab, q = null, quotes = null, channel = null, initial, now, signedIn, empty }: { tab: FeedTab; q?: string | null; quotes?: string | null; channel?: string | null; initial: PostPage; now: number; signedIn: boolean; empty?: ReactNode }) {
   const { t } = useI18n();
   const h = t.posts.home;
   const [page, setPage] = useState(initial);
@@ -31,6 +31,7 @@ export function PostFeed({ tab, q = null, quotes = null, initial, now, signedIn,
       const params = new URLSearchParams({ tab, cursor });
       if (q) params.set('q', q);
       if (quotes) params.set('quotes', quotes);
+      if (channel) params.set('channel', channel);
       const response = await fetch(`/api/posts?${params}`, { headers: { accept: 'application/json' } });
       if (!response.ok) throw new Error(String(response.status));
       const next = (await response.json()) as PostPage;
@@ -45,7 +46,7 @@ export function PostFeed({ tab, q = null, quotes = null, initial, now, signedIn,
       inFlight.current = false;
       setLoading(false);
     }
-  }, [page.next, tab, q, quotes]);
+  }, [page.next, tab, q, quotes, channel]);
   const { sentinel, observing } = useLoadOnScroll<HTMLDivElement>(more, Boolean(page.next) && !loading && !failed);
 
   if (page.items.length === 0) return <>{empty ?? null}</>;

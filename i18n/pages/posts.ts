@@ -2,7 +2,34 @@ import type { Shape } from '@/i18n/format';
 
 /** Public posts (v5, docs/design/discover-posts.html): the feed, the composer, a post's page, 我的帖子 and 收藏. */
 export const zh = {
-  tabs: { for_you: '为你推荐', latest: '最新', unanswered: '待回答', label: '帖子流' },
+  tabs: { for_you: '为你推荐', latest: '最新', unanswered: '待回答', channels: '频道', label: '帖子流' },
+  /* 频道 (#tag → channel, lib/domain/hashtags.ts): the 首页 tab that lists them, and one channel's page (/c/[name]). */
+  channels: {
+    search: '搜索频道',
+    hint: '在帖子里写 #话题（如 #旅行），发布后它就会出现在对应的频道；没有的频道会自动创建。',
+    posts: '{n} 条帖子',
+    active: '{time}有新帖',
+    empty: '还没有频道。在帖子里写一个 #话题，发布后这里就会出现。',
+    noResults: '没有找到“{q}”相关的频道。',
+    searchResults: '搜索“{q}”的频道',
+    searchClear: '清除搜索',
+    more: '加载更多',
+    loading: '正在加载更多频道…',
+    loadError: '没能加载更多频道。',
+    end: '已经到底了',
+    all: '全部频道',
+    label: '频道 {name}',
+    title: '#{name} 频道',
+    description: '#{name} 频道：RE0 上带 #{name} 的公开帖子，以及 Ree 给出的带出处的回答。',
+    count: '{n} 条公开帖子',
+    pageEmpty: '这个频道还没有公开的帖子。',
+    postHere: '在 #{name} 发帖',
+    signInToPost: '登录后在 #{name} 发帖',
+    railTitle: '关于频道',
+    railBody: '帖子里写 #{name}，发布并通过审核后就会出现在这里。任何人都可以创建频道。',
+    notFoundTitle: '没有这个频道',
+    notFoundBody: '还没有人用过这个话题。在帖子里写上它，发布后频道就会创建。',
+  },
   pageTitle: '帖子',
   /* 向 … 提问: the box on a Ree's share page and Ree page (ree-ask.tsx), and the 试问 page. */
   ask: {
@@ -456,7 +483,33 @@ export const zh = {
 };
 
 export const en: Shape<typeof zh> = {
-  tabs: { for_you: 'For you', latest: 'Latest', unanswered: 'Unanswered', label: 'Posts' },
+  tabs: { for_you: 'For you', latest: 'Latest', unanswered: 'Unanswered', channels: 'Channels', label: 'Posts' },
+  channels: {
+    search: 'Search channels',
+    hint: 'Write a #tag in a post (like #travel) and it shows up in that channel once published; a new tag starts a new channel.',
+    posts: 'Posts: {n}',
+    active: 'New post {time}',
+    empty: 'No channels yet. Add a #tag to a post and its channel appears here once published.',
+    noResults: 'No channel matches “{q}”.',
+    searchResults: 'Channels matching “{q}”',
+    searchClear: 'Clear search',
+    more: 'Load more',
+    loading: 'Loading more channels…',
+    loadError: 'Could not load more channels.',
+    end: 'That’s everything',
+    all: 'All channels',
+    label: 'Channel {name}',
+    title: '#{name} channel',
+    description: 'The #{name} channel: public posts tagged #{name} on RE0, with cited answers from Rees.',
+    count: 'Public posts: {n}',
+    pageEmpty: 'No public posts in this channel yet.',
+    postHere: 'Post in #{name}',
+    signInToPost: 'Sign in to post in #{name}',
+    railTitle: 'About channels',
+    railBody: 'Write #{name} in a post and it appears here once it is published and reviewed. Anyone can start a channel.',
+    notFoundTitle: 'No such channel',
+    notFoundBody: 'Nobody has used this tag yet. Write it in a post and the channel is created when the post is published.',
+  },
   pageTitle: 'Post',
   ask: {
     heading: 'Ask {name}',

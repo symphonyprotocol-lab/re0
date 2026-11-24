@@ -42,7 +42,7 @@ const post: PostView = {
   author: { kind: 'user', name: '周舟', avatar: null, mine: false }, status: 'published', answerState: 'done', answered: 2, candidates: 3, skipped: 0,
   helpful: 3, voted: false, saved: false, createdAt: '2026-11-20T00:00:00.000Z',
   answers: [{ id: '00000000-0000-4000-8000-0000000000a1', reeId: ree.id, reeSlug: 'tax', reeName: '个税顾问', reeAvatar: null, reeColor: 'default', official: false, similarity: 0.8, state: 'answered', text: '每年 3 月 1 日至 6 月 30 日 [1]。', truncated: false, citations: [], helpful: 3, voted: false, pinned: true, paid: false, unhelpful: 0, unvoted: false, cost: null }],
-  summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, images: [], paidRequests: [], spent: null, aiAnswer: null, followupCount: 0, followups: [],
+  summary: null, summaryStale: false, summaryRewriteFree: false, hiddenBy: null, quote: null, quotes: 0, images: [], channels: [], paidRequests: [], spent: null, aiAnswer: null, followupCount: 0, followups: [],
   followupCandidates: [], followupBlocked: null, followupAiOnly: false, deleted: false,
 };
 const second: PostView = {

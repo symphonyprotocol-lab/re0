@@ -12,6 +12,8 @@ vi.mock('@/lib/services/public-rees', () => ({
   sitemapRees: async () => [],
 }));
 vi.mock('@/lib/services/posts', () => ({ indexablePosts: async () => [], indexablePostCount: async () => 0 }));
+/* Only channels with a visible post come back from the service; an empty one is never asked for. */
+vi.mock('@/lib/services/channels', () => ({ indexableChannels: async () => [{ name: 'travel', at: changed }, { name: '旅行', at: changed }] }));
 
 beforeEach(() => vi.stubEnv('APP_BASE_URL', 'https://re0.io'));
 afterEach(() => vi.unstubAllEnvs());
@@ -37,6 +39,16 @@ describe('sitemap parts (lib/sitemaps.ts)', () => {
       'https://re0.io/sitemap/pages.xml',
       'https://re0.io/sitemap/rees-1.xml',
       'https://re0.io/sitemap/rees-2.xml',
+    ]);
+  });
+
+  it('lists the channels that have a visible post, in both languages', async () => {
+    const entries = (await sitemapPart({ kind: 'pages' }))!;
+    expect(entries.filter((entry) => entry.url.includes('/c/')).map((entry) => entry.url)).toEqual([
+      'https://re0.io/zh/c/travel',
+      'https://re0.io/en/c/travel',
+      'https://re0.io/zh/c/%E6%97%85%E8%A1%8C',
+      'https://re0.io/en/c/%E6%97%85%E8%A1%8C',
     ]);
   });
 

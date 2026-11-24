@@ -28,7 +28,7 @@ export const HREFLANG: Record<Locale, string> = { zh: 'zh', en: 'en' };
 
 /**
  * The site's public pages, with what the sitemap says about each (app/sitemap.ts).
- * Public Rees (`/r/<slug>`) and public posts (`/p/<id>`, v5) are the other localized pages.
+ * Public Rees (`/r/<slug>`), public posts (`/p/<id>`, v5) and channels (`/c/<name>`) are the other localized pages.
  */
 export const PUBLIC_PAGES: readonly { path: string; changeFrequency: NonNullable<MetadataRoute.Sitemap[number]['changeFrequency']>; priority: number }[] = [
   { path: '/', changeFrequency: 'weekly', priority: 1 },
@@ -43,10 +43,12 @@ const PUBLIC_PATHS = new Set(PUBLIC_PAGES.map((page) => page.path));
 const PUBLIC_REE = /^\/r\/[^/]+$/;
 /** A public post's page (v5). */
 const PUBLIC_POST = /^\/p\/[^/]+$/;
+/** A channel's page (`#name`). */
+const PUBLIC_CHANNEL = /^\/c\/[^/]+$/;
 
 /** Whether a plain path (no language prefix, no query) has per-language URLs. */
 export function isLocalizedPath(path: string): boolean {
-  return PUBLIC_PATHS.has(path) || PUBLIC_REE.test(path) || PUBLIC_POST.test(path);
+  return PUBLIC_PATHS.has(path) || PUBLIC_REE.test(path) || PUBLIC_POST.test(path) || PUBLIC_CHANNEL.test(path);
 }
 
 /** `/en/pricing` → `{ locale: 'en', path: '/pricing' }`; `/en` → path `/`; anything else → null. */

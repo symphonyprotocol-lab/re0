@@ -2,6 +2,8 @@ import type { MetadataRoute } from 'next';
 import { LOCALES, type Locale } from '@/i18n/locale';
 import { localeAlternates, PUBLIC_PAGES } from '@/i18n/paths';
 import { indexablePostCount, indexablePosts } from '@/lib/services/posts';
+import { indexableChannels } from '@/lib/services/channels';
+import { channelHref } from '@/lib/domain/hashtags';
 import { sitemapReeCategories, sitemapReeTotals, sitemapRees } from '@/lib/services/public-rees';
 import { explorePagePath } from '@/components/discover/explore-pages';
 import { absoluteUrl, localeUrl, reeContentLocale } from '@/lib/seo';
@@ -9,8 +11,8 @@ import { absoluteUrl, localeUrl, reeContentLocale } from '@/lib/seo';
 /**
  * The sitemap, in files (A10, docs/research/gsc-seo-review-2026-11.md):
  * `/sitemap.xml` is an index (app/sitemap-index.xml/route.ts) of
- * `/sitemap/pages.xml` (the site's own pages and Explore's categories that
- * have public Rees), `/sitemap/rees-<n>.xml`
+ * `/sitemap/pages.xml` (the site's own pages, Explore's categories that
+ * have public Rees and the channels that have a visible post), `/sitemap/rees-<n>.xml`
  * (public Rees) and `/sitemap/posts-<n>.xml` (public posts a Ree answered),
  * served by app/sitemap.ts. Search Console then reports each part on its
  * own, and nothing is cut off at a fixed limit: a part that fills up gets
@@ -57,12 +59,14 @@ function localized(path: string, entry: Omit<Entry, 'url' | 'alternates'>, only:
  */
 export async function sitemapPart(part: SitemapPart): Promise<MetadataRoute.Sitemap | null> {
   if (part.kind === 'pages') {
-    const [{ latest }, categories] = await Promise.all([sitemapReeTotals(), sitemapReeCategories()]);
+    const [{ latest }, categories, channels] = await Promise.all([sitemapReeTotals(), sitemapReeCategories(), indexableChannels()]);
     const pages = PUBLIC_PAGES.flatMap(({ path, changeFrequency, priority }) => localized(path, { lastModified: path === '/explore' ? (latest ?? undefined) : undefined, changeFrequency, priority }));
     /* Each category's first page, at the path its own canonical names (app/(product)/(discover)/explore/page.tsx); not `?page=N` nor `?sort=`. */
     const explore = PUBLIC_PAGES.find((page) => page.path === '/explore')!;
     const byCategory = categories.flatMap(({ category, latest: changed }) => localized(explorePagePath({ category }, 1), { lastModified: changed, changeFrequency: explore.changeFrequency, priority: 0.8 }));
-    return [...pages, ...byCategory];
+    /* Channels with a visible post (an empty one is not indexed, app/(product)/(discover)/c/[name]/page.tsx). */
+    const byChannel = channels.flatMap(({ name, at }) => localized(channelHref(name), { lastModified: at, changeFrequency: 'daily', priority: 0.5 }));
+    return [...pages, ...byCategory, ...byChannel];
   }
   if (part.kind === 'rees') {
     const rees = await sitemapRees({ offset: (part.page - 1) * REES_PER_SITEMAP, limit: REES_PER_SITEMAP });
