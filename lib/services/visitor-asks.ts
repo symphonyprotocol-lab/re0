@@ -46,6 +46,7 @@ import { QUERY_BASE_FEE } from '@/lib/constants';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { quotaKeyHash } from '@/lib/services/anonymous-chat';
 import { balanceOf, placeHold } from '@/lib/services/credits';
+import { notify } from '@/lib/services/notices';
 import { publicRee } from '@/lib/services/explore';
 import { hitRateBucket } from '@/lib/services/rate-limit';
 import { effectiveCeiling } from '@/lib/services/rate-limit-settings';
@@ -145,7 +146,9 @@ async function takeKeys(tx: Tx, keys: readonly QuotaKey[], day: string): Promise
 
 export type VisitorAskOutcome =
   | { ok: true; id: string; duplicate?: boolean }
-  | { ok: false; error: VisitorAskRefusal | 'empty' | 'too_long' | 'invalid_visitor' };
+  | { ok: false; error: Exclude<VisitorAskRefusal, 'owner_credits'> | 'empty' | 'too_long' | 'invalid_visitor' }
+  /* The Ree whose owner could not pay: the route tells them (`tellOwnerVisitorsBlocked`) after the response. */
+  | { ok: false; error: 'owner_credits'; reeId: string };
 
 /**
  * A visitor's question to the Ree whose share page this is (`slug`). Not
@@ -198,7 +201,7 @@ export async function askAsVisitor(slug: string, input: { question: string; lang
     });
   } catch (error) {
     if (error instanceof QuotaFull) return { ok: false, error: error.scope === 'visitor' ? 'visitor_limit' : error.scope === 'network' ? 'network_limit' : 'capacity' };
-    if (error instanceof InsufficientCredits) return { ok: false, error: 'owner_credits' };
+    if (error instanceof InsufficientCredits) return { ok: false, error: 'owner_credits', reeId: target.id };
     throw error;
   }
 }
@@ -229,10 +232,10 @@ export async function visitorAskStatus(slug: string, visitor: Visitor, now = new
   if (!target) return null;
   const visitorKey = await visitorKeyOf(visitor.visitorId);
   const asked = await askedBy(target.id, visitorKey, now);
-  if (!target.open) return { open: false, remaining: 0, limit: target.perVisitor, blocked: 'closed', asked };
+  if (!target.open) return { reeId: target.id, open: false, remaining: 0, limit: target.perVisitor, blocked: 'closed', asked };
   const ip = visitor.ip?.trim();
   const keys = validFingerprint(visitor.fingerprint) && ip ? await keysFor({ id: target.id, ownerId: target.ownerId, name: '', perVisitor: target.perVisitor, perDay: target.perDay }, { ...visitor, ip }) : null;
-  if (!keys) return { open: true, remaining: target.perVisitor, limit: target.perVisitor, blocked: ip ? null : 'network_limit', asked };
+  if (!keys) return { reeId: target.id, open: true, remaining: target.perVisitor, limit: target.perVisitor, blocked: ip ? null : 'network_limit', asked };
   const counts = await countsOf(keys, anonymousDay(now));
   const left = (key: QuotaKey) => Math.max(0, key.limit - (counts.get(key.hash) ?? 0));
   const remaining = Math.min(target.perVisitor, ...keys.filter((key) => key.scope === 'visitor').map(left));
@@ -246,7 +249,7 @@ export async function visitorAskStatus(slug: string, visitor: Visitor, now = new
         : (await balanceOf(db(), target.ownerId, now)) < QUERY_BASE_FEE
           ? 'owner_credits'
           : null;
-  return { open: true, remaining, limit: target.perVisitor, blocked, asked };
+  return { reeId: target.id, open: true, remaining, limit: target.perVisitor, blocked, asked };
 }
 
 async function askedBy(reeId: string, visitorKey: string, now: Date): Promise<VisitorAskView[]> {
@@ -275,6 +278,43 @@ async function askedBy(reeId: string, visitorKey: string, now: Date): Promise<Vi
       answer: state === 'answered' && row.text ? previewOf(plainOf(row.text), POST_PREVIEW_CHARS).answer : null,
       createdAt: row.createdAt.toISOString(),
     };
+  });
+}
+
+/* ------------------------------------------------------ telling the owner */
+
+/** The day's key that a "visitors could not ask" notice to this Ree's owner takes, once. */
+function pausedNoticeKey(reeId: string): string {
+  return `va:${reeId}:owner-notice`;
+}
+
+/**
+ * Tells a Ree's owner that visitors could not ask it today because their
+ * balance cannot cover one answer's base fee: at most once per Ree per UTC
+ * day, however many visitors were refused, and only while visitor asks are
+ * on, the Ree is public and the balance is still short (one topped up since
+ * says nothing). The day's place is a row of `anonymous_chat_quota` taken
+ * with `on conflict do nothing` in the notice's own transaction, so
+ * concurrent refusals write one notice; the next day may write another.
+ * Called after the visitor's response (the ask route), best-effort; answers
+ * whether a notice was written.
+ */
+export async function tellOwnerVisitorsBlocked(reeId: string, now = new Date()): Promise<boolean> {
+  return db().transaction(async (tx) => {
+    const [target] = await tx
+      .select({ id: ree.id, ownerId: ree.ownerId, name: ree.name })
+      .from(ree)
+      .where(and(eq(ree.id, reeId), publicRee(), eq(ree.visitorAsks, true)))
+      .limit(1);
+    if (!target) return false;
+    if ((await balanceOf(tx, target.ownerId, now)) >= QUERY_BASE_FEE) return false;
+    const taken = await tx.execute(sql`
+      insert into anonymous_chat_quota (key_hash, day, rounds, attempts) values (${pausedNoticeKey(target.id)}, ${anonymousDay(now)}, 1, 1)
+      on conflict (key_hash, day) do nothing
+      returning rounds`);
+    if (!taken.rows.length) return false;
+    await notify(tx, { userId: target.ownerId, kind: 'visitor_ask_paused', params: { ree: target.name, reeId: target.id, fee: QUERY_BASE_FEE }, refId: target.id });
+    return true;
   });
 }
 

@@ -95,6 +95,8 @@ export interface VisitorAskView {
 }
 
 export interface VisitorAskStatus {
+  /** The Ree (public: its share page names it too). */
+  reeId: string;
   /** The owner lets visitors ask now. */
   open: boolean;
   /** Questions this visitor may still ask today (0 when closed). */

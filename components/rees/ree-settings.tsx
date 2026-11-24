@@ -236,7 +236,7 @@ export function ReeSettings({ ree, sources, video, topbar, visitorAsksToday = 0 
                 <PublishingFields value={form} onChange={update} moderated={moderated} />
               </section>
               {form.visitorAskSettings && (
-                <section className="card setup-section" aria-labelledby="ree-visitor-asks-heading">
+                <section id="visitor-asks" className="card setup-section scroll-mt-24" aria-labelledby="ree-visitor-asks-heading">
                   <h2 id="ree-visitor-asks-heading">{t.reeSetup.visitorAsks.title}</h2>
                   <VisitorAskFields value={form.visitorAskSettings} onChange={(visitorAskSettings) => update({ visitorAskSettings })} today={visitorAsksToday} />
                 </section>

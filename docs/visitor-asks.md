@@ -14,6 +14,11 @@ Decided 2026-11-24. A Ree's owner can let signed-out visitors ask the Ree on its
 
 - Each answer costs the owner the base fee (`QUERY_BASE_FEE`, 20). The query fee of one's own Ree is waived, the same as when the owner asks it.
 - The fee is **held from the owner when the visitor asks**. If the balance cannot cover it, the question is refused with `owner_credits` and nothing is counted. The balance is never overdrawn.
+- **The owner is told** with an in-app notice, `visitor_ask_paused`; the app sends no email. It names the Ree and links to top up and to the Ree's visitor-ask settings.
+  - It is sent at most once per Ree per UTC day, and only while visitor asks are on and the balance is still short.
+  - It fires when an ask is refused, and also when the status the box polls shows `owner_credits`, because a blocked box never sends.
+  - The day's place is a `va:<ree>:owner-notice` row in `anonymous_chat_quota`, taken with `on conflict do nothing` in the notice's own transaction, so racing refusals write one notice.
+  - It runs after the visitor's response (`after()`), best-effort, and errors are logged.
 - When processing starts, the hold moves onto the answer. It is settled when the Ree answers. It is given back when:
   - review refuses the question;
   - the Ree has no answer;

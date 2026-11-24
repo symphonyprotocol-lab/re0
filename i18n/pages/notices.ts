@@ -35,6 +35,7 @@ export const zh = {
     postAiAnswer: '没有 Ree 能回答你的帖子「{question}」，AI 先给了你一个通用回答。',
     followupAiAnswer: '没有 Ree 能回答你的追问「{question}」，AI 先给了你一个通用回答。',
     chatsRemoval: '旧的私密对话已随改版删除，私密提问现在是私密帖子。',
+    visitorAskPaused: '今天有访客没能在分享页向你的 Ree「{ree}」免登录提问：你的余额不够支付一个回答 {fee} credits 的基本使用费。充值后访客可以继续提问。',
   },
   open: {
     ree: '查看 Ree',
@@ -42,6 +43,8 @@ export const zh = {
     role: '查看角色',
     post: '查看帖子',
     privatePosts: '查看私密帖子',
+    topUp: '去充值',
+    visitorAsks: '免登录提问设置',
   },
 };
 
@@ -79,6 +82,8 @@ export const en: Shape<typeof zh> = {
     postAiAnswer: 'No Ree could answer your post “{question}”, so the AI gave you a general answer for now.',
     followupAiAnswer: 'No Ree could answer your follow-up “{question}”, so the AI gave you a general answer for now.',
     chatsRemoval: 'Your old private conversations were deleted with the redesign; private questions are now private posts.',
+
+    visitorAskPaused: 'Visitors could not ask your Ree “{ree}” on its share page today: your balance cannot cover the {fee}-credit base fee of one answer. Top up and visitors can ask again.',
   },
   open: {
     ree: 'View Ree',
@@ -86,5 +91,8 @@ export const en: Shape<typeof zh> = {
     role: 'View role',
     post: 'View post',
     privatePosts: 'View private posts',
+
+    topUp: 'Top up',
+    visitorAsks: 'Visitor question settings',
   },
 };

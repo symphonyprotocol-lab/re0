@@ -5,12 +5,17 @@ import { body, fail, json } from '@/lib/http/respond';
 import { currentUser, sameOrigin } from '@/lib/http/session';
 import { keepVisitor, visitorOf } from '@/lib/http/share';
 import { processPost } from '@/lib/services/posts';
-import { askAsVisitor, visitorAskStatus } from '@/lib/services/visitor-asks';
+import { askAsVisitor, tellOwnerVisitorsBlocked, visitorAskStatus } from '@/lib/services/visitor-asks';
 import { FINGERPRINT_HEADER } from '@/lib/domain/visitor-ask';
 
 export const maxDuration = 300;
 
 type Context = { params: Promise<{ slug: string }> };
+
+/** After the response, best-effort: the visitor's request never waits for, nor fails with, the owner's notice (at most one a day). */
+function tellOwnerLater(reeId: string): void {
+  after(() => tellOwnerVisitorsBlocked(reeId).then(() => undefined, (error: unknown) => console.error(`visitor-ask notice for ree ${reeId} failed: ${error instanceof Error ? error.message : 'unknown'}`)));
+}
 
 /**
  * `GET /api/share/[slug]/ask` → `{open, remaining, limit, blocked, asked}`:
@@ -26,6 +31,8 @@ export async function GET(request: NextRequest, context: Context) {
   const visitor = visitorOf(request);
   const status = await visitorAskStatus((await context.params).slug, { fingerprint: request.headers.get(FINGERPRINT_HEADER) ?? '', visitorId: visitor.id, ip: clientIp(request.headers) });
   if (!status) return fail('not_found', 404);
+  /* The box will not offer to send at all: this is where the owner hears visitors are being turned away. */
+  if (status.blocked === 'owner_credits') tellOwnerLater(status.reeId);
   return keepVisitor(json(status), visitor);
 }
 
@@ -50,6 +57,7 @@ export async function POST(request: NextRequest, context: Context) {
     { fingerprint: String(input.fingerprint ?? ''), visitorId: visitor.id, ip: clientIp(request.headers) },
   );
   if (!result.ok) {
+    if (result.error === 'owner_credits') tellOwnerLater(result.reeId);
     const status = result.error === 'closed' ? 403 : result.error === 'owner_credits' ? 402 : result.error === 'empty' || result.error === 'too_long' || result.error === 'invalid_visitor' ? 422 : 429;
     return keepVisitor(fail(result.error, status), visitor);
   }

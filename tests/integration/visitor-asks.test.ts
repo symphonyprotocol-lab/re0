@@ -247,7 +247,7 @@ describeWithDb('visitor asks on the share page', () => {
     const ree = await shared(QUERY_BASE_FEE + 5, { perVisitor: 3 });
     const who = browser();
     expect((await ask(ree.slug, who)).ok).toBe(true);
-    expect(await ask(ree.slug, who)).toEqual({ ok: false, error: 'owner_credits' });
+    expect(await ask(ree.slug, who)).toEqual({ ok: false, error: 'owner_credits', reeId: ree.reeId });
     expect(await balanceOf(db(), ree.ownerId)).toBe(5);
     /* The refused question took no place: they still have two today, and the box says why they cannot use them. */
     expect(await visitorAsks.visitorAskStatus(ree.slug, who)).toMatchObject({ remaining: 2, blocked: 'owner_credits' });
@@ -305,6 +305,68 @@ describeWithDb('visitor asks on the share page', () => {
       const response = await call(ree.slug, { question: QUESTION, fingerprint: 'd'.repeat(64) }, { 'x-real-ip': '192.0.2.11' });
       expect(response.status).toBe(402);
       expect(await response.json()).toMatchObject({ error: 'owner_credits' });
+    });
+  });
+
+  describe("telling the owner when their balance turns visitors away", () => {
+    const noticesOf = (ownerId: string) => db().select({ kind: schema.notice.kind, params: schema.notice.params, refId: schema.notice.refId }).from(schema.notice).where(and(eq(schema.notice.userId, ownerId), eq(schema.notice.kind, 'visitor_ask_paused')));
+    const request = (slug: string, method: 'GET' | 'POST', ip: string, body?: unknown) =>
+      new NextRequest(`http://localhost:3000/api/share/${slug}/ask`, {
+        method,
+        headers: { 'content-type': 'application/json', origin: 'http://localhost:3000', host: 'localhost:3000', 'x-real-ip': ip, 'x-re0-fp': 'e'.repeat(64) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    const runLater = async () => {
+      const tasks = later.splice(0);
+      await Promise.all(tasks.map((task) => task()));
+      return tasks.length;
+    };
+
+    it('writes one notice for many refusals in a day, through the ask and the status, however they race', async () => {
+      token = undefined;
+      const ree = await shared(0, { perVisitor: 5 });
+      later.length = 0;
+      for (let n = 0; n < 3; n += 1) {
+        const response = await askRoute.POST(request(ree.slug, 'POST', `192.0.2.${40 + n}`, { question: `${QUESTION} ${n}`, fingerprint: n.toString(16).padStart(64, 'c') }), { params: Promise.resolve({ slug: ree.slug }) });
+        expect(response.status).toBe(402);
+      }
+      /* The box's status says the same, and also tells the owner: a blocked box never sends. */
+      const status = await askRoute.GET(request(ree.slug, 'GET', '192.0.2.50'), { params: Promise.resolve({ slug: ree.slug }) });
+      expect(await status.json()).toMatchObject({ blocked: 'owner_credits' });
+      /* Each was scheduled after its response; run together, they race. */
+      expect(await runLater()).toBe(4);
+      await Promise.all(Array.from({ length: 5 }, () => visitorAsks.tellOwnerVisitorsBlocked(ree.reeId)));
+      const written = await noticesOf(ree.ownerId);
+      expect(written).toHaveLength(1);
+      expect(written[0]).toMatchObject({ refId: ree.reeId, params: { reeId: ree.reeId, fee: QUERY_BASE_FEE } });
+    });
+
+    it('writes nothing when visitor asks are off, the refusal has another cause, or the balance was topped up since', async () => {
+      token = undefined;
+      const off = await shared(0);
+      expect(await visitorAsks.tellOwnerVisitorsBlocked(off.reeId)).toBe(false);
+      later.length = 0;
+      expect((await askRoute.POST(request(off.slug, 'POST', '192.0.2.60', { question: QUESTION, fingerprint: 'f'.repeat(64) }), { params: Promise.resolve({ slug: off.slug }) })).status).toBe(403);
+      /* A visitor over their own limit, on a Ree whose owner can pay. */
+      const paying = await shared(500, { perVisitor: 1 });
+      expect((await askRoute.POST(request(paying.slug, 'POST', '192.0.2.61', { question: QUESTION, fingerprint: 'f'.repeat(64) }), { params: Promise.resolve({ slug: paying.slug }) })).status).toBe(201);
+      expect((await askRoute.POST(request(paying.slug, 'POST', '192.0.2.61', { question: `${QUESTION} again`, fingerprint: 'f'.repeat(64) }), { params: Promise.resolve({ slug: paying.slug }) })).status).toBe(429);
+      /* Only the accepted question's post work was scheduled; no notice task. */
+      expect(later).toHaveLength(1);
+      later.length = 0;
+      expect(await visitorAsks.tellOwnerVisitorsBlocked(paying.reeId)).toBe(false);
+      expect([...(await noticesOf(off.ownerId)), ...(await noticesOf(paying.ownerId))]).toEqual([]);
+    });
+
+    it('may tell them again on a later day', async () => {
+      const ree = await shared(0, { perVisitor: 5 });
+      const today = new Date();
+      expect(await visitorAsks.tellOwnerVisitorsBlocked(ree.reeId, today)).toBe(true);
+      expect(await visitorAsks.tellOwnerVisitorsBlocked(ree.reeId, today)).toBe(false);
+      const tomorrow = new Date(today.getTime() + 86_400_000);
+      expect(await visitorAsks.tellOwnerVisitorsBlocked(ree.reeId, tomorrow)).toBe(true);
+      expect(await visitorAsks.tellOwnerVisitorsBlocked(ree.reeId, tomorrow)).toBe(false);
+      expect(await noticesOf(ree.ownerId)).toHaveLength(2);
     });
   });
 
