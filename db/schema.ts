@@ -1294,6 +1294,19 @@ export const rateLimitExemption = pgTable('rate_limit_exemption', {
 }, () => [check('rate_limit_exemption_limits_check', sql`cardinality(limits) > 0`)]);
 
 /**
+ * The console's values for the ceilings each feature counts itself (posts
+ * and follow-ups a day, Explore questions a minute per account), keyed by
+ * `CEILING_KEYS` in lib/services/rate-limit-settings.ts; a key without a row
+ * keeps its code default. No exemption lifts these.
+ */
+export const limitCeilingSetting = pgTable('limit_ceiling_setting', {
+  key: text('key').primaryKey(),
+  value: integer('value').notNull(),
+  updatedBy: uuid('updated_by').references(() => administrator.id, { onDelete: 'set null' }),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [check('limit_ceiling_setting_value_check', sql`value between 1 and 100000`)]);
+
+/**
  * Beyond 4: anonymous chat with free Rees (query fee 0) on the public and
  * share pages. Rounds answered, and attempts, per key and UTC day, reserved
  * atomically before the model is called (lib/services/anonymous-chat.ts).

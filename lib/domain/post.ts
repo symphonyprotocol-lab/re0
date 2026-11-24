@@ -396,6 +396,15 @@ export function postDay(now: Date): string {
   return now.toISOString().slice(0, 10);
 }
 
+/**
+ * The instant the daily post and follow-up counts restart: 00:00 UTC of
+ * `postDay` (08:00 UTC+8), spelled with its offset so the comparison does
+ * not depend on the database session's TimeZone.
+ */
+export function postDayStart(now: Date): string {
+  return `${postDay(now)}T00:00:00Z`;
+}
+
 /** `@Name` at the start or after a space, for the mention a Ree page prefills. Never part of the stored question. */
 export function stripMention(question: string, name: string | null): string {
   if (!name) return question.trim();

@@ -44,7 +44,6 @@ import {
   AUTHORED_SOURCES,
   POST_ANSWERING_STALE_MS,
   POST_CANDIDATES,
-  POST_DAILY_LIMIT,
   POST_DUPLICATE_WINDOW_MS,
   POST_MAX_ANSWERS,
   POST_MIN_SIMILARITY,
@@ -61,7 +60,7 @@ import {
   POST_SWEEP_BUDGET_MS,
   POST_SWEEP_CONCURRENCY,
   POST_WAITING_STALE_MS,
-  postDay,
+  postDayStart,
   postInputError,
   type AnswerState,
   type FeedTab,
@@ -90,6 +89,7 @@ import { modelJudge, type Judge } from '@/lib/services/public-qa';
 import { questionRewriter } from '@/lib/services/question-rewrite';
 import { parsePostImages, postSubject } from '@/lib/domain/post-images';
 import { attachImages, checkedImages, hasSameImages, imagesReadableFor, ensureImageText, imageParts, imagesFor, type ImageDescriber, type ImagePart } from '@/lib/services/post-images';
+import { ceilingFor } from '@/lib/services/rate-limit-settings';
 
 const { post, postVote, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user } = schema;
 
@@ -187,13 +187,13 @@ export type PublishOutcome =
  * answer costs and the most the automatic answers can cost (every place a
  * free Ree), and posts made today against the daily limit.
  */
-export async function postAllowance(userId: string, now = new Date()): Promise<{ balance: number; baseFee: number; maxAnswers: number; maxCost: number; postedToday: number; dailyLimit: number }> {
-  const day = postDay(now);
+export async function postAllowance(userId: string, now = new Date()): Promise<{ balance: number; baseFee: number; maxAnswers: number; maxCost: number; postedToday: number; dailyLimit: number | null }> {
+  const dayStart = postDayStart(now);
   const [row] = await db()
-    .select({ today: sql<number>`count(*) filter (where ${post.createdAt} >= ${day}::date)::int` })
+    .select({ today: sql<number>`count(*) filter (where ${post.createdAt} >= ${dayStart}::timestamptz)::int` })
     .from(post)
     .where(and(eq(post.userId, userId), eq(post.source, 'post')));
-  return { balance: await balanceOf(db(), userId, now), baseFee: QUERY_BASE_FEE, maxAnswers: POST_MAX_ANSWERS, maxCost: POST_MAX_ANSWERS * QUERY_BASE_FEE, postedToday: row?.today ?? 0, dailyLimit: POST_DAILY_LIMIT };
+  return { balance: await balanceOf(db(), userId, now), baseFee: QUERY_BASE_FEE, maxAnswers: POST_MAX_ANSWERS, maxCost: POST_MAX_ANSWERS * QUERY_BASE_FEE, postedToday: row?.today ?? 0, dailyLimit: await ceilingFor('postsPerDay', userId) };
 }
 
 /**
@@ -226,7 +226,8 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
   }
   const clientToken = input.clientToken && isUuid(input.clientToken) ? input.clientToken : null;
   const id = randomUUID();
-  const day = postDay(now);
+  const dayStart = postDayStart(now);
+  const dailyLimit = await ceilingFor('postsPerDay', userId);
   try {
     return await db().transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`post:${userId}`}))`);
@@ -258,10 +259,10 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
         .limit(1);
       if (same) return { ok: true, id: same.id, duplicate: true } as const;
       const [counts] = await tx
-        .select({ today: sql<number>`count(*) filter (where ${post.createdAt} >= ${day}::date)::int` })
+        .select({ today: sql<number>`count(*) filter (where ${post.createdAt} >= ${dayStart}::timestamptz)::int` })
         .from(post)
         .where(and(eq(post.userId, userId), eq(post.source, 'post')));
-      if ((counts?.today ?? 0) >= POST_DAILY_LIMIT) return { ok: false, error: 'daily_limit' } as const;
+      if (dailyLimit !== null && (counts?.today ?? 0) >= dailyLimit) return { ok: false, error: 'daily_limit' } as const;
       const balance = await balanceOf(tx, userId, now);
       if (balance < QUERY_BASE_FEE) return { ok: false, error: 'insufficient_credits', balance, needed: QUERY_BASE_FEE } as const;
       await tx.insert(post).values({
