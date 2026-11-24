@@ -10,15 +10,20 @@ import { RoleBadge } from '@/components/discover/role-badge';
 import { ReeFavoriteButton } from '@/components/rees/ree-favorite-button';
 import { rememberExploreReturn } from '@/components/discover/public-visit';
 
-/** "相关 Rees" / "作者的其他 Rees" (prototype public-dot.js `recommendationGroup`): four a page, each group paged on its own. */
+/**
+ * "相关 Rees" / "作者的其他 Rees" (prototype public-dot.js `recommendationGroup`):
+ * four a page, each group paged on its own. The pager is buttons, not
+ * links: a page of four cards is no page for a crawler to fetch (an owner
+ * with ~2.9k Rees gave each Ree ~730 `?ap=` URLs; lib/http/private-paths.ts).
+ */
 export function PublicListSection({
   kind,
   list,
   title,
   body,
   empty,
-  previousHref,
-  nextHref,
+  onPage,
+  busy = false,
   from,
   returnTo,
   favoriteIds,
@@ -29,8 +34,10 @@ export function PublicListSection({
   title: string;
   body: string;
   empty: string;
-  previousHref: string;
-  nextHref: string;
+  /** Show another page of the list in place. */
+  onPage: (page: number) => void;
+  /** A page is on its way: the pager waits. */
+  busy?: boolean;
   /** The explore list this Ree page was opened from; the Rees listed here go back to it too. */
   from: string;
   returnTo: string;
@@ -55,7 +62,7 @@ export function PublicListSection({
       {list.total === 0 ? (
         <p className="mt-4 rounded-lg bg-wash px-3 py-4 text-center text-[12px] text-muted">{empty}</p>
       ) : (
-        <ul className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <ul aria-busy={busy || undefined} className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {list.items.map((ree) => {
             return (
               <li key={ree.id} className="group relative min-w-0 overflow-hidden rounded-xl border border-line bg-white transition-[scale,box-shadow] has-[>div>a>.workspace-link-progress[data-pending=true]]:scale-[0.985] has-[>div>a>.workspace-link-progress[data-pending=true]]:ring-2 has-[>div>a>.workspace-link-progress[data-pending=true]]:ring-[#c5dcf8]">
@@ -97,27 +104,15 @@ export function PublicListSection({
             {n((list.page - 1) * 4 + 1)}–{n(Math.min(list.page * 4, list.total))} / {n(list.total)}
           </span>
           <span className="flex items-center gap-2">
-            {list.page > 1 ? (
-              <Link scroll={false} href={previousHref} rel="nofollow" className="icon-btn" aria-label={fill(p.groupPrevious, { group: title })}>
-                <Icon name="chevronLeft" />
-              </Link>
-            ) : (
-              <span className="icon-btn opacity-40" aria-disabled="true">
-                <Icon name="chevronLeft" />
-              </span>
-            )}
+            <button type="button" className="icon-btn" disabled={busy || list.page <= 1} onClick={() => onPage(list.page - 1)} aria-label={fill(p.groupPrevious, { group: title })}>
+              <Icon name="chevronLeft" />
+            </button>
             <span className="font-mono">
               {list.page} / {list.pages}
             </span>
-            {list.page < list.pages ? (
-              <Link scroll={false} href={nextHref} rel="nofollow" className="icon-btn" aria-label={fill(p.groupNext, { group: title })}>
-                <Icon name="chevronRight" />
-              </Link>
-            ) : (
-              <span className="icon-btn opacity-40" aria-disabled="true">
-                <Icon name="chevronRight" />
-              </span>
-            )}
+            <button type="button" className="icon-btn" disabled={busy || list.page >= list.pages} onClick={() => onPage(list.page + 1)} aria-label={fill(p.groupNext, { group: title })}>
+              <Icon name="chevronRight" />
+            </button>
           </span>
         </nav>
       )}
