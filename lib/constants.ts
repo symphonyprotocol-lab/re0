@@ -253,6 +253,8 @@ export const REE_CATEGORIES = [
   'learning',
   'professional',
   'life',
+  'travel',
+  'literature',
   'other',
 ] as const;
 export type ReeCategory = (typeof REE_CATEGORIES)[number];

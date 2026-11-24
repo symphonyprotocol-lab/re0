@@ -177,7 +177,7 @@ export const ree = pgTable(
     ),
     check(
       'ree_category_check',
-      oneOf('category', ['technology', 'design', 'business', 'learning', 'professional', 'life', 'other']),
+      oneOf('category', ['technology', 'design', 'business', 'learning', 'professional', 'life', 'travel', 'literature', 'other']),
     ),
     check('ree_query_fee_check', sql`query_fee between 0 and 10000`),
     check('ree_tags_check', sql`cardinality(tags) <= 3`),

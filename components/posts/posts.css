@@ -543,6 +543,23 @@
   .post-dialog {
     margin-top: 4vh;
   }
+  /* The window opens with the question focused: below 16px iOS would zoom the page in. */
+  .post-dialog .post-form textarea:not(.post-detail) {
+    font-size: 16px;
+  }
+}
+/* The hidden field a tap on 发帖 focuses to raise the iOS keyboard before the window opens (composer.tsx `openComposer`); 16px so it does not zoom. */
+.composer-keyboard {
+  position: fixed;
+  top: 20%;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  font-size: 16px;
+  pointer-events: none;
 }
 .post-search {
   display: flex;

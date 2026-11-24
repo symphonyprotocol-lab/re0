@@ -1,5 +1,5 @@
 {
-  "id": "11cdf627-188a-42cd-a071-e892417c5e69",
+  "id": "053389e3-7a2c-4fc4-b612-5e20e2b92bc4",
   "prevId": "7da59393-ee48-4056-bc03-ebb89df9b5c2",
   "version": "7",
   "dialect": "postgresql",
@@ -3654,63 +3654,6 @@
         "kyc_record_submission_check": {
           "name": "kyc_record_submission_check",
           "value": "status = 'reset' or (legal_name is not null and country is not null and document_kind is not null and document_last4 is not null and document_expires is not null and tax_form is not null and tax_declared_at is not null and consent_at is not null)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.limit_ceiling_setting": {
-      "name": "limit_ceiling_setting",
-      "schema": "",
-      "columns": {
-        "key": {
-          "name": "key",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "value": {
-          "name": "value",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "limit_ceiling_setting_updated_by_administrator_id_fk": {
-          "name": "limit_ceiling_setting_updated_by_administrator_id_fk",
-          "tableFrom": "limit_ceiling_setting",
-          "tableTo": "administrator",
-          "columnsFrom": [
-            "updated_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "limit_ceiling_setting_value_check": {
-          "name": "limit_ceiling_setting_value_check",
-          "value": "value between 1 and 100000"
         }
       },
       "isRLSEnabled": false
@@ -8696,7 +8639,7 @@
         },
         "ree_category_check": {
           "name": "ree_category_check",
-          "value": "category in ('technology', 'design', 'business', 'learning', 'professional', 'life', 'other')"
+          "value": "category in ('technology', 'design', 'business', 'learning', 'professional', 'life', 'travel', 'literature', 'other')"
         },
         "ree_query_fee_check": {
           "name": "ree_query_fee_check",

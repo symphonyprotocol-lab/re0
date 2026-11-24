@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { POST_DETAIL_MAX, POST_MAX_ANSWERS, POST_QUESTION_MAX, PRIVATE_POST_MAX_REES, PRIVATE_POST_SUGGESTIONS, type PostQuote, type PostView, type PrivateReeOption } from '@/lib/domain/post';
@@ -64,9 +64,33 @@ export function useComposeHref(extra: Record<string, string> = {}): string {
 
 type ComposeLinkProps = { className: string; label: string; children: ReactNode };
 
+/** The link that last opened the composer: where focus goes back when the window closes (`openComposer`). */
+let composerOpener: HTMLElement | null = null;
+
+/**
+ * A tap on a 发帖 link. iOS raises the keyboard only for a focus() made
+ * inside the tap itself, and the window opens a render later (the address
+ * changes first). So on a touch screen the tap focuses a hidden text field
+ * at once; the window's question box takes the focus, and the keyboard,
+ * from it as it opens. A field still holding the focus after a while (the
+ * window never opened) lets it go.
+ */
+function openComposer(event: MouseEvent<HTMLAnchorElement>) {
+  composerOpener = event.currentTarget;
+  if (!window.matchMedia('(pointer: coarse)').matches) return;
+  const field = document.createElement('input');
+  field.className = 'composer-keyboard';
+  field.tabIndex = -1;
+  field.setAttribute('aria-hidden', 'true');
+  document.body.append(field);
+  field.addEventListener('blur', () => field.remove(), { once: true });
+  field.focus({ preventScroll: true });
+  setTimeout(() => field.blur(), 2500);
+}
+
 function ComposeLinkInner({ className, label, children }: ComposeLinkProps) {
   return (
-    <Link href={useComposeHref()} className={className} aria-label={label} title={label} scroll={false}>
+    <Link href={useComposeHref()} className={className} aria-label={label} title={label} scroll={false} onClick={openComposer}>
       {children}
     </Link>
   );
@@ -81,7 +105,7 @@ export function ComposeLink(props: ComposeLinkProps) {
   return (
     <Suspense
       fallback={
-        <Link href="?compose=public" className={props.className} aria-label={props.label} title={props.label} scroll={false}>
+        <Link href="?compose=public" className={props.className} aria-label={props.label} title={props.label} scroll={false} onClick={openComposer}>
           {props.children}
         </Link>
       }
@@ -582,9 +606,32 @@ function ComposerDialogInner() {
     if (open) setTab(compose === 'private' ? 'private' : 'public');
     const element = dialog.current;
     if (!element) return;
-    if (open && !element.open) element.showModal();
+    if (open && !element.open) {
+      /*
+       * The question box takes the first focus, not the 公开帖子 tab: the
+       * form mounted (and React's autoFocus ran) while the window was still
+       * closed, so it is marked for showModal's own focusing steps. Going
+       * straight there keeps the keyboard a tap raised (`openComposer`).
+       */
+      element.querySelector('textarea')?.setAttribute('autofocus', '');
+      element.showModal();
+    }
     if (!open && element.open) element.close();
   }, [open, compose]);
+
+  /**
+   * Closed in place: focus goes back to the 发帖 link that opened it when the
+   * browser did not put it back -- the tap focused the keyboard field, or a
+   * click left no focus at all -- and it is still on the closed window.
+   */
+  function closed() {
+    exit.closed(() => {
+      if (open) close();
+      const active = document.activeElement;
+      if ((!active || active === document.body || dialog.current?.contains(active)) && composerOpener?.isConnected) composerOpener.focus({ preventScroll: true });
+      composerOpener = null;
+    });
+  }
 
   function close() {
     const next = new URLSearchParams(params.toString());
@@ -594,7 +641,7 @@ function ComposerDialogInner() {
   }
 
   return (
-    <dialog ref={dialog} className="post-dialog" aria-label={c.label} onClose={() => exit.closed(() => open && close())} onClick={(event) => event.target === dialog.current && close()}>
+    <dialog ref={dialog} className="post-dialog" aria-label={c.label} onClose={closed} onClick={(event) => event.target === dialog.current && close()}>
       {open && (
         <div className="post-dialog-body">
           <header>
