@@ -31,9 +31,15 @@ async function user(prefix: string) {
   return userId;
 }
 
-/** A tag no other test uses: short enough for a channel name. */
+/**
+ * A tag no other test uses, short enough for a channel name. Letters only:
+ * publishing redacts the text before reading its tags, and a random digit
+ * run (`…1036928`, 7 or more digits) or a `wx`/`qq` hint followed by digits
+ * reads as a phone or WeChat number, so it would be cut out of the tag.
+ */
 function tag(prefix: string): string {
-  return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const letters = Array.from(crypto.getRandomValues(new Uint8Array(12)), (byte) => String.fromCharCode(97 + (byte % 26)));
+  return `${prefix}${letters.join('')}`;
 }
 
 async function publish(userId: string, question: string, detail = '') {
@@ -138,6 +144,14 @@ describeWithDb('channels', () => {
     expect((await channelRows([secret]))[0]?.createdBy).toBe(author);
     await approve(copy.id);
     expect((await posts.listFeed('latest', { channel: secret })).items.map((item) => item.id)).toEqual([copy.id]);
+  });
+
+  it('reads the tags after redaction, so a phone number never names a channel', async () => {
+    const author = await user('ch-redact');
+    const name = tag('call');
+    const id = await publish(author, `Who can help? #${name}13812345678`);
+    expect(await channelRows([`${name}13812345678`])).toEqual([]);
+    expect((await posts.getPost(id, author))?.channels).toEqual([name]);
   });
 
   it('answers nothing for a channel nobody used, and never makes one for an invalid name', async () => {
