@@ -26,7 +26,7 @@
  * when it does not (`closeAnswer`, `finishPost`). No AI general answer.
  */
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm';
 import { anonymousDay, ipBucket } from '@/lib/domain/anonymous-chat';
 import { InsufficientCredits } from '@/lib/domain/credits';
 import { POST_DUPLICATE_WINDOW_MS, POST_PREVIEW_CHARS, postInputError } from '@/lib/domain/post';
@@ -160,9 +160,10 @@ export async function askAsVisitor(slug: string, input: { question: string; lang
   /* Without an address only keys the client makes up would count it. */
   const ip = visitor.ip?.trim();
   if (!ip) return { ok: false, error: 'network_limit' };
-  if (!(await hitRateBucket(`visitor-ask:ip:${ipBucket(ip)}`, VISITOR_ASK_IP_PER_MINUTE, 60, now))) return { ok: false, error: 'network_limit' };
   const target = await askableRee(slug);
   if (!target) return { ok: false, error: 'closed' };
+  /* After the cheap refusals, so a closed Ree takes nothing of the address's minute. */
+  if (!(await hitRateBucket(`visitor-ask:ip:${ipBucket(ip)}`, VISITOR_ASK_IP_PER_MINUTE, 60, now))) return { ok: false, error: 'network_limit' };
   const question = redact(input.question.trim(), input.lang);
   const visitorKey = await visitorKeyOf(visitor.visitorId);
   const keys = await keysFor(target, { ...visitor, ip });
@@ -282,6 +283,7 @@ export async function visitorAsksToday(reeId: string, now = new Date()): Promise
   const [row] = await db()
     .select({ n: sql<number>`count(*)::int` })
     .from(post)
-    .where(and(eq(post.source, 'visitor'), eq(post.mentionReeId, reeId), gte(post.createdAt, new Date(`${anonymousDay(now)}T00:00:00Z`))));
+    /* Every visitor post has a key: saying so lets the partial index (post_visitor_idx) serve the count. */
+    .where(and(eq(post.source, 'visitor'), eq(post.mentionReeId, reeId), isNotNull(post.visitorKey), gte(post.createdAt, new Date(`${anonymousDay(now)}T00:00:00Z`))));
   return row?.n ?? 0;
 }

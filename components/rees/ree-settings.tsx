@@ -133,7 +133,10 @@ export function ReeSettings({ ree, sources, video, topbar, visitorAsksToday = 0 
         setError(code === 'invalid_cover' ? s.cover.failed : code && code in t.reeSetup.messages ? t.reeSetup.messages[code] : t.common.errors.generic);
         return;
       }
-      setBaseline(form);
+      /* What was saved: hidden visitor-ask numbers left invalid went back to the stored ones, and the form shows them. */
+      const sent = visitorAskSettings ? { ...form, visitorAskSettings } : form;
+      if (visitorAskSettings && JSON.stringify(visitorAskSettings) !== JSON.stringify(form.visitorAskSettings)) setForm((current) => ({ ...current, visitorAskSettings }));
+      setBaseline(sent);
       toast(s.saved);
       router.refresh();
     } catch {

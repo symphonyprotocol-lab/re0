@@ -721,6 +721,7 @@ export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOp
     full = stuck.length === 100;
   }
   if (left() > 0) handled += await sweepPaidRequests(now);
+  if (left() > 0) handled += await releaseHiddenVisitorHolds(now);
   /* Runs that died while answering, oldest claim first: each settled and given the AI answer it never got to, one post at a time. */
   for (let full = true; full && left() > 0; ) {
     const dead = await db()
@@ -764,6 +765,29 @@ export async function processStalePosts(deps: ProcessDeps = {}, options: SweepOp
   await Promise.all(Array.from({ length: Math.max(1, options.concurrency ?? POST_SWEEP_CONCURRENCY) }, worker));
   if (left() > 0) handled += await followups.processWaitingFollowups(deps, { budgetMs: left(), concurrency: options.concurrency, now });
   return handled;
+}
+
+/**
+ * Visitor questions taken down (by an administrator, or by reports) after
+ * review published them but before their Ree took them up: nothing will
+ * answer them while hidden -- `processPost` and the sweep pass over a post
+ * that is not published -- so the owner's hold is given back here, by the
+ * posts sweep. Restored later, the post runs as usual but its Ree no longer
+ * holds anything to answer with: it settles with no answer and nobody pays.
+ */
+export async function releaseHiddenVisitorHolds(now = new Date()): Promise<number> {
+  const rows = await db()
+    .select({ id: post.id, holdId: post.sponsorHoldId, reeId: post.mentionReeId })
+    .from(post)
+    .innerJoin(schema.creditHold, eq(schema.creditHold.id, post.sponsorHoldId))
+    .where(and(eq(post.source, 'visitor'), eq(post.status, 'hidden'), eq(post.answerState, 'waiting'), eq(schema.creditHold.status, 'held')))
+    .limit(100);
+  let released = 0;
+  for (const row of rows) {
+    const amount = await db().transaction((tx) => releaseHold(tx, row.holdId!, { reeId: row.reeId, ledger: 'post_answer', note: VISITOR_ASK_NOTE }, now));
+    if (amount !== null) released += 1;
+  }
+  return released;
 }
 
 /* ------------------------------------------------------------------ reading */

@@ -41,6 +41,8 @@ export function VisitorAsk({ slug, name, text, onTextChange, loginHref, onSignIn
   const [status, setStatus] = useState<VisitorAskStatus | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<ErrorCode | null>(null);
+  /* The first look failed: the box says so and still lets them send (the send says what stops it, if anything). */
+  const [unloaded, setUnloaded] = useState(false);
   const pollUntil = useRef(0);
   const url = `/api/share/${encodeURIComponent(slug)}/ask`;
 
@@ -48,9 +50,13 @@ export function VisitorAsk({ slug, name, text, onTextChange, loginHref, onSignIn
     try {
       const fingerprint = await browserFingerprint();
       const response = await fetch(url, { headers: { accept: 'application/json', [FINGERPRINT_HEADER]: fingerprint }, cache: 'no-store' });
-      if (response.ok) setStatus((await response.json()) as VisitorAskStatus);
+      if (response.ok) {
+        setStatus((await response.json()) as VisitorAskStatus);
+        setUnloaded(false);
+      } else setUnloaded(true);
     } catch {
       /* The box stays as it was; the next look may work. */
+      setUnloaded(true);
     }
   }, [url]);
 
@@ -104,7 +110,7 @@ export function VisitorAsk({ slug, name, text, onTextChange, loginHref, onSignIn
   };
 
   /* A limit already reached is said before anyone types; one hit while sending, after. */
-  const stop: ErrorCode | null = error ?? (status?.blocked ?? null);
+  const stop: ErrorCode | null = error ?? status?.blocked ?? (unloaded && !status ? 'generic' : null);
   const blocked = Boolean(status?.blocked);
   const signIn = (
     <Link rel="nofollow" href={loginHref} className={blocked ? 'btn btn-sm ml-auto' : 'text-link text-[12px]'} onClick={onSignIn}>
@@ -136,7 +142,7 @@ export function VisitorAsk({ slug, name, text, onTextChange, loginHref, onSignIn
         {status && !blocked && <small className="post-cost">{fill(v.remaining, { n: formatNumber(status.remaining, locale) })}</small>}
         {signIn}
         {!blocked && (
-          <button type="button" className="btn btn-sm" disabled={sending || !status} onClick={() => void send()}>
+          <button type="button" className="btn btn-sm" disabled={sending || (!status && !unloaded)} onClick={() => void send()}>
             {sending ? v.sending : v.send}
           </button>
         )}

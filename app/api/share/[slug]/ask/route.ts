@@ -1,5 +1,6 @@
 import { after, type NextRequest } from 'next/server';
 import { clientIp } from '@/lib/http/client-ip';
+import { rateLimited } from '@/lib/http/rate-limit';
 import { body, fail, json } from '@/lib/http/respond';
 import { currentUser, sameOrigin } from '@/lib/http/session';
 import { keepVisitor, visitorOf } from '@/lib/http/share';
@@ -15,9 +16,13 @@ type Context = { params: Promise<{ slug: string }> };
  * `GET /api/share/[slug]/ask` → `{open, remaining, limit, blocked, asked}`:
  * a signed-out visitor's box on the share page -- whether the owner lets
  * visitors ask, what this browser has left today, and its questions of the
- * last days with their answers. A private or unknown Ree is 404.
+ * last days with their answers. A private or unknown Ree is 404; past the
+ * signed-out browsing limit, 429.
  */
 export async function GET(request: NextRequest, context: Context) {
+  /* Polled while a question is pending: held to the signed-out browsing limit. */
+  const limited = await rateLimited('browse', { userId: null, headers: request.headers });
+  if (limited) return limited;
   const visitor = visitorOf(request);
   const status = await visitorAskStatus((await context.params).slug, { fingerprint: request.headers.get(FINGERPRINT_HEADER) ?? '', visitorId: visitor.id, ip: clientIp(request.headers) });
   if (!status) return fail('not_found', 404);

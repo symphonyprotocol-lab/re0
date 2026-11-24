@@ -173,6 +173,28 @@ describeWithDb('visitor asks on the share page', () => {
     expect(await balanceOf(db(), ree.ownerId)).toBe(500);
   });
 
+  it('gives the hold back when the post is taken down after review but before its Ree answered, and a restore then charges nobody', async () => {
+    const ree = await shared(500, { perVisitor: 5 });
+    const asked = await ask(ree.slug);
+    if (!asked.ok) throw new Error(asked.error);
+    /* Review publishes it; the request's background work dies before the answer, and it is taken down. */
+    expect(await posts.moderatePost(asked.id, approve)).toBe('published');
+    await db().update(schema.post).set({ status: 'hidden', hiddenBy: 'admin' }).where(eq(schema.post.id, asked.id));
+    await posts.processPost(asked.id, { judge: approve, answerOne: answered });
+    expect(await balanceOf(db(), ree.ownerId)).toBe(500 - QUERY_BASE_FEE);
+    /* The posts sweep's step gives it back, once. */
+    expect(await posts.releaseHiddenVisitorHolds()).toBeGreaterThanOrEqual(1);
+    expect(await balanceOf(db(), ree.ownerId)).toBe(500);
+    expect((await ownerEntries(ree.ownerId)).map((entry) => [entry.reason, entry.note])).toEqual([['query_hold', VISITOR_ASK_NOTE], ['query_refund', VISITOR_ASK_NOTE]]);
+    await posts.releaseHiddenVisitorHolds();
+    expect(await balanceOf(db(), ree.ownerId)).toBe(500);
+    /* Restored, it runs, but there is nothing left to pay with: no answer, no charge. */
+    await db().update(schema.post).set({ status: 'published', hiddenBy: null }).where(eq(schema.post.id, asked.id));
+    await posts.processPost(asked.id, { judge: approve, answerOne: answered });
+    expect(await postRow(asked.id)).toMatchObject({ answerState: 'done', answerCount: 0 });
+    expect(await balanceOf(db(), ree.ownerId)).toBe(500);
+  });
+
   it("charges the owner's own paid Ree the base fee only, never its query fee", async () => {
     const ree = await shared(500, { perVisitor: 5, queryFee: 50 });
     const asked = await ask(ree.slug);
