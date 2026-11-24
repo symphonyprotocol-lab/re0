@@ -60,6 +60,10 @@
     {
       "path": "/api/cron/traffic",
       "schedule": "20 16 * * *"
+    },
+    {
+      "path": "/api/cron/crawler-traffic",
+      "schedule": "40 16 * * *"
     }
   ]
 }

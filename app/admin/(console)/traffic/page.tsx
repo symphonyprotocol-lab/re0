@@ -3,13 +3,15 @@ import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { requireAdministrator } from '@/lib/http/admin';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
+import type { CrawlerMetric } from '@/lib/domain/crawler-traffic';
 import { periodFilter, periodRange, reportingDate } from '@/lib/domain/statistics';
 import { DIRECT_SOURCE, INTERNAL_SOURCE } from '@/lib/domain/traffic';
 import { TRAFFIC_LANDING_TOP, trafficReport } from '@/lib/services/traffic';
+import { crawlerReport } from '@/lib/services/crawler-traffic';
 import { ConsolePage, ConsoleTopbar } from '@/components/admin/console-topbar';
 import { ConsolePeriodControls } from '@/components/admin/finance-chart';
 import { PageHead, RecordsTable, Stats, Tag } from '@/components/admin/list-kit';
-import { TrafficChart } from '@/components/admin/traffic';
+import { CrawlerChart, TrafficChart } from '@/components/admin/traffic';
 import '@/components/admin/traffic.css';
 
 export const dynamic = 'force-dynamic';
@@ -20,12 +22,17 @@ export async function generateMetadata(): Promise<Metadata> {
 
 type Params = Record<string, string | string[] | undefined>;
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? '';
+const CRAWL_METRICS: CrawlerMetric[] = ['originBytes', 'invocations', 'requests'];
+const gigabytes = (bytes: number) => `${(bytes / 1e9).toLocaleString('en-US', { maximumFractionDigits: bytes >= 1e11 ? 0 : bytes >= 1e9 ? 1 : 2 })} GB`;
+const usd = (amount: number) => `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
  * `/admin/traffic` (「流量」): first-party page views, visitors and inbound
  * visits for a period (all time / day / week / month / custom, UTC+8), the
  * daily trend, the breakdown by source and page type, and the top landing
- * pages of each source (lib/services/traffic.ts).
+ * pages of each source (lib/services/traffic.ts); then 「爬虫 / 基础设施」:
+ * every request by crawler family and route, and the Vercel bill, as the
+ * daily cron read them from Vercel (lib/services/crawler-traffic.ts).
  */
 export default async function TrafficPage({ searchParams }: { searchParams: Promise<Params> }) {
   const administrator = await requireAdministrator();
@@ -33,7 +40,8 @@ export default async function TrafficPage({ searchParams }: { searchParams: Prom
   const c = t.traffic;
   const params = await searchParams;
   const filter = periodFilter(params);
-  const report = await trafficReport(administrator, periodRange(filter));
+  const range = periodRange(filter);
+  const [report, crawl] = await Promise.all([trafficReport(administrator, range), crawlerReport(administrator, range)]);
   const n = (value: number) => formatNumber(value, locale);
   const totals = report.totals;
   const visits = totals.inbound + totals.internal;
@@ -42,13 +50,19 @@ export default async function TrafficPage({ searchParams }: { searchParams: Prom
   const picked = first(params.source);
   const selected = report.landing.bySource.find((entry) => entry.source === picked) ?? null;
   const landingPages = selected ? selected.pages : report.landing.all;
-  const sourceHref = (source: string | null) => {
+  const hrefWith = (name: string, value: string | null, hash = '') => {
     const next = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) if (key !== 'source' && first(value)) next.set(key, first(value));
-    if (source) next.set('source', source);
+    for (const [key, entry] of Object.entries(params)) if (key !== name && first(entry)) next.set(key, first(entry));
+    if (value) next.set(name, value);
     const query = next.toString();
-    return query ? `/admin/traffic?${query}` : '/admin/traffic';
+    return `${query ? `/admin/traffic?${query}` : '/admin/traffic'}${hash}`;
   };
+  const sourceHref = (source: string | null) => hrefWith('source', source);
+  const k = c.crawlers;
+  const crawlMetric = CRAWL_METRICS.find((metric) => metric === first(params.crawl)) ?? 'originBytes';
+  const crawlShare = (part: number, whole: number) => fill(k.cards.crawlerShare, { share: percent(part, whole) });
+  const crawlEmpty = crawl.fetchedDays === 0;
+  const projectServices = crawl.cost.services.filter((row) => row.scope === 'project');
   const points = report.trend.points;
   const empty = points.every((point) => point.views === 0);
   const span = points.length ? { start: points[0]!.day, end: points[points.length - 1]!.day } : { start: reportingDate(), end: reportingDate() };
@@ -136,6 +150,98 @@ export default async function TrafficPage({ searchParams }: { searchParams: Prom
               c.kinds.names[row.kind],
               n(row.visits),
             ])}
+          />
+        </section>
+        <div className="crawler-head" id="crawlers">
+          <p className="eyebrow section-kicker">{k.kicker}</p>
+          <h2>{k.title}</h2>
+          <p>{k.lede}</p>
+          {crawl.fetchedThrough && <p>{fill(k.fetched, { n: n(crawl.fetchedDays), day: crawl.fetchedThrough })}</p>}
+        </div>
+        {!crawl.configured && <section className="card crawler-notice">{k.notConfigured}</section>}
+        {crawl.configured && crawlEmpty && <section className="card crawler-notice">{k.noData}</section>}
+        <Stats
+          items={[
+            { label: k.cards.requests, value: crawlEmpty ? '—' : n(crawl.totals.requests), note: crawlShare(crawl.crawlers.requests, crawl.totals.requests), icon: 'globe' },
+            { label: k.cards.invocations, value: crawlEmpty ? '—' : n(crawl.totals.invocations), note: crawlShare(crawl.crawlers.invocations, crawl.totals.invocations), icon: 'layers' },
+            { label: k.cards.origin, value: crawlEmpty ? '—' : gigabytes(crawl.totals.originBytes), note: crawlShare(crawl.crawlers.originBytes, crawl.totals.originBytes), icon: 'upload' },
+            {
+              label: k.cards.cost,
+              value: crawl.cost.span ? usd(crawl.cost.project) : '—',
+              note: crawl.cost.span ? fill(k.cards.costSpan, crawl.cost.span) : k.cards.costNone,
+              icon: 'wallet',
+            },
+          ]}
+        />
+        <section className="card console-chart crawler-chart">
+          <div className="between">
+            <div>
+              <h2>{crawl.trend.unit === 'month' ? k.chart.titleMonth : k.chart.title}</h2>
+              <p>{crawl.trend.points.length ? fill(c.trend.lede, { start: crawl.trend.points[0]!.day, end: crawl.trend.points[crawl.trend.points.length - 1]!.day }) : k.noData}</p>
+            </div>
+            <nav className="traffic-tabs" aria-label={k.chart.label}>
+              {CRAWL_METRICS.map((metric) => (
+                <Link key={metric} href={hrefWith('crawl', metric === 'originBytes' ? null : metric, '#crawlers')} scroll={false} aria-current={crawlMetric === metric ? 'true' : undefined}>
+                  {k.chart.metric[metric]}
+                </Link>
+              ))}
+            </nav>
+          </div>
+          <CrawlerChart points={crawl.trend.points} metric={crawlMetric} unit={crawl.trend.unit} label={k.chart.label} names={k.names} />
+        </section>
+        <section className="card traffic-section">
+          <h2>{k.families.title}</h2>
+          <p>{k.families.lede}</p>
+          <RecordsTable
+            label={t.console.list.tableRegion}
+            empty={k.noData}
+            head={[k.families.family, k.cards.requests, k.cards.invocations, k.cards.origin, k.families.share, k.families.cost, k.families.agents]}
+            rows={crawl.families.map((row) => [
+              <strong key="f">{k.names[row.family]}</strong>,
+              n(row.requests),
+              n(row.invocations),
+              gigabytes(row.originBytes),
+              percent(row.originBytes, crawl.totals.originBytes),
+              row.cost === null ? '—' : usd(row.cost),
+              <span key="a" className="crawler-agents">
+                {row.agents.map((agent) => agent.agent).join(', ') || '—'}
+              </span>,
+            ])}
+          />
+        </section>
+        <section className="card traffic-section">
+          <h2>{k.routes.title}</h2>
+          <p>{k.routes.lede}</p>
+          <RecordsTable
+            label={t.console.list.tableRegion}
+            empty={k.noData}
+            head={[k.routes.route, k.cards.requests, k.cards.invocations, k.cards.origin, k.routes.crawlers, k.routes.top]}
+            rows={crawl.routes.map((row) => [
+              <code key="r">{row.route}</code>,
+              n(row.requests),
+              n(row.invocations),
+              gigabytes(row.originBytes),
+              percent(row.crawlers.originBytes, row.originBytes),
+              row.top ? k.names[row.top] : '—',
+            ])}
+          />
+        </section>
+        <section className="card traffic-section">
+          <h2>{k.cost.title}</h2>
+          <p>{k.cost.lede}</p>
+          <RecordsTable
+            label={t.console.list.tableRegion}
+            empty={k.cost.empty}
+            head={[k.cost.service, k.cost.quantity, k.cost.amount]}
+            rows={[
+              ...projectServices.map((row) => [row.service, row.unit ? `${n(Math.round(row.quantity * 100) / 100)} ${row.unit}` : '—', usd(row.cost)]),
+              ...(crawl.cost.span
+                ? [
+                    [<strong key="p">{k.cost.project}</strong>, '', <strong key="v">{usd(crawl.cost.project)}</strong>],
+                    [k.cost.team, '', usd(crawl.cost.team)],
+                  ]
+                : []),
+            ]}
           />
         </section>
         <section className="card traffic-notes">
