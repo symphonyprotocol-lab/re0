@@ -23,8 +23,8 @@
  * - `askedByOthers`: every real question, share-page visitors' included --
  *   the public counts and everything ranked from them;
  * - `askedByPayingOthers`: only questions their askers paid for (`post`,
- *   `api`) -- the role metrics, so an owner cannot buy a role by paying for
- *   visitor answers.
+ *   `api`, and follow-ups under a visitor's post) -- the role metrics, so an
+ *   owner cannot buy a role by paying for visitor answers.
  *
  * The fragments read the post answer as `a` and its post as `p`.
  */
@@ -39,13 +39,18 @@ export function askedByOthers(owner: SQL): SQL {
   return askedFrom(owner, sql.raw(`('post', 'api', 'visitor')`));
 }
 
-/** The same, but only questions their askers paid for -- no share-page visitor's, which the Ree's owner pays for: the role metrics (see above). */
+/**
+ * The same, but only questions their askers paid for: no share-page
+ * visitor's first round, which the Ree's owner pays for -- a follow-up under
+ * it is its signed-in asker's, paid by them, and counts. The role metrics
+ * (see above).
+ */
 export function askedByPayingOthers(owner: SQL): SQL {
-  return askedFrom(owner, sql.raw(`('post', 'api')`));
+  return askedFrom(owner, sql.raw(`('post', 'api')`), sql`(p.source = 'visitor' and a.followup_id is not null)`);
 }
 
-function askedFrom(owner: SQL, sources: SQL): SQL {
-  return sql`(p.source in ${sources} and p.status = 'published' and a.legacy_qa_id is null
+function askedFrom(owner: SQL, sources: SQL, also: SQL = sql`false`): SQL {
+  return sql`((p.source in ${sources} or ${also}) and p.status = 'published' and a.legacy_qa_id is null
     and not exists (select 1 from ${post} cp where cp.published_copy_id = p.id)
     and case when a.followup_id is null then p.user_id is distinct from ${owner}
       else exists (select 1 from ${postFollowup} f where f.id = a.followup_id and f.status = 'published' and f.user_id <> ${owner}) end)`;

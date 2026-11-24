@@ -40,6 +40,7 @@ const { publicReeBySlug } = await import('@/lib/services/public-rees');
 const { computeRanks } = await import('@/lib/services/rank');
 const { savedCounts } = await import('@/lib/services/statistics');
 const { roleMetrics } = await import('@/lib/services/roles');
+const followups = await import('@/lib/services/post-followups');
 const reeRoute = await import('@/app/api/rees/[id]/route');
 
 let fake: FakeOpenAi;
@@ -217,8 +218,14 @@ describeWithDb('visitor asks on the share page', () => {
     expect(ranked?.rank).toMatchObject({ asked30: 2, answered30: 1, answersAll: 1, asked7: 2 });
     /* The owner's statistics keep it as a record on file. */
     expect((await savedCounts([ree.reeId], null)).get(ree.reeId)).toBe(1);
-    /* A role is earned from questions people paid for. */
+    /* A role is earned from questions people paid for: not the visitor's, which the owner paid... */
     expect((await roleMetrics(db(), ree.ownerId)).externalQuestions).toBe(0);
+    /* ...but a follow-up a signed-in reader asks under it, and pays for, counts. */
+    const reader = await user('va-follower', 500);
+    const asked = await followups.askFollowup(reader.userId, answeredOne.id, { question: 'And for a gift card?', mentionReeIds: [ree.reeId], lang: 'en' });
+    if (!asked.ok) throw new Error(asked.error);
+    await followups.processFollowup(asked.id, { judge: approve, answerOne: answered });
+    expect((await roleMetrics(db(), ree.ownerId)).externalQuestions).toBe(1);
   });
 
   it("charges the owner's own paid Ree the base fee only, never its query fee", async () => {
