@@ -1,5 +1,5 @@
 {
-  "id": "9804a2cb-e9e2-412b-a400-451dc1423e26",
+  "id": "db9a0864-e005-42a4-8f2f-e8d61a71be9d",
   "prevId": "dc6a3a06-b631-4b46-8794-87b49ef6e567",
   "version": "7",
   "dialect": "postgresql",
@@ -999,95 +999,6 @@
         "billing_price_promotion_check": {
           "name": "billing_price_promotion_check",
           "value": "(promotion_price_minor is null and promotion_starts_at is null and promotion_ends_at is null) or (promotion_price_minor is not null and promotion_starts_at is not null and promotion_ends_at is not null and promotion_price_minor > 0 and promotion_price_minor < price_minor and promotion_starts_at < promotion_ends_at)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.channel": {
-      "name": "channel",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "channel_name_key": {
-          "name": "channel_name_key",
-          "columns": [
-            {
-              "expression": "name",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "channel_name_search_idx": {
-          "name": "channel_name_search_idx",
-          "columns": [
-            {
-              "expression": "name gin_trgm_ops",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "gin",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "channel_created_by_user_id_fk": {
-          "name": "channel_created_by_user_id_fk",
-          "tableFrom": "channel",
-          "tableTo": "user",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "channel_name_check": {
-          "name": "channel_name_check",
-          "value": "char_length(name) between 1 and 32"
         }
       },
       "isRLSEnabled": false
@@ -4863,7 +4774,7 @@
       "checkConstraints": {
         "notice_kind_check": {
           "name": "notice_kind_check",
-          "value": "kind in ('takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal', 'post_ai_answer')"
+          "value": "kind in ('takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal', 'post_ai_answer', 'visitor_ask_paused')"
         }
       },
       "isRLSEnabled": false
@@ -5477,6 +5388,24 @@
           "primaryKey": false,
           "notNull": false
         },
+        "sponsor_id": {
+          "name": "sponsor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sponsor_hold_id": {
+          "name": "sponsor_hold_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "visitor_key": {
+          "name": "visitor_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "anonymous": {
           "name": "anonymous",
           "type": "boolean",
@@ -5856,6 +5785,34 @@
           "concurrently": false,
           "method": "gin",
           "with": {}
+        },
+        "post_visitor_idx": {
+          "name": "post_visitor_idx",
+          "columns": [
+            {
+              "expression": "mention_ree_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "visitor_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "visitor_key is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -5904,6 +5861,19 @@
           "tableTo": "ree_public_qa",
           "columnsFrom": [
             "legacy_qa_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "post_sponsor_id_user_id_fk": {
+          "name": "post_sponsor_id_user_id_fk",
+          "tableFrom": "post",
+          "tableTo": "user",
+          "columnsFrom": [
+            "sponsor_id"
           ],
           "columnsTo": [
             "id"
@@ -5961,7 +5931,7 @@
         },
         "post_source_check": {
           "name": "post_source_check",
-          "value": "source in ('post', 'anonymous', 'share', 'conversation', 'seed', 'test', 'api')"
+          "value": "source in ('post', 'anonymous', 'share', 'conversation', 'seed', 'test', 'api', 'visitor')"
         },
         "post_status_check": {
           "name": "post_status_check",
@@ -6006,6 +5976,10 @@
         "post_private_source_check": {
           "name": "post_private_source_check",
           "value": "source not in ('test', 'api') or visibility = 'private'"
+        },
+        "post_visitor_source_check": {
+          "name": "post_visitor_source_check",
+          "value": "source <> 'visitor' or (visibility = 'public' and user_id is null)"
         }
       },
       "isRLSEnabled": false
@@ -6864,95 +6838,6 @@
           "columns": [
             "answer_id",
             "user_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.post_channel": {
-      "name": "post_channel",
-      "schema": "",
-      "columns": {
-        "post_id": {
-          "name": "post_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "post_channel_channel_idx": {
-          "name": "post_channel_channel_idx",
-          "columns": [
-            {
-              "expression": "channel_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "post_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "post_channel_post_id_post_id_fk": {
-          "name": "post_channel_post_id_post_id_fk",
-          "tableFrom": "post_channel",
-          "tableTo": "post",
-          "columnsFrom": [
-            "post_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "post_channel_channel_id_channel_id_fk": {
-          "name": "post_channel_channel_id_channel_id_fk",
-          "tableFrom": "post_channel",
-          "tableTo": "channel",
-          "columnsFrom": [
-            "channel_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "post_channel_post_id_channel_id_pk": {
-          "name": "post_channel_post_id_channel_id_pk",
-          "columns": [
-            "post_id",
-            "channel_id"
           ]
         }
       },
@@ -9015,6 +8900,26 @@
           "primaryKey": false,
           "notNull": false
         },
+        "visitor_asks": {
+          "name": "visitor_asks",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "visitor_asks_per_visitor": {
+          "name": "visitor_asks_per_visitor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 3
+        },
+        "visitor_asks_per_day": {
+          "name": "visitor_asks_per_day",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "deleted_at": {
           "name": "deleted_at",
           "type": "timestamp with time zone",
@@ -9142,6 +9047,10 @@
         "ree_published_public_check": {
           "name": "ree_published_public_check",
           "value": "not is_published or (is_public and moderated_at is null and deleted_at is null)"
+        },
+        "ree_visitor_asks_check": {
+          "name": "ree_visitor_asks_check",
+          "value": "visitor_asks_per_visitor between 1 and 50 and (visitor_asks_per_day is null or visitor_asks_per_day between 1 and 1000)"
         }
       },
       "isRLSEnabled": false

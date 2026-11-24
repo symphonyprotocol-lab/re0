@@ -6,6 +6,7 @@ import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'd
 import { REE_COVER_MAX_BYTES, REE_PAGE_SIZES } from '@/lib/constants';
 import { clampPage, likePattern, type ListResult, isUuid } from '@/lib/domain/list';
 import { positiveRate } from '@/lib/domain/explore';
+import type { VisitorAskSettings } from '@/lib/domain/visitor-ask';
 import {
   coerceDraft,
   isAvatarPath,
@@ -309,7 +310,7 @@ export async function createReeFromDraft(ownerId: string): Promise<{ ree: Ree }>
 export async function updateRee(
   ownerId: string,
   id: string,
-  fields: ReeFields & { isPublic: boolean; color: unknown; avatarBlob: string | null; coverBlob?: string | null; publicQaEnabled?: boolean; answersPosts?: boolean | null },
+  fields: ReeFields & { isPublic: boolean; color: unknown; avatarBlob: string | null; coverBlob?: string | null; publicQaEnabled?: boolean; answersPosts?: boolean | null; visitorAskSettings?: VisitorAskSettings },
 ): Promise<Ree | null> {
   const invalid = validateReeFields(fields, 3);
   if (invalid) throw new ReeInputError(invalid.error, invalid.step);
@@ -326,7 +327,7 @@ export async function updateRee(
     const [row] = await tx
       .update(schema.ree)
       /* A Ree an administrator took down stays private until it is restored (2.5). */
-      .set({ ...reeValues(fields), isPublic: sql`(${fields.isPublic} and "ree"."moderated_at" is null)`, isPublished: sql`(${fields.isPublic} and "ree"."is_published" and "ree"."moderated_at" is null)`, avatarBlob, coverBlob, ...(fields.publicQaEnabled === undefined ? {} : { publicQaEnabled: fields.publicQaEnabled }), ...(typeof fields.answersPosts === 'boolean' ? { answersPosts: fields.answersPosts } : {}), updatedAt: new Date() })
+      .set({ ...reeValues(fields), isPublic: sql`(${fields.isPublic} and "ree"."moderated_at" is null)`, isPublished: sql`(${fields.isPublic} and "ree"."is_published" and "ree"."moderated_at" is null)`, avatarBlob, coverBlob, ...(fields.publicQaEnabled === undefined ? {} : { publicQaEnabled: fields.publicQaEnabled }), ...(typeof fields.answersPosts === 'boolean' ? { answersPosts: fields.answersPosts } : {}), ...(fields.visitorAskSettings ? { visitorAsks: fields.visitorAskSettings.enabled, visitorAsksPerVisitor: fields.visitorAskSettings.perVisitor, visitorAsksPerDay: fields.visitorAskSettings.perDay } : {}), updatedAt: new Date() })
       .where(and(eq(schema.ree.id, id), ownedLive(ownerId)))
       .returning();
     /* Private now: out of discovery (8.2). */

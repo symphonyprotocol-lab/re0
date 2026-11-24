@@ -21,4 +21,16 @@ describe('the notices card', () => {
     expect(html).toMatch(/<button[^>]*class="btn-secondary btn-sm"/);
     expect(html).not.toContain('btn secondary sm');
   });
+
+  it('tells an owner visitors could not ask, with links to top up and to the Ree\'s visitor-ask settings', () => {
+    const reeId = '00000000-0000-4000-8000-0000000000b1';
+    const item = { id: '00000000-0000-4000-8000-0000000000f1', kind: 'visitor_ask_paused', text: '', params: { ree: '退款顾问', reeId, fee: 20 }, refId: reeId, readAt: null, createdAt: '2026-11-24T08:00:00.000Z' };
+    for (const locale of ['zh', 'en'] as const) {
+      const m = messages(locale);
+      const html = renderToStaticMarkup(createElement(I18nProvider, { locale, t: m, children: createElement(NoticesTab, { items: [item], total: 1, page: 1, size: 20, unread: 1 }) }));
+      expect(html).toContain(locale === 'zh' ? '今天有访客没能在分享页向你的 Ree「退款顾问」免登录提问：你的余额不够支付一个回答 20 credits 的基本使用费。' : 'Visitors could not ask your Ree “退款顾问” on its share page today: your balance cannot cover the 20-credit base fee of one answer.');
+      expect(html).toMatch(new RegExp(`href="[^"]*/settings\\?tab=balance"[^>]*>${m.notices.open.topUp}`));
+      expect(html).toMatch(new RegExp(`href="[^"]*/rees/${reeId}/settings#visitor-asks"[^>]*>${m.notices.open.visitorAsks}`));
+    }
+  });
 });

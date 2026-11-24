@@ -163,7 +163,7 @@ export const zh = {
     deduction_return: 'Earned 抵扣 · 退款退回',
   },
   /* The fixed labels the ledger stores in English, as the reader reads them (2026-11-19). */
-  notes: { post: '公开帖子', postAnswer: '帖子回答', postSummary: '帖子圆桌总结', aiAnswer: 'AI 通用回答', charged: '实扣 {charged} / 预扣 {held}' },
+  notes: { post: '公开帖子', postAnswer: '帖子回答', visitorAnswer: '分享页访客提问', postSummary: '帖子圆桌总结', aiAnswer: 'AI 通用回答', charged: '实扣 {charged} / 预扣 {held}' },
   sources: { plan: 'Plan', welcome: '赠送', pack: 'Pack', earned: '收入' },
   charged: '实收 {n}',
   reporting: {
@@ -381,7 +381,7 @@ export const en: Shape<typeof zh> = {
     deduction_release: 'Earned toward a purchase · released (unpaid)',
     deduction_return: 'Earned toward a purchase · returned on refund',
   },
-  notes: { post: 'Public post', postAnswer: 'Post answer', postSummary: 'Post summary', aiAnswer: 'AI general answer', charged: 'charged {charged} of {held}' },
+  notes: { post: 'Public post', postAnswer: 'Post answer', visitorAnswer: 'Share-page visitor question', postSummary: 'Post summary', aiAnswer: 'AI general answer', charged: 'charged {charged} of {held}' },
   sources: { plan: 'Plan', welcome: 'Gift', pack: 'Pack', earned: 'Earned' },
   charged: 'charged {n}',
   reporting: {

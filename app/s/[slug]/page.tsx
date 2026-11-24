@@ -303,7 +303,9 @@ export default async function SharePage({ params, searchParams }: Props) {
                 <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="md" />
                 <h2 id="share-closing" className="share-section-title min-w-0 [overflow-wrap:anywhere]">{ask}</h2>
               </div>
-              <p className="share-section-note">{[ree.takesPosts ? s.closing.body : s.closing.privateOnly, s.closing.cost].join(locale === 'zh' ? '' : ' ')}</p>
+              <p className="share-section-note">
+                {!user && ree.visitorAsks ? fill(s.closing.visitor, { owner: ree.ownerName }) : [ree.takesPosts ? s.closing.body : s.closing.privateOnly, s.closing.cost].join(locale === 'zh' ? '' : ' ')}
+              </p>
               <ReeAsk
                 ree={{ id: ree.id, slug: ree.slug, name: ree.name }}
                 option={askOption(ree, own)}
@@ -311,6 +313,7 @@ export default async function SharePage({ params, searchParams }: Props) {
                 signedIn={Boolean(user)}
                 loginHref={`/login?returnTo=${encodeURIComponent(`/s/${ree.slug}#${REE_ASK_ANCHOR}`)}`}
                 share={user && !own ? ree.slug : null}
+                visitorAsk={ree.visitorAsks}
               />
             </div>
           </section>
