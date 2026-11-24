@@ -89,6 +89,8 @@ export const zh = {
     learning: '学习与研究',
     professional: '专业知识',
     life: '生活与兴趣',
+    travel: '旅行与出行',
+    literature: '文学作品',
     other: '其他知识',
   },
   errors: {
@@ -188,6 +190,8 @@ export const en: Shape<typeof zh> = {
     learning: 'Learning & research',
     professional: 'Professional knowledge',
     life: 'Life & interests',
+    travel: 'Travel & places',
+    literature: 'Literature & fiction',
     other: 'Other knowledge',
   },
   errors: {

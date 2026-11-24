@@ -407,6 +407,17 @@
     width: 24px;
     height: 24px;
   }
+  /* Opening the composer changes the address, but the + shows no link spinner: a ring pinned 8px from its right edge spun beside it, off centre. */
+  .xfab .workspace-link-progress {
+    display: none;
+  }
+  /* The composer window has its own close button: while it is open the + steps away rather than glowing under the backdrop. */
+  body:has(.post-dialog[open]) .xfab {
+    visibility: hidden;
+    opacity: 0;
+    scale: 0.8;
+    pointer-events: none;
+  }
   .xsignup {
     bottom: 0;
     flex-direction: column;

@@ -80,38 +80,49 @@ function knownLimits(values: readonly string[]): RateLimitName[] {
   return RATE_LIMIT_NAMES.filter((name) => values.includes(name));
 }
 
-export const FIXED_LIMIT_KEYS = ['postsPerDay', 'followupsPerDay', 'followupsPerPostPerDay', 'exploreQuestions'] as const;
-export type FixedLimitKey = (typeof FIXED_LIMIT_KEYS)[number];
-
-/** A ceiling the services count themselves, in code: no console value and no exemption changes it. */
-export interface FixedLimitRow {
-  key: FixedLimitKey;
-  limit: number;
-  /** `day`: the UTC+8 day; `minute`: per account and per client address. */
-  per: 'day' | 'minute';
-}
+export const CEILING_KEYS = ['postsPerDay', 'followupsPerDay', 'followupsPerPostPerDay', 'exploreQuestions'] as const;
+export type CeilingKey = (typeof CEILING_KEYS)[number];
+/** Bounds of a ceiling's value, as `limit_ceiling_setting`'s check holds them. */
+export const CEILING_VALUE_BOUNDS = { min: 1, max: 100_000 } as const;
 
 /**
- * The ceilings that sit beside `USER_RATE_LIMITS` and that an exemption does
- * not lift: posts a day (public and private together, not 试问 or MCP asks;
- * posts.ts and private-posts.ts), follow-ups a day and per post a day
- * (post-followups.ts), and Explore's questions a minute (explore.ts). The
- * official Rees' QA, which went out as public posts from 2026-11-23, meets
- * the first one whatever its exemption covers.
+ * The ceilings that sit beside `USER_RATE_LIMITS`, which each feature counts
+ * itself: posts a day (public and private together,
+ * not 试问 or MCP asks; posts.ts and private-posts.ts), follow-ups a day and
+ * per post a day (post-followups.ts), and Explore's questions a minute per
+ * account and per client address (explore.ts). A day starts at
+ * 00:00 UTC (`postDayStart`). The code values are the defaults; the console
+ * stores others in `limit_ceiling_setting`. An exemption from `post` lifts
+ * the three daily ones (`CEILING_EXEMPTED_BY`).
  */
-export function fixedLimits(): FixedLimitRow[] {
-  return [
-    { key: 'postsPerDay', limit: POST_DAILY_LIMIT, per: 'day' },
-    { key: 'followupsPerDay', limit: FOLLOWUP_DAILY_LIMIT, per: 'day' },
-    { key: 'followupsPerPostPerDay', limit: FOLLOWUP_POST_DAILY_LIMIT, per: 'day' },
-    { key: 'exploreQuestions', limit: EXPLORE_RATE_LIMIT.perUser, per: 'minute' },
-  ];
+export const CEILING_DEFAULTS: Record<CeilingKey, { value: number; per: 'day' | 'minute' }> = {
+  postsPerDay: { value: POST_DAILY_LIMIT, per: 'day' },
+  followupsPerDay: { value: FOLLOWUP_DAILY_LIMIT, per: 'day' },
+  followupsPerPostPerDay: { value: FOLLOWUP_POST_DAILY_LIMIT, per: 'day' },
+  exploreQuestions: { value: EXPLORE_RATE_LIMIT.perUser, per: 'minute' },
+};
+
+export interface CeilingRow {
+  key: CeilingKey;
+  value: number;
+  defaultValue: number;
+  /** `day`: from 00:00 UTC; `minute`: per account and per client address. */
+  per: 'day' | 'minute';
+  /** The exemption that lifts it for an account, if any. */
+  exemptedBy: RateLimitName | null;
+  overridden: boolean;
+  updatedAt: string | null;
+}
+
+function isCeilingKey(value: unknown): value is CeilingKey {
+  return typeof value === 'string' && (CEILING_KEYS as readonly string[]).includes(value);
 }
 
 /* ------------------------------------------------------------ the hot path */
 
 interface Snapshot {
   rules: Map<RateLimitName, readonly RateRuleValue[]>;
+  ceilings: Map<CeilingKey, number>;
   exempt: Map<string, ReadonlySet<RateLimitName>>;
   expiresAt: number;
 }
@@ -123,9 +134,10 @@ let generation = 0;
 
 async function load(): Promise<Snapshot> {
   try {
-    const [settings, exemptions] = await Promise.all([
+    const [settings, exemptions, ceilingRows] = await Promise.all([
       db().select().from(schema.rateLimitSetting),
       db().select({ userId: schema.rateLimitExemption.userId, limits: schema.rateLimitExemption.limits }).from(schema.rateLimitExemption),
+      db().select({ key: schema.limitCeilingSetting.key, value: schema.limitCeilingSetting.value }).from(schema.limitCeilingSetting),
     ]);
     const rules = new Map<RateLimitName, readonly RateRuleValue[]>();
     for (const row of settings) {
@@ -133,10 +145,12 @@ async function load(): Promise<Snapshot> {
       rules.set(row.name, overriddenRules(row.name, row.perMinute, row.perHour));
     }
     const exempt = new Map(exemptions.map((row) => [row.userId, new Set(knownLimits(row.limits))] as const));
-    return { rules, exempt, expiresAt: Date.now() + RATE_LIMIT_SETTINGS_TTL_MS };
+    const ceilings = new Map<CeilingKey, number>();
+    for (const row of ceilingRows) if (isCeilingKey(row.key)) ceilings.set(row.key, row.value);
+    return { rules, ceilings, exempt, expiresAt: Date.now() + RATE_LIMIT_SETTINGS_TTL_MS };
   } catch (error) {
     console.error('rate limit settings unreadable; using the code defaults', error);
-    return { rules: new Map(), exempt: new Map(), expiresAt: Date.now() + RATE_LIMIT_SETTINGS_RETRY_MS };
+    return { rules: new Map(), ceilings: new Map(), exempt: new Map(), expiresAt: Date.now() + RATE_LIMIT_SETTINGS_RETRY_MS };
   }
 }
 
@@ -170,7 +184,86 @@ export async function effectiveRateRules(name: RateLimitName, userId: string | n
   return current.rules.get(name) ?? USER_RATE_LIMITS[name];
 }
 
+/** Whether `userId` is exempt from the limiter's `name`, from the same cached snapshot `effectiveRateRules` reads. */
+export async function isRateLimitExempt(name: RateLimitName, userId: string | null): Promise<boolean> {
+  if (!userId) return false;
+  return Boolean((await snapshot()).exempt.get(userId)?.has(name));
+}
+
+/**
+ * The exemption that lifts a ceiling: `post` (publishing, and follow-ups on
+ * public posts, go through that limiter) lifts the posts-a-day and both
+ * follow-up ceilings. Explore questions have no limiter name of their own
+ * (`browse` is searching without a question), so no exemption lifts them.
+ */
+export const CEILING_EXEMPTED_BY: Record<CeilingKey, RateLimitName | null> = {
+  postsPerDay: 'post',
+  followupsPerDay: 'post',
+  followupsPerPostPerDay: 'post',
+  exploreQuestions: null,
+};
+
+/** A ceiling's value now: the console's, else the code default. */
+export async function effectiveCeiling(key: CeilingKey): Promise<number> {
+  return (await snapshot()).ceilings.get(key) ?? CEILING_DEFAULTS[key].value;
+}
+
+/** A ceiling for `userId`: `null` when the account's exemption lifts it (`CEILING_EXEMPTED_BY`). */
+export async function ceilingFor(key: CeilingKey, userId: string): Promise<number | null> {
+  const exemptedBy = CEILING_EXEMPTED_BY[key];
+  if (exemptedBy && (await isRateLimitExempt(exemptedBy, userId))) return null;
+  return effectiveCeiling(key);
+}
+
 /* ----------------------------------------------------------------- console */
+
+/** The four ceilings, stored value or default, for the console page. */
+export async function listCeilings(): Promise<CeilingRow[]> {
+  const rows = await db().select().from(schema.limitCeilingSetting);
+  const byKey = new Map(rows.map((row) => [row.key, row]));
+  return CEILING_KEYS.map((key) => {
+    const row = byKey.get(key);
+    const { value, per } = CEILING_DEFAULTS[key];
+    return { key, value: row?.value ?? value, defaultValue: value, per, exemptedBy: CEILING_EXEMPTED_BY[key], overridden: Boolean(row), updatedAt: row?.updatedAt.toISOString() ?? null };
+  });
+}
+
+/** Saves one ceiling: `{ key, value }`, audited. */
+export async function saveCeiling(administratorId: string, input: Record<string, unknown>): Promise<CeilingRow> {
+  const { key, value } = input;
+  if (!isCeilingKey(key)) throw new AdminInputError('not_found');
+  if (!Number.isInteger(value) || (value as number) < CEILING_VALUE_BOUNDS.min || (value as number) > CEILING_VALUE_BOUNDS.max) throw new AdminInputError('invalid_ceiling');
+  const next = value as number;
+  await db().transaction(async (tx) => {
+    const [before] = await tx.select().from(schema.limitCeilingSetting).where(eq(schema.limitCeilingSetting.key, key)).for('update');
+    await tx
+      .insert(schema.limitCeilingSetting)
+      .values({ key, value: next, updatedBy: administratorId })
+      .onConflictDoUpdate({ target: schema.limitCeilingSetting.key, set: { value: next, updatedBy: administratorId, updatedAt: new Date() } });
+    await audit(tx, {
+      administratorId,
+      action: 'rate_limit.ceiling.update',
+      target: key,
+      before: before ? { value: before.value } : { value: CEILING_DEFAULTS[key].value, default: true },
+      after: { value: next },
+    });
+  });
+  forgetRateLimitSettings();
+  return (await listCeilings()).find((row) => row.key === key)!;
+}
+
+/** Puts one ceiling (`{ key }`) back to its code default, audited. */
+export async function resetCeiling(administratorId: string, input: Record<string, unknown>): Promise<CeilingRow> {
+  const { key } = input;
+  if (!isCeilingKey(key)) throw new AdminInputError('not_found');
+  await db().transaction(async (tx) => {
+    const [before] = await tx.delete(schema.limitCeilingSetting).where(eq(schema.limitCeilingSetting.key, key)).returning();
+    if (!before) return;
+    await audit(tx, { administratorId, action: 'rate_limit.ceiling.reset', target: key, before: { value: before.value }, after: { value: CEILING_DEFAULTS[key].value, default: true } });
+  });
+  forgetRateLimitSettings();
+  return (await listCeilings()).find((row) => row.key === key)!;
+}
 
 /** Every limit, stored value or default, for the console page. */
 export async function listRateLimits(): Promise<RateLimitRow[]> {

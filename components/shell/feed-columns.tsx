@@ -2,11 +2,9 @@
 
 import type { ReactNode } from 'react';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
-import { useShell } from '@/components/shell/app-shell';
+import { MobileTop } from '@/components/shell/mobile-top';
 import { useI18n } from '@/i18n/client';
-import { BrandMark, BrandName } from '@/components/ui/brand-mark';
 import { Icon } from '@/components/ui/icons';
-import { LanguageMenu } from '@/components/ui/language-menu';
 import './columns.css';
 import '@/components/ui/tabs.css';
 
@@ -15,8 +13,9 @@ import '@/components/ui/tabs.css';
  * head with the page's title (and a way back, and tabs), the page itself,
  * and the right column -- search, suggestions -- which folds away below
  * 1100px. On a phone the head gains the brand and the menu that opens the
- * navigation drawer. Used by the feed-like pages; the creator tools keep
- * their full-width pages and top bar.
+ * navigation drawer (`MobileTop`, the same line `Topbar` starts with). Used
+ * by the feed-like pages; the creator tools keep their full-width pages and
+ * top bar.
  */
 export function FeedColumns({ title, back, tabs, rail, heading = true, wide = false, children }: {
   title: ReactNode;
@@ -32,30 +31,10 @@ export function FeedColumns({ title, back, tabs, rail, heading = true, wide = fa
   children: ReactNode;
 }) {
   const { t } = useI18n();
-  const { openDrawer, activitiesPending, signedIn } = useShell();
   return (
     <div className={wide ? 'xmain-grid is-wide' : 'xmain-grid'}>
       <div className="xcol">
-        <div className="xtop">
-          <Link href="/" className="wordmark" aria-label={t.common.nav.home}>
-            <BrandMark />
-            <BrandName />
-          </Link>
-          {signedIn ? (
-            <button type="button" className="icon-btn mobile-menu" onClick={openDrawer} aria-label={t.common.nav.openMenu} title={t.common.nav.openMenu}>
-              <Icon name="menu" className="" />
-              {activitiesPending && <i className="nav-dot" aria-hidden="true" />}
-            </button>
-          ) : (
-            /* A visitor's phone: the bottom bar is the sign-in (v6), so the head leads to Rees and has the language -- there is no sidebar. */
-            <div className="xtop-actions">
-              <LanguageMenu quiet className="icon-btn xtop-language" />
-              <Link href="/explore" className="icon-btn" aria-label={t.common.nav.discover} title={t.common.nav.discover}>
-                <Icon name="compass" className="" />
-              </Link>
-            </div>
-          )}
-        </div>
+        <MobileTop />
         <header className="xcol-head">
           <div className="xcol-title">
             {back && (

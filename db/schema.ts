@@ -177,7 +177,7 @@ export const ree = pgTable(
     ),
     check(
       'ree_category_check',
-      oneOf('category', ['technology', 'design', 'business', 'learning', 'professional', 'life', 'other']),
+      oneOf('category', ['technology', 'design', 'business', 'learning', 'professional', 'life', 'travel', 'literature', 'other']),
     ),
     check('ree_query_fee_check', sql`query_fee between 0 and 10000`),
     check('ree_tags_check', sql`cardinality(tags) <= 3`),
@@ -1292,6 +1292,19 @@ export const rateLimitExemption = pgTable('rate_limit_exemption', {
   createdBy: uuid('created_by').references(() => administrator.id, { onDelete: 'set null' }),
   createdAt: timestampTz('created_at').notNull().defaultNow(),
 }, () => [check('rate_limit_exemption_limits_check', sql`cardinality(limits) > 0`)]);
+
+/**
+ * The console's values for the ceilings each feature counts itself (posts
+ * and follow-ups a day, Explore questions a minute per account), keyed by
+ * `CEILING_KEYS` in lib/services/rate-limit-settings.ts; a key without a row
+ * keeps its code default. No exemption lifts these.
+ */
+export const limitCeilingSetting = pgTable('limit_ceiling_setting', {
+  key: text('key').primaryKey(),
+  value: integer('value').notNull(),
+  updatedBy: uuid('updated_by').references(() => administrator.id, { onDelete: 'set null' }),
+  updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+}, () => [check('limit_ceiling_setting_value_check', sql`value between 1 and 100000`)]);
 
 /**
  * Beyond 4: anonymous chat with free Rees (query fee 0) on the public and

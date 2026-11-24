@@ -5,6 +5,7 @@ import { Fragment, type ReactNode } from 'react';
 import { useI18n } from '@/i18n/client';
 import { Icon } from '@/components/ui/icons';
 import { useShell } from '@/components/shell/app-shell';
+import { MobileTop } from '@/components/shell/mobile-top';
 
 export interface Crumb {
   label: string;
@@ -20,11 +21,15 @@ export interface ContextTab {
 
 /**
  * The fixed top bar every workspace page renders first (prototype app.js
- * `shell` / `workspaceHeader`, styles in ./shell.css): the menu and
- * fold buttons, breadcrumbs (the way back up), page actions, and an optional context row -- a Ree's tabs, the settings tabs,
+ * `shell` / `workspaceHeader`, styles in ./shell.css): the fold button,
+ * breadcrumbs (the way back up), page actions, and an optional context row -- a Ree's tabs, the settings tabs,
  * or the wizard's steps -- that scrolls sideways on a phone. It also renders
- * its own in-flow spacer, so content always starts below it. On a phone the
- * crumbs shrink to fit, and with three or more the first one is left out.
+ * its own in-flow spacer, so content always starts below it.
+ *
+ * On a phone it reads like 首页's head (`FeedColumns`): the shared brand line
+ * with the menu (`MobileTop`) comes first and scrolls away, then this bar
+ * sticks as the page's title row -- the last crumb as the title, with ← to
+ * the nearest crumb above it -- in place of the breadcrumbs.
  *
  * `mobileBack` is a Ree's pages on a phone (prototype `.ree-workspace-shell`):
  * the first row is only ← back and the Ree's name, and
@@ -49,24 +54,18 @@ export function Topbar({
   mobileBack?: { href: string; label: string; title: string };
 }) {
   const { t } = useI18n();
-  const { collapsed, toggleCollapsed, openDrawer, activitiesPending } = useShell();
+  const { collapsed, toggleCollapsed } = useShell();
   const nav = t.common.nav;
   const hasRow = Boolean(tabs?.length || secondRow);
+  /* A phone's title row: the page's name, and ← to the nearest crumb above it that links somewhere. */
+  const current = crumbs[crumbs.length - 1];
+  const up = crumbs.slice(0, -1).reverse().find((crumb) => crumb.href);
   return (
     <>
+      <MobileTop />
       <header data-topbar className={`topbar${mobileBack ? ' ree-workspace-shell' : ''}`}>
         <div className="topbar-main">
           <div className="topbar-location">
-            <button
-              type="button"
-              className="icon-btn mobile-menu"
-              onClick={openDrawer}
-              aria-label={activitiesPending ? `${nav.openMenu} · ${nav.activitiesPending}` : nav.openMenu}
-              title={nav.openMenu}
-            >
-              <Icon name="menu" className="" />
-              {activitiesPending && <i className="nav-dot" aria-hidden="true" />}
-            </button>
             <button
               type="button"
               className="icon-btn sidebar-collapse"
@@ -84,6 +83,16 @@ export function Topbar({
                   <Icon name="arrowLeft" className="" />
                 </Link>
                 <span title={mobileBack.label}>{mobileBack.label}</span>
+              </div>
+            )}
+            {!mobileBack && current && (
+              <div className="topbar-phone-title">
+                {up?.href && (
+                  <Link href={up.href} className="icon-btn" aria-label={`${t.common.actions.back} · ${up.label}`} title={up.label}>
+                    <Icon name="arrowLeft" className="" />
+                  </Link>
+                )}
+                <span title={current.label}>{current.label}</span>
               </div>
             )}
             <nav className="header-breadcrumbs" aria-label={nav.breadcrumb}>
