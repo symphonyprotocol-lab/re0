@@ -128,8 +128,11 @@ export async function relatedFor(ree: PublicRee, page: number): Promise<PublicLi
   return { items, total: ranked.length, page: current, pages };
 }
 
+/** The Ree whose owner's other public Rees are listed: its id and owner are all the list needs. */
+type AuthorOf = Pick<PublicRee, 'id' | 'ownerId'>;
+
 /** The owner's other public Rees, most answered first, paged on the server. */
-export async function authorOthers(ree: PublicRee, page: number): Promise<PublicList> {
+export async function authorOthers(ree: AuthorOf, page: number): Promise<PublicList> {
   const where = authorOthersWhere(ree);
   const total = await authorOthersTotal(ree);
   const pages = Math.max(1, Math.ceil(total / PUBLIC_LIST_PAGE_SIZE));
@@ -144,17 +147,28 @@ export async function authorOthers(ree: PublicRee, page: number): Promise<Public
   return { items: await reeCards(ids.map((row) => row.id)), total, page: current, pages };
 }
 
-function authorOthersWhere(ree: PublicRee) {
+/**
+ * 同一创作者的更多 Ree for the public Ree with this id, or null when there is
+ * none: the page's pager (`GET /api/rees/[id]/author-rees?page=`), which
+ * pages in place rather than through `?ap=` links a crawler would follow.
+ */
+export async function publicAuthorOthers(id: string, page: number): Promise<PublicList | null> {
+  if (!isUuid(id)) return null;
+  const [row] = await db().select({ id: schema.ree.id, ownerId: schema.ree.ownerId }).from(schema.ree).where(and(eq(schema.ree.id, id), publicRee())).limit(1);
+  return row ? authorOthers(row, page) : null;
+}
+
+function authorOthersWhere(ree: AuthorOf) {
   return and(publicRee(), eq(schema.ree.ownerId, ree.ownerId), ne(schema.ree.id, ree.id));
 }
 
-async function authorOthersTotal(ree: PublicRee): Promise<number> {
+async function authorOthersTotal(ree: AuthorOf): Promise<number> {
   const [{ total } = { total: 0 }] = await db().select({ total: sql<number>`count(*)::int` }).from(schema.ree).where(authorOthersWhere(ree));
   return total;
 }
 
 /** How many pages 同一创作者的更多 Ree has (`?ap=`), at least one. */
-export async function authorOthersPages(ree: PublicRee): Promise<number> {
+export async function authorOthersPages(ree: AuthorOf): Promise<number> {
   return Math.max(1, Math.ceil((await authorOthersTotal(ree)) / PUBLIC_LIST_PAGE_SIZE));
 }
 

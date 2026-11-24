@@ -17,8 +17,10 @@ type Props = { params: Promise<{ slug: string }>; searchParams: Promise<Record<s
 
 /**
  * 同一创作者的更多 Ree's page (`?ap=`), and whether it may be indexed.
- * Every Ree links hundreds of these (an owner with ~2.9k public Rees has
- * ~730 pages), each the same Ree page with another four cards: page 2 on
+ * Every Ree linked hundreds of these (an owner with ~2.9k public Rees has
+ * ~730 pages), each the same Ree page with another four cards. The pager
+ * now fetches in place (GET /api/rees/[id]/author-rees) and robots.txt
+ * disallows `ap`; for the old URLs still out there, page 2 on
  * is `noindex, follow`, and a page that does not exist (past the last, not
  * a whole number, 1 spelled out) moves to the Ree's own URL with a real
  * 308: no loading.tsx boundary wraps this page, so nothing is sent before

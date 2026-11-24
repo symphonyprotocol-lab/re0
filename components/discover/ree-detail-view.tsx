@@ -78,13 +78,28 @@ export function ReeDetailView({
   const coverSrc = draft ? draft.coverSrc : ree.coverBlob ? `/media/${ree.coverBlob}` : null;
   /* The explore list this page was opened from, if any: kept outside the URL, so the server's links never carry it (public-visit.tsx). */
   const from = useExploreReturn(savedRee.slug, !preview);
-  const self = (changes: Record<string, string | number | null>) => {
-    const next = new URLSearchParams();
-    const merged = { ap: author?.page, tab: null as string | null, ...changes };
-    if (merged.ap && merged.ap !== 1) next.set('ap', String(merged.ap));
-    if (merged.tab) next.set('tab', String(merged.tab));
-    return next.size ? `/r/${ree.slug}?${next}` : `/r/${ree.slug}`;
-  };
+  /* This page's address with a tab open. The author list's page is not in it: it pages in place (`pageAuthor`), and `?ap=` only still opens a page for old links. */
+  const self = ({ tab: open = null }: { tab?: string | null }) => (open ? `/r/${ree.slug}?tab=${open}` : `/r/${ree.slug}`);
+
+  /* 同一创作者的更多 Ree, paged by fetching (no `?ap=` links for crawlers to multiply); a fetched page brings its own favourites. */
+  const [authorList, setAuthorList] = useState(author);
+  const [authorFavorites, setAuthorFavorites] = useState(favoriteIds);
+  const [authorBusy, setAuthorBusy] = useState(false);
+  async function pageAuthor(page: number) {
+    if (authorBusy) return;
+    setAuthorBusy(true);
+    try {
+      const response = await fetch(`/api/rees/${savedRee.id}/author-rees?page=${page}`, { headers: { accept: 'application/json' } });
+      if (!response.ok) throw new Error(`author-rees ${response.status}`);
+      const next = (await response.json()) as PublicList & { favoriteIds?: string[] };
+      setAuthorList({ items: next.items, total: next.total, page: next.page, pages: next.pages });
+      setAuthorFavorites(next.favoriteIds);
+    } catch {
+      toast(t.common.errors.generic);
+    } finally {
+      setAuthorBusy(false);
+    }
+  }
   const ready = ree.sources > 0;
   const category = t.common.categories[ree.category as keyof typeof t.common.categories] ?? ree.category;
   const owner = Boolean(viewerId) && viewerId === ree.ownerId;
@@ -271,9 +286,9 @@ export function ReeDetailView({
                 </section>
               )}
               <AuthorProfile author={{ name: ree.ownerName, avatar: ree.ownerAvatar, role: ree.role, title: ree.ownerTitle, description: ree.ownerDescription, website: ree.ownerWebsite, socialContacts: ree.ownerSocialContacts }} />
-              {author && (
+              {authorList && (
                 <div className="mt-7">
-                  <PublicListSection kind="author" list={author} title={p.author} body={fill(p.authorBody, { name: ree.ownerName })} empty={p.authorEmpty} previousHref={self({ ap: author.page - 1, tab: 'intro' })} nextHref={self({ ap: author.page + 1, tab: 'intro' })} from={from} returnTo={self({ tab: 'intro' })} favoriteIds={favoriteIds} viewerId={viewerId} />
+                  <PublicListSection kind="author" list={authorList} title={p.author} body={fill(p.authorBody, { name: ree.ownerName })} empty={p.authorEmpty} onPage={(page) => void pageAuthor(page)} busy={authorBusy} from={from} returnTo={self({ tab: 'intro' })} favoriteIds={authorFavorites} viewerId={viewerId} />
                 </div>
               )}
             </div>
