@@ -55,4 +55,4 @@ How counting works:
 - `app/api/share/[slug]/ask/route.ts`: GET status (fingerprint in the `x-re0-fp` header) and POST ask.
 - `components/posts/visitor-ask.tsx`, `lib/client/fingerprint.ts` (restored from e8c895c8^).
 - `components/rees/visitor-ask-fields.tsx`, inside the Ree settings form (`visitorAskSettings` on `PATCH /api/rees/[id]`).
-- Migration `0086_visitor_asks.sql`.
+- Migration `0087_visitor_asks.sql`.

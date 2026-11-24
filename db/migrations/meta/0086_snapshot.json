@@ -1,5 +1,5 @@
 {
-  "id": "1d902f42-1aa6-415e-bb30-bbca56fe3fbf",
+  "id": "dc6a3a06-b631-4b46-8794-87b49ef6e567",
   "prevId": "7fd82b22-9bf1-4bb4-8320-19de4c096d11",
   "version": "7",
   "dialect": "postgresql",
@@ -1344,6 +1344,162 @@
       },
       "isRLSEnabled": false
     },
+    "public.crawler_route_day": {
+      "name": "crawler_route_day",
+      "schema": "",
+      "columns": {
+        "day": {
+          "name": "day",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "route": {
+          "name": "route",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "family": {
+          "name": "family",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requests": {
+          "name": "requests",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "invocations": {
+          "name": "invocations",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin_bytes": {
+          "name": "origin_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "crawler_route_day_day_route_family_pk": {
+          "name": "crawler_route_day_day_route_family_pk",
+          "columns": [
+            "day",
+            "route",
+            "family"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "crawler_route_day_route_check": {
+          "name": "crawler_route_day_route_check",
+          "value": "char_length(route) <= 300"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.crawler_traffic_day": {
+      "name": "crawler_traffic_day",
+      "schema": "",
+      "columns": {
+        "day": {
+          "name": "day",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "family": {
+          "name": "family",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent": {
+          "name": "agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requests": {
+          "name": "requests",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "invocations": {
+          "name": "invocations",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin_bytes": {
+          "name": "origin_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "crawler_traffic_day_day_family_agent_pk": {
+          "name": "crawler_traffic_day_day_family_agent_pk",
+          "columns": [
+            "day",
+            "family",
+            "agent"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "crawler_traffic_day_family_check": {
+          "name": "crawler_traffic_day_family_check",
+          "value": "family in ('claude', 'openai', 'google', 'bing', 'meta', 'bot', 'human')"
+        },
+        "crawler_traffic_day_agent_check": {
+          "name": "crawler_traffic_day_agent_check",
+          "value": "char_length(agent) <= 60"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.crawler_traffic_fetch": {
+      "name": "crawler_traffic_fetch",
+      "schema": "",
+      "columns": {
+        "day": {
+          "name": "day",
+          "type": "date",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.credit_debt": {
       "name": "credit_debt",
       "schema": "",
@@ -2506,6 +2662,76 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.infra_charge_day": {
+      "name": "infra_charge_day",
+      "schema": "",
+      "columns": {
+        "day": {
+          "name": "day",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service": {
+          "name": "service",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cost": {
+          "name": "cost",
+          "type": "numeric(18, 8)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "numeric(24, 6)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unit": {
+          "name": "unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "infra_charge_day_day_scope_service_pk": {
+          "name": "infra_charge_day_day_scope_service_pk",
+          "columns": [
+            "day",
+            "scope",
+            "service"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "infra_charge_day_scope_check": {
+          "name": "infra_charge_day_scope_check",
+          "value": "scope in ('project', 'team')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.infra_cost_rates": {
@@ -4548,7 +4774,7 @@
       "checkConstraints": {
         "notice_kind_check": {
           "name": "notice_kind_check",
-          "value": "kind in ('takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal', 'post_ai_answer', 'visitor_ask_paused')"
+          "value": "kind in ('takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal', 'post_ai_answer')"
         }
       },
       "isRLSEnabled": false
@@ -5162,24 +5388,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "sponsor_id": {
-          "name": "sponsor_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sponsor_hold_id": {
-          "name": "sponsor_hold_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "visitor_key": {
-          "name": "visitor_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "anonymous": {
           "name": "anonymous",
           "type": "boolean",
@@ -5559,34 +5767,6 @@
           "concurrently": false,
           "method": "gin",
           "with": {}
-        },
-        "post_visitor_idx": {
-          "name": "post_visitor_idx",
-          "columns": [
-            {
-              "expression": "mention_ree_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "visitor_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "visitor_key is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -5635,19 +5815,6 @@
           "tableTo": "ree_public_qa",
           "columnsFrom": [
             "legacy_qa_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "post_sponsor_id_user_id_fk": {
-          "name": "post_sponsor_id_user_id_fk",
-          "tableFrom": "post",
-          "tableTo": "user",
-          "columnsFrom": [
-            "sponsor_id"
           ],
           "columnsTo": [
             "id"
@@ -5705,7 +5872,7 @@
         },
         "post_source_check": {
           "name": "post_source_check",
-          "value": "source in ('post', 'anonymous', 'share', 'conversation', 'seed', 'test', 'api', 'visitor')"
+          "value": "source in ('post', 'anonymous', 'share', 'conversation', 'seed', 'test', 'api')"
         },
         "post_status_check": {
           "name": "post_status_check",
@@ -5750,10 +5917,6 @@
         "post_private_source_check": {
           "name": "post_private_source_check",
           "value": "source not in ('test', 'api') or visibility = 'private'"
-        },
-        "post_visitor_source_check": {
-          "name": "post_visitor_source_check",
-          "value": "source <> 'visitor' or (visibility = 'public' and user_id is null)"
         }
       },
       "isRLSEnabled": false
@@ -8674,26 +8837,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "visitor_asks": {
-          "name": "visitor_asks",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "visitor_asks_per_visitor": {
-          "name": "visitor_asks_per_visitor",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 3
-        },
-        "visitor_asks_per_day": {
-          "name": "visitor_asks_per_day",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "deleted_at": {
           "name": "deleted_at",
           "type": "timestamp with time zone",
@@ -8821,10 +8964,6 @@
         "ree_published_public_check": {
           "name": "ree_published_public_check",
           "value": "not is_published or (is_public and moderated_at is null and deleted_at is null)"
-        },
-        "ree_visitor_asks_check": {
-          "name": "ree_visitor_asks_check",
-          "value": "visitor_asks_per_visitor between 1 and 50 and (visitor_asks_per_day is null or visitor_asks_per_day between 1 and 1000)"
         }
       },
       "isRLSEnabled": false

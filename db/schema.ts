@@ -43,6 +43,7 @@ import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
 import { VISITOR_ASK_PER_DAY, VISITOR_ASK_PER_VISITOR } from '@/lib/domain/visitor-ask';
 import { TASK_KINDS, type TaskKind } from '@/lib/domain/invites';
 import { PAGE_KINDS, type PageKind } from '@/lib/domain/traffic';
+import { CRAWLER_FAMILIES, type ChargeScope, type CrawlerFamily } from '@/lib/domain/crawler-traffic';
 import {
   AI_ANSWER_STATES,
   ANSWER_HIDERS,
@@ -2576,6 +2577,76 @@ export const siteTrafficRollup = pgTable('site_traffic_rollup', {
   day: date('day', { mode: 'string' }).primaryKey(),
   rolledAt: timestampTz('rolled_at').notNull().defaultNow(),
 });
+
+/**
+ * Crawler and infrastructure traffic (console 「流量」 → 「爬虫 / 基础设施」,
+ * lib/services/crawler-traffic.ts): read once a day from Vercel
+ * Observability by the cron `/api/cron/crawler-traffic`, never counted on
+ * the request path. Per finished UTC+8 day, CDN requests, function
+ * invocations and Fast Origin Transfer bytes by crawler family and agent
+ * name (lib/domain/crawler-traffic.ts). People's browsers are one row per
+ * day, `human` with agent `''`: no person's user agent is stored.
+ */
+export const crawlerTrafficDay = pgTable(
+  'crawler_traffic_day',
+  {
+    day: date('day', { mode: 'string' }).notNull(),
+    family: text('family').$type<CrawlerFamily>().notNull(),
+    agent: text('agent').notNull(),
+    requests: bigint('requests', { mode: 'number' }).notNull(),
+    invocations: bigint('invocations', { mode: 'number' }).notNull(),
+    originBytes: bigint('origin_bytes', { mode: 'number' }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.day, t.family, t.agent] }),
+    check('crawler_traffic_day_family_check', oneOf('family', CRAWLER_FAMILIES)),
+    check('crawler_traffic_day_agent_check', sql`char_length(agent) <= 60`),
+  ],
+);
+
+/**
+ * The same figures per day and route (`/r/[slug]`, `/login` …). `family`
+ * `''` is the route's total; the families' rows come from the top
+ * route-and-agent pairs, so they may add up to less than it.
+ */
+export const crawlerRouteDay = pgTable(
+  'crawler_route_day',
+  {
+    day: date('day', { mode: 'string' }).notNull(),
+    route: text('route').notNull(),
+    family: text('family').notNull(),
+    requests: bigint('requests', { mode: 'number' }).notNull(),
+    invocations: bigint('invocations', { mode: 'number' }).notNull(),
+    originBytes: bigint('origin_bytes', { mode: 'number' }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.route, t.family] }), check('crawler_route_day_route_check', sql`char_length(route) <= 300`)],
+);
+
+/** The days fetched from Observability: their figures are in the two tables above. */
+export const crawlerTrafficFetch = pgTable('crawler_traffic_fetch', {
+  day: date('day', { mode: 'string' }).primaryKey(),
+  fetchedAt: timestampTz('fetched_at').notNull().defaultNow(),
+});
+
+/**
+ * Vercel billing charges of this project (`project`) and of the team itself
+ * (`team`: its plan and seats), per billing day (US Pacific, as Vercel cuts
+ * them) and service, in USD. The cron replaces the last few days on every
+ * run, since Vercel may still revise them.
+ */
+export const infraChargeDay = pgTable(
+  'infra_charge_day',
+  {
+    day: date('day', { mode: 'string' }).notNull(),
+    scope: text('scope').$type<ChargeScope>().notNull(),
+    service: text('service').notNull(),
+    cost: numeric('cost', { precision: 18, scale: 8 }).notNull(),
+    quantity: numeric('quantity', { precision: 24, scale: 6 }).notNull(),
+    unit: text('unit').notNull(),
+    fetchedAt: timestampTz('fetched_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.scope, t.service] }), check('infra_charge_day_scope_check', oneOf('scope', ['project', 'team']))],
+);
 
 /* ------------------------------------------------------------------ MCP */
 

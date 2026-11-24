@@ -8,9 +8,10 @@ import { createReeFromDraft, deleteRee, saveDraft, setReePublished } from '@/lib
 import sitemap from '@/app/sitemap';
 import { GET as sitemapIndex } from '@/app/sitemap-index.xml/route';
 import { sitemapIds } from '@/lib/sitemaps';
-import { authorOthers, authorOthersPages, publicReeBySlug } from '@/lib/services/public-rees';
+import { authorOthers, authorOthersPages, publicAuthorOthers, publicReeBySlug } from '@/lib/services/public-rees';
 import { PUBLIC_LIST_PAGE_SIZE, REE_CATEGORIES } from '@/lib/constants';
 import { explore } from '@/lib/services/explore';
+import { crawlable } from '../fixtures/robots-match';
 
 const suite = TEST_DATABASE_URL ? describe : describe.skip;
 
@@ -51,6 +52,8 @@ suite('sitemap', () => {
     expect(urls).toContain(`https://re0.test/en/r/${shown.slug}`);
     for (const hidden of [privateOne, unpublished, takenDown, deleted]) expect(urls.join('\n')).not.toContain(`/r/${hidden.slug}`);
     expect([...pages, ...urls].some((url) => /re0\.test\/(r|s|explore|pricing)\b/.test(url))).toBe(false);
+    /* Nothing the sitemap lists may be one robots.txt keeps crawlers off. */
+    for (const url of [...pages, ...urls]) expect(crawlable(new URL(url).pathname + new URL(url).search), url).toBe(true);
     expect(entries.find((entry) => entry.url === `https://re0.test/en/r/${shown.slug}`)).toMatchObject({
       lastModified: expect.any(Date),
       alternates: { languages: { zh: `https://re0.test/zh/r/${shown.slug}`, en: `https://re0.test/en/r/${shown.slug}`, 'x-default': `https://re0.test/en/r/${shown.slug}` } },
@@ -78,6 +81,7 @@ suite('sitemap', () => {
       for (const locale of ['zh', 'en']) expect(pages.includes(`https://re0.test/${locale}/explore?category=${category}`)).toBe(total > 0);
     }
     expect(pages).toContain('https://re0.test/en/explore?category=technology');
+    for (const url of pages) expect(crawlable(new URL(url).pathname + new URL(url).search), url).toBe(true);
     vi.unstubAllEnvs();
   });
 
@@ -108,5 +112,14 @@ suite('sitemap', () => {
     const pages = await authorOthersPages(shown!);
     expect(pages).toBe(2);
     expect((await authorOthers(shown!, 99)).page).toBe(pages);
+    /* The page's pager (GET /api/rees/[id]/author-rees): the same pages by the Ree's id, none for a Ree that is not public. */
+    const second = await publicAuthorOthers(first.id, 2);
+    expect(second).toMatchObject({ page: 2, pages: 2, total: PUBLIC_LIST_PAGE_SIZE + 1 });
+    expect(second!.items).toHaveLength(1);
+    expect(second!.items.map((item) => item.id)).not.toContain(first.id);
+    expect((await publicAuthorOthers(first.id, 99))?.page).toBe(2);
+    const hidden = await ree(owner, { published: false });
+    expect(await publicAuthorOthers(hidden.id, 1)).toBeNull();
+    expect(await publicAuthorOthers('not-a-uuid', 1)).toBeNull();
   });
 });
