@@ -3,7 +3,7 @@ import { currentUser } from '@/lib/http/session';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatBytes, formatDateTime, formatNumber } from '@/i18n/format';
 import { webScope, workspaceUsageOf } from '@/lib/services/workspace';
-import { indexBudget, indexedFolders, indexQueue } from '@/lib/services/workspace-index';
+import { indexBudget, indexedFolders, indexQueue, workspaceCosts } from '@/lib/services/workspace-index';
 import { Icon } from '@/components/ui/icons';
 import { FilesTopbar } from '@/components/files/files-parts';
 import { FolderIndexList } from '@/components/files/workspace-ui';
@@ -25,7 +25,7 @@ export default async function FilesUsagePage() {
   const { t, locale } = await serverMessages();
   const u = t.files.usage;
   const scope = await webScope(user.id);
-  const [usage, budget, queue, folders] = await Promise.all([workspaceUsageOf(user.id), indexBudget(user.id), indexQueue(scope), indexedFolders(scope)]);
+  const [usage, budget, queue, folders, costs] = await Promise.all([workspaceUsageOf(user.id), indexBudget(user.id), indexQueue(scope), indexedFolders(scope), workspaceCosts(user.id)]);
   const share = (part: number) => `${Math.min(100, (part / Math.max(1, usage.freeBytes)) * 100)}%`;
   const n = (value: number) => formatNumber(value, locale);
   return (
@@ -111,6 +111,52 @@ export default async function FilesUsagePage() {
             </section>
             <FolderIndexList rows={folders} />
           </div>
+          <section className="card km-results ws-cost">
+            <div className="ws-section-head">
+              <strong>{u.costTitle}</strong>
+              <small>{u.costHint}</small>
+            </div>
+            <div className="km-scroll">
+              <table className="km-table">
+                <thead>
+                  <tr>
+                    <th>{u.costDay}</th>
+                    <th className="num">{u.costStorage}</th>
+                    <th className="num">{u.costIndex}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {costs.days.map((day) => (
+                    <tr key={day.day}>
+                      <td>{day.open ? `${day.day} · ${u.costOpen}` : day.day}</td>
+                      <td className="num">{n(day.storage)}</td>
+                      <td className="num">{n(day.index)}</td>
+                    </tr>
+                  ))}
+                  {costs.days.length === 0 ? (
+                    <tr>
+                      <td colSpan={3}>
+                        <span className="ws-muted">{u.costEmpty}</span>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <td>
+                        <strong>{u.costTotal}</strong>
+                      </td>
+                      <td className="num">
+                        <strong>{n(costs.totals.storage)}</strong>
+                      </td>
+                      <td className="num">
+                        <strong>{n(costs.totals.index)}</strong>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {costs.uploads.open > 0 && <p className="km-page-note ws-muted">{fill(u.uploadsPending, { n: costs.uploads.open, bytes: formatBytes(costs.uploads.bytes) })}</p>}
+          </section>
         </div>
       </main>
     </>

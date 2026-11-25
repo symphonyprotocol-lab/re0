@@ -237,3 +237,70 @@ export function TrashList({ items }: { items: TrashItem[] }) {
     </section>
   );
 }
+
+interface UploadTicket {
+  url?: string;
+  parts?: number;
+  part_size?: number;
+  error?: string;
+}
+
+/**
+ * "上传文件": each chosen file goes into `folder` through an upload URL
+ * (`/api/files/upload`), in one PUT or in parts of `part_size` bytes --
+ * the same route agents use with curl -- and the folder reloads when they
+ * are all in. A file that is there already gets a new version.
+ */
+export function UploadButton({ folder }: { folder: string }) {
+  const { t } = useI18n();
+  const u = t.files.upload;
+  const toast = useToast();
+  const router = useRouter();
+  const [status, setStatus] = useState<string | null>(null);
+  const failed = (code: unknown) => toast(fill(u.failed, { reason: errorText(t.files.errors, t.common.errors.generic, code) }));
+  async function send(file: File): Promise<boolean> {
+    if (file.size > 100 * 1024 * 1024) {
+      toast(u.tooLarge);
+      return false;
+    }
+    const path = `${folder === '/' ? '' : folder}/${file.name}`;
+    const ticket = await api<UploadTicket>('/api/files/upload', { method: 'POST', json: { path, size: file.size } });
+    if (!ticket.ok || !ticket.data.url) {
+      failed(ticket.data.error);
+      return false;
+    }
+    const parts = ticket.data.parts ?? 1;
+    const size = ticket.data.part_size ?? file.size;
+    for (let n = 1; n <= parts; n += 1) {
+      setStatus(fill(u.uploading, { name: file.name, percent: Math.floor(((n - 1) / parts) * 100) }));
+      const body = parts === 1 ? file : file.slice((n - 1) * size, n * size);
+      const sent = await api<{ error?: string }>(parts === 1 ? ticket.data.url : `${ticket.data.url}?part=${n}`, { method: 'PUT', body });
+      if (!sent.ok) {
+        failed(sent.data.error);
+        return false;
+      }
+    }
+    toast(fill(u.done, { name: file.name }));
+    return true;
+  }
+  return (
+    <label className={`btn secondary sm ${status ? 'is-busy' : ''}`}>
+      <Icon name="upload" />
+      {status ?? u.button}
+      <input
+        type="file"
+        multiple
+        hidden
+        disabled={Boolean(status)}
+        onChange={async (event) => {
+          const files = [...(event.currentTarget.files ?? [])];
+          event.currentTarget.value = '';
+          let any = false;
+          for (const file of files) any = (await send(file)) || any;
+          setStatus(null);
+          if (any) router.refresh();
+        }}
+      />
+    </label>
+  );
+}

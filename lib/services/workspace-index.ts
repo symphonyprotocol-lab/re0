@@ -712,3 +712,45 @@ export async function searchPassages(scope: WorkspaceScope, input: { query: stri
     }),
   };
 }
+
+/* ------------------------------------------------------------------ what it cost */
+
+/**
+ * The workspace's charges by UTC day for the usage page: storage (the daily
+ * charge, as taken from the balance) and indexing (each day's run: settled,
+ * or today's so far, rounded up once), newest first, and unfinished
+ * uploads, which are never billed.
+ */
+export async function workspaceCosts(userId: string, days = 30, now = new Date()) {
+  const since = new Date(now.getTime() - days * 24 * 60 * 60_000);
+  const storage = await db().execute<{ day: string; credits: string }>(sql`
+    select to_char(created_at at time zone 'utc', 'YYYY-MM-DD') as day, sum(-delta)::text as credits
+    from ${schema.creditEntry}
+    where user_id = ${userId} and reason = 'storage_charge' and note = 'Workspace storage' and created_at >= ${since.toISOString()}::timestamptz
+    group by 1`);
+  const runs = await db()
+    .select({ createdAt: schema.knowledgeCostRun.createdAt, status: schema.knowledgeCostRun.status, charged: schema.knowledgeCostRun.chargedCredits, charges: schema.knowledgeCostRun.charges })
+    .from(schema.knowledgeCostRun)
+    .where(and(eq(schema.knowledgeCostRun.userId, userId), eq(schema.knowledgeCostRun.kind, 'workspace_index'), gte(schema.knowledgeCostRun.createdAt, since)));
+  const byDay = new Map<string, { day: string; storage: number; index: number; open: boolean }>();
+  const at = (day: string) => byDay.get(day) ?? byDay.set(day, { day, storage: 0, index: 0, open: false }).get(day)!;
+  for (const row of storage.rows) at(row.day).storage += Number(row.credits);
+  for (const run of runs) {
+    const day = at(dayOf(run.createdAt));
+    if (run.status === 'processing') {
+      const recorded = run.charges.reduce((sum, charge) => sum + (charge.costUsd === null ? 0 : Number(charge.costUsd) / CREDIT_USD), 0);
+      day.index += Math.ceil(recorded - 1e-9);
+      day.open = true;
+    } else day.index += run.charged ?? 0;
+  }
+  const rows = [...byDay.values()].filter((row) => row.storage || row.index).sort((a, b) => (a.day < b.day ? 1 : -1));
+  const [pending] = await db()
+    .select({ count: sql<number>`count(*)::int`, bytes: sql<number>`coalesce(sum(${schema.workspaceUpload.size}), 0)::bigint` })
+    .from(schema.workspaceUpload)
+    .where(and(eq(schema.workspaceUpload.userId, userId), inArray(schema.workspaceUpload.status, ['open', 'assembling']), sql`${schema.workspaceUpload.expiresAt} > ${now.toISOString()}::timestamptz`));
+  return {
+    days: rows,
+    totals: { storage: rows.reduce((sum, row) => sum + row.storage, 0), index: rows.reduce((sum, row) => sum + row.index, 0) },
+    uploads: { open: pending?.count ?? 0, bytes: Number(pending?.bytes ?? 0) },
+  };
+}

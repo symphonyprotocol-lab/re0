@@ -739,3 +739,60 @@
   width: 13px;
   height: 13px;
 }
+
+/* ---------------------------------------------------------------- third phase: uploads, version comparison, charges */
+
+.files-ui label.btn {
+  cursor: pointer;
+}
+.files-ui label.btn.is-busy {
+  cursor: progress;
+  opacity: 0.8;
+}
+.files-ui .ws-diff-summary {
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-line);
+  color: var(--color-muted);
+  font-size: 13px;
+}
+.files-ui .ws-diff .ws-d-added {
+  background: color-mix(in srgb, var(--color-green) 12%, transparent);
+}
+.files-ui .ws-diff .ws-d-removed {
+  background: color-mix(in srgb, var(--color-red) 12%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--color-red) 40%, transparent);
+}
+.files-ui .ws-diff .ws-ln {
+  white-space: pre;
+}
+.files-ui .ws-ver-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.files-ui .ws-ver-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-blue);
+}
+.files-ui .ws-ver-link.is-active {
+  font-weight: 600;
+}
+.files-ui .ws-ver-link svg {
+  width: 14px;
+  height: 14px;
+}
+.files-ui .ws-cost {
+  margin-top: 16px;
+}
+.files-ui .ws-cost .km-table td.num,
+.files-ui .ws-cost .km-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
