@@ -223,6 +223,15 @@ export interface AiAnswerView {
   private: boolean;
 }
 
+/**
+ * The anchor of the 向 … 提问 box on a share page and a Ree page (`#ask`):
+ * signing in comes back to it, 向它提问 scrolls to it. Here, not in the
+ * box's client module, because server pages build their sign-in links with
+ * it: a server component importing a value from a `'use client'` module gets
+ * a client reference, not the value (#215's share page did).
+ */
+export const REE_ASK_ANCHOR = 'ask';
+
 /** How many answered posts a share page shows: one beside its hero, the rest under "大家问过的"; all of them are on the Ree page. */
 export const SHARE_POST_PICKS = 4;
 

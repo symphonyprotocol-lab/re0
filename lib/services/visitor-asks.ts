@@ -47,6 +47,7 @@ import { db, schema, type Tx } from '@/lib/infra/db';
 import { quotaKeyHash } from '@/lib/services/anonymous-chat';
 import { balanceOf, placeHold } from '@/lib/services/credits';
 import { notify } from '@/lib/services/notices';
+import { fileUnderExistingChannels } from '@/lib/services/channels';
 import { publicRee } from '@/lib/services/explore';
 import { hitRateBucket } from '@/lib/services/rate-limit';
 import { effectiveCeiling } from '@/lib/services/rate-limit-settings';
@@ -197,6 +198,8 @@ export async function askAsVisitor(slug: string, input: { question: string; lang
         visitorKey,
         createdAt: now,
       });
+      /* Its `#tags`, already redacted, file it under channels that exist; a visitor never makes one. Listed there once published. */
+      await fileUnderExistingChannels(tx, id, question);
       return { ok: true, id } as const;
     });
   } catch (error) {

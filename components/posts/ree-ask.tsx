@@ -3,16 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { QUERY_BASE_FEE } from '@/lib/constants';
-import { POST_QUESTION_MAX, type PrivateReeOption } from '@/lib/domain/post';
+import { POST_QUESTION_MAX, REE_ASK_ANCHOR, type PrivateReeOption } from '@/lib/domain/post';
 import { PrivatePostForm, PublicPostForm } from '@/components/posts/composer';
 import { VisitorAsk } from '@/components/posts/visitor-ask';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
 import { Icon } from '@/components/ui/icons';
 import './posts.css';
-
-/** The anchor of the box on a share page and a Ree page (`#ask`): signing in comes back to it, 向它提问 scrolls to it. */
-export const REE_ASK_ANCHOR = 'ask';
 
 export type AskVisibility = 'public' | 'private';
 

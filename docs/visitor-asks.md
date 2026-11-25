@@ -7,6 +7,7 @@ Decided 2026-11-24. A Ree's owner can let signed-out visitors ask the Ree on its
 - **Off by default.** It is switched on per Ree under 设置 → 分享页免登录提问. It works only while the Ree is public.
 - **A visitor's question is a public post** with `source = 'visitor'` and no author. It shows as "一位访客 / A visitor". It names the Ree and goes through the normal content review. Once published it appears in the feed, on the Ree page and at `/p/[id]`.
 - **Only that Ree answers.** It is never matched to other Rees and gets no AI general answer, because the owner would be paying for those.
+- **Channels:** its `#tags` file it under channels that already exist, read after redaction, in the transaction that writes the post (`fileUnderExistingChannels`). It is listed there once review publishes it. A visitor never creates a channel; only signed-in users do (decided 2026-11-25).
 - **The browser that asked follows its questions** under the box: in review, answering, answered (with the answer), no answer, or refused. The post stores an HMAC of the `re0_visitor` cookie, never the raw id.
 - **Signed-in users** see the normal composer and pay for themselves. The visitor endpoint refuses them (`409 signed_in`).
 
