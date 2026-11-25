@@ -210,6 +210,8 @@ describeWithDb('Rees on workspace folders', () => {
     await ok(client, 'ws_move', { from: '/kb', to: '/knowledge-base' });
     await indexNow();
     expect(await live()).toEqual(['b.md']);
+    const listed = await ok(client, 'list_knowledge', { ree: made.ree.id, kind: 'file' });
+    expect(listed.sources.map((row: { workspace_path: string; awaiting_confirmation: boolean }) => [row.workspace_path, row.awaiting_confirmation])).toEqual([['/knowledge-base/b.md', false]]);
   });
 
   it("holds a published Ree's new files for confirmation, and never enables one with a secret", async () => {

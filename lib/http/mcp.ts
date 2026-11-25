@@ -495,7 +495,7 @@ function registerReeTools(server: Server) {
       inputSchema: z.object({
         ree: OWN_REE,
         status: z.enum(['all', 'ready', 'processing', 'failed', 'paused']).optional(),
-        kind: z.enum(['all', 'document', 'audio', 'github', 'page', 'site', 'text']).optional(),
+        kind: z.enum(['all', 'document', 'audio', 'github', 'page', 'site', 'text', 'file']).optional(),
         query: z.string().max(200).optional().describe('Text to search titles, addresses and content for.'),
         page: z.number().int().min(1).optional(),
         trash: z.boolean().optional().describe('List the trash instead.'),
