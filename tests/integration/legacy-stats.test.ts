@@ -11,7 +11,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-import { dropConversationTables, pointModelsAt, restoreConversationTables, runBackfill, TEST_DATABASE_URL, uniqueName } from './setup';
+import { dropConversationTables, pointModelsAt, restoreConversationTables, runBackfill, TEST_DATABASE_URL, uniqueName, uniqueWord } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import type { AnswerOne } from '@/lib/services/posts';
 
@@ -83,7 +83,7 @@ const unanswered: AnswerOne = async () => ({ state: 'no_answer', model: 'stub' }
 
 /** A private post of `userId` to the Ree, answered. */
 async function privateAsk(userId: string, reeId: string, options: { source?: 'post' | 'api'; apiKeyId?: string } = {}) {
-  const made = await privatePosts.publishPrivatePost(userId, { question: `When are refunds issued? ${crypto.randomUUID()}`, reeIds: [reeId], fees: { [reeId]: BASE }, lang: 'en' }, options);
+  const made = await privatePosts.publishPrivatePost(userId, { question: `When are refunds issued? ${uniqueWord('ask')}`, reeIds: [reeId], fees: { [reeId]: BASE }, lang: 'en' }, options);
   if (!made.ok) throw new Error(made.error);
   await privatePosts.processPrivatePost(made.id, { answerOne: answered });
   return made.id;
