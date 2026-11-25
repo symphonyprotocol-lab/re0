@@ -1,7 +1,14 @@
 /**
- * What the MCP server's four tools do, apart from the protocol: Ree lookup
- * and Q&A for the account behind an API key. Each answers plain data or a
- * `McpToolError`; `lib/http/mcp.ts` turns either into a tool result.
+ * What the MCP server's Ree lookup and Q&A tools do, apart from the
+ * protocol, and what every tool shares: its errors, the per-key limits, the
+ * write permission and the web's own per-route limits. Posts are
+ * mcp-posts.ts, a Ree's owner's work mcp-rees.ts. Each tool answers plain
+ * data or a `McpToolError`; `lib/http/mcp.ts` turns either into a tool result.
+ *
+ * Every tool does what the web route for the same action does, through the
+ * same service function, for the account behind the key: the same checks,
+ * limits, prices and holds, nothing of its own beyond refusing a cost above
+ * the caller's `max_cost`.
  *
  * Asking is a private post on the web (private-posts.ts, `source = 'api'`),
  * billed like any private question: the base fee and the owner's query fee
@@ -10,7 +17,9 @@
  * anything is saved or held.
  */
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { MCP_RATE_LIMIT, MCP_SEARCH_MAX, MCP_SOURCE_TITLES, QUERY_BASE_FEE, QUESTION_MAX_CHARS } from '@/lib/constants';
+import { MCP_RATE_LIMIT, MCP_SEARCH_MAX, MCP_SOURCE_TITLES, QUERY_BASE_FEE, QUESTION_MAX_CHARS, REE_CATEGORIES } from '@/lib/constants';
+import { EXPLORE_SORTS, type ExploreSort } from '@/lib/domain/explore';
+import { rateLimited, type RateLimitName } from '@/lib/http/rate-limit';
 import type { CitationSnapshot } from '@/lib/domain/answer';
 import { POST_DETAIL_MAX, POST_QUESTION_MAX } from '@/lib/domain/post';
 import { isUuid } from '@/lib/domain/list';
@@ -19,10 +28,11 @@ import { db, schema } from '@/lib/infra/db';
 import { maxCostFor, readyRees, type Emit } from '@/lib/services/grounded-answer';
 import type { ApiKeyCaller } from '@/lib/services/api-keys';
 import { balanceOf } from '@/lib/services/credits';
-import { allowSearch, answersByOthers, explore, hitRateBucket, readySources } from '@/lib/services/explore';
+import { allowSearch, answersByOthers, explore, ExploreCursorError, hitRateBucket, readySources } from '@/lib/services/explore';
 import { groundedAnswer, ownPrivatePost, type AnswerOne } from '@/lib/services/posts';
 import { askPrivateFollowup, processPrivateFollowup, processPrivatePost, publishPrivatePost } from '@/lib/services/private-posts';
-import { usableBy, type Ree } from '@/lib/services/rees';
+import { ownedRee, usableBy, type Ree } from '@/lib/services/rees';
+import { favoriteReeIds } from '@/lib/services/ree-favorites';
 
 export type McpErrorCode =
   | 'rate_limited'
@@ -32,6 +42,11 @@ export type McpErrorCode =
   | 'max_cost_exceeded'
   | 'insufficient_credits'
   | 'answer_failed'
+  | 'write_not_allowed'
+  | 'invalid_input'
+  | 'limit_reached'
+  | 'price_changed'
+  | 'conflict'
   | 'internal_error';
 
 export class McpToolError extends Error {
@@ -61,18 +76,122 @@ export async function allowToolCall(caller: ApiKeyCaller, now = new Date()): Pro
   }
 }
 
+/**
+ * A tool that changes something: only a key made with "allow changes"
+ * (`api_key.can_write`). Reading and `ask_ree` never need it.
+ */
+export function requireWrite(caller: ApiKeyCaller): void {
+  if (caller.canWrite) return;
+  throw new McpToolError(
+    'write_not_allowed',
+    `This API key may only read and ask. To post, follow up or manage Rees through MCP, create a key with "Allow changes" turned on at ${appBaseUrl()}/settings?tab=api and use it instead.`,
+  );
+}
+
+/** The web route's own limit for the same action (lib/http/rate-limit.ts), counted for the account as the web counts it. */
+export async function routeLimit(name: RateLimitName, caller: ApiKeyCaller): Promise<void> {
+  const limited = await rateLimited(name, { userId: caller.user.id, headers: new Headers() });
+  if (!limited) return;
+  const retry = Number(limited.headers.get('retry-after')) || 60;
+  throw new McpToolError('rate_limited', `Too many of these actions for now; the same limit applies on the web. Try again in ${retry} seconds.`, { retry_after_seconds: retry });
+}
+
+/** Work the web runs after its response (Next's `after`): reviews, matching, answers, knowledge processing. A cron sweep picks up anything it misses. */
+export type Defer = (task: () => Promise<unknown>) => void;
+
+/** Logs instead of throwing: a deferred task's failure is the sweep's to retry, never the caller's. */
+export function quietly(label: string, task: () => Promise<unknown>): () => Promise<void> {
+  return () => task().then(
+    () => undefined,
+    (error: unknown) => console.error(`mcp ${label} failed: ${error instanceof Error ? error.message : 'unknown'}`),
+  );
+}
+
+export function insufficientCredits(balance: number, needed: number): McpToolError {
+  return new McpToolError('insufficient_credits', `Not enough credits: this needs up to ${needed} and your balance is ${balance}. Nothing was charged. Top up at ${topUpUrl()}`, {
+    balance,
+    needed,
+    top_up_url: topUpUrl(),
+  });
+}
+
+/** `max_cost` below what the action can cost: refused before anything is saved or held. */
+export function checkMaxCost(maxCost: number | undefined, possible: number, what: string): void {
+  if (maxCost === undefined || maxCost >= possible) return;
+  throw new McpToolError('max_cost_exceeded', `${what} can cost up to ${possible} credits, above your max_cost of ${maxCost}. Nothing was charged.`, { possible_cost: possible, max_cost: maxCost });
+}
+
+/** A web refusal code that is the caller's input, kept as `reason` so nothing of the web's precision is lost. */
+export function invalidInput(reason: string, message: string, details: Record<string, unknown> = {}): McpToolError {
+  return new McpToolError('invalid_input', message, { reason, ...details });
+}
+
+/** One of the caller's own live Rees, by id or slug; `not_found` for anyone else's, a deleted one or an unknown ref. */
+export async function ownReeOf(userId: string, ref: string): Promise<Ree> {
+  const key = ref.trim();
+  let id: string | null = isUuid(key) ? key : null;
+  if (!id && /^[a-z0-9-]{1,80}$/i.test(key)) {
+    const [row] = await db()
+      .select({ id: schema.ree.id })
+      .from(schema.ree)
+      .where(and(eq(schema.ree.slug, key.toLowerCase()), eq(schema.ree.ownerId, userId), isNull(schema.ree.deletedAt)))
+      .limit(1);
+    id = row?.id ?? null;
+  }
+  const ree = id ? await ownedRee(db(), userId, id) : null;
+  if (!ree) throw new McpToolError('not_found', `No Ree "${ref}" of yours: it does not exist, belongs to someone else, or was deleted. list_my_rees lists yours.`);
+  return ree;
+}
+
+/** The public page of a Ree that has one, else null. */
+export function publicUrl(ree: Pick<Ree, 'slug' | 'isPublic' | 'isPublished' | 'moderatedAt' | 'deletedAt'>): string | null {
+  return ree.isPublic && ree.isPublished && !ree.moderatedAt && !ree.deletedAt ? `${appBaseUrl()}/r/${ree.slug}` : null;
+}
+
 /* ----------------------------------------------------------------- search */
 
-export async function searchReesTool(caller: ApiKeyCaller, input: { query: string; limit?: number }, ip: string | null) {
-  const query = input.query.trim().slice(0, QUESTION_MAX_CHARS);
-  if (!(await allowSearch({ ip, userId: caller.user.id }))) {
-    throw new McpToolError('rate_limited', 'Too many searches this minute. Wait a minute and try again.', { retry_after_seconds: 60 });
+export interface SearchInput {
+  query?: string;
+  limit?: number;
+  category?: string;
+  sort?: string;
+  cursor?: string;
+}
+
+/**
+ * `/explore` for MCP: with a query, the question search (counted like the
+ * web's, per account and address); without one, browsing the public Rees
+ * by category and order a batch at a time (the web's `browse` limit), the
+ * next batch from `next_cursor`.
+ */
+export async function searchReesTool(caller: ApiKeyCaller, input: SearchInput, ip: string | null) {
+  const query = (input.query ?? '').trim().slice(0, QUESTION_MAX_CHARS);
+  const category = input.category && (REE_CATEGORIES as readonly string[]).includes(input.category) ? (input.category as (typeof REE_CATEGORIES)[number]) : null;
+  const sort: ExploreSort = (EXPLORE_SORTS as readonly string[]).includes(input.sort ?? '') ? (input.sort as ExploreSort) : 'active';
+  if (query) {
+    if (!(await allowSearch({ ip, userId: caller.user.id }))) {
+      throw new McpToolError('rate_limited', 'Too many searches this minute. Wait a minute and try again.', { retry_after_seconds: 60 });
+    }
+  } else {
+    await routeLimit('browse', caller);
   }
   const limit = Math.min(Math.max(input.limit ?? MCP_SEARCH_MAX, 1), MCP_SEARCH_MAX);
-  const found = await explore({ q: query, category: null, sort: 'active' }, { cursor: null, size: MCP_SEARCH_MAX }, { includeIntros: false });
+  let found;
+  try {
+    found = await explore({ q: query, category, sort }, { cursor: query ? null : (input.cursor ?? null), size: query ? MCP_SEARCH_MAX : limit }, { includeIntros: false });
+  } catch (error) {
+    if (error instanceof ExploreCursorError) throw invalidInput('invalid_cursor', 'cursor is not one search_rees handed out for this category and sort.');
+    throw error;
+  }
+  const items = found.items.slice(0, limit);
+  const favorites = new Set(await favoriteReeIds(caller.user.id, items.map((card) => card.id)));
   return {
-    query,
-    rees: found.items.slice(0, limit).map((card) => ({
+    query: query || null,
+    category,
+    sort,
+    total: found.total,
+    next_cursor: found.nextCursor,
+    rees: items.map((card) => ({
       id: card.id,
       slug: card.slug,
       name: card.name,
@@ -85,6 +204,7 @@ export async function searchReesTool(caller: ApiKeyCaller, input: { query: strin
       answers: card.answers,
       positive_rate: card.positiveRate,
       matched_excerpt: card.excerpt,
+      favorite: favorites.has(card.id),
       url: `${appBaseUrl()}/r/${card.slug}`,
     })),
   };
@@ -138,6 +258,8 @@ export async function getReeTool(caller: ApiKeyCaller, input: { ree: string }) {
     : [];
   const [stats] = await database.select({ answers: answersByOthers }).from(schema.ree).where(eq(schema.ree.id, ree.id));
   const isPublic = Boolean(ree.isPublic && ree.isPublished && !ree.moderatedAt);
+  const [favorite] = await favoriteReeIds(caller.user.id, [ree.id]);
+  const failed = kinds.filter((row) => row.status === 'failed').reduce((sum, row) => sum + Number(row.count), 0);
   return {
     id: ree.id,
     slug: ree.slug,
@@ -161,6 +283,26 @@ export async function getReeTool(caller: ApiKeyCaller, input: { ree: string }) {
       ...(own ? { source_titles: titles.map((row) => ({ title: row.title, kind: row.kind })) } : {}),
     },
     answers_to_others: Number(stats?.answers ?? 0),
+    favorite: Boolean(favorite),
+    /* What the owner's settings page shows, for their own Ree only (update_ree changes it). */
+    ...(own
+      ? {
+          settings: {
+            is_public: ree.isPublic,
+            is_published: ree.isPublished,
+            taken_down: Boolean(ree.moderatedAt),
+            query_fee: ree.queryFee,
+            system_prompt: ree.systemPrompt,
+            color: ree.color,
+            public_qa_enabled: ree.publicQaEnabled,
+            answers_posts: ree.answersPosts,
+            share_style: ree.shareStyle,
+            sources_failed: failed,
+            share_url: isPublic ? `${appBaseUrl()}/s/${ree.slug}` : null,
+            manage_url: `${appBaseUrl()}/rees/${ree.id}`,
+          },
+        }
+      : {}),
   };
 }
 
@@ -173,6 +315,7 @@ export async function listMyReesTool(caller: ApiKeyCaller) {
       description: schema.ree.description,
       isPublic: PUBLIC,
       isPublished: schema.ree.isPublished,
+      setPublic: schema.ree.isPublic,
       moderatedAt: schema.ree.moderatedAt,
       queryFee: schema.ree.queryFee,
       sources: readySources,
@@ -189,6 +332,8 @@ export async function listMyReesTool(caller: ApiKeyCaller) {
       name: row.name,
       intro: row.description,
       visibility: row.isPublic ? 'public' : 'private',
+      is_public: row.setPublic,
+      is_published: row.isPublished,
       taken_down: Boolean(row.moderatedAt),
       ready: Number(row.sources) > 0,
       ready_sources: Number(row.sources),

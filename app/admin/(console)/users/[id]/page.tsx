@@ -310,7 +310,9 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
             return [
               <Fragment key="name">
                 <strong>{key.name}</strong>
-                <Subline>{key.expiresAt ? fill(a.expires, { date: formatDate(key.expiresAt, locale) }) : a.noExpiry}</Subline>
+                <Subline>
+                  {key.canWrite ? a.access.write : a.access.read} · {key.expiresAt ? fill(a.expires, { date: formatDate(key.expiresAt, locale) }) : a.noExpiry}
+                </Subline>
               </Fragment>,
               <code key="key">{label}</code>,
               formatDateTime(key.createdAt, locale),

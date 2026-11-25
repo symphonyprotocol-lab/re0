@@ -2719,6 +2719,12 @@ export const apiKey = pgTable(
      */
     legacyQuestions: integer('legacy_questions').notNull().default(0),
     legacySpent: integer('legacy_spent').notNull().default(0),
+    /**
+     * Whether the key may change things through MCP (post, follow up,
+     * manage Rees and their knowledge), chosen when it is made. Without it a
+     * key reads and asks only -- what every key did before migration 0093.
+     */
+    canWrite: boolean('can_write').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [
