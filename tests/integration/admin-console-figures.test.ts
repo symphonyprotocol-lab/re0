@@ -242,6 +242,7 @@ describeWithDb('console rate limits', () => {
       { key: 'workspaceWritesPerDay', value: WORKSPACE_WRITES_PER_DAY, defaultValue: WORKSPACE_WRITES_PER_DAY, per: 'day', overridden: false },
       { key: 'workspaceDebtLimit', value: WORKSPACE_DEBT_WRITE_LIMIT, defaultValue: WORKSPACE_DEBT_WRITE_LIMIT, per: 'credits', overridden: false },
       { key: 'workspaceFreeMb', value: WORKSPACE_FREE_MB, defaultValue: WORKSPACE_FREE_MB, per: 'mb', overridden: false },
+      { key: 'workspaceIndexBudget', value: 50, defaultValue: 50, per: 'credits', overridden: false },
     ]);
   });
 

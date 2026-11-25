@@ -400,3 +400,342 @@
   font-size: 13px;
   font-weight: 650;
 }
+
+/* ---- phase 2: index states, create-from-folder, usage, a Ree's workspace sources ---- */
+.files-ui .ws-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid #d6e6fb;
+  border-radius: 10px;
+  background: var(--color-soft);
+  color: #3b4361;
+  font-size: 12px;
+}
+.files-ui .ws-notice svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--color-brand-blue);
+}
+.files-ui .ws-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.files-ui .ws-form .input {
+  font-size: 13px;
+}
+.files-ui .ws-picked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-wash);
+}
+.files-ui .ws-picked svg {
+  width: 16px;
+  height: 16px;
+  color: var(--color-blue);
+}
+.files-ui .ws-picked small {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.files-ui .ws-estimate {
+  padding: 12px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: #fff;
+}
+.files-ui .ws-estimate-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.files-ui .ws-estimate-row strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.files-ui .ws-estimate-total {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-line);
+}
+.files-ui .ws-estimate-total strong {
+  color: var(--color-blue);
+}
+.files-ui .ws-estimate-cap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.files-ui .ws-estimate-cap .field-label {
+  margin: 0;
+}
+.files-ui .ws-estimate-cap .input {
+  width: 80px;
+  padding-block: 6px;
+}
+.files-ui .ws-fine {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.files-ui .ws-fine svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  color: var(--color-green);
+}
+.files-ui .ws-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+@media (max-width: 760px) {
+  .files-ui .ws-cards,
+  .files-ui .ws-two,
+  .files-ui .ws-two-col {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.files-ui .ws-stat {
+  padding: 16px 18px;
+}
+.files-ui .ws-stat > small {
+  display: block;
+}
+.files-ui .ws-stat-big {
+  margin: 4px 0 6px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.files-ui .ws-stat-big small {
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.files-ui .ws-stack {
+  display: flex;
+  height: 8px;
+  margin: 8px 0 10px;
+  border-radius: 99px;
+  background: #edf0f6;
+  overflow: hidden;
+}
+.files-ui .ws-stack i.a {
+  background: var(--color-brand-blue);
+}
+.files-ui .ws-stack i.b {
+  background: #8fc1ff;
+}
+.files-ui .ws-bar-lg {
+  flex: none;
+  width: 100%;
+  height: 8px;
+  margin: 10px 0 8px;
+}
+.files-ui .ws-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.files-ui .ws-two-col .km-table {
+  min-width: 0;
+}
+.files-ui .ws-two-col .km-table td {
+  white-space: normal;
+}
+.files-ui .ws-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--color-line);
+}
+.files-ui .ws-section-head strong {
+  font-size: 13px;
+}
+.files-ui .ws-section-head small {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.files-ui .ws-folder-card ul {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+.files-ui .ws-folder-index {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid #f0f2f7;
+}
+.files-ui .ws-folder-index:first-child {
+  border-top: 0;
+}
+.files-ui .ws-folder-index strong {
+  font-size: 12px;
+}
+.files-ui .ws-folder-index small {
+  display: block;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.files-ui .ws-mode {
+  width: auto;
+  padding-block: 6px;
+  font-size: 12px;
+}
+.files-ui .ws-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-line);
+}
+.files-ui .ws-add-row .input {
+  flex: 1;
+  min-width: 160px;
+  padding-block: 7px;
+  font-size: 12px;
+}
+.files-ui.ws-ree-card {
+  max-width: 1536px;
+  margin: 0 auto;
+  padding: 25px 32px 0;
+}
+.files-ui .ws-binding {
+  padding: 18px 20px;
+}
+.files-ui .ws-binding .ws-add-row {
+  padding: 12px 0 0;
+  border-top: 0;
+}
+.files-ui .ws-binding-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.files-ui .ws-binding-head h2 {
+  margin: 2px 0 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+.files-ui .ws-binding-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: var(--color-wash);
+}
+.files-ui .ws-binding-path {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.files-ui .ws-binding-row small {
+  display: block;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.files-ui .ws-auto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--color-line);
+}
+.files-ui .ws-auto strong {
+  display: block;
+  font-size: 12px;
+}
+.files-ui .ws-queue {
+  margin-top: 14px;
+  border: 1px solid #f0dcc2;
+  border-radius: 10px;
+  background: #fffaf3;
+}
+.files-ui .ws-queue-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f3e6d3;
+  font-size: 12px;
+}
+.files-ui .ws-queue-head small {
+  color: #8a6a43;
+}
+.files-ui .ws-count {
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--color-orange);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+.files-ui .ws-queue ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.files-ui .ws-queue-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid #f6ecde;
+}
+.files-ui .ws-queue-row:first-child {
+  border-top: 0;
+}
+.files-ui .ws-queue-row strong {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.files-ui .ws-queue-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 3px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.files-ui .ws-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-red);
+  font-weight: 550;
+}
+.files-ui .ws-warn svg {
+  width: 13px;
+  height: 13px;
+}

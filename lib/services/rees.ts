@@ -26,6 +26,7 @@ import {
 import { blobSize } from '@/lib/infra/blob';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { votesByOthers } from '@/lib/services/ree-feedback';
+import { quarantineFlaggedFiles, queueReeBindings } from '@/lib/services/ree-file-guard';
 import { grantTaskReward } from '@/lib/services/task-rewards';
 
 export type Ree = typeof schema.ree.$inferSelect;
@@ -401,6 +402,8 @@ export async function setReePublished(ownerId: string, id: string, isPublished: 
     if (isPublished && !current.isPublic) throw new ReePublicationError('not_public');
     if (current.isPublished === isPublished) return current;
     const [ree] = await tx.update(schema.ree).set({ isPublished, updatedAt: new Date() }).where(eq(schema.ree.id, id)).returning();
+    /* Workspace files the secret scan flagged stop answering before anyone else can ask. */
+    if (isPublished) await quarantineFlaggedFiles(tx, id);
     if (!isPublished) await hide(tx, id);
     /* 新手任务: the owner's first Ree published pays once (task-rewards.ts). */
     else await grantTaskReward(tx, ownerId, 'first_ree', id);
@@ -416,12 +419,17 @@ async function hide(tx: Tx, reeId: string): Promise<void> {
 /** Soft: the row stays so past answers and the ledger still show the name (8.2, "Ree 删除"). */
 export async function deleteRee(ownerId: string, id: string): Promise<boolean> {
   return db().transaction(async (tx) => {
+    const now = new Date();
     const rows = await tx
       .update(schema.ree)
-      .set({ deletedAt: new Date(), isPublic: false, isPublished: false })
+      .set({ deletedAt: now, isPublic: false, isPublished: false })
       .where(and(eq(schema.ree.id, id), ownedLive(ownerId)))
       .returning({ id: schema.ree.id });
-    if (rows.length) await hide(tx, id);
+    if (rows.length) {
+      await hide(tx, id);
+      /* Its workspace bindings go: files only it kept indexed stop being indexed (and charged for). */
+      await queueReeBindings(tx, id, now, { unbind: true });
+    }
     return rows.length > 0;
   });
 }

@@ -882,3 +882,12 @@ export const WORKSPACE_SQUASHED_KEEP_MS = 24 * 60 * 60 * 1000;
 export const WORKSPACE_GREP_TIMEOUT_MS = 3_000;
 /** An account's MCP workspace calls, all keys together, may be this many times one key's limit. */
 export const WORKSPACE_ACCOUNT_LIMIT_FACTOR = 4;
+/** A file is indexed this long after its last change, so a burst of saves is indexed once. */
+export const WORKSPACE_INDEX_DELAY_MS = 2 * 60_000;
+/** Files one run of the index cron takes, and how long a claimed file stays claimed before another run may take it. */
+export const WORKSPACE_INDEX_BATCH = 20;
+export const WORKSPACE_INDEX_CLAIM_MS = 10 * 60_000;
+/** Default of the console's `workspaceIndexBudget`: credits indexing may cost an account a day. */
+export const WORKSPACE_INDEX_BUDGET = 50;
+/** One `ws_search`: at most this many passages. */
+export const WORKSPACE_SEARCH_MAX = 20;

@@ -19,6 +19,7 @@ import {
   integer,
   jsonb,
   numeric,
+  doublePrecision,
   pgTable,
   primaryKey,
   real,
@@ -263,7 +264,7 @@ export const knowledge = pgTable(
       .references(() => ree.id),
     /** Null is "未分组"; deleting a folder sends its rows back there, trash included. */
     folderId: uuid('folder_id').references(() => knowledgeFolder.id, { onDelete: 'set null' }),
-    kind: text('kind').$type<'document' | 'audio' | 'github' | 'page' | 'site' | 'text'>().notNull(),
+    kind: text('kind').$type<'document' | 'audio' | 'github' | 'page' | 'site' | 'text' | 'file'>().notNull(),
     title: text('title').notNull(),
     originalTitle: text('original_title').notNull(),
     /** Blob pathname for an upload, the URL for a fetched source, null for text. */
@@ -289,12 +290,24 @@ export const knowledge = pgTable(
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
     /** Storage is billed up to here (null: from `created_at`), see `lib/services/storage-billing.ts`. */
     storageBilledAt: timestampTz('storage_billed_at'),
+    /**
+     * A `file` source is an agent workspace file a binding brings in
+     * (lib/services/workspace-rees.ts): never processed here, its passages
+     * copied from the file's index at `workspace_revision_id`.
+     */
+    workspaceEntryId: uuid('workspace_entry_id'),
+    workspaceRevisionId: uuid('workspace_revision_id'),
+    /** A new file in a published Ree's bound folder waits for the owner (待确认) before it answers anyone. */
+    awaitingConfirmation: boolean('awaiting_confirmation').notNull().default(false),
+    /** What the secret scan found in it (`re0_sk_`, `aws_key`, …); such a file never answers in a public Ree. */
+    secretFound: text('secret_found'),
   },
   (t) => [
     index('knowledge_ree_idx').on(t.reeId, t.updatedAt),
     index('knowledge_folder_idx').on(t.folderId),
     index('knowledge_trash_idx').on(t.deletedAt).where(sql`deleted_at is not null`),
-    check('knowledge_kind_check', oneOf('kind', ['document', 'audio', 'github', 'page', 'site', 'text'])),
+    index('knowledge_workspace_entry_idx').on(t.workspaceEntryId).where(sql`workspace_entry_id is not null`),
+    check('knowledge_kind_check', oneOf('kind', ['document', 'audio', 'github', 'page', 'site', 'text', 'file'])),
     check('knowledge_status_check', oneOf('status', ['pending', 'processing', 'ready', 'failed'])),
   ],
 );
@@ -2920,6 +2933,15 @@ export const workspaceEntry = pgTable(
     updatedClient: text('updated_client'),
     /** The latest `ws_append` `client_token`s (WORKSPACE_APPEND_TOKENS of them, newest last): one of them again is that append's retry, answered without appending twice, whoever appended since. */
     appendTokens: uuid('append_tokens').array().notNull().default(sql`'{}'::uuid[]`),
+    /** Indexing (docs/design/agent-workspace.md §5): `on`/`off` here, or `inherit` the nearest folder's; off at the top. A file a Ree binds is indexed whatever this says. */
+    indexMode: text('index_mode').$type<'inherit' | 'on' | 'off'>().notNull().default('inherit'),
+    /** When the index worker should look at this file: set two minutes after each change, so a burst of saves is indexed once. */
+    indexDueAt: timestampTz('index_due_at'),
+    indexClaimedAt: timestampTz('index_claimed_at'),
+    /** The version `agent_workspace_passage` holds the passages of. */
+    indexedRevisionId: uuid('indexed_revision_id'),
+    /** Why the last attempt stopped: `budget` (today's index budget is spent), `insufficient_credits`, `failed`. */
+    indexError: text('index_error'),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
@@ -2929,6 +2951,8 @@ export const workspaceEntry = pgTable(
     index('agent_workspace_entry_prefix_idx').on(t.workspaceId, sql`lower(${t.path}) text_pattern_ops`),
     index('agent_workspace_entry_trash_idx').on(t.workspaceId, t.deletedAt).where(sql`deleted_at is not null`),
     check('agent_workspace_entry_kind_check', oneOf('kind', ['file', 'folder'])),
+    check('agent_workspace_entry_index_mode_check', oneOf('index_mode', ['inherit', 'on', 'off'])),
+    index('agent_workspace_entry_index_due_idx').on(t.indexDueAt).where(sql`index_due_at is not null and deleted_at is null`),
     check('agent_workspace_entry_path_check', sql`left(path, 1) = '/' and octet_length(path) <= 1024`),
   ],
 );
@@ -3017,6 +3041,15 @@ export const workspaceUsage = pgTable('agent_workspace_usage', {
   /** When storage was last charged (the daily charge takes the longest-waiting first, writes or not), and when the purge last went through the account. */
   chargedAt: timestampTz('charged_at').notNull().defaultNow(),
   purgedAt: timestampTz('purged_at'),
+  /**
+   * Credits indexing took today (UTC `index_spent_day`), against the console's
+   * `workspaceIndexBudget`: each embedding call reserves its quote here in one
+   * conditional update before it runs (so concurrent workers cannot pass the
+   * budget) and gives back what it did not use. Fractional: the day's
+   * indexing is billed as one run, rounded up once (workspace-index.ts).
+   */
+  indexSpentDay: date('index_spent_day', { mode: 'string' }),
+  indexSpent: doublePrecision('index_spent').notNull().default(0),
 }, (t) => [index('agent_workspace_usage_charged_idx').on(t.chargedAt), index('agent_workspace_usage_purged_idx').on(t.purgedAt)]);
 
 /**
@@ -3029,3 +3062,85 @@ export const workspaceGone = pgTable('agent_workspace_gone', {
   workspaceId: uuid('workspace_id').primaryKey(),
   goneAt: timestampTz('gone_at').notNull().defaultNow(),
 });
+
+/**
+ * The index of an indexed file's current version (docs/design/agent-workspace.md
+ * §2.2): its passages, cut by lines, each with one vector in one embedding
+ * space. `content_digest` is the passage text's hash alone, so an edit
+ * re-embeds only the passages it changed: a passage whose digest and space
+ * the workspace already holds reuses that vector.
+ */
+export const workspacePassage = pgTable(
+  'agent_workspace_passage',
+  {
+    entryId: uuid('entry_id')
+      .notNull()
+      .references(() => workspaceEntry.id, { onDelete: 'cascade' }),
+    ordinal: integer('ordinal').notNull(),
+    workspaceId: uuid('workspace_id').notNull(),
+    revisionId: uuid('revision_id').notNull(),
+    content: text('content').notNull(),
+    locator: jsonb('locator').$type<Locator>().notNull().default({}),
+    contentDigest: text('content_digest').notNull(),
+    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+    embeddingSpace: uuid('embedding_space').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.entryId, t.ordinal] }),
+    index('agent_workspace_passage_digest_idx').on(t.workspaceId, t.contentDigest, t.embeddingSpace),
+    /* Passages left in an old embedding space, found after a model switch (workspace-index.ts `queueStaleSpaces`). */
+    index('agent_workspace_passage_space_idx').on(t.embeddingSpace, t.entryId),
+  ],
+);
+
+/**
+ * A Ree's view of the workspace (§2.3): a folder (everything below it but
+ * `exclude`) or one file whose indexed text is the Ree's knowledge. It names
+ * the entry, not its path, so moving or renaming the folder keeps it.
+ * `auto_enable` lets new files answer in a published Ree without the
+ * owner's confirmation.
+ */
+export const reeBinding = pgTable(
+  'agent_ree_binding',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    entryId: uuid('entry_id')
+      .notNull()
+      .references(() => workspaceEntry.id, { onDelete: 'cascade' }),
+    exclude: text('exclude').array().notNull().default(sql`'{}'::text[]`),
+    autoEnable: boolean('auto_enable').notNull().default(false),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('agent_ree_binding_key').on(t.reeId, t.entryId),
+    index('agent_ree_binding_workspace_idx').on(t.workspaceId),
+    check('agent_ree_binding_exclude_check', sql`cardinality(exclude) <= 20`),
+  ],
+);
+
+/**
+ * A workspace file the owner took out of a Ree (trashed its `file` source on
+ * the knowledge page): the Ree's bindings no longer bring it in, so no sync
+ * restores or re-adds it, until the owner restores the source or binds that
+ * path again.
+ */
+export const reeFileExclusion = pgTable(
+  'agent_ree_file_exclusion',
+  {
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    entryId: uuid('entry_id')
+      .notNull()
+      .references(() => workspaceEntry.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.reeId, t.entryId] })],
+);

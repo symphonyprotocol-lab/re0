@@ -9,7 +9,7 @@ import type { Messages } from '@/i18n';
 import { fill, formatBytes } from '@/i18n/format';
 import { workspaceUsageOf } from '@/lib/services/workspace';
 
-export type FilesTab = 'files' | 'trash' | 'connect';
+export type FilesTab = 'files' | 'trash' | 'usage' | 'connect';
 
 /** `/files?path=…`: the web's address of a workspace path. */
 export function filesHref(path: string): string {
@@ -25,6 +25,7 @@ export function FilesTopbar({ t, tab, crumbs }: { t: Messages; tab: FilesTab; cr
       tabs={[
         { label: f.tabs.files, href: '/files', active: tab === 'files', icon: 'folder' },
         { label: f.tabs.trash, href: '/files/trash', active: tab === 'trash', icon: 'trash' },
+        { label: f.tabs.usage, href: '/files/usage', active: tab === 'usage', icon: 'chart' },
         { label: f.tabs.connect, href: '/files/connect', active: tab === 'connect', icon: 'link' },
       ]}
     />

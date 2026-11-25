@@ -10,7 +10,7 @@
  * exemptions, and tries again shortly. Every change is audited.
  */
 import { asc, eq, sql } from 'drizzle-orm';
-import { EXPLORE_RATE_LIMIT, RATE_LIMIT_EXEMPT_DEFAULT, USER_RATE_LIMITS, WORKSPACE_DEBT_WRITE_LIMIT, WORKSPACE_FREE_MB, WORKSPACE_WRITES_PER_DAY } from '@/lib/constants';
+import { EXPLORE_RATE_LIMIT, RATE_LIMIT_EXEMPT_DEFAULT, USER_RATE_LIMITS, WORKSPACE_DEBT_WRITE_LIMIT, WORKSPACE_FREE_MB, WORKSPACE_INDEX_BUDGET, WORKSPACE_WRITES_PER_DAY } from '@/lib/constants';
 import { FOLLOWUP_DAILY_LIMIT, FOLLOWUP_POST_DAILY_LIMIT, POST_DAILY_LIMIT } from '@/lib/domain/post';
 import { isUuid } from '@/lib/domain/list';
 import { VISITOR_ASK_PLATFORM_DAILY } from '@/lib/domain/visitor-ask';
@@ -81,7 +81,7 @@ function knownLimits(values: readonly string[]): RateLimitName[] {
   return RATE_LIMIT_NAMES.filter((name) => values.includes(name));
 }
 
-export const CEILING_KEYS = ['postsPerDay', 'followupsPerDay', 'followupsPerPostPerDay', 'exploreQuestions', 'visitorAsksPerDay', 'workspaceWritesPerDay', 'workspaceDebtLimit', 'workspaceFreeMb'] as const;
+export const CEILING_KEYS = ['postsPerDay', 'followupsPerDay', 'followupsPerPostPerDay', 'exploreQuestions', 'visitorAsksPerDay', 'workspaceWritesPerDay', 'workspaceDebtLimit', 'workspaceFreeMb', 'workspaceIndexBudget'] as const;
 export type CeilingKey = (typeof CEILING_KEYS)[number];
 /** Bounds of a ceiling's value, as `limit_ceiling_setting`'s check holds them. */
 export const CEILING_VALUE_BOUNDS = { min: 1, max: 100_000 } as const;
@@ -108,6 +108,7 @@ export const CEILING_DEFAULTS: Record<CeilingKey, { value: number; per: CeilingU
   workspaceWritesPerDay: { value: WORKSPACE_WRITES_PER_DAY, per: 'day' },
   workspaceDebtLimit: { value: WORKSPACE_DEBT_WRITE_LIMIT, per: 'credits' },
   workspaceFreeMb: { value: WORKSPACE_FREE_MB, per: 'mb' },
+  workspaceIndexBudget: { value: WORKSPACE_INDEX_BUDGET, per: 'credits' },
 };
 
 export interface CeilingRow {
@@ -213,6 +214,7 @@ export const CEILING_EXEMPTED_BY: Record<CeilingKey, RateLimitName | null> = {
   workspaceWritesPerDay: null,
   workspaceDebtLimit: null,
   workspaceFreeMb: null,
+  workspaceIndexBudget: null,
 };
 
 /** A ceiling's value now: the console's, else the code default. */

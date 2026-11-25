@@ -168,6 +168,7 @@ export const zh = {
   },
   uploadRateLimited: '上传太频繁了，请稍等片刻再试。',
   errors: {
+    secret_found: '这个工作区文件里有疑似密钥，公开的 Ree 不能启用它。请先从文件里删掉密钥。',
     insufficient_credits: '可用 credits 不足，无法预留处理费用。',
     invalid_document: '文件格式或大小不符合要求。文档最大 20 MB。',
     invalid_audio: '文件格式或大小不符合要求。音频支持 MP3 / M4A / WAV，最大 100 MB。',
@@ -488,6 +489,7 @@ export const en: Shape<typeof zh> = {
   },
   uploadRateLimited: 'Too many uploads in a short time. Wait a moment and try again.',
   errors: {
+    secret_found: 'This workspace file looks like it holds a secret; a public Ree cannot use it. Remove the secret from the file first.',
     insufficient_credits: 'Not enough credits to reserve the processing cost.',
     invalid_document: 'Unsupported file format or size. Documents: 20 MB.',
     invalid_audio: 'Unsupported file format or size. Audio: MP3 / M4A / WAV up to 100 MB.',

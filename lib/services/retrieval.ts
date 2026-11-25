@@ -9,6 +9,7 @@ import type { Passage } from '@/lib/domain/answer';
 import { rewriteTarget, scriptOf } from '@/lib/domain/cross-lingual';
 import { fuse, hasEvidence, isLibraryQuestion, isWordTerm, keywordCoverage, overviewText, searchTerms, wordPattern, type Ranked } from '@/lib/domain/retrieval';
 import { embedTexts } from '@/lib/infra/ai/models';
+import { sourceChars, sourceText } from '@/lib/services/source-text';
 import { db, schema } from '@/lib/infra/db';
 import type { StepTimer } from '@/lib/infra/timing';
 import { chunkVector, spaceOf } from '@/lib/services/embedding-space';
@@ -206,9 +207,9 @@ export async function sourceOverviews(reeId: string, ranked: readonly string[]):
       id: k.id,
       title: k.title,
       kind: k.kind,
-      chars: sql<number>`char_length(coalesce(${k.content}, ''))`,
-      head: sql<string>`left(coalesce(${k.content}, ''), ${OVERVIEW_READ_CHARS})`,
-      tail: sql<string>`right(coalesce(${k.content}, ''), ${OVERVIEW_READ_CHARS})`,
+      chars: sourceChars(),
+      head: sql<string>`left(coalesce(${sourceText()}, ''), ${OVERVIEW_READ_CHARS})`,
+      tail: sql<string>`right(coalesce(${sourceText()}, ''), ${OVERVIEW_READ_CHARS})`,
       parts: sql<number>`jsonb_array_length(coalesce(${k.children}, '[]'::jsonb))`,
       seconds: sql<number | null>`case when ${k.kind} = 'audio' then (${k.children} -> -1 ->> 'end')::float end`,
       labels: sql<string[] | null>`case when ${k.kind} in ('github', 'site') then (select jsonb_agg(c ->> 'label') from (select jsonb_array_elements(${k.children}) as c limit 20) as first) end`,

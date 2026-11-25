@@ -74,6 +74,7 @@ import { documentSections, ProcessingFailure } from '@/lib/infra/connectors';
 import { simulatedFailureFor } from '@/lib/infra/connectors/failure';
 import { checkRepositoryScope, fetchRepositoryFiles, resolveRepository } from '@/lib/infra/connectors/github';
 import { crawlSite, fetchPage } from '@/lib/infra/connectors/web';
+import { sourceChars, sourceText } from '@/lib/services/source-text';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { githubTokenFor, hasVerifiedDomainFor } from '@/lib/services/connections';
 import { heldFor, InsufficientCredits, placeHold, reserveKnowledgeUsage, settleHold } from '@/lib/services/credits';
@@ -119,6 +120,7 @@ export type KnowledgeInputCode =
   | 'invalid_folder'
   | 'invalid_title'
   | 'busy'
+  | 'secret_found'
   | 'not_found';
 
 export class KnowledgeInputError extends Error {
@@ -444,7 +446,8 @@ export async function reprocessInTx(tx: Tx, ownerId: string, reeId: string, ids:
     .for('update');
   if (rows.length !== new Set(ids).size) throw new KnowledgeInputError('not_found');
   if (rows.some((row) => row.status === 'pending' || row.status === 'processing')) throw new KnowledgeInputError('busy');
-  for (const row of rows) {
+  /* A workspace file is re-indexed in the workspace when it changes, never processed here: a batch's "重新处理" passes over it. */
+  for (const row of rows.filter((row) => row.kind !== 'file')) {
     const hold = reprocessHold(row);
     await tx
       .update(schema.knowledge)
@@ -525,6 +528,9 @@ async function extract(row: KnowledgeRow, pin?: RepositoryPin): Promise<Extracte
   switch (row.kind) {
     case 'text':
       return { sections: [{ text: row.content ?? '', locator: {} }], log: [] };
+    /* Never processed here: its passages come from the workspace index (workspace-rees.ts). */
+    case 'file':
+      throw new ProcessingFailure('unsupported_format', 'a workspace file is indexed in the workspace');
     case 'document': {
       if (!row.source || !row.fileName) throw new ProcessingFailure('source_missing', 'no stored file');
       const bytes = await readBlob(row.source);
@@ -1171,6 +1177,9 @@ export interface KnowledgeListItem {
   children: number;
   /** Seconds, for audio. */
   duration: number | null;
+  /** A workspace file's path (from the workspace root, the owner's view only), and whether it waits for the owner's confirmation. */
+  workspacePath: string | null;
+  awaitingConfirmation: boolean;
   deletedAt: Date | null;
   updatedAt: Date;
 }
@@ -1188,7 +1197,7 @@ function scopeConditions(reeId: string, query: Pick<KnowledgeQuery, 'q' | 'kind'
         ilike(schema.knowledge.title, pattern),
         ilike(schema.knowledge.source, pattern),
         ilike(schema.knowledge.fileName, pattern),
-        ilike(schema.knowledge.content, pattern),
+        sql`${sourceText()} ilike ${pattern}`,
         sql`${schema.knowledge.children}::text ilike ${pattern}`,
       )!,
     );
@@ -1272,10 +1281,12 @@ export async function listKnowledge(reeId: string, query: KnowledgeQuery): Promi
       source: sql<string | null>`case when ${schema.knowledge.kind} in ('github', 'page', 'site') then ${schema.knowledge.source} end`,
       fileName: schema.knowledge.fileName,
       fileSize: schema.knowledge.fileSize,
-      chars: sql<number>`coalesce(length(${schema.knowledge.content}), 0)::int`,
+      chars: sourceChars(),
       chunks: sql<number>`(select count(*)::int from ${schema.chunk} c where c.knowledge_id = "knowledge"."id")`,
       children: sql<number>`jsonb_array_length(${schema.knowledge.children})::int`,
       duration: sql<number | null>`case when ${schema.knowledge.kind} = 'audio' then (${schema.knowledge.children} -> -1 ->> 'end')::float end`,
+      workspacePath: sql<string | null>`(select e.path from ${schema.workspaceEntry} e where e.id = ${schema.knowledge.workspaceEntryId})`,
+      awaitingConfirmation: schema.knowledge.awaitingConfirmation,
       deletedAt: schema.knowledge.deletedAt,
       updatedAt: schema.knowledge.updatedAt,
     })
@@ -1347,7 +1358,7 @@ export async function matchingItems(reeId: string, query: Omit<KnowledgeQuery, '
       enabled: schema.knowledge.enabled,
       folderId: schema.knowledge.folderId,
       fileSize: schema.knowledge.fileSize,
-      chars: sql<number>`coalesce(length(${schema.knowledge.content}), 0)::int`,
+      chars: sourceChars(),
       deletedAt: schema.knowledge.deletedAt,
     })
     .from(schema.knowledge)
@@ -1386,13 +1397,14 @@ export async function knowledgeDetail(reeId: string, knowledgeId: string): Promi
   if (!/^[0-9a-f-]{36}$/i.test(knowledgeId)) return null;
   const database = db();
   const [row] = await database
-    .select({ knowledge: schema.knowledge, folderName: schema.knowledgeFolder.name })
+    .select({ knowledge: schema.knowledge, folderName: schema.knowledgeFolder.name, text: sourceText() })
     .from(schema.knowledge)
     .leftJoin(schema.knowledgeFolder, eq(schema.knowledgeFolder.id, schema.knowledge.folderId))
     .where(and(eq(schema.knowledge.id, knowledgeId), eq(schema.knowledge.reeId, reeId)))
     .limit(1);
   if (!row) return null;
   const k = row.knowledge;
+  const text = row.text;
   const chunks = await database
     .select({ id: schema.chunk.id, ordinal: schema.chunk.ordinal, content: schema.chunk.content, locator: schema.chunk.locator })
     .from(schema.chunk)
@@ -1415,8 +1427,8 @@ export async function knowledgeDetail(reeId: string, knowledgeId: string): Promi
     source: k.kind === 'github' || k.kind === 'page' || k.kind === 'site' ? k.source : null,
     fileName: k.fileName,
     fileSize: k.fileSize,
-    chars: k.content?.length ?? 0,
-    content: perChild ? null : k.content,
+    chars: text?.length ?? 0,
+    content: perChild ? null : text,
     children: k.children,
     activity: k.activity,
     deletedAt: k.deletedAt,
@@ -1459,7 +1471,7 @@ export async function knowledgeHeader(reeId: string, knowledgeId: string): Promi
 export async function knowledgeText(reeId: string, knowledgeId: string): Promise<{ title: string; content: string } | null> {
   if (!/^[0-9a-f-]{36}$/i.test(knowledgeId)) return null;
   const [row] = await db()
-    .select({ title: schema.knowledge.title, content: schema.knowledge.content })
+    .select({ title: schema.knowledge.title, content: sourceText() })
     .from(schema.knowledge)
     .where(and(eq(schema.knowledge.id, knowledgeId), eq(schema.knowledge.reeId, reeId)))
     .limit(1);
