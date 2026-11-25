@@ -54,10 +54,6 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/cron/competitions",
-      "schedule": "* * * * *"
-    },
-    {
       "path": "/api/cron/model-health",
       "schedule": "*/5 * * * *"
     },

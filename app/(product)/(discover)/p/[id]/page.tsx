@@ -3,10 +3,9 @@ import { notFound } from 'next/navigation';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { currentUser } from '@/lib/http/session';
 import { getPost, listFeed, postCover } from '@/lib/services/posts';
-import { competitionOfPost } from '@/lib/services/competitions';
 import { postMetadata } from '@/lib/og/post-meta';
 import { serverMessages } from '@/i18n/server';
-import { fill, formatNumber } from '@/i18n/format';
+import { formatNumber } from '@/i18n/format';
 import { FeedColumns } from '@/components/shell/feed-columns';
 import { PostDetail } from '@/components/posts/post-detail';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
@@ -39,8 +38,6 @@ export default async function PostPage({ params }: Props) {
   if (!post) notFound();
   /* The posts quoting this one ("引用提问"), newest first. */
   const quoting = post.quotes > 0 ? await listFeed('latest', { quotesOf: id, viewerId: user?.id }) : undefined;
-  /* A competition's question (docs/design/competitions.md 13.2): which one, and until the results why no answer shows. */
-  const contest = await competitionOfPost(id);
   const p = t.posts.page;
   const answered = post.answers.filter((entry) => entry.state === 'answered');
   const isPrivate = post.visibility === 'private';
@@ -94,17 +91,6 @@ export default async function PostPage({ params }: Props) {
     /* The question is the page's h1 (PostDetail); the head only names the kind of page. */
     <FeedColumns title={isPrivate ? p.privateTitle : p.back} heading={false} back={isPrivate ? '/me/posts?tab=private' : '/'} rail={rail}>
       <PostJsonLd post={post} locale={locale} />
-      {contest && (
-        <div className="channel-head">
-          <p>
-            {fill(t.competitions.post.banner, { n: contest.ordinal, title: contest.title })}
-            {contest.status !== 'published' && ` · ${contest.status === 'open' ? t.competitions.post.open : t.competitions.post.running}`}
-          </p>
-          <Link href={`/competitions/${contest.slug}`} className="btn-secondary btn-sm">
-            {t.competitions.channel.go}
-          </Link>
-        </div>
-      )}
       <PostDetail initial={post} quoting={quoting} signedIn={Boolean(user)} now={Date.now()} loginHref={`/login?returnTo=${encodeURIComponent(`/p/${id}`)}`} />
     </FeedColumns>
   );

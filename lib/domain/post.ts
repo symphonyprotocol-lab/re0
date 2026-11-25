@@ -71,11 +71,9 @@ export const POST_WAITING_STALE_MS = 2 * 60_000;
  * `test`: a Ree owner's 试问 to their own Ree; `api`: a question asked through
  * the MCP server. Both are always private posts. `visitor`: a signed-out
  * visitor's question on a share page, paid for by the Ree's owner
- * (lib/domain/visitor-ask.ts); always public. `competition`: one question of a
- * Ree competition (docs/design/competitions.md), written by the server under
- * its host and channel, never matched or answered by the posts' pipeline.
+ * (lib/domain/visitor-ask.ts); always public.
  */
-export const POST_SOURCES = ['post', 'anonymous', 'share', 'conversation', 'seed', 'test', 'api', 'visitor', 'competition'] as const;
+export const POST_SOURCES = ['post', 'anonymous', 'share', 'conversation', 'seed', 'test', 'api', 'visitor'] as const;
 export type PostSource = (typeof POST_SOURCES)[number];
 /**
  * Private posts (私密提问, design 稿 2) replace private conversations: only
@@ -386,8 +384,7 @@ export interface PostView {
   /** Who a follow-up may @ (the first round's answerers that still take posts), on the post's page only. */
   followupCandidates: FollowupCandidate[];
   /** Why the viewer cannot ask a follow-up now, on the post's page: null when they can. */
-  /** `closed`: a competition's question post, which takes no follow-ups. */
-  followupBlocked: 'full' | 'closed' | null;
+  followupBlocked: 'full' | null;
   /**
    * The viewer, its author, may ask on under their AI answer (继续问 AI): a
    * public post no Ree answered, whose follow-ups the AI answers, seen by

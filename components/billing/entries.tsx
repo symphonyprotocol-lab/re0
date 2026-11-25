@@ -73,8 +73,8 @@ export function Entries({
     const raw = entry.note ?? '';
     const tail = /(?:^| · )charged (\d+) of (\d+)$/.exec(raw);
     const label = tail ? raw.slice(0, tail.index) : raw;
-    const known = ({ post: b.notes.post, 'post answer': b.notes.postAnswer, 'visitor answer': b.notes.visitorAnswer, 'post summary': b.notes.postSummary, 'ai answer': b.notes.aiAnswer, competition: b.notes.competition } as Record<string, string>)[label];
-    const head = entry.reeName ? (label === 'post answer' || label === 'visitor answer' || label === 'competition' ? `${entry.reeName} · ${known}` : entry.reeName) : (known ?? (label || null));
+    const known = ({ post: b.notes.post, 'post answer': b.notes.postAnswer, 'visitor answer': b.notes.visitorAnswer, 'post summary': b.notes.postSummary, 'ai answer': b.notes.aiAnswer } as Record<string, string>)[label];
+    const head = entry.reeName ? (label === 'post answer' || label === 'visitor answer' ? `${entry.reeName} · ${known}` : entry.reeName) : (known ?? (label || null));
     /* The charge of a question's or a knowledge run's settlement is shown apart (`charged`); any other keeps it in the note. */
     const shownApart = entry.reason === 'knowledge_settle' || entry.reason === 'query_base' || entry.reason === 'query_fee_paid';
     const charge = tail && !shownApart ? fill(b.notes.charged, { charged: formatNumber(Number(tail[1]), locale), held: formatNumber(Number(tail[2]), locale) }) : null;
