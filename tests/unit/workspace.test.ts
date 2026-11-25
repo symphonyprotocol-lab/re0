@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  binaryByName,
+  decodeText,
+  diffLines,
+  indexableFormat,
+  mediaTypeOf,
+  partCount,
+  partLength,
   chunkFile,
   effectiveIndexMode,
   excludedBy,
@@ -143,5 +150,49 @@ describe('workspace passages', () => {
     expect(fileNameForTitle('Packing / list')).toBe('Packing - list.md');
     expect(fileNameForTitle('notes.md')).toBe('notes.md');
     expect(fileNameForTitle('   ')).toBe('untitled.md');
+  });
+});
+
+describe('bytes in the workspace (third phase)', () => {
+  it('keeps text exactly as text, and anything else as bytes', () => {
+    expect(decodeText(new TextEncoder().encode('\ufeffhéllo\r\n'))).toBe('\ufeffhéllo\r\n');
+    expect(decodeText(new Uint8Array([0x68, 0x00, 0x69]))).toBeNull();
+    expect(decodeText(new Uint8Array([0xc3, 0x28]))).toBeNull();
+    expect(binaryByName('/a/report.PDF')).toBe(true);
+    expect(binaryByName('/a/notes.md')).toBe(false);
+    expect(binaryByName('/a/README')).toBe(false);
+  });
+
+  it('types downloads from the name and knows what the index can read', () => {
+    expect(mediaTypeOf('/x.pdf', { binary: true })).toBe('application/pdf');
+    expect(mediaTypeOf('/x.unknown', { binary: true })).toBe('application/octet-stream');
+    expect(mediaTypeOf('/x.json', { binary: true })).toBe('application/json');
+    expect(indexableFormat('/x.pdf', 'application/pdf')).toBe('pdf');
+    expect(indexableFormat('/x.docx', null)).toBe('docx');
+    expect(indexableFormat('/big.md', 'text/markdown')).toBe('text');
+    expect(indexableFormat('/p.png', 'image/png')).toBeNull();
+  });
+
+  it('cuts an upload into parts of exactly the part size, the last one smaller', () => {
+    expect(partCount(0, 4)).toBe(1);
+    expect(partCount(8, 4)).toBe(2);
+    expect(partCount(9, 4)).toBe(3);
+    expect([1, 2, 3].map((n) => partLength(9, 4, n))).toEqual([4, 4, 1]);
+    expect(partLength(9, 4, 4)).toBe(-1);
+    expect(partLength(9, 4, 0)).toBe(-1);
+    expect(partLength(0, 4, 1)).toBe(0);
+  });
+
+  it('compares versions by lines, both sides recoverable, and gives up past the edit limit', () => {
+    const lines = diffLines('a\nb\nc\nd', 'a\nx\nc\nd\ne')!;
+    expect(lines.map((line) => `${line.kind[0]}${line.old ?? '-'}${line.new ?? '-'}${line.text}`)).toEqual(['s11a', 'r2-b', 'a-2x', 's33c', 's44d', 'a-5e']);
+    for (let round = 0; round < 300; round += 1) {
+      const random = () => Array.from({ length: Math.floor(Math.random() * 10) }, () => 'xyz'[Math.floor(Math.random() * 3)]).join('\n');
+      const [a, b] = [random(), random()];
+      const diff = diffLines(a, b)!;
+      expect(diff.filter((line) => line.kind !== 'added').map((line) => line.text).join('\n')).toBe(a);
+      expect(diff.filter((line) => line.kind !== 'removed').map((line) => line.text).join('\n')).toBe(b);
+    }
+    expect(diffLines(Array.from({ length: 50 }, (_, i) => `a${i}`).join('\n'), Array.from({ length: 50 }, (_, i) => `b${i}`).join('\n'), 10)).toBeNull();
   });
 });

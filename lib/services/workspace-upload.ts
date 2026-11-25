@@ -42,7 +42,7 @@ import {
   WORKSPACE_UPLOAD_TTL_MS,
   WORKSPACE_UPLOADS_OPEN,
 } from '@/lib/constants';
-import { decodeText, mediaTypeOf, nameOf, partCount, partLength } from '@/lib/domain/workspace';
+import { binaryByName, decodeText, mediaTypeOf, nameOf, partCount, partLength } from '@/lib/domain/workspace';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { authSecret } from '@/lib/infra/crypto/secrets';
 import { base64UrlDecode, base64UrlEncode, hmacSha256, randomToken, sha256, timingSafeEqual } from '@/lib/infra/crypto/tokens';
@@ -246,7 +246,7 @@ async function finishSingle(ticket: Ticket, bytes: Uint8Array, now: Date) {
     .returning();
   if (!claimed) throw new UploadError(409, 'already_done', 'This upload is already being saved.');
   const sha = createHash('sha256').update(bytes).digest('hex');
-  const text = bytes.length <= WORKSPACE_TEXT_MAX ? decodeText(bytes) : null;
+  const text = bytes.length <= WORKSPACE_TEXT_MAX && !binaryByName(ticket.path) ? decodeText(bytes) : null;
   return settle(claimed, sha, text, now, async () => {
     await putWorkspaceObject(workspaceObjectPath(ticket.workspaceId, sha), bytes, text === null ? mediaTypeOf(ticket.path, { binary: true }) : `${mediaTypeOf(ticket.path)}; charset=utf-8`);
   });
@@ -305,7 +305,7 @@ async function finishParts(ticket: Ticket, now: Date) {
 async function hashParts(ticket: Ticket): Promise<{ sha: string; text: string | null }> {
   /* First pass: the hash (and the text, for a file small enough to keep inline), never the whole file in memory. */
   const hash = createHash('sha256');
-  const small = ticket.size <= WORKSPACE_TEXT_MAX ? new Uint8Array(ticket.size) : null;
+  const small = ticket.size <= WORKSPACE_TEXT_MAX && !binaryByName(ticket.path) ? new Uint8Array(ticket.size) : null;
   let at = 0;
   const reader = partsStream(ticket).getReader();
   for (;;) {

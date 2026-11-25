@@ -217,8 +217,11 @@ that does not exist, is `not_found` alike.
 
 ### Workspace (keys with workspace access)
 
-Text files of up to 1 MB that every tool connected to the account reads and
-writes; the owner sees them at `/files`. Nothing here spends credits: storage
+Files that every tool connected to the account reads and writes; the owner
+sees them at `/files`. Text up to 1 MB is written and read through the tools
+themselves; binary files (PDFs, images, archives) and anything larger, up to
+100 MB, go in and out by URL with `curl` (`ws_upload_url`, `ws_download_url`),
+so only clients with a shell (Claude Code, Codex, Cursor) can move them. Nothing here spends credits: storage
 above the free 100 MB per account is billed daily, like knowledge storage.
 Calls count against the `workspaceRead` / `workspaceWrite` limits per key (300
 and 60 a minute by default; an account's keys together up to four times that),
@@ -232,16 +235,18 @@ above.
 | `ws_read {path, offset?, limit?, byte_offset?, byte_length?, line_numbers?, revision?}` | The text, byte for byte, whole or a window of lines or bytes (256 KB a call, `next_offset` to continue); `revision` reads an older version. The content comes as its own text part | read |
 | `ws_grep {pattern, literal?, path?, glob?, ignore_case?, context?, limit?}` | Matching lines (POSIX regex, or literal text) by path and line, up to 200; `partial` when the 50 MB scan cap was reached | read |
 | `ws_history {path, cursor?, limit?}` | A file's versions, newest first, with the writer and how many saves each merged | read |
+| `ws_download_url {path, revision?}` | A URL for a file's bytes (or one version's), valid 10 minutes, and the `curl -o` command to fetch it. The download is an attachment, typed from the file's extension | read |
 | `ws_write {path, content, if_match?, if_none_match?}` | Creates or replaces a file (folders above it are made) | write |
 | `ws_append {path, content, client_token?}` | Adds to the end, atomically; `client_token` makes a retry a no-op | write |
 | `ws_edit {path, old_string, new_string, replace_all?, if_match?}` | Replaces one exact occurrence (or all) | write |
 | `ws_mkdir {path}` | Makes a folder and the ones above it | write |
 | `ws_move {from, to, overwrite?, if_match?}` | Moves or renames a file or folder (with what is in it) | write |
 | `ws_copy {from, to}` | Copies one file | write |
+| `ws_upload_url {path, size, if_match?, if_none_match?}` | A URL, valid an hour and good for one upload, to `PUT` a file of `size` bytes to (up to 100 MB). Up to 4 MB goes in one PUT; a larger file in parts of exactly 4 MB (`?part=1..n`, the last one smaller, any order, a part sent again replaces itself). The result carries a ready `curl` command. Path, `if_match`, the storage quota and the debt are checked before any byte is sent, and again when the last one arrives; the response to the last PUT is the saved file (`etag`, `sha256`). An upload not finished in time is cleaned up and never billed | write |
 | `ws_delete {path, if_match?}` | **Destructive**: to the trash for 30 days (only the web deletes for good) | write |
 | `ws_restore {trash_id? \| path?, revision?}` | Back from the trash (a taken path gets " (restored)"), or with `path` and `revision` an older version back as the newest | write |
 | `ws_search {query, path?, limit?}` | Passages of **indexed** files that answer a question, by meaning and keyword (path, line range, excerpt); counts against `workspaceGrep` | read |
-| `ws_index {path, mode, max_cost?}` | **Spends credits**: a file's or folder's index mode (`on`, `off`, `inherit`). Turning it on returns the estimate, and `max_cost` refuses above it. Files are indexed two minutes after their last change, only changed passages embedded, billed as one charge a day (rounded up once), within the account's daily index budget (50 credits by default) | write |
+| `ws_index {path, mode, max_cost?}` | **Spends credits**: a file's or folder's index mode (`on`, `off`, `inherit`). Turning it on returns the estimate, and `max_cost` refuses above it. Files are indexed two minutes after their last change, only changed passages embedded, billed as one charge a day (rounded up once), within the account's daily index budget (50 credits by default). PDF and Word files (their text; a scan is not indexed) and text kept as bytes are indexed up to 20 MB | write |
 
 An account key with workspace access and "Allow changes" also has:
 
@@ -258,7 +263,8 @@ change of content: pass the one you read as `if_match` and a change made by
 another tool meanwhile is refused with `conflict` (and its `current_etag`)
 instead of overwritten. Other refusals: `not_found` (also for anything outside
 a workspace key's root), `invalid_path`, `exists`, `is_a_directory`,
-`not_a_directory`, `too_large`, `quota_exceeded` (10 GB or 100 000 entries per
+`not_a_directory`, `too_large`, `binary_file` (`ws_read`, `ws_edit` or
+`ws_append` on a binary file or text over 1 MB: download it instead), `quota_exceeded` (10 GB or 100 000 entries per
 account), `limit_reached` (writes per workspace a day), `insufficient_credits`
 (writes pause while the account owes more than the console's limit; reading,
 `ws_delete` and emptying the trash on the web always work, as they do past the

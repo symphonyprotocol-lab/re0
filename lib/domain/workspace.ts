@@ -171,6 +171,11 @@ export function mediaTypeOf(path: string, options: { binary?: boolean } = {}): s
   return MEDIA_TYPES[ext] ?? 'text/plain';
 }
 
+/** Whether a name says binary format (PDF, Word, images, archives...): such a file is kept as bytes even when its bytes happen to be ASCII. */
+export function binaryByName(path: string): boolean {
+  return extensionOf(path) in BINARY_TYPES && !(extensionOf(path) in MEDIA_TYPES);
+}
+
 /**
  * Bytes as workspace text: valid UTF-8 without NUL, or null (binary).
  * Nothing is changed -- no BOM stripped, no newline rewritten -- so the text
