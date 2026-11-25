@@ -666,6 +666,13 @@
       "when": 1795617194590,
       "tag": "0096_workspace_review_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1795619889016,
+      "tag": "0097_mcp_oauth",
+      "breakpoints": true
     }
   ]
 }

@@ -2710,7 +2710,9 @@ export const apiKey = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    keyDigest: text('key_digest').notNull(),
+    /** SHA-256 of the secret; null for an OAuth grant (`oauth_client_id`), which has no secret of its own -- its tokens are in `oauth_token`. */
+    keyDigest: text('key_digest'),
+    /** The secret's last four characters; '' for an OAuth grant. */
     keyTail: text('key_tail').notNull(),
     lastUsedAt: timestampTz('last_used_at'),
     expiresAt: timestampTz('expires_at'),
@@ -2741,14 +2743,127 @@ export const apiKey = pgTable(
     workspaceRoot: text('workspace_root').notNull().default('/'),
     /** What the client called itself (MCP `initialize` `clientInfo.name`) when it last connected with this key; file versions show it as their writer. */
     clientName: text('client_name'),
+    /**
+     * An OAuth grant (lib/services/oauth.ts): the access one user gave one
+     * OAuth client on the consent page, shown under 已连接的应用 rather than
+     * as a key. Its access tokens resolve to this row, so every permission,
+     * limit, tag and usage figure of a key applies to it unchanged.
+     * `expires_at` slides with each refresh; revoking it ends every token.
+     */
+    oauthClientId: text('oauth_client_id').references((): AnyPgColumn => oauthClient.id),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('api_key_digest_key').on(t.keyDigest),
+    index('api_key_oauth_client_idx').on(t.oauthClientId).where(sql`oauth_client_id is not null`),
+    check('api_key_oauth_check', sql`(oauth_client_id is null) = (key_digest is not null)`),
     index('api_key_user_idx').on(t.userId, t.createdAt),
     check('api_key_name_check', sql`char_length(name) between 1 and 60`),
     check('api_key_workspace_access_check', oneOf('workspace_access', ['none', 'read', 'write'])),
     check('api_key_workspace_key_check', sql`workspace_id is null or (not can_write and workspace_access <> 'none')`),
+  ],
+);
+
+/* ------------------------------------------------- OAuth for the MCP server (docs/mcp.md, lib/services/oauth.ts) */
+
+/**
+ * An OAuth client of the MCP server: one that registered itself (RFC 7591,
+ * `registered`, id `re0_client_…`) or one whose id is the HTTPS URL of its
+ * metadata document (`metadata_document`, re-fetched when `refresh_after`
+ * passes). Clients are public (`none`, PKCE only) unless they registered for
+ * a secret, whose digest is kept.
+ */
+export const oauthClient = pgTable(
+  'oauth_client',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind').$type<'registered' | 'metadata_document'>().notNull(),
+    clientName: text('client_name').notNull(),
+    clientUri: text('client_uri'),
+    redirectUris: text('redirect_uris').array().notNull(),
+    tokenEndpointAuthMethod: text('token_endpoint_auth_method').$type<'none' | 'client_secret_post' | 'client_secret_basic'>().notNull().default('none'),
+    secretDigest: text('secret_digest'),
+    fetchedAt: timestampTz('fetched_at'),
+    refreshAfter: timestampTz('refresh_after'),
+    /** Registered, fetched or named by an authorization request: a client unseen for a week with no grant is deleted. */
+    lastSeenAt: timestampTz('last_seen_at').notNull().defaultNow(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check('oauth_client_kind_check', oneOf('kind', ['registered', 'metadata_document'])),
+    check('oauth_client_auth_method_check', oneOf('token_endpoint_auth_method', ['none', 'client_secret_post', 'client_secret_basic'])),
+    check('oauth_client_secret_check', sql`(token_endpoint_auth_method = 'none') = (secret_digest is null)`),
+    check('oauth_client_name_check', sql`char_length(client_name) between 1 and 100`),
+    index('oauth_client_last_seen_idx').on(t.lastSeenAt),
+  ],
+);
+
+/**
+ * One authorization request, from `/oauth/authorize` to the token it is
+ * exchanged for. Pending, it waits for the user's decision on the consent
+ * page (bound to the browser that started it by `browser_digest`); approved,
+ * it holds the digest of a one-time code and the permissions chosen; used,
+ * it names the grant (`api_key_id`) the code became, so a replayed code can
+ * revoke it. Rows past `expires_at` are deleted as new ones arrive.
+ */
+export const oauthAuthorization = pgTable(
+  'oauth_authorization',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => oauthClient.id, { onDelete: 'cascade' }),
+    browserDigest: text('browser_digest').notNull(),
+    redirectUri: text('redirect_uri').notNull(),
+    codeChallenge: text('code_challenge').notNull(),
+    scope: text('scope').notNull().default(''),
+    state: text('state'),
+    resource: text('resource').notNull(),
+    userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
+    codeDigest: text('code_digest'),
+    canWrite: boolean('can_write').notNull().default(false),
+    workspaceAccess: text('workspace_access').$type<WorkspaceAccess>().notNull().default('none'),
+    workspaceOnly: boolean('workspace_only').notNull().default(false),
+    workspaceRoot: text('workspace_root').notNull().default('/'),
+    apiKeyId: uuid('api_key_id').references(() => apiKey.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+    expiresAt: timestampTz('expires_at').notNull(),
+    decidedAt: timestampTz('decided_at'),
+    usedAt: timestampTz('used_at'),
+  },
+  (t) => [
+    uniqueIndex('oauth_authorization_code_key').on(t.codeDigest),
+    index('oauth_authorization_expires_idx').on(t.expiresAt),
+    check('oauth_authorization_workspace_access_check', oneOf('workspace_access', ['none', 'read', 'write'])),
+    check('oauth_authorization_code_check', sql`code_digest is null or user_id is not null`),
+  ],
+);
+
+/**
+ * Access and refresh tokens of an OAuth grant (`api_key_id`), by SHA-256
+ * digest only. Each names the resource it was issued for (the MCP server's
+ * URL). A refresh token is used once: using it sets `rotated_at` and issues
+ * a new pair, and presenting it again revokes the whole grant.
+ */
+export const oauthToken = pgTable(
+  'oauth_token',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    apiKeyId: uuid('api_key_id')
+      .notNull()
+      .references(() => apiKey.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'access' | 'refresh'>().notNull(),
+    digest: text('digest').notNull(),
+    resource: text('resource').notNull(),
+    createdAt: createdAt(),
+    expiresAt: timestampTz('expires_at').notNull(),
+    rotatedAt: timestampTz('rotated_at'),
+    revokedAt: timestampTz('revoked_at'),
+  },
+  (t) => [
+    uniqueIndex('oauth_token_digest_key').on(t.digest),
+    index('oauth_token_grant_idx').on(t.apiKeyId, t.expiresAt),
+    check('oauth_token_kind_check', oneOf('kind', ['access', 'refresh'])),
   ],
 );
 

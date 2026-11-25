@@ -24,6 +24,8 @@ const RETURN_TO_PREFIXES = [
   '/dashboard', '/rees', '/activities', '/settings', '/chats', '/talk', '/explore', '/r', '/s', '/checkout', '/pricing', '/billing', '/videos', '/workspace',
   /* v5's frame: 我的帖子, 通知, 收藏, 了解 RE0 and a post's page. */
   '/me', '/notifications', '/saved', '/about', '/p',
+  /* An MCP client's authorization request, waiting on its consent page (lib/services/oauth.ts). */
+  '/oauth/consent',
 ];
 
 function hasControlCharacter(value: string): boolean {

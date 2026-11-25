@@ -1,0 +1,124 @@
+/*
+ * The OAuth consent and error pages (app/oauth/**): one centred card on the
+ * settings page's vocabulary (settings.css supplies .card, .field,
+ * .check-row, .api-key-kinds, .api-key-access-options, .info-strip).
+ */
+.settings-page.oauth-page {
+  max-width: 640px;
+  padding: 28px 16px 40px;
+}
+.oauth-page .oauth-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.oauth-page .oauth-card {
+  padding: 28px;
+}
+.oauth-page .oauth-card h1 {
+  font-size: 22px;
+  margin: 4px 0 8px;
+  overflow-wrap: anywhere;
+}
+.oauth-page .oauth-card h2 {
+  font-size: 15px;
+  margin: 0 0 12px;
+}
+.oauth-page .eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.oauth-page .oauth-facts {
+  display: grid;
+  gap: 0;
+  margin: 18px 0;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+}
+.oauth-page .oauth-facts > div {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 14px;
+}
+.oauth-page .oauth-facts > div + div {
+  border-top: 1px solid var(--color-line);
+}
+.oauth-page .oauth-facts dt {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.oauth-page .oauth-facts dd {
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.oauth-page .oauth-facts strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.oauth-page .oauth-facts small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.oauth-page .oauth-facts small svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+.oauth-page .oauth-facts .oauth-verified {
+  color: var(--color-green);
+}
+.oauth-page .oauth-uri {
+  display: block !important;
+  word-break: break-all;
+}
+.oauth-page .oauth-warning {
+  margin-bottom: 18px;
+  color: var(--color-orange);
+}
+.oauth-page .oauth-form {
+  display: grid;
+  gap: 14px;
+}
+.oauth-page .oauth-form .field {
+  margin: 0;
+}
+.oauth-page .oauth-form .api-key-kinds {
+  margin-bottom: 0;
+}
+.oauth-page .oauth-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+.oauth-page .oauth-leaving {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 560px) {
+  .oauth-page .oauth-card {
+    padding: 20px 16px;
+  }
+  .oauth-page .oauth-facts > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .oauth-page .oauth-form .api-key-kinds {
+    grid-template-columns: 1fr;
+  }
+  .oauth-page .oauth-actions .btn {
+    flex: 1;
+  }
+}

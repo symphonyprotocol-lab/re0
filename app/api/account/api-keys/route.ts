@@ -3,11 +3,11 @@ import { body, fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { ApiKeyError, createApiKey, listApiKeys } from '@/lib/services/api-keys';
 
-/** The signed-in user's API keys for the MCP server, newest first, with each one's usage. */
+/** The signed-in user's API keys for the MCP server, newest first, with each one's usage (OAuth grants are the settings page's connected apps). */
 export async function GET(request: NextRequest) {
   const user = await apiUser(request);
   if (user instanceof Response) return user;
-  return json({ items: await listApiKeys(user.id) });
+  return json({ items: (await listApiKeys(user.id)).filter((key) => !key.oauthClient) });
 }
 
 /** `{name, expiresInDays?}` → `{key, secret}`; the secret is in this response only. */

@@ -33,6 +33,7 @@ import * as consolePayouts from './pages/console-payouts';
 import * as video from './pages/video';
 import * as share from './pages/share';
 import * as apiKeys from './pages/api-keys';
+import * as oauth from './pages/oauth';
 import * as redeemAdmin from './pages/redeem-admin';
 import * as consoleConfirm from './pages/console-confirm';
 import * as invites from './pages/invites';
@@ -48,7 +49,7 @@ const step7 = { video };
 /* Sharing a Ree sits in its own spread too. */
 const sharing = { share };
 /* The MCP server's API keys sit in their own spread too. */
-const mcp = { apiKeys };
+const mcp = { apiKeys, oauth };
 /* Redeem codes sit in their own spread too. */
 const redeem = { redeemAdmin };
 /* The components review's console confirmations sit in their own spread too. */

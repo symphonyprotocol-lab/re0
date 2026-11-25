@@ -77,14 +77,14 @@ export async function allowToolCall(caller: ApiKeyCaller, now = new Date()): Pro
 }
 
 /**
- * A tool that changes something: only a key made with "allow changes"
- * (`api_key.can_write`). Reading and `ask_ree` never need it.
+ * A tool that changes something: only a key made, or an OAuth connection
+ * approved, with "allow changes" (`api_key.can_write`). Reading and `ask_ree` never need it.
  */
 export function requireWrite(caller: ApiKeyCaller): void {
   if (caller.canWrite) return;
   throw new McpToolError(
     'write_not_allowed',
-    `This API key may only read and ask. To post, follow up or manage Rees through MCP, create a key with "Allow changes" turned on at ${appBaseUrl()}/settings?tab=api and use it instead.`,
+    `This API key or connected app may only read and ask. To post, follow up or manage Rees through MCP, create a key with "Allow changes" turned on at ${appBaseUrl()}/settings?tab=api and use it instead, or connect the app again and approve "Allow changes".`,
   );
 }
 

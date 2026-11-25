@@ -28,6 +28,8 @@ export interface ApiKeyView {
   client: string | null;
   questions: number;
   spent: number;
+  /** An OAuth grant (connected app) rather than a key. */
+  oauthClient?: { id: string; name: string; uri: string | null; redirectHosts: string[]; documentHost: string | null } | null;
 }
 
 const EXPIRIES = [
@@ -53,13 +55,32 @@ export function connectSnippets(url: string, secret: string) {
   };
 }
 
+/** The tags for what a key or a connected app may do, as the console shows them too. */
+function AccessTags({ item }: { item: ApiKeyView }) {
+  const { t } = useI18n();
+  const a = t.apiKeys;
+  return item.kind === 'workspace' ? (
+    <>
+      <span className="tag blue api-key-access">{item.oauthClient ? t.oauth.permissions.kinds.workspace : a.kinds.workspace}</span> <span className={`tag ${item.workspaceAccess === 'write' ? 'orange' : ''} api-key-access`}>{a.workspaceAccess[item.workspaceAccess]}</span>{' '}
+      <span className="tag api-key-access">{item.workspaceRoot}</span>
+    </>
+  ) : (
+    <>
+      <span className={`tag ${item.canWrite ? 'orange' : ''} api-key-access`}>{item.canWrite ? a.access.write : a.access.read}</span>{' '}
+      <span className="tag api-key-access">{fill(a.workspaceTag, { access: a.workspaceAccess[item.workspaceAccess] })}</span>
+    </>
+  );
+}
+
 /**
  * `/settings?tab=api`: API keys for the MCP server -- create one (name,
  * optional expiry, whether it may change things; the key is shown once),
- * see each one's tail, access, dates and usage, revoke -- and how to
- * connect a client. A key's access is chosen once: more needs a new key.
+ * see each one's tail, access, dates and usage, revoke -- the apps
+ * connected through OAuth (each one's permissions, where it returns to,
+ * usage; disconnect), and how to connect a client. A key's access is
+ * chosen once: more needs a new key; an app's, by connecting it again.
  */
-export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; mcpUrl: string }) {
+export function ApiKeysTab({ keys: initialKeys, apps: initialApps = [], mcpUrl }: { keys: ApiKeyView[]; apps?: ApiKeyView[]; mcpUrl: string }) {
   const { t, locale } = useI18n();
   const a = t.apiKeys;
   const router = useRouter();
@@ -76,6 +97,8 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
   const [error, setError] = useState('');
   const [secret, setSecret] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<ApiKeyView | null>(null);
+  const [apps, setApps] = useState(initialApps);
+  const [disconnecting, setDisconnecting] = useState<ApiKeyView | null>(null);
   const [now] = useState(() => Date.now());
 
   const reload = async () => {
@@ -143,19 +166,7 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
               <div key={key.id} className="domain-row api-key-row">
                 <div className="min-w-0">
                   <h3>
-                    {key.name} <span className="api-key-tail">re0_sk_…{key.tail}</span>{' '}
-                    {key.kind === 'workspace' ? (
-                      <>
-                        <span className="tag blue api-key-access">{a.kinds.workspace}</span>{' '}
-                        <span className={`tag ${key.workspaceAccess === 'write' ? 'orange' : ''} api-key-access`}>{a.workspaceAccess[key.workspaceAccess]}</span>{' '}
-                        <span className="tag api-key-access">{key.workspaceRoot}</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className={`tag ${key.canWrite ? 'orange' : ''} api-key-access`}>{key.canWrite ? a.access.write : a.access.read}</span>{' '}
-                        <span className="tag api-key-access">{fill(a.workspaceTag, { access: a.workspaceAccess[key.workspaceAccess] })}</span>
-                      </>
-                    )}
+                    {key.name} <span className="api-key-tail">re0_sk_…{key.tail}</span> <AccessTags item={key} />
                   </h3>
                   <small>
                     {a.columns.created} {formatDateTime(key.createdAt, locale)} · {a.columns.lastUsed} {key.lastUsedAt ? formatDateTime(key.lastUsedAt, locale) : a.never} ·{' '}
@@ -174,6 +185,37 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
               </div>
             );
           })}
+        </div>
+      </section>
+
+      <section className="card settings-card">
+        <h2>{a.apps.title}</h2>
+        <p className="muted small domains-lede">{a.apps.lede}</p>
+        <div className="mt16">
+          {apps.length === 0 && <p className="small muted">{a.apps.empty}</p>}
+          {apps.map((app) => (
+            <div key={app.id} className="domain-row api-key-row">
+              <div className="min-w-0">
+                <h3>
+                  {app.oauthClient?.name ?? app.name} <AccessTags item={app} />
+                </h3>
+                <small>
+                  {app.oauthClient?.documentHost ? `${fill(a.apps.verified, { host: app.oauthClient.documentHost })} · ` : ''}
+                  {a.apps.redirect} {app.oauthClient?.redirectHosts.join(', ')}
+                </small>
+                <small>
+                  {a.apps.connected} {formatDateTime(app.createdAt, locale)} · {a.columns.lastUsed} {app.lastUsedAt ? formatDateTime(app.lastUsedAt, locale) : a.never}
+                  {app.client ? ` · ${app.client}` : ''}
+                </small>
+                <small className="api-key-usage">{fill(a.usage, { questions: formatNumber(app.questions, locale), spent: formatNumber(app.spent, locale) })}</small>
+              </div>
+              <div className="s-flex flex-none">
+                <button type="button" className="btn secondary sm" onClick={() => setDisconnecting(app)}>
+                  {a.apps.disconnect}
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -356,6 +398,24 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
           if (!result.ok) return toast(t.common.errors.generic);
           toast(a.revoked);
           await reload();
+          router.refresh();
+        }}
+      />
+
+      <ConfirmModal
+        open={Boolean(disconnecting)}
+        title={a.apps.disconnectTitle}
+        body={disconnecting ? fill(a.apps.disconnectBody, { name: disconnecting.oauthClient?.name ?? disconnecting.name }) : ''}
+        confirmLabel={a.apps.disconnect}
+        danger
+        onClose={() => setDisconnecting(null)}
+        onConfirm={async () => {
+          const app = disconnecting!;
+          setDisconnecting(null);
+          const result = await api(`/api/account/api-keys/${app.id}`, { method: 'DELETE' });
+          if (!result.ok) return toast(t.common.errors.generic);
+          toast(a.apps.disconnected);
+          setApps((current) => current.filter((item) => item.id !== app.id));
           router.refresh();
         }}
       />

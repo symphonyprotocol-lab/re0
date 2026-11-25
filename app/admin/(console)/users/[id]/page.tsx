@@ -306,12 +306,13 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
           head={[a.columns.name, a.columns.key, a.columns.created, a.columns.lastUsed, a.columns.usage, a.columns.status, a.columns.action]}
           rows={keys.map((key) => {
             const status = key.revokedAt ? 'revoked' : key.expiresAt && key.expiresAt.getTime() <= now ? 'expired' : 'active';
-            const label = `re0_sk_…${key.tail}`;
+            /* An OAuth grant (a connected app) has no secret of its own: it shows the client and where it returns to. */
+            const label = key.oauthClient ? `${a.admin.oauth} · ${key.oauthClient.redirectHosts.join(', ')}` : `re0_sk_…${key.tail}`;
             return [
               <Fragment key="name">
-                <strong>{key.name}</strong>
+                <strong>{key.oauthClient?.name ?? key.name}</strong>
                 <Subline>
-                  {key.kind === 'workspace' ? `${a.kinds.workspace} · ${a.workspaceAccess[key.workspaceAccess]} · ${key.workspaceRoot}` : `${key.canWrite ? a.access.write : a.access.read} · ${fill(a.workspaceTag, { access: a.workspaceAccess[key.workspaceAccess] })}`} · {key.expiresAt ? fill(a.expires, { date: formatDate(key.expiresAt, locale) }) : a.noExpiry}
+                  {key.kind === 'workspace' ? `${key.oauthClient ? t.oauth.permissions.kinds.workspace : a.kinds.workspace} · ${a.workspaceAccess[key.workspaceAccess]} · ${key.workspaceRoot}` : `${key.canWrite ? a.access.write : a.access.read} · ${fill(a.workspaceTag, { access: a.workspaceAccess[key.workspaceAccess] })}`} · {key.expiresAt ? fill(a.expires, { date: formatDate(key.expiresAt, locale) }) : a.noExpiry}
                 </Subline>
               </Fragment>,
               <code key="key">{label}</code>,
