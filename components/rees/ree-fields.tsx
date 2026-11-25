@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { QUERY_FEE, REE_CATEGORIES, REE_COLORS, REE_LIMITS, type ReeCategory, type ReeColor } from '@/lib/constants';
 import { CATEGORY_TAGS, charLength, normalizedTag } from '@/lib/domain/ree';
+import type { ProductSheet, ShareStyle } from '@/lib/domain/share-style';
 import { useI18n } from '@/i18n/client';
 import { fill } from '@/i18n/format';
 import { DotAvatar, PIcon } from '@/components/rees/proto-icon';
@@ -26,6 +27,9 @@ export interface ReeFormState {
   answersPosts?: boolean | null;
   /** Settings only: visitor asks on the share page (lib/domain/visitor-ask.ts). */
   visitorAskSettings?: { enabled: boolean; perVisitor: number; perDay: number | null };
+  /** Settings only: how the share page lays it out, and the product style's sheet (lib/domain/share-style.ts). */
+  shareStyle?: ShareStyle;
+  productSheet?: ProductSheet;
 }
 
 type Change = (patch: Partial<ReeFormState>) => void;

@@ -50,3 +50,20 @@ export function TryQuestions({ slug, questions, live }: { slug: string; question
     </ul>
   );
 }
+
+/** 问问这个 under a product feature: its question put into the box, which takes focus. */
+export function AskAbout({ slug, question, children }: { slug: string; question: string; children: ReactNode }) {
+  return (
+    <a
+      href={`#${REE_ASK_ANCHOR}`}
+      className="share-link share-feature-ask"
+      onClick={(event) => {
+        event.preventDefault();
+        focusAsk(slug, question);
+      }}
+    >
+      {children}
+      <Icon name="arrow" />
+    </a>
+  );
+}

@@ -10,6 +10,7 @@ import { PUBLIC_LIST_PAGE_SIZE, PUBLIC_RELATED_CANDIDATES, QUERY_BASE_FEE, REE_C
 import { positiveRate, relatedRees } from '@/lib/domain/explore';
 import type { SocialContact } from '@/lib/domain/account';
 import { isUuid } from '@/lib/domain/list';
+import { isShareStyle, productSheetOf, type ProductSheet, type ShareStyle } from '@/lib/domain/share-style';
 import { db, schema } from '@/lib/infra/db';
 import { answersByOthers, publicRee, readySources, reeCards, type ReeCard } from '@/lib/services/explore';
 import { votesByOthers } from '@/lib/services/ree-feedback';
@@ -40,6 +41,9 @@ export interface PublicRee {
   publicQaEnabled: boolean;
   /** The owner lets signed-out visitors ask on the share page, paying for their answers (lib/domain/visitor-ask.ts). */
   visitorAsks: boolean;
+  /** How the share page lays it out, and the owner's product sheet for the `product` style (lib/domain/share-style.ts). */
+  shareStyle: ShareStyle;
+  productSheet: ProductSheet;
   price: number;
   sources: number;
   answers: number;
@@ -94,6 +98,8 @@ async function reeDetails(where: SQL): Promise<PublicRee | null> {
       takesPosts: sql<boolean>`coalesce(${schema.ree.answersPosts}, ${schema.ree.queryFee} = 0)`,
       publicQaEnabled: schema.ree.publicQaEnabled,
       visitorAsks: schema.ree.visitorAsks,
+      shareStyle: schema.ree.shareStyle,
+      productSheet: schema.ree.productSheet,
       sources: readySources,
       answers: answersByOthers,
       up: votesByOthers('up'),
@@ -105,8 +111,8 @@ async function reeDetails(where: SQL): Promise<PublicRee | null> {
     .where(where)
     .limit(1);
   if (!row) return null;
-  const { up, down, ...rest } = row;
-  return { ...rest, price: QUERY_BASE_FEE + row.queryFee, positiveRate: positiveRate(up, down) };
+  const { up, down, shareStyle, productSheet, ...rest } = row;
+  return { ...rest, shareStyle: isShareStyle(shareStyle) ? shareStyle : 'default', productSheet: productSheetOf(productSheet), price: QUERY_BASE_FEE + row.queryFee, positiveRate: positiveRate(up, down) };
 }
 
 export interface PublicList {
