@@ -202,19 +202,21 @@ export function byteWindow(text: string, offset: number, length: number): { cont
 }
 
 /**
- * Whether a write joins the file's latest version instead of making a new
- * one: the same key (or, from the web, the same user with no key) wrote it
- * less than `windowMs` ago. A restore always makes its own version.
+ * Whether a save supersedes the file's latest version instead of standing
+ * beside it: the same key (or, from the web, the same user with no key)
+ * saved within `windowMs` of the start of that version's run. The window is
+ * anchored at the run's first save and never slides, so a steady save loop
+ * still leaves a version a minute. A restore or a copy always stands alone.
  */
 export function coalesces(
-  latest: { apiKeyId: string | null; userId: string; updatedAt: Date; op: string } | null,
+  latest: { apiKeyId: string | null; userId: string; runStartedAt: Date; op: string } | null,
   writer: { apiKeyId: string | null; userId: string; op: string },
   now: Date,
   windowMs: number,
 ): boolean {
   if (!latest || writer.op === 'restore' || latest.op === 'restore' || writer.op === 'copy') return false;
   if (latest.userId !== writer.userId || latest.apiKeyId !== writer.apiKeyId) return false;
-  return now.getTime() - latest.updatedAt.getTime() < windowMs;
+  return now.getTime() - latest.runStartedAt.getTime() < windowMs;
 }
 
 /**
@@ -227,22 +229,21 @@ export function billableBytes(blob: bigint, database: bigint, free: bigint): { b
   return { blob: blobBilled, database: database > left ? database - left : 0n };
 }
 
-/** `foo.md` → `foo (restored).md`; then ` (restored 2)`… until `taken` says no. */
-export function restoredName(path: string, taken: (candidate: string) => boolean): string {
+/** The `n`th name to try for something restored onto a taken path: `foo.md` → `foo (restored).md`, then `foo (restored 2).md`… */
+export function restoredCandidate(path: string, n: number): string {
   const parent = parentOf(path);
   const name = nameOf(path);
   const dot = name.lastIndexOf('.');
   const stem = dot > 0 ? name.slice(0, dot) : name;
   const ext = dot > 0 ? name.slice(dot) : '';
-  for (let n = 1; ; n += 1) {
-    const candidate = `${parent === '/' ? '' : parent}/${stem} (restored${n === 1 ? '' : ` ${n}`})${ext}`;
-    if (!taken(candidate)) return candidate;
-  }
+  return `${parent === '/' ? '' : parent}/${stem} (restored${n === 1 ? '' : ` ${n}`})${ext}`;
 }
 
 /** Display names for MCP clients' `clientInfo.name`; anything else is shown as sent. */
 const CLIENT_NAMES: Record<string, string> = {
   'claude-code': 'Claude Code',
+  'claude-cli': 'Claude Code',
+  codex_cli_rs: 'Codex',
   'claude-ai': 'claude.ai',
   'claude desktop': 'Claude Desktop',
   'codex-mcp-client': 'Codex',
@@ -263,4 +264,16 @@ export function cleanClientName(raw: unknown): string | null {
 export function clientLabel(name: string | null): string | null {
   if (!name) return null;
   return CLIENT_NAMES[name.toLowerCase()] ?? name;
+}
+
+/**
+ * The tool behind one request, from its User-Agent when that names a client
+ * the workspace knows (`claude-cli/1.0`, `codex_cli_rs/0.40`, `Cursor/1.6`):
+ * the server is stateless, so a later call cannot be tied to the
+ * `initialize` that named it, and two tools sharing a key would otherwise
+ * be told apart by nothing. Unknown agents give null.
+ */
+export function clientFromUserAgent(userAgent: string | null): string | null {
+  const product = userAgent?.trim().split(/[\s/]/)[0]?.toLowerCase() ?? '';
+  return product && Object.hasOwn(CLIENT_NAMES, product) ? cleanClientName(product) : null;
 }

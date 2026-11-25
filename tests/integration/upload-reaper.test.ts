@@ -82,8 +82,12 @@ suite('orphan upload reaper', () => {
     const keptObject = `workspace/${space!.id}/${keptSha}`;
     const orphanObject = `workspace/${space!.id}/${'b'.repeat(64)}`;
     const foreignObject = `workspace/${id()}/${'c'.repeat(64)}`;
+    /* A workspace deleted here (its account, by cascade): its tombstone makes its objects ours to remove. */
+    const [deleted] = await db().insert(schema.workspace).values({ ownerId: u, name: 'gone' }).returning();
+    await db().delete(schema.workspace).where(inArray(schema.workspace.id, [deleted!.id]));
+    const deletedObject = `workspace/${deleted!.id}/${'d'.repeat(64)}`;
 
-    blobs.listed.set('workspace/', [keptObject, orphanObject, foreignObject].map((pathname) => ({ pathname, uploadedAt: old })));
+    blobs.listed.set('workspace/', [keptObject, orphanObject, foreignObject, deletedObject].map((pathname) => ({ pathname, uploadedAt: old })));
     blobs.listed.set('knowledge/', [registered, orphanFile, foreignFile].map((pathname) => ({ pathname, uploadedAt: old })).concat({ pathname: recentFile, uploadedAt: recent }));
     blobs.listed.set('avatars/', [avatar, reeAvatar, draftAvatar, orphanAvatar].map((pathname) => ({ pathname, uploadedAt: old })));
     blobs.listed.set('ree-covers/', [keptCover, orphanCover, foreignCover].map((pathname) => ({ pathname, uploadedAt: old })));
@@ -91,7 +95,7 @@ suite('orphan upload reaper', () => {
     blobs.deleted = [];
 
     const removed = await purgeOrphanUploads(now);
-    expect(new Set(blobs.deleted)).toEqual(new Set([orphanFile, orphanAvatar, orphanCover, orphanImage, orphanThumb, orphanObject]));
-    expect(removed).toEqual({ 'knowledge/': 1, 'avatars/': 1, 'ree-covers/': 1, 'post-images/': 2, 'workspace/': 1 });
+    expect(new Set(blobs.deleted)).toEqual(new Set([orphanFile, orphanAvatar, orphanCover, orphanImage, orphanThumb, orphanObject, deletedObject]));
+    expect(removed).toEqual({ 'knowledge/': 1, 'avatars/': 1, 'ree-covers/': 1, 'post-images/': 2, 'workspace/': 2 });
   });
 });

@@ -35,6 +35,10 @@ import {
   WORKSPACE_GREP_SCAN_MAX,
   WORKSPACE_LIST_MAX,
   WORKSPACE_MOVE_MAX,
+  WORKSPACE_PATH_MAX,
+  WORKSPACE_APPEND_TOKENS,
+  WORKSPACE_GREP_TIMEOUT_MS,
+  WORKSPACE_SQUASHED_KEEP_MS,
   WORKSPACE_READ_MAX,
   WORKSPACE_REVISION_DAYS,
   WORKSPACE_REVISIONS_KEPT,
@@ -48,19 +52,16 @@ import {
   byteWindow,
   clientLabel,
   coalesces,
-  descendantsPattern,
   escapeRegex,
   globToRegex,
   isStorableText,
-  isWithin,
   lineCount,
   lineWindow,
   mediaTypeOf,
   nameOf,
   normalizePath,
   parentOf,
-  relativeToRoot,
-  restoredName,
+  restoredCandidate,
   underRoot,
 } from '@/lib/domain/workspace';
 import { storageCostPico } from '@/lib/domain/infra-cost';
@@ -143,9 +144,17 @@ export function resolvePath(scope: WorkspaceScope, raw: unknown, name = 'path'):
   return underRoot(scope.root, path);
 }
 
-/** An absolute path as the scope's caller sees it. */
+/**
+ * An absolute path as the scope's caller sees it. Every path that reaches
+ * here was found inside the root by SQL (`within`, `lower()` on both sides)
+ * or built from it (`resolvePath`), so the root's characters are cut off by
+ * count -- never compared again in JS, whose case folding and string length
+ * differ from Postgres's for some characters (final sigma, emoji).
+ */
 export function shown(scope: WorkspaceScope, path: string): string {
-  return relativeToRoot(scope.root, path) ?? path;
+  if (scope.root === '/') return path;
+  const rest = Array.from(path).slice(Array.from(scope.root).length).join('');
+  return rest === '' ? '/' : rest;
 }
 
 function requireWriteAccess(scope: WorkspaceScope): void {
@@ -156,7 +165,22 @@ function requireWriteAccess(scope: WorkspaceScope): void {
 
 const live = (scope: WorkspaceScope) => and(eq(schema.workspaceEntry.workspaceId, scope.workspaceId), isNull(schema.workspaceEntry.deletedAt));
 const samePath = (path: string) => sql`lower(${schema.workspaceEntry.path}) = lower(${path})`;
-const under = (folder: string) => sql`lower(${schema.workspaceEntry.path}) like ${descendantsPattern(folder)}`;
+/** Everything below `folder`, matched in SQL alone: the LIKE pattern is escaped as written and lowered by Postgres, like the path it meets. */
+const under = (folder: string, column: SQL = sql`${schema.workspaceEntry.path}`) => sql`lower(${column}) like lower(${likeBelow(folder)})`;
+/** `folder` itself or anything below it. */
+const within = (folder: string, column: SQL = sql`${schema.workspaceEntry.path}`) => (folder === '/' ? sql`true` : sql`(lower(${column}) = lower(${folder}) or ${under(folder, column)})`);
+/** A path below `folder`, relative to it and without the leading slash, cut in SQL by character count. */
+const below = (folder: string, column: SQL = sql`${schema.workspaceEntry.path}`) => (folder === '/' ? sql`substr(${column}, 2)` : sql`substr(${column}, char_length(${folder}) + 2)`);
+
+function likeBelow(folder: string): string {
+  return folder === '/' ? '/%' : `${folder.replace(/[\\%_]/g, (c) => `\\${c}`)}/%`;
+}
+
+/** A yes-or-no question for Postgres, so path comparisons follow its rules and nobody else's. */
+async function ask(executor: Executor, question: SQL): Promise<boolean> {
+  const result = await executor.execute<{ yes: boolean }>(sql`select (${question}) as yes`);
+  return Boolean(result.rows[0]?.yes);
+}
 
 async function liveEntry(executor: Executor, scope: WorkspaceScope, path: string, lock = false): Promise<Entry | null> {
   const query = executor.select().from(schema.workspaceEntry).where(and(live(scope), samePath(path))).limit(1);
@@ -171,8 +195,9 @@ async function existing(executor: Executor, scope: WorkspaceScope, path: string,
   throw new WorkspaceError('not_found', `Nothing at ${shown(scope, path)}.`, { path: shown(scope, path) });
 }
 
+/** Whether a resolved path is the scope's root: every path is the root joined with what the caller named, so `/` resolves to the root exactly. */
 function isRootOf(scope: WorkspaceScope, path: string): boolean {
-  return path.toLowerCase() === scope.root.toLowerCase();
+  return path === scope.root;
 }
 
 /* ------------------------------------------------------------------ the meter */
@@ -235,24 +260,35 @@ async function debtOf(userId: string): Promise<number> {
   return Number(row?.owed ?? 0);
 }
 
-/** One change, under the owner's usage lock, after the debt and daily-writes checks. */
-async function mutate<T>(scope: WorkspaceScope, work: (tx: Tx, meter: Meter, now: Date) => Promise<T>, now = new Date()): Promise<T> {
+/**
+ * One change, under the owner's usage lock. A change that stores more (any
+ * write) first passes the debt and daily-writes checks; one that only frees
+ * space (to the trash, deleting for good) never does: reading and deleting
+ * always work (docs/design/agent-workspace.md §6), so an owner in debt can
+ * still stop paying for storage.
+ */
+async function mutate<T>(scope: WorkspaceScope, work: (tx: Tx, meter: Meter, now: Date) => Promise<T>, options: { stores?: boolean } = {}, now = new Date()): Promise<T> {
   requireWriteAccess(scope);
-  const limit = await effectiveCeiling('workspaceDebtLimit');
-  const owed = await debtOf(scope.userId);
-  if (owed > limit) {
-    throw new WorkspaceError('insufficient_credits', `Writing is paused while the account owes ${owed} credits (more than ${limit}). Top up to pay the debt; reading and deleting files still work.`, { debt: owed, limit });
+  const stores = options.stores ?? true;
+  if (stores) {
+    const limit = await effectiveCeiling('workspaceDebtLimit');
+    const owed = await debtOf(scope.userId);
+    if (owed > limit) {
+      throw new WorkspaceError('insufficient_credits', `Writing is paused while the account owes ${owed} credits (more than ${limit}). Top up to pay the debt; reading and deleting files still work.`, { debt: owed, limit });
+    }
   }
   const perDay = await effectiveCeiling('workspaceWritesPerDay');
   return db().transaction(async (tx) => {
     const usage = await lockUsage(tx, scope.userId);
-    /* Writes a day, on the locked row: exact under concurrency, and kept the whole day (rate buckets are cleared hourly). */
-    const today = now.toISOString().slice(0, 10);
-    const writes = usage.writesDay === today ? usage.writes : 0;
-    if (writes >= perDay) {
-      throw new WorkspaceError('limit_reached', `This workspace has had ${perDay} writes today, the daily limit. It resets at 00:00 UTC.`, { limit: perDay });
+    if (stores) {
+      /* Writes a day, on the locked row: exact under concurrency, and kept the whole day (rate buckets are cleared hourly). */
+      const today = now.toISOString().slice(0, 10);
+      const writes = usage.writesDay === today ? usage.writes : 0;
+      if (writes >= perDay) {
+        throw new WorkspaceError('limit_reached', `This workspace has had ${perDay} writes today, the daily limit. It resets at 00:00 UTC; deleting still works.`, { limit: perDay });
+      }
+      await tx.update(schema.workspaceUsage).set({ writesDay: today, writes: writes + 1 }).where(eq(schema.workspaceUsage.userId, scope.userId));
     }
-    await tx.update(schema.workspaceUsage).set({ writesDay: today, writes: writes + 1 }).where(eq(schema.workspaceUsage.userId, scope.userId));
     const meter = new Meter(usage, now);
     const result = await work(tx, meter, now);
     await meter.save(tx);
@@ -276,9 +312,7 @@ async function addRef(tx: Tx, meter: Meter, workspaceId: string, sha: string, by
     await tx.update(schema.workspaceBlob).set({ refs: row.refs + 1 }).where(and(eq(schema.workspaceBlob.workspaceId, workspaceId), eq(schema.workspaceBlob.sha256, sha)));
     return;
   }
-  if (meter.blob + bytes.length > WORKSPACE_BYTES_MAX) {
-    throw new WorkspaceError('quota_exceeded', `The account's workspace storage is full (${Math.round(WORKSPACE_BYTES_MAX / MB)} MB, every kept version counted). Delete files or empty the trash first.`);
-  }
+  checkRoom(meter, bytes.length);
   /* Put again even for a released row: the purge may have deleted the object before its transaction failed. */
   await putWorkspaceObject(workspaceObjectPath(workspaceId, sha), bytes, `${mediaType}; charset=utf-8`);
   if (row) await tx.update(schema.workspaceBlob).set({ refs: 1, releasedAt: null }).where(and(eq(schema.workspaceBlob.workspaceId, workspaceId), eq(schema.workspaceBlob.sha256, sha)));
@@ -294,6 +328,13 @@ async function dropRef(tx: Tx, meter: Meter, workspaceId: string, sha: string, n
     .where(and(eq(schema.workspaceBlob.workspaceId, workspaceId), eq(schema.workspaceBlob.sha256, sha), sql`${schema.workspaceBlob.refs} > 0`))
     .returning({ refs: schema.workspaceBlob.refs, size: schema.workspaceBlob.size });
   if (row && row.refs === 0) meter.blob -= row.size;
+}
+
+/** Room for `more` bytes, Blob and database together: copies share their object but each keeps its own text. */
+function checkRoom(meter: Meter, more: number): void {
+  if (more > 0 && meter.blob + meter.database + more > WORKSPACE_BYTES_MAX) {
+    throw new WorkspaceError('quota_exceeded', `The account's workspace storage is full (${Math.round(WORKSPACE_BYTES_MAX / MB)} MB, every kept version and every file's text counted). Delete files or empty the trash first.`);
+  }
 }
 
 async function bumpEntries(meter: Meter, by: number): Promise<void> {
@@ -351,29 +392,42 @@ async function putText(
     return { entry: current, changed: false, created: false };
   }
   const mediaType = mediaTypeOf(path);
+  checkRoom(meter, bytes.length - byteLength(current.text ?? ''));
   await addRef(tx, meter, scope.workspaceId, sha, bytes, mediaType);
-  let revisionId: string;
+  /*
+   * Every save is a version of its own, so an id once returned always names
+   * the same content. A save by the same key within WORKSPACE_COALESCE_MS of
+   * the start of the latest version's run supersedes it: that one leaves the
+   * history (`squashed_into`) and goes at the purge, and the run keeps its
+   * start, so a steady save loop still makes a new visible version a minute.
+   */
   const [latest] = await tx
     .select()
     .from(schema.workspaceRevision)
-    .where(eq(schema.workspaceRevision.entryId, current.id))
-    .orderBy(desc(schema.workspaceRevision.updatedAt), desc(schema.workspaceRevision.id))
+    .where(and(eq(schema.workspaceRevision.entryId, current.id), isNull(schema.workspaceRevision.squashedInto)))
+    .orderBy(desc(schema.workspaceRevision.createdAt), desc(schema.workspaceRevision.id))
     .limit(1)
     .for('update');
-  if (latest && coalesces(latest, { apiKeyId: scope.apiKeyId, userId: scope.userId, op }, now, WORKSPACE_COALESCE_MS)) {
-    await tx
-      .update(schema.workspaceRevision)
-      .set({ sha256: sha, size: bytes.length, op: latest.op === op ? op : 'write', clientName: scope.client, saves: latest.saves + 1, updatedAt: now })
-      .where(eq(schema.workspaceRevision.id, latest.id));
-    await dropRef(tx, meter, scope.workspaceId, latest.sha256, now);
-    revisionId = latest.id;
-  } else {
-    const [made] = await tx
-      .insert(schema.workspaceRevision)
-      .values({ entryId: current.id, workspaceId: scope.workspaceId, sha256: sha, size: bytes.length, op, userId: scope.userId, apiKeyId: scope.apiKeyId, clientName: scope.client, createdAt: now, updatedAt: now })
-      .returning({ id: schema.workspaceRevision.id });
-    revisionId = made!.id;
-  }
+  const merges = Boolean(latest && coalesces(latest, { apiKeyId: scope.apiKeyId, userId: scope.userId, op }, now, WORKSPACE_COALESCE_MS));
+  const [made] = await tx
+    .insert(schema.workspaceRevision)
+    .values({
+      entryId: current.id,
+      workspaceId: scope.workspaceId,
+      sha256: sha,
+      size: bytes.length,
+      op: merges && latest!.op !== op ? 'write' : op,
+      userId: scope.userId,
+      apiKeyId: scope.apiKeyId,
+      clientName: scope.client,
+      saves: merges ? latest!.saves + 1 : 1,
+      runStartedAt: merges ? latest!.runStartedAt : now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: schema.workspaceRevision.id });
+  const revisionId = made!.id;
+  if (merges) await tx.update(schema.workspaceRevision).set({ squashedInto: revisionId }).where(eq(schema.workspaceRevision.id, latest!.id));
   const values = {
     size: bytes.length,
     sha256: sha,
@@ -439,9 +493,9 @@ function view(scope: WorkspaceScope, entry: Entry): EntryView {
  * searched (`docs/*.md`); without one, the entry's own name at any depth
  * (`*.md`), as ripgrep and most tools read it.
  */
-function globMatches(path: SQL, base: number, glob: string): SQL {
+function globMatches(path: SQL, folder: string, glob: string): SQL {
   const regex = globToRegex(glob);
-  return glob.includes('/') ? sql`substr(${path}, ${base + 1}) ~ ${regex}` : sql`regexp_replace(${path}, '^.*/', '') ~ ${regex}`;
+  return glob.includes('/') ? sql`${below(folder, path)} ~ ${regex}` : sql`regexp_replace(${path}, '^.*/', '') ~ ${regex}`;
 }
 
 export interface ListInput {
@@ -461,24 +515,24 @@ export async function listEntries(scope: WorkspaceScope, input: ListInput) {
     if (entry.kind !== 'folder') throw new WorkspaceError('not_a_directory', `${shown(scope, folder)} is a file; read it with ws_read.`, { path: shown(scope, folder) });
   }
   const limit = Math.min(Math.max(input.limit ?? 200, 1), WORKSPACE_LIST_MAX);
-  const base = folder === '/' ? 1 : folder.length + 1;
   const conditions: SQL[] = [eq(schema.workspaceEntry.workspaceId, scope.workspaceId), under(folder)];
   conditions.push(input.trash ? isNotNull(schema.workspaceEntry.deletedAt) : isNull(schema.workspaceEntry.deletedAt));
-  if (!input.recursive && !input.trash) conditions.push(sql`position('/' in substr(${schema.workspaceEntry.path}, ${base + 1})) = 0`);
-  if (input.pattern) conditions.push(globMatches(sql`${schema.workspaceEntry.path}`, base, input.pattern));
-  if (input.cursor) conditions.push(sql`lower(${schema.workspaceEntry.path}) > ${input.cursor.toLowerCase()}`);
-  const rows = await db()
-    .select()
+  if (!input.recursive && !input.trash) conditions.push(sql`position('/' in ${below(folder)}) = 0`);
+  if (input.pattern) conditions.push(globMatches(sql`${schema.workspaceEntry.path}`, folder, input.pattern));
+  /* The cursor is the last row's lowered path as Postgres lowered it. */
+  if (input.cursor) conditions.push(sql`lower(${schema.workspaceEntry.path}) > ${input.cursor}`);
+  const found = await db()
+    .select({ row: schema.workspaceEntry, sort: sql<string>`lower(${schema.workspaceEntry.path})` })
     .from(schema.workspaceEntry)
     .where(and(...conditions))
     .orderBy(sql`lower(${schema.workspaceEntry.path})`, asc(schema.workspaceEntry.id))
     .limit(limit + 1);
-  const page = rows.slice(0, limit);
-  const more = rows.length > limit;
+  const page = found.slice(0, limit);
+  const more = found.length > limit;
   return {
     path: shown(scope, folder),
-    entries: page.map((row): EntryView & { trash_id?: string; deleted_at?: Date | null } => (input.trash ? { ...view(scope, row), trash_id: row.id, deleted_at: row.deletedAt } : view(scope, row))),
-    next_cursor: more ? page[page.length - 1]!.path.toLowerCase() : null,
+    entries: page.map(({ row }): EntryView & { trash_id?: string; deleted_at?: Date | null } => (input.trash ? { ...view(scope, row), trash_id: row.id, deleted_at: row.deletedAt } : view(scope, row))),
+    next_cursor: more ? page[page.length - 1]!.sort : null,
   };
 }
 
@@ -489,7 +543,10 @@ export async function statEntry(scope: WorkspaceScope, rawPath: unknown) {
     if (!entry) return { path: '/', name: '/', kind: 'folder' as const, size: 0, etag: null, media_type: null, lines: null, updated_at: null, updated_by: null, versions: 0, children: 0 };
   }
   const entry = await existing(db(), scope, path);
-  const [{ versions } = { versions: 0 }] = await db().select({ versions: sql<number>`count(*)::int` }).from(schema.workspaceRevision).where(eq(schema.workspaceRevision.entryId, entry.id));
+  const [{ versions } = { versions: 0 }] = await db()
+    .select({ versions: sql<number>`count(*)::int` })
+    .from(schema.workspaceRevision)
+    .where(and(eq(schema.workspaceRevision.entryId, entry.id), isNull(schema.workspaceRevision.squashedInto)));
   const [{ children } = { children: 0 }] =
     entry.kind === 'folder'
       ? await db().select({ children: sql<number>`count(*)::int` }).from(schema.workspaceEntry).where(and(live(scope), under(entry.path)))
@@ -581,8 +638,8 @@ export async function fileHistory(scope: WorkspaceScope, input: { path: string; 
   const rows = await db()
     .select()
     .from(schema.workspaceRevision)
-    .where(eq(schema.workspaceRevision.entryId, entry.id))
-    .orderBy(desc(schema.workspaceRevision.updatedAt), desc(schema.workspaceRevision.id))
+    .where(and(eq(schema.workspaceRevision.entryId, entry.id), isNull(schema.workspaceRevision.squashedInto)))
+    .orderBy(desc(schema.workspaceRevision.createdAt), desc(schema.workspaceRevision.id))
     .limit(limit + 1)
     .offset(offset);
   return {
@@ -617,33 +674,44 @@ const GREP_LINE_MAX = 400;
 /**
  * Lines matching a pattern (a POSIX regular expression, or literal text)
  * in the text files below `path`, by path and line. Postgres runs the match,
- * under a statement timeout, so a pathological pattern costs the database a
- * few seconds and never this process. At most WORKSPACE_GREP_SCAN_MAX bytes
- * of files are searched (`partial` past that).
+ * within WORKSPACE_GREP_TIMEOUT_MS, so a pathological pattern costs the
+ * database a few seconds and never this process. The files to search are
+ * picked by size alone first (at most WORKSPACE_GREP_SCAN_MAX bytes,
+ * `partial` past that), only those texts are read, a file that does not
+ * match as a whole is never split into lines, and the scan stops at the
+ * first `limit` + 1 matching lines.
  */
 export async function grepFiles(scope: WorkspaceScope, input: GrepInput) {
   if (!input.pattern) throw new WorkspaceError('invalid_input', 'Give a pattern to search for.', { reason: 'empty_pattern' });
   const folder = resolvePath(scope, input.path ?? '/');
   const limit = Math.min(Math.max(input.limit ?? 100, 1), WORKSPACE_GREP_HITS_MAX);
   const context = Math.min(Math.max(input.context ?? 0, 0), 5);
-  const base = folder === '/' ? 1 : folder.length + 1;
-  const scope_ = sql`e.workspace_id = ${scope.workspaceId} and e.deleted_at is null and e.kind = 'file' and e.text is not null and (lower(e.path) = lower(${folder}) or lower(e.path) like ${descendantsPattern(folder)})`;
-  const glob = input.glob ? sql`and ${globMatches(sql`e.path`, base, input.glob)}` : sql``;
+  const candidates = sql`e.workspace_id = ${scope.workspaceId} and e.deleted_at is null and e.kind = 'file' and e.text is not null and ${within(folder, sql`e.path`)}`;
+  const glob = input.glob ? sql`and ${globMatches(sql`e.path`, folder, input.glob)}` : sql``;
   const source = input.literal ? escapeRegex(input.pattern) : input.pattern;
-  const match = input.ignoreCase ? sql`l.line ~* ${source}` : sql`l.line ~ ${source}`;
+  const op = input.ignoreCase ? sql.raw('~*') : sql.raw('~');
+  /*
+   * A whole file is matched first, newline-sensitively (`(?n)`: ^ and $ at
+   * each line, as the line match sees them), so a file without a match is
+   * never split; a pattern with its own embedded options skips that.
+   */
+  const prefilter = /^(\(\?|\*\*\*)/.test(source) ? sql`true` : sql`f.text ${op} ${`(?n)${source}`}`;
   let rows: { id: string; path: string; n: number; line: string; partial: boolean }[];
   try {
     rows = await db().transaction(async (tx) => {
-      await tx.execute(sql`set local statement_timeout = '8s'`);
+      await tx.execute(sql.raw(`set local statement_timeout = '${WORKSPACE_GREP_TIMEOUT_MS}ms'`));
       const result = await tx.execute<{ id: string; path: string; n: string; line: string; partial: boolean }>(sql`
-        with files as (
-          select e.id, e.path, e.text, sum(e.size) over (order by lower(e.path), e.id) as running
+        with sized as (
+          select e.id, sum(e.size) over (order by lower(e.path), e.id) as running
           from ${schema.workspaceEntry} e
-          where ${scope_} ${glob}
-        ), scanned as (select * from files where running <= ${WORKSPACE_GREP_SCAN_MAX})
-        select f.id, f.path, l.n, left(l.line, ${GREP_LINE_MAX}) as line, exists (select 1 from files where running > ${WORKSPACE_GREP_SCAN_MAX}) as partial
-        from scanned f, regexp_split_to_table(f.text, E'\\n') with ordinality as l(line, n)
-        where ${match}
+          where ${candidates} ${glob}
+        ), picked as (select id from sized where running <= ${WORKSPACE_GREP_SCAN_MAX}),
+        partial as (select exists (select 1 from sized where running > ${WORKSPACE_GREP_SCAN_MAX}) as partial)
+        select f.id, f.path, l.n, left(l.line, ${GREP_LINE_MAX}) as line, (select partial from partial) as partial
+        from ${schema.workspaceEntry} f
+        join picked on picked.id = f.id
+        cross join lateral regexp_split_to_table(f.text, E'\\n') with ordinality as l(line, n)
+        where ${prefilter} and l.line ${op} ${source}
         order by lower(f.path), l.n
         limit ${limit + 1}`);
       return result.rows.map((row) => ({ ...row, n: Number(row.n) }));
@@ -718,9 +786,10 @@ export async function appendFile(scope: WorkspaceScope, input: { path: string; c
   return mutate(scope, async (tx, meter, now) => {
     const entry = await liveEntry(tx, scope, path, true);
     if (entry?.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder.`, { path: shown(scope, path) });
-    if (entry && input.clientToken && entry.appendToken === input.clientToken) return { ...result(scope, { entry, changed: false, created: false }), repeated: true };
+    /* A token among the file's recent ones is a retry of an append that landed, whoever appended since. */
+    if (entry && input.clientToken && entry.appendTokens.includes(input.clientToken)) return { ...result(scope, { entry, changed: false, created: false }), repeated: true };
     await ensureFolder(tx, meter, scope, parentOf(path), now);
-    const extra = input.clientToken ? { appendToken: input.clientToken } : {};
+    const extra = input.clientToken ? { appendTokens: [...(entry?.appendTokens ?? []), input.clientToken].slice(-WORKSPACE_APPEND_TOKENS) } : {};
     const written = entry
       ? await putText(tx, meter, scope, path, entry, (entry.text ?? '') + input.content, 'append', now, extra)
       : await createFile(tx, meter, scope, path, input.content, 'append', now, extra);
@@ -758,6 +827,19 @@ export async function makeFolder(scope: WorkspaceScope, input: { path: string })
   });
 }
 
+/** A path below `from` with `from` replaced by `to`, cut by Postgres's character count (a JS length counts an emoji twice). */
+function renamed(from: string, to: string): SQL {
+  return sql`${to} || substr(${schema.workspaceEntry.path}, char_length(${from}) + 1)`;
+}
+
+/** Refuses a folder move or restore that would push a path inside past WORKSPACE_PATH_MAX bytes. */
+async function checkRenamedLengths(tx: Tx, scope: WorkspaceScope, rows: SQL, from: string, to: string): Promise<void> {
+  const [row] = await tx.select({ longest: sql<number>`coalesce(max(octet_length(${renamed(from, to)})), 0)::int` }).from(schema.workspaceEntry).where(rows);
+  if ((row?.longest ?? 0) > WORKSPACE_PATH_MAX) {
+    throw new WorkspaceError('invalid_path', `A path inside would be ${row!.longest} bytes at ${shown(scope, to)}, longer than the ${WORKSPACE_PATH_MAX} a path may be. Pick a shorter name or move less deep.`, { reason: 'path_too_long', longest: row!.longest, max: WORKSPACE_PATH_MAX });
+  }
+}
+
 /** Moves or renames a file or folder (everything inside a folder goes with it). */
 export async function moveEntry(scope: WorkspaceScope, input: { from: string; to: string; overwrite?: boolean; ifMatch?: string }) {
   const from = resolvePath(scope, input.from, 'from');
@@ -767,8 +849,8 @@ export async function moveEntry(scope: WorkspaceScope, input: { from: string; to
   return mutate(scope, async (tx, meter, now) => {
     const source = await existing(tx, scope, from, true);
     checkMatch(scope, from, source, input.ifMatch);
-    const sameEntry = from.toLowerCase() === to.toLowerCase();
-    if (!sameEntry && source.kind === 'folder' && isWithin(to, source.path)) {
+    const sameEntry = await ask(tx, sql`lower(${from}) = lower(${to})`);
+    if (!sameEntry && source.kind === 'folder' && (await ask(tx, within(source.path, sql`${to}::text`)))) {
       throw new WorkspaceError('invalid_input', 'A folder cannot be moved into itself.', { reason: 'into_itself' });
     }
     if (!sameEntry) {
@@ -786,9 +868,10 @@ export async function moveEntry(scope: WorkspaceScope, input: { from: string; to
     if (source.kind === 'folder') {
       const [{ count } = { count: 0 }] = await tx.select({ count: sql<number>`count(*)::int` }).from(schema.workspaceEntry).where(and(live(scope), under(source.path)));
       if (count + 1 > WORKSPACE_MOVE_MAX) throw new WorkspaceError('too_large', `The folder holds ${count} entries; one move takes at most ${WORKSPACE_MOVE_MAX}. Move its subfolders one at a time.`, { entries: count });
+      await checkRenamedLengths(tx, scope, and(live(scope), under(source.path))!, source.path, to);
       await tx
         .update(schema.workspaceEntry)
-        .set({ path: sql`${to} || substr(${schema.workspaceEntry.path}, ${source.path.length + 1})`, updatedAt: now })
+        .set({ path: renamed(source.path, to), updatedAt: now })
         .where(and(live(scope), under(source.path)));
       moved += count;
     }
@@ -816,7 +899,9 @@ export async function copyFile(scope: WorkspaceScope, input: { from: string; to:
 export async function trashEntry(scope: WorkspaceScope, input: { path: string; ifMatch?: string }) {
   const path = resolvePath(scope, input.path);
   noRootWrite(scope, path);
-  return mutate(scope, async (tx, _meter, now) => {
+  return mutate(
+    scope,
+    async (tx, _meter, now) => {
     const entry = await existing(tx, scope, path, true);
     checkMatch(scope, path, entry, input.ifMatch);
     const inside = entry.kind === 'folder'
@@ -824,7 +909,9 @@ export async function trashEntry(scope: WorkspaceScope, input: { path: string; i
       : [];
     await tx.update(schema.workspaceEntry).set({ deletedAt: now }).where(eq(schema.workspaceEntry.id, entry.id));
     return { path: shown(scope, path), trash_id: entry.id, deleted: inside.length + 1, purge_after_days: WORKSPACE_TRASH_DAYS };
-  });
+    },
+    { stores: false },
+  );
 }
 
 /**
@@ -850,41 +937,55 @@ export async function restoreEntry(scope: WorkspaceScope, input: { path?: string
     let target: Entry | undefined;
     if (input.trashId) {
       if (/^[0-9a-f-]{36}$/i.test(input.trashId)) {
-        [target] = await tx.select().from(schema.workspaceEntry).where(and(eq(schema.workspaceEntry.id, input.trashId), eq(schema.workspaceEntry.workspaceId, scope.workspaceId), isNotNull(schema.workspaceEntry.deletedAt))).for('update');
+        [target] = await tx
+          .select()
+          .from(schema.workspaceEntry)
+          .where(and(eq(schema.workspaceEntry.id, input.trashId), eq(schema.workspaceEntry.workspaceId, scope.workspaceId), isNotNull(schema.workspaceEntry.deletedAt), within(scope.root)))
+          .for('update');
       }
     } else if (input.path) {
       const path = resolvePath(scope, input.path);
       [target] = await tx
         .select()
         .from(schema.workspaceEntry)
-        .where(and(eq(schema.workspaceEntry.workspaceId, scope.workspaceId), isNotNull(schema.workspaceEntry.deletedAt), samePath(path)))
+        .where(and(eq(schema.workspaceEntry.workspaceId, scope.workspaceId), isNotNull(schema.workspaceEntry.deletedAt), samePath(path), within(scope.root)))
         .orderBy(desc(schema.workspaceEntry.deletedAt))
         .limit(1)
         .for('update');
     } else {
       throw new WorkspaceError('invalid_input', 'Name what to restore: path or trash_id (from ws_list with trash: true), and revision for an older version.', { reason: 'nothing_named' });
     }
-    if (!target || relativeToRoot(scope.root, target.path) === null) throw new WorkspaceError('not_found', 'Nothing like that in the trash.', {});
+    if (!target) throw new WorkspaceError('not_found', 'Nothing like that in the trash.', {});
     const deletedAt = target.deletedAt!;
     let destination = target.path;
     if (await liveEntry(tx, scope, destination)) {
-      const siblings = await tx.select({ path: schema.workspaceEntry.path }).from(schema.workspaceEntry).where(and(live(scope), under(parentOf(destination))));
-      const taken = new Set(siblings.map((row) => row.path.toLowerCase()));
-      destination = restoredName(destination, (candidate) => taken.has(candidate.toLowerCase()));
+      /* A key's own root was deleted and made again: a renamed copy would land beside the root, outside it. */
+      if (scope.root !== '/' && (await ask(tx, sql`lower(${target.path}) = lower(${scope.root})`))) {
+        throw new WorkspaceError('exists', 'The folder this key works in was deleted and has been made again; restore what you need from it one entry at a time, or empty "/" first.', { reason: 'root_exists' });
+      }
+      destination = await freeName(tx, scope, destination);
     }
     await ensureFolder(tx, meter, scope, parentOf(destination), now);
     let restored = 1;
     if (target.kind === 'folder') {
-      const rows = await tx
-        .update(schema.workspaceEntry)
-        .set({ deletedAt: null, path: sql`${destination} || substr(${schema.workspaceEntry.path}, ${target.path.length + 1})` })
-        .where(and(eq(schema.workspaceEntry.workspaceId, scope.workspaceId), eq(schema.workspaceEntry.deletedAt, deletedAt), under(target.path)))
-        .returning({ id: schema.workspaceEntry.id });
+      const inside = and(eq(schema.workspaceEntry.workspaceId, scope.workspaceId), eq(schema.workspaceEntry.deletedAt, deletedAt), under(target.path))!;
+      await checkRenamedLengths(tx, scope, inside, target.path, destination);
+      const rows = await tx.update(schema.workspaceEntry).set({ deletedAt: null, path: renamed(target.path, destination) }).where(inside).returning({ id: schema.workspaceEntry.id });
       restored += rows.length;
     }
     await tx.update(schema.workspaceEntry).set({ deletedAt: null, path: destination, updatedAt: now }).where(eq(schema.workspaceEntry.id, target.id));
     return { path: shown(scope, destination), restored, renamed: destination !== target.path };
   });
+}
+
+/** `foo.md` taken: `foo (restored).md`, then ` (restored 2)`…, each asked of Postgres, so "taken" means what the unique index means. */
+async function freeName(tx: Tx, scope: WorkspaceScope, path: string): Promise<string> {
+  for (let n = 1; n <= 100; n += 1) {
+    const candidate = restoredCandidate(path, n);
+    if (byteLength(candidate) > WORKSPACE_PATH_MAX) break;
+    if (!(await liveEntry(tx, scope, candidate))) return candidate;
+  }
+  throw new WorkspaceError('exists', `${shown(scope, path)} is taken and no free " (restored)" name is left.`, { path: shown(scope, path) });
 }
 
 /* ------------------------------------------------------------------ the web's own */
@@ -903,9 +1004,15 @@ async function destroy(tx: Tx, meter: Meter, workspaceId: string, ids: readonly 
 /** The owner empties part of the trash: these entries (and what was deleted with a folder among them). */
 export async function purgeTrashed(scope: WorkspaceScope, trashIds: readonly string[]) {
   const ids = trashIds.filter((id) => /^[0-9a-f-]{36}$/i.test(id));
-  return mutate(scope, async (tx, meter, now) => {
+  return mutate(
+    scope,
+    async (tx, meter, now) => {
     const rows = ids.length
-      ? await tx.select().from(schema.workspaceEntry).where(and(eq(schema.workspaceEntry.workspaceId, scope.workspaceId), isNotNull(schema.workspaceEntry.deletedAt), inArray(schema.workspaceEntry.id, ids))).for('update')
+      ? await tx
+          .select()
+          .from(schema.workspaceEntry)
+          .where(and(eq(schema.workspaceEntry.workspaceId, scope.workspaceId), isNotNull(schema.workspaceEntry.deletedAt), inArray(schema.workspaceEntry.id, ids), within(scope.root)))
+          .for('update')
       : [];
     const all = new Set(rows.map((row) => row.id));
     for (const row of rows.filter((row) => row.kind === 'folder')) {
@@ -916,7 +1023,9 @@ export async function purgeTrashed(scope: WorkspaceScope, trashIds: readonly str
       for (const item of inside) all.add(item.id);
     }
     return { purged: await destroy(tx, meter, scope.workspaceId, [...all], now) };
-  });
+    },
+    { stores: false },
+  );
 }
 
 /** The account's storage as the web shows it. */
@@ -932,21 +1041,25 @@ export async function workspaceUsageOf(userId: string) {
 /**
  * The daily purge (`/api/cron/purge-trash`): trashed entries older than
  * WORKSPACE_TRASH_DAYS; versions older than WORKSPACE_REVISION_DAYS beyond a
- * file's latest WORKSPACE_REVISIONS_KEPT (never the current one); and the
- * objects no version names any more. One owner at a time, under their usage
- * lock, a bounded batch each.
+ * file's latest WORKSPACE_REVISIONS_KEPT (never the current one); versions a
+ * later save superseded, once WORKSPACE_SQUASHED_KEEP_MS old; and the objects
+ * no version names any more. Accounts take turns by `purged_at` (never
+ * visited first), `limit` a run, one at a time under their usage lock, so
+ * every account is reached however many there are. Deleted workspaces'
+ * tombstones go after WORKSPACE_TRASH_DAYS, when the orphan sweep has long
+ * removed their objects.
  */
-export async function purgeWorkspaces(now = new Date(), limit = 500): Promise<{ entries: number; revisions: number; objects: number }> {
+export async function purgeWorkspaces(now = new Date(), limit = 500): Promise<{ accounts: number; entries: number; revisions: number; objects: number }> {
   const trashCutoff = new Date(now.getTime() - WORKSPACE_TRASH_DAYS * 86_400_000);
   const revisionCutoff = new Date(now.getTime() - WORKSPACE_REVISION_DAYS * 86_400_000);
-  const owners = await db().execute<{ owner_id: string }>(sql`
-    select distinct w.owner_id from ${schema.workspace} w
-    where exists (select 1 from ${schema.workspaceEntry} e where e.workspace_id = w.id and e.deleted_at < ${trashCutoff})
-       or exists (select 1 from ${schema.workspaceRevision} r where r.workspace_id = w.id and r.updated_at < ${revisionCutoff})
-       or exists (select 1 from ${schema.workspaceBlob} b where b.workspace_id = w.id and b.refs = 0)
-    limit ${limit}`);
-  const totals = { entries: 0, revisions: 0, objects: 0 };
-  for (const { owner_id: userId } of owners.rows) {
+  const squashedCutoff = new Date(now.getTime() - WORKSPACE_SQUASHED_KEEP_MS);
+  const accounts = await db()
+    .select({ userId: schema.workspaceUsage.userId })
+    .from(schema.workspaceUsage)
+    .orderBy(sql`${schema.workspaceUsage.purgedAt} asc nulls first`, asc(schema.workspaceUsage.userId))
+    .limit(limit);
+  const totals = { accounts: 0, entries: 0, revisions: 0, objects: 0 };
+  for (const { userId } of accounts) {
     const gone: string[] = [];
     try {
       await db().transaction(async (tx) => {
@@ -957,15 +1070,18 @@ export async function purgeWorkspaces(now = new Date(), limit = 500): Promise<{ 
             .select({ id: schema.workspaceEntry.id })
             .from(schema.workspaceEntry)
             .where(and(eq(schema.workspaceEntry.workspaceId, workspaceId), lt(schema.workspaceEntry.deletedAt, trashCutoff)))
-            .limit(limit);
+            .limit(5_000);
           totals.entries += await destroy(tx, meter, workspaceId, old.map((row) => row.id), now);
           const stale = await tx.execute<{ id: string; sha256: string }>(sql`
+            select r.id, r.sha256 from ${schema.workspaceRevision} r
+            where r.workspace_id = ${workspaceId} and r.squashed_into is not null and r.updated_at < ${squashedCutoff}
+            union all
             select r.id, r.sha256 from (
-              select r.*, row_number() over (partition by r.entry_id order by r.updated_at desc, r.id desc) as rank
-              from ${schema.workspaceRevision} r where r.workspace_id = ${workspaceId}
+              select r.*, row_number() over (partition by r.entry_id order by r.created_at desc, r.id desc) as rank
+              from ${schema.workspaceRevision} r where r.workspace_id = ${workspaceId} and r.squashed_into is null
             ) r join ${schema.workspaceEntry} e on e.id = r.entry_id
             where r.updated_at < ${revisionCutoff} and r.rank > ${WORKSPACE_REVISIONS_KEPT} and r.id is distinct from e.current_revision_id
-            limit ${limit}`);
+            limit 5000`);
           for (const row of stale.rows) await dropRef(tx, meter, workspaceId, row.sha256, now);
           if (stale.rows.length) {
             await tx.delete(schema.workspaceRevision).where(inArray(schema.workspaceRevision.id, stale.rows.map((row) => row.id)));
@@ -980,12 +1096,15 @@ export async function purgeWorkspaces(now = new Date(), limit = 500): Promise<{ 
         /* Still under the lock: a write that would name one of these again waits, then puts its object anew. */
         await deleteWorkspaceObjects(gone);
         await meter.save(tx);
+        await tx.update(schema.workspaceUsage).set({ purgedAt: now }).where(eq(schema.workspaceUsage.userId, userId));
       });
+      totals.accounts += 1;
       totals.objects += gone.length;
     } catch (error) {
       console.warn(`workspace purge failed user=${userId}`, error instanceof Error ? error.message : error);
     }
   }
+  await db().delete(schema.workspaceGone).where(lt(schema.workspaceGone.goneAt, trashCutoff));
   return totals;
 }
 
@@ -993,11 +1112,18 @@ export async function purgeWorkspaces(now = new Date(), limit = 500): Promise<{ 
  * The daily storage charge (`/api/cron/charge-storage`): each account's
  * byte-milliseconds above the free allowance since the last charge, priced
  * at today's storage rates and charged as knowledge storage is
- * (`chargeStorageCost`), then counted again from zero.
+ * (`chargeStorageCost`), then counted again from zero. Accounts are taken by
+ * `charged_at`, longest waiting first -- never by their last write, so an
+ * agent that writes all day is charged like anyone else.
  */
 export async function chargeWorkspaceStorage(now = new Date(), limit = 1000): Promise<{ userId: string; credits: number }[]> {
   const cutoff = new Date(now.getTime() - 3_600_000);
-  const rows = await db().select({ userId: schema.workspaceUsage.userId }).from(schema.workspaceUsage).where(lt(schema.workspaceUsage.measuredAt, cutoff)).limit(limit);
+  const rows = await db()
+    .select({ userId: schema.workspaceUsage.userId })
+    .from(schema.workspaceUsage)
+    .where(lt(schema.workspaceUsage.chargedAt, cutoff))
+    .orderBy(asc(schema.workspaceUsage.chargedAt))
+    .limit(limit);
   const charged: { userId: string; credits: number }[] = [];
   for (const { userId } of rows) {
     try {
@@ -1006,7 +1132,7 @@ export async function chargeWorkspaceStorage(now = new Date(), limit = 1000): Pr
         const earned = await accrued(row, now);
         const rates = await infraCostRates(tx, now);
         const cost = storageCostPico(earned.blob, earned.database, rates);
-        await tx.update(schema.workspaceUsage).set({ blobByteMs: '0', databaseByteMs: '0', measuredAt: now }).where(eq(schema.workspaceUsage.userId, userId));
+        await tx.update(schema.workspaceUsage).set({ blobByteMs: '0', databaseByteMs: '0', measuredAt: now, chargedAt: now }).where(eq(schema.workspaceUsage.userId, userId));
         return cost > 0n ? chargeStorageCost(tx, userId, cost, now, 'Workspace storage') : 0;
       });
       if (credits > 0) charged.push({ userId, credits });
