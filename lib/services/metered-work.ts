@@ -68,7 +68,8 @@ export async function chargeLateReceipt(tx: Tx, runId: string): Promise<number> 
   return due;
 }
 
-export type MeteredKind = 'profile' | 'suggestions' | 'reembed';
+/** `workspace_index`: embedding an agent workspace file's new passages (lib/services/workspace-index.ts). */
+export type MeteredKind = 'profile' | 'suggestions' | 'reembed' | 'workspace_index';
 
 export interface MeteredWork {
   userId: string;
@@ -229,13 +230,13 @@ export async function reapMeteredRuns(now = new Date(), limit = 200): Promise<nu
   const stale = await db().execute<{ id: string; run_id: string; user_id: string; ree_id: string | null; kind: string; title: string; ree_name: string }>(sql`
     select r.id, r.run_id, r.user_id, r.ree_id, r.kind, r.title, r.ree_name
     from ${schema.knowledgeCostRun} r
-    where r.status = 'processing' and r.knowledge_id is null and r.metered and r.kind in ('profile', 'suggestions')
+    where r.status = 'processing' and r.knowledge_id is null and r.metered and r.kind in ('profile', 'suggestions', 'workspace_index')
       and r.created_at < ${cutoff}
     order by r.created_at
     limit ${limit}`);
   let closed = 0;
   for (const row of stale.rows) {
-    const input: MeteredWork = { userId: row.user_id, reeId: row.ree_id, kind: row.kind as MeteredKind, title: row.title, reeName: row.ree_name, refuse: row.kind === 'suggestions' };
+    const input: MeteredWork = { userId: row.user_id, reeId: row.ree_id, kind: row.kind as MeteredKind, title: row.title, reeName: row.ree_name, refuse: row.kind === 'suggestions' || row.kind === 'workspace_index' };
     if ((await closeMeteredRun({ holdId: row.id, runId: row.run_id, input }, 'abandoned')) !== null) closed += 1;
   }
   return closed;

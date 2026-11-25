@@ -180,8 +180,18 @@ export async function runBatch(ownerId: string, reeId: string, input: BatchInput
       case 'resume': {
         const value = input.action === 'resume';
         const rows = await rowsOf(tx, reeId, ids, false);
+        if (value) {
+          /* A workspace file the secret scan flagged never answers in a public Ree (docs/design/agent-workspace.md §7.3). */
+          const [owner] = await tx.select({ isPublic: schema.ree.isPublic }).from(schema.ree).where(eq(schema.ree.id, reeId));
+          const flagged = await tx
+            .select({ id: schema.knowledge.id })
+            .from(schema.knowledge)
+            .where(and(inArray(schema.knowledge.id, ids), isNotNull(schema.knowledge.secretFound)));
+          if (owner?.isPublic && flagged.length) throw new KnowledgeInputError('secret_found');
+        }
         const changed = rows.filter((row) => row.enabled !== value).map((row) => row.id);
-        await touch(changed, { enabled: value }, activity(value ? 'enabled' : 'paused', undefined, now));
+        /* Enabling a file that waited for confirmation (待确认) is the confirmation. */
+        await touch(changed, value ? { enabled: true, awaitingConfirmation: false } : { enabled: false }, activity(value ? 'enabled' : 'paused', undefined, now));
         return { changed: changed.length, process: [] };
       }
       case 'trash': {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  chunkFile,
+  effectiveIndexMode,
+  excludedBy,
+  fileNameForTitle,
+  scanSecrets,
   billableBytes,
   byteWindow,
   cleanClientName,
@@ -91,5 +96,52 @@ describe('workspace versions and storage', () => {
     expect(clientLabel('claude-code')).toBe('Claude Code');
     expect(clientLabel('codex-mcp-client')).toBe('Codex');
     expect(clientLabel('my-agent')).toBe('my-agent');
+  });
+});
+
+describe('workspace passages', () => {
+  const estimate = (line: string) => Math.ceil(line.length / 4);
+  it('cuts at content-defined lines, so an edit leaves far-away passages as they were', () => {
+    const lines = Array.from({ length: 400 }, (_, i) => `line ${i} ${'words '.repeat(8)}`);
+    const before = chunkFile('a.txt', lines.join('\n'), { estimate });
+    const edited = [...lines];
+    edited[200] = 'changed';
+    const after = chunkFile('a.txt', edited.join('\n'), { estimate });
+    const old = new Set(before.map((passage) => passage.content));
+    expect(after.filter((passage) => !old.has(passage.content)).length).toBeLessThanOrEqual(3);
+    expect(before[0]!.locator).toEqual({ path: 'a.txt', line: 1 });
+  });
+
+  it('starts a passage at each Markdown heading and remembers it', () => {
+    const passages = chunkFile('n.md', '# Top\nintro\n## Sub\nbody', { estimate });
+    expect(passages.map((passage) => [passage.locator.line, passage.locator.heading])).toEqual([[1, 'Top'], [3, 'Top › Sub']]);
+  });
+
+  it('finds secrets in their usual shapes', () => {
+    expect(scanSecrets(`token re0_sk_${'a'.repeat(64)}`)).toBe('re0_api_key');
+    expect(scanSecrets('-----BEGIN OPENSSH PRIVATE KEY-----')).toBe('private_key');
+    expect(scanSecrets('AKIAABCDEFGHIJKLMNOP')).toBe('aws_access_key');
+    expect(scanSecrets('the word skeleton and sk-short')).toBeNull();
+  });
+
+  it('inherits index modes from the nearest folder that sets one', () => {
+    const modes = new Map([['/a', 'on'], ['/a/b', 'off']]);
+    expect(effectiveIndexMode('/a/x.md', modes)).toBe('on');
+    expect(effectiveIndexMode('/a/b/y.md', modes)).toBe('off');
+    expect(effectiveIndexMode('/c/z.md', modes)).toBe('off');
+    expect(effectiveIndexMode('/a/b/y.md', new Map([...modes, ['/a/b/y.md', 'on']]))).toBe('on');
+  });
+
+  it('applies binding excludes by name or by path', () => {
+    expect(excludedBy(['**/*.log'], 'logs/run.log')).toBe(true);
+    expect(excludedBy(['drafts/**'], 'drafts/a.md')).toBe(true);
+    expect(excludedBy(['drafts/**'], 'final/a.md')).toBe(false);
+    expect(excludedBy(['*.tmp'], 'deep/x.tmp')).toBe(true);
+  });
+
+  it('makes a file name from a title', () => {
+    expect(fileNameForTitle('Packing / list')).toBe('Packing - list.md');
+    expect(fileNameForTitle('notes.md')).toBe('notes.md');
+    expect(fileNameForTitle('   ')).toBe('untitled.md');
   });
 });

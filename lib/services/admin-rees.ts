@@ -8,6 +8,7 @@
  * republish it), takes it out of discovery, and tells the owner why. Restoring makes it public again and rebuilds its
  * discovery profile.
  */
+import { quarantineFlaggedFiles } from '@/lib/services/ree-file-guard';
 import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { ADMIN_SOURCE_PAGE_SIZE } from '@/lib/constants';
 import { parseAdminReason } from '@/lib/domain/adjustments';
@@ -294,6 +295,7 @@ export async function restoreRee(administratorId: string, reeId: string, rawReas
       .update(schema.ree)
       .set({ isPublic: true, isPublished: published, moderatedAt: null, moderatedBy: null, moderatedReason: null, updatedAt: now })
       .where(eq(schema.ree.id, reeId));
+    if (published) await quarantineFlaggedFiles(tx, reeId, now);
     await audit(tx, {
       administratorId,
       action: 'ree.restore',

@@ -230,6 +230,7 @@ export async function listKnowledgeTool(caller: ApiKeyCaller, input: ListKnowled
       file_name: item.fileName,
       chars: item.chars,
       passages: item.chunks,
+      ...(item.kind === 'file' ? { workspace_path: item.workspacePath, awaiting_confirmation: item.awaitingConfirmation } : {}),
       in_trash: Boolean(item.deletedAt),
       updated_at: item.updatedAt.toISOString(),
     })),

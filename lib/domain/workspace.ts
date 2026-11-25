@@ -277,3 +277,113 @@ export function clientFromUserAgent(userAgent: string | null): string | null {
   const product = userAgent?.trim().split(/[\s/]/)[0]?.toLowerCase() ?? '';
   return product && Object.hasOwn(CLIENT_NAMES, product) ? cleanClientName(product) : null;
 }
+
+/* ------------------------------------------------------------------ phase 2: the index and Rees */
+
+const SECRET_PATTERNS: [string, RegExp][] = [
+  ['re0_api_key', /re0_sk_[0-9a-f]{64}/],
+  ['private_key', /-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----/],
+  ['aws_access_key', /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/],
+  ['github_token', /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{60,}/],
+  ['openai_key', /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}/],
+  ['anthropic_key', /\bsk-ant-[A-Za-z0-9_-]{32,}/],
+  ['slack_token', /\bxox[abposr]-[A-Za-z0-9-]{10,}/],
+  ['google_api_key', /\bAIza[0-9A-Za-z_-]{35}\b/],
+  ['stripe_key', /\b(?:sk|rk)_live_[0-9A-Za-z]{24,}/],
+];
+
+/**
+ * The first kind of secret a text seems to hold (docs/design/agent-workspace.md
+ * §7.3): API keys and private keys in their usual shapes. A file with one never
+ * answers in a published Ree. Deliberately simple; a false alarm only asks the
+ * owner to look.
+ */
+export function scanSecrets(text: string): string | null {
+  for (const [label, pattern] of SECRET_PATTERNS) if (pattern.test(text)) return label;
+  return null;
+}
+
+/** A file's index mode: its own unless `inherit`, else the nearest folder's above it that is not, else off. `modes` maps lowered paths (as Postgres lowers them) to modes. */
+export function effectiveIndexMode(lowerPath: string, modes: ReadonlyMap<string, string>): 'on' | 'off' {
+  const own = modes.get(lowerPath);
+  if (own === 'on' || own === 'off') return own;
+  const segments = lowerPath.split('/').filter(Boolean);
+  for (let depth = segments.length - 1; depth >= 1; depth -= 1) {
+    const mode = modes.get(`/${segments.slice(0, depth).join('/')}`);
+    if (mode === 'on' || mode === 'off') return mode;
+  }
+  return 'off';
+}
+
+/** Whether a binding's `exclude` globs leave out a file, by its path below the bound folder (no leading slash). */
+export function excludedBy(globs: readonly string[], relative: string): boolean {
+  const name = relative.slice(relative.lastIndexOf('/') + 1);
+  return globs.some((glob) => new RegExp(globToRegex(glob)).test(glob.includes('/') ? relative : name));
+}
+
+/** A knowledge title as a file name: no slash or control character, at most 120 characters, `.md` added. */
+export function fileNameForTitle(title: string): string {
+  const base = title.normalize('NFC').replace(/[\u0000-\u001f\u007f\\/]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120) || 'untitled';
+  return /\.(md|markdown|txt)$/i.test(base) ? base : `${base}.md`;
+}
+
+/** FNV-1a of a line: where content-defined passages may end. */
+function lineHash(line: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < line.length; i += 1) {
+    hash ^= line.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+const MARKDOWN_HEADING = /^(#{1,6})\s+(.+?)\s*#*$/;
+
+export interface FilePassage {
+  ordinal: number;
+  content: string;
+  locator: { path: string; line: number; heading?: string };
+}
+
+/**
+ * A workspace file's passages, cut by lines where the lines themselves say
+ * (content-defined, like rsync's rolling cut points): after a line whose hash
+ * picks it, once a passage has `minTokens`, and at `maxTokens` regardless; a
+ * Markdown heading always starts a passage. An edit therefore changes the
+ * passage it is in (and at most the next), never every passage after it, so
+ * re-indexing embeds only those (docs/design/agent-workspace.md §5). Each
+ * passage cites its file name and first line, and the heading it is under.
+ */
+export function chunkFile(name: string, text: string, { minTokens = 120, maxTokens = 500, estimate }: { minTokens?: number; maxTokens?: number; estimate: (line: string) => number }): FilePassage[] {
+  const passages: FilePassage[] = [];
+  const markdown = /\.(md|mdx|markdown|txt|rst)$/i.test(name);
+  const headings: string[] = [];
+  let buffer: string[] = [];
+  let tokens = 0;
+  let first = 1;
+  let heading = '';
+  const flush = () => {
+    const content = buffer.join('\n').trim();
+    if (content) passages.push({ ordinal: passages.length, content, locator: { path: name, line: first, ...(heading ? { heading } : {}) } });
+    buffer = [];
+    tokens = 0;
+  };
+  text.split('\n').forEach((line, index) => {
+    const match = markdown ? MARKDOWN_HEADING.exec(line) : null;
+    if (match) {
+      flush();
+      const level = match[1]!.length;
+      headings.length = level - 1;
+      headings[level - 1] = match[2]!.trim();
+    }
+    if (buffer.length === 0) {
+      first = index + 1;
+      heading = headings.filter(Boolean).join(' › ');
+    }
+    buffer.push(line);
+    tokens += estimate(line);
+    if (tokens >= maxTokens || (tokens >= minTokens && lineHash(line) % 4 === 0)) flush();
+  });
+  flush();
+  return passages;
+}

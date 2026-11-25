@@ -119,6 +119,7 @@ export type KnowledgeInputCode =
   | 'invalid_folder'
   | 'invalid_title'
   | 'busy'
+  | 'secret_found'
   | 'not_found';
 
 export class KnowledgeInputError extends Error {
@@ -444,7 +445,8 @@ export async function reprocessInTx(tx: Tx, ownerId: string, reeId: string, ids:
     .for('update');
   if (rows.length !== new Set(ids).size) throw new KnowledgeInputError('not_found');
   if (rows.some((row) => row.status === 'pending' || row.status === 'processing')) throw new KnowledgeInputError('busy');
-  for (const row of rows) {
+  /* A workspace file is re-indexed in the workspace when it changes, never processed here: a batch's "重新处理" passes over it. */
+  for (const row of rows.filter((row) => row.kind !== 'file')) {
     const hold = reprocessHold(row);
     await tx
       .update(schema.knowledge)
@@ -525,6 +527,9 @@ async function extract(row: KnowledgeRow, pin?: RepositoryPin): Promise<Extracte
   switch (row.kind) {
     case 'text':
       return { sections: [{ text: row.content ?? '', locator: {} }], log: [] };
+    /* Never processed here: its passages come from the workspace index (workspace-rees.ts). */
+    case 'file':
+      throw new ProcessingFailure('unsupported_format', 'a workspace file is indexed in the workspace');
     case 'document': {
       if (!row.source || !row.fileName) throw new ProcessingFailure('source_missing', 'no stored file');
       const bytes = await readBlob(row.source);
@@ -1171,6 +1176,9 @@ export interface KnowledgeListItem {
   children: number;
   /** Seconds, for audio. */
   duration: number | null;
+  /** A workspace file's path (from the workspace root, the owner's view only), and whether it waits for the owner's confirmation. */
+  workspacePath: string | null;
+  awaitingConfirmation: boolean;
   deletedAt: Date | null;
   updatedAt: Date;
 }
@@ -1276,6 +1284,8 @@ export async function listKnowledge(reeId: string, query: KnowledgeQuery): Promi
       chunks: sql<number>`(select count(*)::int from ${schema.chunk} c where c.knowledge_id = "knowledge"."id")`,
       children: sql<number>`jsonb_array_length(${schema.knowledge.children})::int`,
       duration: sql<number | null>`case when ${schema.knowledge.kind} = 'audio' then (${schema.knowledge.children} -> -1 ->> 'end')::float end`,
+      workspacePath: sql<string | null>`(select e.path from ${schema.workspaceEntry} e where e.id = ${schema.knowledge.workspaceEntryId})`,
+      awaitingConfirmation: schema.knowledge.awaitingConfirmation,
       deletedAt: schema.knowledge.deletedAt,
       updatedAt: schema.knowledge.updatedAt,
     })

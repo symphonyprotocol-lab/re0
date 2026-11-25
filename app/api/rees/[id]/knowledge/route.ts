@@ -58,6 +58,9 @@ function newKnowledge(input: Record<string, unknown>): NewKnowledge | null {
       return { kind: 'audio', blobPath: text('blobPath'), fileName: text('fileName'), consent: input.consent === true, folderId };
     case 'text':
       return { kind: 'text', title: text('title'), content: text('content'), folderId };
+    /* A workspace file comes in through a binding (workspace-rees.ts), never as a new source here. */
+    case 'file':
+      return null;
     case 'github':
     case 'page':
     case 'site':
