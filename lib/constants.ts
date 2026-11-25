@@ -914,3 +914,16 @@ export const WORKSPACE_DOWNLOAD_TTL_MS = 10 * 60_000;
 export const WORKSPACE_INDEX_FILE_MAX = 20 * 1024 * 1024;
 /** A PDF or Word file's text is read within this long when it is indexed (no paid fallback: a scan is simply not indexed). */
 export const WORKSPACE_PARSE_MS = 60_000;
+/** A PDF or Word file is read in a worker thread with at most this much heap, killed past WORKSPACE_PARSE_MS. */
+export const WORKSPACE_PARSE_HEAP_MB = 512;
+/** A Word file whose parts would inflate past this is not read for the index (the knowledge reader allows more). */
+export const WORKSPACE_DOCX_INFLATE_MAX = 50 * 1024 * 1024;
+/** Index runs a version may take without finishing before it is marked unreadable. */
+export const WORKSPACE_INDEX_ATTEMPTS = 3;
+/** PUTs one upload takes in all: each part once, and as many again for retries. */
+export const WORKSPACE_UPLOAD_REWRITES = 2;
+/** One stitching step holds its lease this long; one request stitches for at most WORKSPACE_STITCH_BUDGET_MS, the cron carries on. */
+export const WORKSPACE_STITCH_LEASE_MS = 2 * 60_000;
+export const WORKSPACE_STITCH_BUDGET_MS = 120_000;
+/** Above this a download is a redirect to a short-lived signed store URL: a function's response holds at most 4.5 MB. */
+export const WORKSPACE_DOWNLOAD_INLINE_MAX = 4 * 1024 * 1024;

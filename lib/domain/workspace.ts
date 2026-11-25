@@ -217,12 +217,16 @@ export type DiffLine = { kind: 'same' | 'added' | 'removed'; text: string; old: 
 /**
  * Lines of `before` and `after` compared (Myers' shortest edit script, with
  * the common head and tail cut first): every line in order, marked same,
- * added or removed, with its line numbers. Null when the two differ in more
- * than `maxEdits` lines, which a page could not show usefully anyway.
+ * added or removed, with its line numbers. Null when the versions hold more
+ * than `maxLines` lines together or differ in more than `maxEdits` lines --
+ * a page could not show that usefully, and the search would cost memory:
+ * each step keeps only the diagonals it reached (2d + 1 of them), so the
+ * whole search holds at most about `maxEdits`² numbers (16 MB at 2 000).
  */
-export function diffLines(before: string, after: string, maxEdits = 2_000): DiffLine[] | null {
+export function diffLines(before: string, after: string, maxEdits = 2_000, maxLines = 40_000): DiffLine[] | null {
   const a = before === '' ? [] : before.split('\n');
   const b = after === '' ? [] : after.split('\n');
+  if (a.length + b.length > maxLines) return null;
   let head = 0;
   while (head < a.length && head < b.length && a[head] === b[head]) head += 1;
   let tail = 0;
@@ -231,14 +235,15 @@ export function diffLines(before: string, after: string, maxEdits = 2_000): Diff
   const y = b.slice(head, b.length - tail);
   const n = x.length;
   const m = y.length;
-  const max = n + m;
-  if (max > 0 && Math.min(max, maxEdits) < Math.abs(n - m)) return null;
+  const max = Math.min(n + m, maxEdits);
+  if (Math.abs(n - m) > max) return null;
   const offset = max + 1;
   const v = new Int32Array(2 * max + 3);
+  /* trace[d] holds v as it was before step d, diagonals -d..d only. */
   const trace: Int32Array[] = [];
-  let found = max === 0;
-  for (let d = 0; d <= Math.min(max, maxEdits) && !found; d += 1) {
-    trace.push(v.slice());
+  let found = n + m === 0;
+  for (let d = 0; d <= max && !found; d += 1) {
+    trace.push(v.slice(offset - d, offset + d + 1));
     for (let k = -d; k <= d; k += 2) {
       let i = k === -d || (k !== d && v[offset + k - 1]! < v[offset + k + 1]!) ? v[offset + k + 1]! : v[offset + k - 1]! + 1;
       let j = i - k;
@@ -254,15 +259,15 @@ export function diffLines(before: string, after: string, maxEdits = 2_000): Diff
     }
   }
   if (!found) return null;
+  const at = (d: number, k: number) => trace[d]![k + d]!;
   /* Walk the trace back from the end to recover the edits. */
   const middle: DiffLine[] = [];
   let i = n;
   let j = m;
   for (let d = trace.length - 1; d >= 0 && (i > 0 || j > 0); d -= 1) {
-    const w = trace[d]!;
     const k = i - j;
-    const prevK = k === -d || (k !== d && w[offset + k - 1]! < w[offset + k + 1]!) ? k + 1 : k - 1;
-    const prevI = d === 0 ? 0 : w[offset + prevK]!;
+    const prevK = k === -d || (k !== d && at(d, k - 1) < at(d, k + 1)) ? k + 1 : k - 1;
+    const prevI = d === 0 ? 0 : at(d, prevK);
     const prevJ = prevI - prevK;
     while (i > prevI && j > prevJ) {
       i -= 1;
@@ -279,9 +284,9 @@ export function diffLines(before: string, after: string, maxEdits = 2_000): Diff
     }
   }
   middle.reverse();
-  const lines: DiffLine[] = a.slice(0, head).map((text, at) => ({ kind: 'same', text, old: at + 1, new: at + 1 }));
+  const lines: DiffLine[] = a.slice(0, head).map((text, index) => ({ kind: 'same', text, old: index + 1, new: index + 1 }));
   lines.push(...middle);
-  for (let at = 0; at < tail; at += 1) lines.push({ kind: 'same', text: a[a.length - tail + at]!, old: a.length - tail + at + 1, new: b.length - tail + at + 1 });
+  for (let index = 0; index < tail; index += 1) lines.push({ kind: 'same', text: a[a.length - tail + index]!, old: a.length - tail + index + 1, new: b.length - tail + index + 1 });
   return lines;
 }
 

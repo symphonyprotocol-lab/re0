@@ -52,6 +52,7 @@ import {
   byteLength,
   byteWindow,
   clientLabel,
+  binaryByName,
   coalesces,
   decodeText,
   diffLines,
@@ -71,7 +72,7 @@ import { storageCostPico } from '@/lib/domain/infra-cost';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { mayNeedIndex, queueIndexWithin } from '@/lib/services/ree-file-guard';
-import { deleteWorkspaceObjects, putWorkspaceObject, readWorkspaceObject, workspaceObjectPath } from '@/lib/infra/workspace-store';
+import { deleteWorkspaceObjects, hasWorkspaceObject, putWorkspaceObject, readWorkspaceObject, workspaceObjectPath } from '@/lib/infra/workspace-store';
 import { infraCostRates } from '@/lib/services/infra-pricing';
 import { effectiveCeiling } from '@/lib/services/rate-limit-settings';
 import { chargeStorageCost } from '@/lib/services/storage-billing';
@@ -484,7 +485,8 @@ async function putContent(
     updatedByKeyId: scope.apiKeyId,
     updatedClient: scope.client,
     updatedAt: now,
-    /* The index worker looks at it once the saves stop for a while (workspace-index.ts), if it may need the index or had one. */
+    /* A new version starts its index attempts afresh. The index worker looks at it once the saves stop for a while (workspace-index.ts), if it may need the index or had one. */
+    indexAttempts: 0,
     ...((current.indexedRevisionId !== null || (await ask(tx, mayNeedIndex(scope.workspaceId, sql`${path}::text`)))) ? { indexDueAt: new Date(now.getTime() + WORKSPACE_INDEX_DELAY_MS) } : {}),
     ...extra,
   };
@@ -657,7 +659,7 @@ export async function readFile(scope: WorkspaceScope, input: ReadInput) {
   let revision = entry.currentRevisionId;
   if (input.revision && input.revision !== entry.currentRevisionId) {
     const found = await revisionOf(entry, input.revision);
-    text = await revisionText(scope, found);
+    text = await revisionText(scope, found, entry.path);
     if (text === null) throw bytesOnly(scope, { path: entry.path, mediaType: mediaTypeOf(entry.path, { binary: true }), size: found.size });
     revision = found.id;
   } else if (text === null) throw bytesOnly(scope, entry);
@@ -679,8 +681,9 @@ async function revisionOf(entry: Entry, id: string): Promise<Revision> {
 }
 
 /** A version's text, or null when that version is kept only as bytes (binary, or text too large to read by lines). */
-async function revisionText(scope: WorkspaceScope, revision: Revision): Promise<string | null> {
-  if (revision.size > WORKSPACE_TEXT_MAX) return null;
+async function revisionText(scope: WorkspaceScope, revision: Revision, path: string): Promise<string | null> {
+  /* A PDF, an image... is bytes whatever they happen to look like, as an upload of it is kept. */
+  if (revision.size > WORKSPACE_TEXT_MAX || binaryByName(path)) return null;
   const bytes = await readWorkspaceObject(workspaceObjectPath(scope.workspaceId, revision.sha256));
   if (!bytes) throw new Error(`workspace object missing: ${revision.sha256}`);
   return decodeText(bytes);
@@ -691,7 +694,7 @@ export async function fileText(scope: WorkspaceScope, rawPath: unknown, revision
   const path = resolvePath(scope, rawPath);
   const entry = await existing(db(), scope, path);
   if (entry.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder.`, { path: shown(scope, path) });
-  const text = revision && revision !== entry.currentRevisionId ? await revisionText(scope, await revisionOf(entry, revision)) : entry.text;
+  const text = revision && revision !== entry.currentRevisionId ? await revisionText(scope, await revisionOf(entry, revision), entry.path) : entry.text;
   return { ...view(scope, entry), revision: revision ?? entry.currentRevisionId, text };
 }
 
@@ -701,7 +704,7 @@ export async function compareVersions(scope: WorkspaceScope, rawPath: unknown, r
   const entry = await existing(db(), scope, path);
   if (entry.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder.`, { path: shown(scope, path) });
   const older = await revisionOf(entry, revision);
-  const before = await revisionText(scope, older);
+  const before = await revisionText(scope, older, entry.path);
   const after = entry.text;
   return { path: shown(scope, path), revision: older.id, current: entry.currentRevisionId, lines: before === null || after === null ? null : diffLines(before, after) };
 }
@@ -893,6 +896,16 @@ export async function saveUploaded(scope: WorkspaceScope, input: { path: string;
     if (entry?.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder.`, { path: shown(scope, path) });
     if (input.ifNoneMatch && entry) throw new WorkspaceError('exists', `${shown(scope, path)} already exists (if_none_match "*").`, { path: shown(scope, path), current_etag: entry.etag });
     checkMatch(scope, path, entry, input.ifMatch ?? undefined);
+    /*
+     * The bytes were put before this lock was taken: the purge (which deletes
+     * released objects under this same lock) may have removed them since, if
+     * these bytes were once kept and then emptied from the trash. Unless a
+     * version still names them, they must still be there.
+     */
+    const [held] = await tx.select({ refs: schema.workspaceBlob.refs }).from(schema.workspaceBlob).where(and(eq(schema.workspaceBlob.workspaceId, scope.workspaceId), eq(schema.workspaceBlob.sha256, input.sha)));
+    if (!(held && held.refs > 0) && !(await hasWorkspaceObject(workspaceObjectPath(scope.workspaceId, input.sha)))) {
+      throw new WorkspaceError('not_found', 'The uploaded bytes were removed before they could be saved (the trash was emptied meanwhile). Upload the file again.', { reason: 'bytes_missing' });
+    }
     await ensureFolder(tx, meter, scope, parentOf(path), now);
     const content: Content = { sha: input.sha, size: input.size, text: input.text, bytes: null, mediaType: mediaTypeOf(path, { binary: input.text === null }) };
     const written = entry ? await putContent(tx, meter, scope, path, entry, content, 'upload', now) : await createContent(tx, meter, scope, path, content, 'upload', now);
@@ -1093,7 +1106,7 @@ export async function restoreEntry(scope: WorkspaceScope, input: { path?: string
       const entry = await existing(tx, scope, path, true);
       if (entry.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder.`, { path: shown(scope, path) });
       const version = await revisionOf(entry, input.revision!);
-      const text = await revisionText(scope, version);
+      const text = await revisionText(scope, version, entry.path);
       /* A version kept as bytes comes back by naming its object again: it is still stored, since that version names it. */
       const written =
         text === null

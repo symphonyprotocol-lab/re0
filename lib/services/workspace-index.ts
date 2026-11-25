@@ -33,6 +33,8 @@ import { and, asc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } f
 import {
   CREDIT_USD,
   WORKSPACE_INDEX_BATCH,
+  WORKSPACE_DOCX_INFLATE_MAX,
+  WORKSPACE_INDEX_ATTEMPTS,
   WORKSPACE_INDEX_FILE_MAX,
   WORKSPACE_PARSE_MS,
   WORKSPACE_INDEX_CLAIM_MS,
@@ -90,6 +92,15 @@ export function documentPassages(path: string, sections: readonly { text: string
 
 type Readable = { passages: DraftPassage[] } | { unreadable: string };
 
+/** A parse given up past `ms` (its own deadlines aside), so one file cannot hold the cron. */
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error('parse timed out'), { code: 'timeout' })), ms);
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
 /**
  * What the index reads from a file: its inline text; or, for one kept only
  * as bytes up to WORKSPACE_INDEX_FILE_MAX, a PDF's text layer (read here,
@@ -98,7 +109,7 @@ type Readable = { passages: DraftPassage[] } | { unreadable: string };
  * file's text (refused when it would inflate past the reader's limit), or
  * the text itself. Null when it is not a file the index reads at all.
  */
-async function readableOf(entry: Entry): Promise<Readable | null> {
+export async function readableOf(entry: Entry): Promise<Readable | null> {
   if (entry.kind !== 'file') return null;
   if (entry.text !== null) return { passages: passagesOf(entry.path, entry.text) };
   const format = indexableFormat(entry.path, entry.mediaType);
@@ -112,10 +123,10 @@ async function readableOf(entry: Entry): Promise<Readable | null> {
       return text === null ? { unreadable: 'not_text' } : { passages: passagesOf(entry.path, text) };
     }
     if (format === 'docx') {
-      const sections = await docxSections(bytes);
+      const sections = await withTimeout(docxSections(bytes, { inflateMax: WORKSPACE_DOCX_INFLATE_MAX }), WORKSPACE_PARSE_MS);
       return { passages: documentPassages(entry.path, sections.map((section) => ({ text: section.text }))) };
     }
-    const layer = await pdfTextLayer(bytes, { deadline: Date.now() + WORKSPACE_PARSE_MS });
+    const layer = await withTimeout(pdfTextLayer(bytes, { deadline: Date.now() + WORKSPACE_PARSE_MS }), WORKSPACE_PARSE_MS + 5_000);
     if (!('sections' in layer)) return { unreadable: `pdf_${layer.fallback}` };
     return { passages: documentPassages(entry.path, layer.sections.map((section) => ({ text: section.text, page: section.locator.page }))) };
   } catch (error) {
@@ -211,6 +222,18 @@ export interface IndexEstimate {
   credits: number | null;
 }
 
+/**
+ * What a file past the estimate's read budget could cost at most, in
+ * tokens, without reading it: text at a token per three bytes (more than
+ * any tokenizer gives); a PDF's text cannot be larger than the file; a Word
+ * file's at most what the index lets it inflate to.
+ */
+function upperBoundTokens(path: string, size: number, inline: boolean): number {
+  const format = inline ? 'text' : indexableFormat(path, null);
+  if (format === 'docx') return Math.ceil(Math.min(size * 20, WORKSPACE_DOCX_INFLATE_MAX) / 3);
+  return Math.ceil(size / 3);
+}
+
 /** An estimate reads at most this much text in full; files past it are priced from their size, as if nothing in them were reused. */
 const ESTIMATE_READ_BYTES = 8 * 1024 * 1024;
 const ESTIMATE_PAGE = 200;
@@ -238,20 +261,23 @@ export async function estimateIndex(scope: WorkspaceScope, rawPath: unknown): Pr
     after = page.at(-1)!.id;
     files += page.length;
     const reading: string[] = [];
+    const kept: string[] = [];
     for (const file of page) {
-      /* A file kept as bytes is not read for an estimate: a PDF's or Word file's text is taken as a sixteenth of its size, other text as all of it. */
-      if (!file.inline) {
-        tokens += Math.ceil(file.size / (indexableFormat(file.path, null) === 'text' ? 4 : 16));
-        continue;
-      }
       if (read + file.size <= ESTIMATE_READ_BYTES) {
-        reading.push(file.id);
+        (file.inline ? reading : kept).push(file.id);
         read += file.size;
-      } else tokens += Math.ceil(file.size / 4);
+      } else tokens += upperBoundTokens(file.path, file.size, file.inline);
     }
-    if (reading.length === 0) continue;
-    const texts = await db().select({ path: schema.workspaceEntry.path, text: schema.workspaceEntry.text }).from(schema.workspaceEntry).where(inArray(schema.workspaceEntry.id, reading));
+    if (reading.length === 0 && kept.length === 0) continue;
+    const texts = reading.length ? await db().select({ path: schema.workspaceEntry.path, text: schema.workspaceEntry.text }).from(schema.workspaceEntry).where(inArray(schema.workspaceEntry.id, reading)) : [];
     const drafts = texts.map((file) => passagesOf(file.path, file.text ?? ''));
+    /* A file kept as bytes is read as the index will read it (a PDF's or Word file's text); one it cannot read costs nothing. */
+    if (kept.length) {
+      for (const entry of await db().select().from(schema.workspaceEntry).where(inArray(schema.workspaceEntry.id, kept))) {
+        const readable = await readableOf(entry);
+        if (readable && 'passages' in readable) drafts.push(readable.passages);
+      }
+    }
     const held = await heldDigests(scope.workspaceId, drafts.flatMap((passages) => passages.map((passage) => passage.digest)), space);
     for (const passages of drafts) {
       if (passages.every((passage) => held.has(passage.digest))) reused += 1;
@@ -331,16 +357,22 @@ export type IndexOutcome = 'indexed' | 'current' | 'dropped' | 'unneeded' | 'unr
 const startOfUtcDay = (now: Date) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 const nextUtcDay = (now: Date) => new Date(startOfUtcDay(now).getTime() + 24 * 60 * 60_000);
 
-async function release(entryId: string, set: Partial<typeof schema.workspaceEntry.$inferInsert>): Promise<void> {
-  await db().update(schema.workspaceEntry).set({ indexClaimedAt: null, ...set }).where(eq(schema.workspaceEntry.id, entryId));
+/** A file let go by this run; its unfinished attempts start again from 0, unless the run failed on it (`keepAttempts`). */
+async function release(entryId: string, set: Partial<typeof schema.workspaceEntry.$inferInsert>, { keepAttempts = false } = {}): Promise<void> {
+  await db().update(schema.workspaceEntry).set({ indexClaimedAt: null, ...(keepAttempts ? {} : { indexAttempts: 0 }), ...set }).where(eq(schema.workspaceEntry.id, entryId));
 }
 
 /** Takes one due file for this run, or nothing when another run holds it or it is no longer due. */
 async function claim(entryId: string, now: Date): Promise<(Entry & { lower: string }) | null> {
   const stale = new Date(now.getTime() - WORKSPACE_INDEX_CLAIM_MS);
+  /*
+   * Each claim counts an attempt and moves the file back in the queue, so a
+   * file whose parse kills the run (memory, time) is not the first one taken
+   * by every run after; past WORKSPACE_INDEX_ATTEMPTS it is given up.
+   */
   const [row] = await db()
     .update(schema.workspaceEntry)
-    .set({ indexClaimedAt: now })
+    .set({ indexClaimedAt: now, indexAttempts: sql`${schema.workspaceEntry.indexAttempts} + 1`, indexDueAt: sql`${now.toISOString()}::timestamptz + (${schema.workspaceEntry.indexAttempts} + 1) * interval '5 minutes'` })
     .where(and(eq(schema.workspaceEntry.id, entryId), isNull(schema.workspaceEntry.deletedAt), lte(schema.workspaceEntry.indexDueAt, now), or(isNull(schema.workspaceEntry.indexClaimedAt), lt(schema.workspaceEntry.indexClaimedAt, stale))))
     .returning();
   if (!row) return null;
@@ -496,7 +528,7 @@ async function swapIn(entry: Entry, revisionId: string, passages: readonly Draft
     /* A save while this ran set a later due time: keep it, so that version is indexed in turn. */
     await tx
       .update(schema.workspaceEntry)
-      .set({ indexedRevisionId: revisionId, indexClaimedAt: null, indexError: null, indexDueAt: sql`case when ${schema.workspaceEntry.currentRevisionId} = ${revisionId}::uuid then null else ${schema.workspaceEntry.indexDueAt} end` })
+      .set({ indexedRevisionId: revisionId, indexClaimedAt: null, indexError: null, indexAttempts: 0, indexDueAt: sql`case when ${schema.workspaceEntry.currentRevisionId} = ${revisionId}::uuid then null else ${schema.workspaceEntry.indexDueAt} end` })
       .where(eq(schema.workspaceEntry.id, entry.id));
     return true;
   });
@@ -506,6 +538,12 @@ async function swapIn(entry: Entry, revisionId: string, passages: readonly Draft
 export async function indexEntry(entryId: string, now = new Date()): Promise<IndexOutcome> {
   const entry = await claim(entryId, now);
   if (!entry) return 'skipped';
+  if (entry.indexAttempts > WORKSPACE_INDEX_ATTEMPTS) {
+    await db().delete(schema.workspacePassage).where(eq(schema.workspacePassage.entryId, entry.id));
+    await release(entry.id, { indexDueAt: null, indexError: 'unreadable', indexedRevisionId: null });
+    console.info(`workspace file not indexed entry=${entry.id} reason=attempts`);
+    return entry.indexedRevisionId ? 'dropped' : 'unreadable';
+  }
   try {
     const rules = await indexRules(db(), entry.workspaceId);
     const readable = entry.kind === 'file' && wanted(rules, entry) ? await readableOf(entry) : null;
@@ -580,7 +618,7 @@ export async function indexEntry(entryId: string, now = new Date()): Promise<Ind
     return 'indexed';
   } catch (error) {
     console.warn(`workspace index failed entry=${entry.id}`, error instanceof Error ? error.message : error);
-    await release(entry.id, { indexDueAt: new Date(now.getTime() + 15 * 60_000), indexError: 'failed' });
+    await release(entry.id, { indexDueAt: new Date(now.getTime() + 15 * 60_000), indexError: 'failed' }, { keepAttempts: true });
     return 'retry';
   }
 }

@@ -1,5 +1,5 @@
 {
-  "id": "298e136d-cf3b-4368-8246-8b424d4d5843",
+  "id": "dac79e52-f8f8-4f00-9c96-b5a3b6bb4299",
   "prevId": "37cb21f0-7b0e-4f97-8f43-bf09ec180bb8",
   "version": "7",
   "dialect": "postgresql",
@@ -13234,6 +13234,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "index_attempts": {
+          "name": "index_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "deleted_at": {
           "name": "deleted_at",
           "type": "timestamp with time zone",
@@ -13783,6 +13790,38 @@
           "notNull": true,
           "default": "'{}'::integer[]"
         },
+        "writes": {
+          "name": "writes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "stitched": {
+          "name": "stitched",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "hash_state": {
+          "name": "hash_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assembly": {
+          "name": "assembly",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_until": {
+          "name": "lease_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "if_match": {
           "name": "if_match",
           "type": "text",
@@ -13868,6 +13907,21 @@
             },
             {
               "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "agent_workspace_upload_workspace_idx": {
+          "name": "agent_workspace_upload_workspace_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

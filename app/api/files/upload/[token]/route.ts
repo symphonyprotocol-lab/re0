@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { json } from '@/lib/http/respond';
-import { receivePart, UploadError } from '@/lib/services/workspace-upload';
+import { receivePart, UploadError, uploadStatus } from '@/lib/services/workspace-upload';
 import { WorkspaceError } from '@/lib/services/workspace';
 
 /** Stitching the last part of a 100 MB upload reads the parts twice and writes the file once. */
@@ -17,11 +17,24 @@ const STATUS: Partial<Record<WorkspaceError['code'], number>> = { not_found: 404
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   try {
-    return json(await receivePart(token, { part: request.nextUrl.searchParams.get('part'), contentLength: request.headers.get('content-length'), body: request.body }));
+    const result = await receivePart(token, { part: request.nextUrl.searchParams.get('part'), contentLength: request.headers.get('content-length'), body: request.body });
+    /* A large file still being put together: accepted, the cron carries on, GET says when it is saved. */
+    return json(result, 'assembling' in result && result.assembling ? 202 : 200);
   } catch (error) {
     if (error instanceof UploadError) return json({ error: error.code, message: error.message }, error.status);
     if (error instanceof WorkspaceError) return json({ error: error.code, message: error.message, ...error.details }, STATUS[error.code] ?? 422);
     console.error('workspace upload failed', error instanceof Error ? error.message : error);
     return json({ error: 'failed', message: 'The upload could not be saved; ask for a new upload URL and try again.' }, 500);
+  }
+}
+
+/** `GET /api/files/upload/<token>`: where the upload stands (open, assembling, done with its sha256, failed, expired). */
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
+  try {
+    return json(await uploadStatus(token));
+  } catch (error) {
+    if (error instanceof UploadError) return json({ error: error.code, message: error.message }, error.status);
+    throw error;
   }
 }

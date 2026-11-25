@@ -11,7 +11,7 @@
  * A store may serve several environments: a file is this database's to
  * delete only when its owning user (or, for covers, Ree) exists here.
  */
-import { inArray, sql } from 'drizzle-orm';
+import { and, inArray, sql } from 'drizzle-orm';
 import { UPLOAD_ORPHAN_HOURS, UPLOAD_REAP_BATCH, UPLOAD_REAP_SCAN } from '@/lib/constants';
 import { deleteBlobs, listByPrefix } from '@/lib/infra/blob-access';
 import { db, schema } from '@/lib/infra/db';
@@ -107,6 +107,32 @@ const PREFIXES: Prefix[] = [
       const rows = await db().execute<{ workspace_id: string; sha256: string }>(sql`
         select workspace_id, sha256 from ${schema.workspaceBlob} where (workspace_id, sha256) in (${list})`);
       return new Set(rows.rows.map((row) => `workspace/${row.workspace_id}/${row.sha256}`));
+    },
+  },
+  {
+    /*
+     * A part (or the half-stitched object) of a workspace upload that is no
+     * longer taking parts or being put together: done, failed, expired and
+     * forgotten, or a part that came in after the upload ended. An upload
+     * still open or being stitched keeps its objects.
+     */
+    prefix: 'workspace/',
+    owner: new RegExp(`^workspace/(${UUID})/upload/${UUID}/(?:[0-9]+|assembled(?:\\.[0-9]+)?)$`),
+    async known(ids) {
+      const [live, gone] = await Promise.all([
+        db().select({ id: schema.workspace.id }).from(schema.workspace).where(inArray(schema.workspace.id, ids)),
+        db().select({ id: schema.workspaceGone.workspaceId }).from(schema.workspaceGone).where(inArray(schema.workspaceGone.workspaceId, ids)),
+      ]);
+      return new Set([...live, ...gone].map((row) => row.id));
+    },
+    async referenced(pathnames) {
+      const uploads = [...new Set(pathnames.map((pathname) => pathname.split('/')[3]!))];
+      const rows = await db()
+        .select({ id: schema.workspaceUpload.id })
+        .from(schema.workspaceUpload)
+        .where(and(inArray(schema.workspaceUpload.id, uploads), inArray(schema.workspaceUpload.status, ['open', 'assembling'])));
+      const busy = new Set(rows.map((row) => row.id));
+      return new Set(pathnames.filter((pathname) => busy.has(pathname.split('/')[3]!)));
     },
   },
 ];

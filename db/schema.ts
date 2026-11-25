@@ -2942,6 +2942,8 @@ export const workspaceEntry = pgTable(
     indexedRevisionId: uuid('indexed_revision_id'),
     /** Why the last attempt stopped: `budget` (today's index budget is spent), `insufficient_credits`, `failed`. */
     indexError: text('index_error'),
+    /** Index runs that took this version and did not finish it (a crash, a timeout): after WORKSPACE_INDEX_ATTEMPTS it is `unreadable` until a new version. */
+    indexAttempts: integer('index_attempts').notNull().default(0),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
@@ -3153,6 +3155,18 @@ export const workspaceUpload = pgTable(
     size: bigint('size', { mode: 'number' }).notNull(),
     parts: integer('parts').notNull(),
     received: integer('received').array().notNull().default(sql`'{}'::integer[]`),
+    /** PUTs of parts so far, a part sent again included: capped (WORKSPACE_UPLOAD_REWRITES) so one URL cannot rewrite storage without end. */
+    writes: integer('writes').notNull().default(0),
+    /**
+     * Stitching, a step at a time across requests and the cron: how many parts
+     * are in the assembled object so far, the SHA-256 state over them (resumable),
+     * and the store's multipart upload with the parts it has taken.
+     */
+    stitched: integer('stitched').notNull().default(0),
+    hashState: text('hash_state'),
+    assembly: jsonb('assembly').$type<{ uploadId: string; key: string; parts: { partNumber: number; etag: string }[] }>(),
+    /** While stitching: whoever holds this lease is working on it; a lease run out is taken over (a request or the cron). */
+    leaseUntil: timestampTz('lease_until'),
     ifMatch: text('if_match'),
     ifNoneMatch: boolean('if_none_match').notNull().default(false),
     status: text('status').$type<'open' | 'assembling' | 'done' | 'failed'>().notNull().default('open'),
@@ -3166,6 +3180,7 @@ export const workspaceUpload = pgTable(
   (t) => [
     uniqueIndex('agent_workspace_upload_token_key').on(t.tokenHash),
     index('agent_workspace_upload_user_idx').on(t.userId, t.status),
+    index('agent_workspace_upload_workspace_idx').on(t.workspaceId),
     index('agent_workspace_upload_expires_idx').on(t.expiresAt),
     check('agent_workspace_upload_status_check', oneOf('status', ['open', 'assembling', 'done', 'failed'])),
     check('agent_workspace_upload_size_check', sql`size >= 0 and parts >= 1`),

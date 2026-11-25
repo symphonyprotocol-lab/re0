@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { filesFailure, filesScope } from '@/lib/http/files';
 import { json } from '@/lib/http/respond';
-import { streamVersion, UploadError, versionAt } from '@/lib/services/workspace-upload';
+import { serveVersion, UploadError, versionAt } from '@/lib/services/workspace-upload';
 
 /** A 100 MB file streams for a while. */
 export const maxDuration = 300;
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   try {
     const version = await versionAt(scope, params.get('path') ?? '', params.get('revision') ?? undefined);
-    return await streamVersion(scope.workspaceId, version);
+    return await serveVersion(scope.workspaceId, version);
   } catch (error) {
     if (error instanceof UploadError) return json({ error: error.code }, error.status);
     return filesFailure(error);
