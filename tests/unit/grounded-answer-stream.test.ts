@@ -74,9 +74,16 @@ describe('streamGroundedAnswer at the output limit', () => {
     expect(result.text).toBe(answer);
   });
 
+  it('keeps a long reply that ends on the sentinel as an answer, saying it ended there', async () => {
+    const refusal = 'The passages describe the temperance movement in general terms and name several towns, but none of them says how or where the crusade began in Ohio, so this cannot be answered from them.';
+    const result = await ask([{ type: 'stream-start', warnings: [] }, ...text(`${refusal} [[NO_ANSWER]]`), finish('stop', 60, 0)]);
+    expect(result).toMatchObject({ declined: false, endedOnSentinel: true });
+    expect(result.text.trim()).toBe(refusal);
+  });
+
   it('answers as before when the model stops on its own', async () => {
     const answer = 'It began at Hillsboro, Ohio, after Dio Lewis lectured there in December 1873 and the women marched to the saloons the next morning [1].';
     const result = await ask([{ type: 'stream-start', warnings: [] }, ...text(answer), finish('stop', 60, 0)]);
-    expect(result).toMatchObject({ declined: false, text: answer });
+    expect(result).toMatchObject({ declined: false, endedOnSentinel: false, text: answer });
   });
 });

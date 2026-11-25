@@ -152,6 +152,31 @@ export function isNoAnswer(text: string): boolean {
 }
 
 /**
+ * An answer that is really the Ree saying its sources do not cover the
+ * question, written as prose instead of the sentinel (or longer than a
+ * refusal settles at): "I cannot answer this question based on the supplied
+ * text", 「无法根据提供的资料回答」. It is still an answer -- charged and
+ * shown -- but never one a page features (the share page's real exchange,
+ * `reePostPicks`). Kept narrow: a short reply (`UNCOVERED_MAX_CHARS`) that
+ * says outright it cannot answer, or that the question is outside its
+ * knowledge. A long answer that only notes a gap, or explains how a Ree
+ * declines, is not one.
+ *
+ * The pattern is plain enough for both JavaScript and Postgres (`~*`):
+ * migration 0091 backfills existing answers with this exact string
+ * (tests/unit/answer-uncovered.test.ts holds them together).
+ */
+export const UNCOVERED_PATTERN =
+  "(cannot|can ?not|can't|can’t|unable to|not able to) (answer|provide an answer|be answered)|outside (of )?(my|the) (knowledge|sources)|not (in|within|covered by) (my|the) (knowledge|sources|passages)|无法(回答|作答|解答|给出答案|根据)|不能(回答|作答)|(不在|超出)(我的)?(知识|资料)范围";
+export const UNCOVERED_MAX_CHARS = 300;
+const UNCOVERED = new RegExp(UNCOVERED_PATTERN, 'i');
+
+export function readsAsUncovered(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.length > 0 && Array.from(trimmed).length <= UNCOVERED_MAX_CHARS && UNCOVERED.test(trimmed);
+}
+
+/**
  * Whether a finished stream settles as no answer (review H3): it was the
  * sentinel from the start, or it ends on the sentinel after no more than a
  * short refusal was shown. A reply that showed more than `refusalChars`

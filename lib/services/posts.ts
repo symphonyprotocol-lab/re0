@@ -37,7 +37,7 @@ import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { generateText } from 'ai';
-import { citationSnapshots, type CitationSnapshot } from '@/lib/domain/answer';
+import { citationSnapshots, readsAsUncovered, type CitationSnapshot } from '@/lib/domain/answer';
 import { InsufficientCredits } from '@/lib/domain/credits';
 import { isUuid } from '@/lib/domain/list';
 import {
@@ -490,7 +490,8 @@ export const searchMatcher: Matcher = async ({ question, mentionReeId, excludePa
 
 /* ---------------------------------------------------------------- answering */
 
-export type AnswerResult = { state: 'answered'; text: string; citations: CitationSnapshot[]; model: string | null } | { state: 'no_answer' | 'failed'; model: string | null };
+/** `uncovered`: the Ree said its sources do not cover the question, though it answered (`readsAsUncovered`); `closeAnswer` also reads the text. */
+export type AnswerResult = { state: 'answered'; text: string; citations: CitationSnapshot[]; model: string | null; uncovered?: boolean } | { state: 'no_answer' | 'failed'; model: string | null };
 
 /** `turns`: the exchange so far, for a follow-up (追问): the post's question and this Ree's own answers, nobody else's. */
 /** `emit`: the answer's text as it is written (MCP's progress); posts are never streamed to a page. */
@@ -518,10 +519,10 @@ export const groundedAnswer: AnswerOne = async ({ reeId, subject, lang, vector, 
       ? [{ role: 'user', content: context.question }, { role: 'assistant', content: context.answer }]
       : []);
     const asked = context && !context.answer ? `${subject}\n\n(${context.question})` : subject;
-    const { declined, text, model: answered } = await streamGroundedAnswer({ generation, ree: target, lang, subject: asked, passages: found.passages, turns, images }, emit ?? (() => undefined));
+    const { declined, endedOnSentinel, text, model: answered } = await streamGroundedAnswer({ generation, ree: target, lang, subject: asked, passages: found.passages, turns, images }, emit ?? (() => undefined));
     model = answered;
     if (declined || !text.trim()) return { state: 'no_answer', model };
-    return { state: 'answered', text: text.trim(), citations: citationSnapshots(text, found.passages), model };
+    return { state: 'answered', text: text.trim(), citations: citationSnapshots(text, found.passages), model, uncovered: endedOnSentinel };
   } catch (error) {
     console.warn(`post answer ree=${reeId} failed: ${error instanceof Error ? error.message : 'unknown'}`);
     return { state: 'failed', model };
@@ -1744,7 +1745,8 @@ export async function closeAnswer(id: string, result: AnswerResult, now: Date): 
       if (target.baseHoldId) await settleHold(tx, target.baseHoldId, QUERY_BASE_FEE, { ...holds, ledger: 'post_answer' }, now);
       const paid = target.feeHoldId ? await settleHold(tx, target.feeHoldId, Math.max(0, (target.price ?? 0) - QUERY_BASE_FEE), { ...holds, ledger: 'chat_fee' }, now) : null;
       if (paid && paid.charged > 0) await creditQueryFee(tx, { ownerId: target.ownerId, reeId: target.reeId, reeName: target.reeName, replyId: id, allocations: paid.chargedAllocations }, now);
-      await tx.update(answer).set({ state: 'answered', text: result.text.slice(0, 20_000), citations: result.citations, model: result.model, answeredAt: now }).where(eq(answer.id, id));
+      const text = result.text.slice(0, 20_000);
+      await tx.update(answer).set({ state: 'answered', text, citations: result.citations, model: result.model, uncovered: result.uncovered === true || readsAsUncovered(text), answeredAt: now }).where(eq(answer.id, id));
     } else {
       if (target.baseHoldId) await releaseHold(tx, target.baseHoldId, { ...holds, ledger: 'post_answer' }, now);
       if (target.feeHoldId) await releaseHold(tx, target.feeHoldId, { ...holds, ledger: 'chat_fee' }, now);
@@ -2163,7 +2165,9 @@ export async function reeAnsweredPosts(reeId: string, options: { before?: string
  * A share page's "大家问过的": the posts this Ree answered in their first
  * round, public ones only -- the pinned answer first, then the most helpful,
  * then the newest (as the Q&A picks were chosen) -- each card showing this
- * Ree's answer; and how many there are in all.
+ * Ree's answer; and how many there are in all. An answer that says its
+ * sources do not cover the question is counted but never picked: the first
+ * pick is the page's featured exchange.
  */
 export async function reePostPicks(reeId: string, count: number, viewerId?: string): Promise<{ items: PostView[]; total: number }> {
   if (!isUuid(reeId)) return { items: [], total: 0 };
@@ -2174,7 +2178,8 @@ export async function reePostPicks(reeId: string, count: number, viewerId?: stri
     .from(answer)
     .innerJoin(ree, eq(ree.id, answer.reeId))
     .innerJoin(post, eq(post.id, answer.postId))
-    .where(base)
+    /* Never an answer that says its sources do not cover the question, however helpful or pinned (post_answer.uncovered). */
+    .where(and(base, eq(answer.uncovered, false)))
     .orderBy(sql`${answer.pinnedAt} is null`, desc(answer.helpfulCount), desc(answer.answeredAt), desc(answer.id))
     .limit(count);
   if (picked.length === 0) return { items: [], total: counted?.n ?? 0 };

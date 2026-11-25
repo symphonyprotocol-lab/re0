@@ -10,7 +10,7 @@
 import { streamText } from 'ai';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { ANSWER_STREAM_TIMEOUT_MAX_MS, NO_ANSWER_REFUSAL_CHARS, QUERY_BASE_FEE } from '@/lib/constants';
-import { instructionsFor, NO_ANSWER_SENTINEL, questionWithPassages, sentinelState, settlesAsNoAnswer, withoutSentinel, type Passage } from '@/lib/domain/answer';
+import { instructionsFor, isNoAnswer, NO_ANSWER_SENTINEL, questionWithPassages, sentinelState, settlesAsNoAnswer, withoutSentinel, type Passage } from '@/lib/domain/answer';
 import { db, schema } from '@/lib/infra/db';
 import type { generationForUser } from '@/lib/services/generation';
 import type { Ree } from '@/lib/services/rees';
@@ -60,13 +60,15 @@ type Generation = Awaited<ReturnType<typeof generationForUser>>;
  * text part opens only once the reply is known not to be the no-answer
  * sentinel, and a sentinel written after the answer began is dropped.
  * Answers whether the model declined (the sentinel, or a refusal-length
- * reply) and the text shown. A provider error, abort or timeout throws,
+ * reply), whether it ended on the sentinel anyway after a longer reply
+ * (`endedOnSentinel`: shown and charged, but the model's own word that its
+ * sources do not cover the question) and the text shown. A provider error, abort or timeout throws,
  * after closing the text part it opened.
  */
 export async function streamGroundedAnswer(
   args: { generation: Generation; ree: Pick<Ree, 'id' | 'name' | 'systemPrompt'>; lang: 'zh' | 'en'; subject: string; passages: readonly Passage[]; turns: { role: 'user' | 'assistant'; content: string }[]; images?: readonly ImagePart[] },
   emit: Emit,
-): Promise<{ declined: boolean; text: string; model: string }> {
+): Promise<{ declined: boolean; endedOnSentinel: boolean; text: string; model: string }> {
   const { generation, ree, subject, passages, turns, images = [] } = args;
   const model = generation.endpoint.model;
   let textOpen = false;
@@ -140,7 +142,8 @@ export async function streamGroundedAnswer(
      * (2026-11-24, while agnes cooled down after 429s).
      */
     if (finishReason === 'length' && decided !== true && !raw.trim()) throw new OutputLimitBeforeText(answered);
-    return { declined: decided === true || settlesAsNoAnswer(raw, streamed, NO_ANSWER_REFUSAL_CHARS), text: streamed, model: answered };
+    const declined = decided === true || settlesAsNoAnswer(raw, streamed, NO_ANSWER_REFUSAL_CHARS);
+    return { declined, endedOnSentinel: !declined && isNoAnswer(raw), text: streamed, model: answered };
   } catch (error) {
     if (textOpen) emit({ type: 'text-end', reeId: ree.id });
     throw error;

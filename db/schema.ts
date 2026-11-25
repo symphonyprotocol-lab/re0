@@ -1708,6 +1708,8 @@ export const postAnswer = pgTable(
     hiddenBy: text('hidden_by').$type<AnswerHider>(),
     helpfulCount: integer('helpful_count').notNull().default(0),
     reportCount: integer('report_count').notNull().default(0),
+    /** The Ree answered by saying its sources do not cover the question (lib/domain/answer.ts `readsAsUncovered`, or it ended on the no-answer sentinel): shown, never featured. */
+    uncovered: boolean('uncovered').notNull().default(false),
     /** Pinned by the Ree's owner: first on the Ree page and the share page; one per Ree. */
     pinnedAt: timestampTz('pinned_at'),
     /** A paid Ree's answer: what its author agreed to pay (base fee plus query fee), and the two holds. */
