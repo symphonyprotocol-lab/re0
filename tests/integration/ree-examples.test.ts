@@ -4,7 +4,7 @@
  * published, not deleted, this Ree's first-round answer shown -- the pinned
  * one first, then the most helpful, then the newest; never an answer that
  * says its sources do not cover the question; the answer's opening only,
- * with its cited sources' titles. Read in index order (migration 0092).
+ * with its cited sources' titles. Read in index order (migration 0093).
  */
 import { describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';

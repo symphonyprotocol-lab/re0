@@ -1,6 +1,7 @@
 import { closeUnavailableRequests } from '@/lib/services/posts';
 import { after, type NextRequest } from 'next/server';
 import { parseVisitorAskSettings } from '@/lib/domain/visitor-ask';
+import { isShareStyle, parseProductSheet } from '@/lib/domain/share-style';
 import { body, fail, json } from '@/lib/http/respond';
 import { apiUser } from '@/lib/http/session';
 import { db } from '@/lib/infra/db';
@@ -26,6 +27,10 @@ export async function PATCH(request: NextRequest, context: Context) {
   /* Visitor asks on the share page (lib/domain/visitor-ask.ts): left as they are when not sent. */
   const visitorAskSettings = input.visitorAskSettings === undefined ? undefined : parseVisitorAskSettings(input.visitorAskSettings);
   if (typeof visitorAskSettings === 'string') return fail(visitorAskSettings, 422);
+  /* The share page's style and product sheet (lib/domain/share-style.ts): each left as it is when not sent. */
+  if (input.shareStyle !== undefined && !isShareStyle(input.shareStyle)) return fail('share_style', 422);
+  const productSheet = input.productSheet === undefined ? undefined : parseProductSheet(input.productSheet);
+  if (typeof productSheet === 'string') return fail(productSheet, 422);
   try {
     const ree = await updateRee(user.id, (await context.params).id, {
       name: String(input.name ?? ''),
@@ -42,6 +47,8 @@ export async function PATCH(request: NextRequest, context: Context) {
       publicQaEnabled: typeof input.publicQaEnabled === 'boolean' ? input.publicQaEnabled : undefined,
       answersPosts: typeof input.answersPosts === 'boolean' ? input.answersPosts : undefined,
       visitorAskSettings,
+      shareStyle: isShareStyle(input.shareStyle) ? input.shareStyle : undefined,
+      productSheet,
     });
     /* What the profile is made of may have changed: a public Ree's is rebuilt, free (2.4). */
     if (ree?.isPublished) after(() => refreshProfile(ree.id).catch(() => undefined));

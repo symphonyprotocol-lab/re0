@@ -22,7 +22,8 @@ import { PublicIntro } from '@/components/video/public-intro';
 import { KIND_ICONS } from '@/components/knowledge/kind-icons';
 import { ShareFrame } from '@/components/share/share-frame';
 import { ShareVisit } from '@/components/share/share-visit';
-import { AskJump, TryQuestions } from '@/components/share/share-ask';
+import { AskAbout, AskJump, TryQuestions } from '@/components/share/share-ask';
+import type { ProductSheet } from '@/lib/domain/share-style';
 
 /** Metadata and the page share one lookup per request. */
 const publicReeBySlug = cache(lookup);
@@ -98,6 +99,12 @@ function Cites({ post, label }: { post: PostView; label: string }) {
  * counts every public page shows -- never a source nobody was shown, a
  * private post or 试问. A section with nothing to show is left out.
  *
+ * The owner may pick the product style instead (lib/domain/share-style.ts):
+ * the product's photo -- the Ree's cover -- leads beside its name, what it
+ * is and who makes it; then its features and specifications, as the owner
+ * typed them; then the same box, picks, video and sources. Without a cover
+ * the hero keeps the real exchange, else the video.
+ *
  * Each open is a visit and each post published from the box a conversion
  * (lib/services/share.ts); a visitor's box offers 登录后提问 and comes back
  * to `#ask` with the draft kept (ree-ask.tsx).
@@ -125,8 +132,13 @@ export default async function SharePage({ params, searchParams }: Props) {
   const hasCreator = Boolean(ree.ownerTitle.trim() || ree.ownerDescription.trim() || ree.ownerWebsite.trim() || ree.ownerSocialContacts.some((contact) => contact.value.trim()));
   const ask = fill(s.ask, { name: ree.name });
   const tone = TONES.has(ree.color) ? `tone-${ree.color}` : '';
-  /* The hero's right side: one real exchange, else the introduction video. */
-  const side = proof ? 'proof' : video ? 'video' : null;
+  const product = ree.shareStyle === 'product' ? ree.productSheet : null;
+  const photo = product && ree.coverBlob ? `/media/${ree.coverBlob}` : null;
+  /* The hero's right side: the product photo, else one real exchange, else the introduction video. */
+  const side = photo ? 'photo' : proof ? 'proof' : video ? 'video' : null;
+  /* The exchange the hero did not take leads the picks. */
+  const listed = side === 'proof' ? highlights : answered;
+  const title = product?.product || ree.name;
 
   const foot =
     ready || hasCreator ? (
@@ -171,13 +183,29 @@ export default async function SharePage({ params, searchParams }: Props) {
                 <UserAvatar name={ree.ownerName} avatar={ree.ownerAvatar} className="size-6 rounded-[7px] text-[9px]" />
                 <span className="min-w-0 [overflow-wrap:anywhere]">{fill(s.sharedBy, { name: ree.ownerName })}</span>
               </p>
-              <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="lg" className="share-avatar" />
-              <h1 id="share-name" className="share-name">{ree.name}</h1>
+              {product ? (
+                product.line && <p className="share-kicker">{product.line}</p>
+              ) : (
+                <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="lg" className="share-avatar" />
+              )}
+              <h1 id="share-name" className={`share-name${product ? ' is-product' : ''}`}>{title}</h1>
               <p className="share-byline">
+                {title !== ree.name && (
+                  <span className="share-byline-ree">
+                    <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="sm" className="size-6! rounded-[7px]! [&_svg]:size-3.5!" />
+                    <span>{ree.name}</span>
+                    <span aria-hidden="true">·</span>
+                  </span>
+                )}
                 {fill(s.by, { name: ree.ownerName })}
                 <RoleBadge role={ree.role} />
               </p>
               {ree.description && <p className="share-lede">{ree.description}</p>}
+              {product?.maker && (
+                <p className="share-maker">
+                  {fill(s.product.madeBy, { maker: product.maker })}
+                </p>
+              )}
               <ul className="share-tags" aria-label={category}>
                 <li>{category}</li>
                 {tags.slice(0, 5).map((tag) => (
@@ -193,10 +221,17 @@ export default async function SharePage({ params, searchParams }: Props) {
                 ) : (
                   <p className="share-preparing">{s.preparing}</p>
                 )}
-                <Link href={`/r/${ree.slug}`} className="share-link">
-                  {s.profile}
-                  <Icon name="arrow" />
-                </Link>
+                {product?.link ? (
+                  <a href={product.link} className="share-link" target="_blank" rel="noopener noreferrer nofollow">
+                    {s.product.site}
+                    <Icon name="external" />
+                  </a>
+                ) : (
+                  <Link href={`/r/${ree.slug}`} className="share-link">
+                    {s.profile}
+                    <Icon name="arrow" />
+                  </Link>
+                )}
               </div>
               <dl className="share-facts" aria-label={fill(s.facts.label, { name: ree.name })}>
                 <div className="is-price">
@@ -224,6 +259,12 @@ export default async function SharePage({ params, searchParams }: Props) {
               </dl>
             </div>
 
+            {side === 'photo' && photo && (
+              <figure className="share-photo">
+                {/* eslint-disable-next-line @next/next/no-img-element -- the cover is served by /media with its own checks, like every Ree cover */}
+                <img src={photo} alt={fill(s.product.photo, { name: title })} />
+              </figure>
+            )}
             {side === 'proof' && proof && (
               <figure className="share-proof">
                 <figcaption className="share-proof-label">{s.proof.label}</figcaption>
@@ -259,6 +300,8 @@ export default async function SharePage({ params, searchParams }: Props) {
             )}
           </div>
         </article>
+
+        {product && <ProductSections product={product} ree={ree} ready={ready} t={t} />}
 
         {ready ? (
           <section className="share-band share-ask-band" aria-labelledby="share-ask">
@@ -303,13 +346,13 @@ export default async function SharePage({ params, searchParams }: Props) {
           )
         )}
 
-        {highlights.length > 0 && (
+        {listed.length > 0 && (
           <section className="share-band" aria-labelledby="share-picks">
             <div className="share-wrap">
               <h2 id="share-picks" className="share-h2">{s.picks}</h2>
               <p className="share-sub">{fill(s.picksCount, { n: n(picks.total) })}</p>
               <ul className="share-list share-picks">
-                {highlights.map((post) => (
+                {listed.map((post) => (
                   <li key={post.id} className="share-qa">
                     <div className="min-w-0">
                       <p className="share-note">{fill(s.proof.asked, { name: askerName(post, t) })}</p>
@@ -352,6 +395,59 @@ export default async function SharePage({ params, searchParams }: Props) {
         {ready && <Knowledge ree={ree} mix={mix} cited={cited} t={t} n={n} />}
       </div>
     </ShareFrame>
+  );
+}
+
+/**
+ * The product style's own bands: 主要功能, each with 问问这个 when it can
+ * be asked, and 规格参数 -- the owner's words as typed. Neither shows when
+ * it is empty.
+ */
+function ProductSections({ product, ree, ready, t }: { product: ProductSheet; ree: PublicRee; ready: boolean; t: Messages }) {
+  const p = t.share.page.product;
+  return (
+    <>
+      {product.features.length > 0 && (
+        <section className="share-band" aria-labelledby="share-features">
+          <div className="share-wrap">
+            <h2 id="share-features" className="share-h2">{p.features}</h2>
+            {ready && <p className="share-sub">{p.featuresLede}</p>}
+            <ol className={`share-features n-${product.features.length}`}>
+              {product.features.map((feature, index) => (
+                <li key={`${index}-${feature.title}`} className="share-feature">
+                  <span className="share-feature-index" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+                  <h3 className="share-h3 mt-6 [overflow-wrap:anywhere]">{feature.title}</h3>
+                  {feature.body && <p className="share-feature-body">{feature.body}</p>}
+                  {ready && (
+                    <AskAbout slug={ree.slug} question={fill(p.askAboutQuestion, { feature: feature.title })}>
+                      {p.askAbout}
+                    </AskAbout>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+      )}
+      {product.specs.length > 0 && (
+        <section className="share-band" aria-labelledby="share-specs">
+          <div className="share-wrap share-specs-grid">
+            <div className="min-w-0">
+              <h2 id="share-specs" className="share-h2">{p.specs}</h2>
+              <p className="share-sub">{fill(p.specsLede, { owner: ree.ownerName, name: ree.name })}</p>
+            </div>
+            <dl className="share-specs">
+              {product.specs.map((spec, index) => (
+                <div key={`${index}-${spec.label}`}>
+                  <dt>{spec.label}</dt>
+                  <dd>{spec.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </section>
+      )}
+    </>
   );
 }
 

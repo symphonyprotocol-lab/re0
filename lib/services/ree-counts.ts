@@ -60,11 +60,18 @@ function askedFrom(owner: SQL, sources: SQL, also: SQL = sql`false`): SQL {
 export const ASKED = sql.raw(`a.state not in ('awaiting', 'declined')`);
 /** The Ree answered, and the answer is not hidden. */
 export const ANSWERED = sql.raw(`(a.state = 'answered' and a.hidden_by is null)`);
+/**
+ * A successful answer: answered, not hidden, and not one that says its
+ * sources do not cover the question (`post_answer.uncovered`, migration
+ * 0091) -- that one is still shown and charged, but it answered nothing, so
+ * the public figure "成功回答" does not count it.
+ */
+export const SUCCESSFUL = sql.raw(`(a.state = 'answered' and a.hidden_by is null and not a.uncovered)`);
 
-/** Answers to other people, all time: the frozen conversation figure plus the posts'. */
+/** Successful answers to other people, all time: the frozen conversation figure plus the posts'. */
 export function answersByOthersOf(reeId: SQL, owner: SQL): SQL<number> {
   return sql<number>`(coalesce((select ls.answers_by_others from ${reeLegacyStats} ls where ls.ree_id = ${reeId}), 0)
-    + (select count(*) from ${postAnswer} a join ${post} p on p.id = a.post_id where a.ree_id = ${reeId} and ${ANSWERED} and ${askedByOthers(owner)}))::int`;
+    + (select count(*) from ${postAnswer} a join ${post} p on p.id = a.post_id where a.ree_id = ${reeId} and ${SUCCESSFUL} and ${askedByOthers(owner)}))::int`;
 }
 
 /** 有帮助 / 没帮助 on the Ree's answers from posts, by anyone but its owner (the owner's 试问 has none to count). */

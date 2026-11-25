@@ -2198,7 +2198,7 @@ export async function reePostPicks(reeId: string, count: number, viewerId?: stri
  * decides: public, published, not deleted, with this Ree's answer shown.
  * Runs on every Ree page, so it reads little: the question, the first
  * `REE_EXAMPLE_READ_CHARS` of the answer and its citations' numbers and
- * titles, at most `count` + 1 rows read in index order (migration 0092).
+ * titles, at most `count` + 1 rows read in index order (migration 0093).
  * Empty for a Ree that is not public.
  */
 export async function reeAnsweredExamples(reeId: string, count = REE_EXAMPLES): Promise<ReeExample[]> {
