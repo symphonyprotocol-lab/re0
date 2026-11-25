@@ -33,6 +33,8 @@ import { and, asc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } f
 import {
   CREDIT_USD,
   WORKSPACE_INDEX_BATCH,
+  WORKSPACE_INDEX_FILE_MAX,
+  WORKSPACE_PARSE_MS,
   WORKSPACE_INDEX_CLAIM_MS,
   WORKSPACE_SEARCH_MAX,
 } from '@/lib/constants';
@@ -40,7 +42,9 @@ import { InsufficientCredits } from '@/lib/domain/credits';
 import { estimateTokens } from '@/lib/domain/knowledge';
 import { providerTotal } from '@/lib/domain/provider-cost';
 import { fuse, keywordCoverage, searchTerms } from '@/lib/domain/retrieval';
-import { chunkFile, effectiveIndexMode, excludedBy, nameOf } from '@/lib/domain/workspace';
+import { chunkFile, decodeText, effectiveIndexMode, excludedBy, indexableFormat, nameOf } from '@/lib/domain/workspace';
+import { docxSections } from '@/lib/infra/connectors/docx';
+import { pdfTextLayer } from '@/lib/infra/connectors/pdf';
 import { embedTexts, endpointFor, type ModelEndpoint } from '@/lib/infra/ai/models';
 import { modelCostTarget, quoteProviderCost } from '@/lib/infra/ai/provider-meter';
 import { db, schema, type Executor } from '@/lib/infra/db';
@@ -50,7 +54,7 @@ import { providerPrices } from '@/lib/services/provider-pricing';
 import { effectiveCeiling } from '@/lib/services/rate-limit-settings';
 import { storingSpace } from '@/lib/services/reembed';
 import { embedQuestion } from '@/lib/services/retrieval';
-import { queueIndexWithin } from '@/lib/services/ree-file-guard';
+import { indexableFile, queueIndexWithin } from '@/lib/services/ree-file-guard';
 import { existing, requireWriteAccess, resolvePath, shown, within, WorkspaceError, type WorkspaceScope } from '@/lib/services/workspace';
 
 type Entry = typeof schema.workspaceEntry.$inferSelect;
@@ -60,13 +64,63 @@ export const digestOf = (text: string): string => createHash('sha256').update(te
 export interface DraftPassage {
   ordinal: number;
   content: string;
-  locator: { path?: string; line?: number; heading?: string };
+  locator: { path?: string; line?: number; heading?: string; page?: number };
   digest: string;
 }
 
 /** A file's passages: content-defined cuts by lines (`chunkFile`), under its name (never its path, which may say more than a citation should). */
 export function passagesOf(path: string, text: string): DraftPassage[] {
   return chunkFile(nameOf(path), text, { estimate: estimateTokens }).map((chunk) => ({ ordinal: chunk.ordinal, content: chunk.content, locator: chunk.locator, digest: digestOf(chunk.content) }));
+}
+
+/**
+ * A PDF's or Word file's passages: each page (a Word file is one section)
+ * cut as text is, its passages citing the page, numbered through.
+ */
+export function documentPassages(path: string, sections: readonly { text: string; page?: number }[]): DraftPassage[] {
+  const passages: DraftPassage[] = [];
+  for (const section of sections) {
+    for (const chunk of chunkFile(nameOf(path), section.text, { estimate: estimateTokens })) {
+      const locator = section.page === undefined ? chunk.locator : { path: chunk.locator.path, page: section.page, ...(chunk.locator.heading ? { heading: chunk.locator.heading } : {}) };
+      passages.push({ ordinal: passages.length, content: chunk.content, locator, digest: digestOf(chunk.content) });
+    }
+  }
+  return passages;
+}
+
+type Readable = { passages: DraftPassage[] } | { unreadable: string };
+
+/**
+ * What the index reads from a file: its inline text; or, for one kept only
+ * as bytes up to WORKSPACE_INDEX_FILE_MAX, a PDF's text layer (read here,
+ * within WORKSPACE_PARSE_MS and the reader's page budget; a scan or an
+ * unusable text layer is not indexed -- there is no paid fallback), a Word
+ * file's text (refused when it would inflate past the reader's limit), or
+ * the text itself. Null when it is not a file the index reads at all.
+ */
+async function readableOf(entry: Entry): Promise<Readable | null> {
+  if (entry.kind !== 'file') return null;
+  if (entry.text !== null) return { passages: passagesOf(entry.path, entry.text) };
+  const format = indexableFormat(entry.path, entry.mediaType);
+  if (!format || entry.size > WORKSPACE_INDEX_FILE_MAX || !entry.sha256) return null;
+  const { versionBytes } = await import('@/lib/services/workspace-upload');
+  const bytes = await versionBytes(entry.workspaceId, entry.sha256, entry.size, WORKSPACE_INDEX_FILE_MAX);
+  if (!bytes) return { unreadable: 'missing' };
+  try {
+    if (format === 'text') {
+      const text = decodeText(bytes);
+      return text === null ? { unreadable: 'not_text' } : { passages: passagesOf(entry.path, text) };
+    }
+    if (format === 'docx') {
+      const sections = await docxSections(bytes);
+      return { passages: documentPassages(entry.path, sections.map((section) => ({ text: section.text }))) };
+    }
+    const layer = await pdfTextLayer(bytes, { deadline: Date.now() + WORKSPACE_PARSE_MS });
+    if (!('sections' in layer)) return { unreadable: `pdf_${layer.fallback}` };
+    return { passages: documentPassages(entry.path, layer.sections.map((section) => ({ text: section.text, page: section.locator.page }))) };
+  } catch (error) {
+    return { unreadable: error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'unreadable' };
+  }
 }
 
 /* ------------------------------------------------------------------ who needs an index */
@@ -166,7 +220,7 @@ export async function estimateIndex(scope: WorkspaceScope, rawPath: unknown): Pr
   const folder = resolvePath(scope, rawPath ?? '/');
   const endpoint = await endpointFor('embedding');
   const space = spaceOf(endpoint);
-  const below = and(eq(schema.workspaceEntry.workspaceId, scope.workspaceId), isNull(schema.workspaceEntry.deletedAt), eq(schema.workspaceEntry.kind, 'file'), isNotNull(schema.workspaceEntry.text), within(folder));
+  const below = and(eq(schema.workspaceEntry.workspaceId, scope.workspaceId), isNull(schema.workspaceEntry.deletedAt), eq(schema.workspaceEntry.kind, 'file'), indexableFile('"agent_workspace_entry"', WORKSPACE_INDEX_FILE_MAX), within(folder));
   let files = 0;
   let reused = 0;
   let read = 0;
@@ -174,8 +228,8 @@ export async function estimateIndex(scope: WorkspaceScope, rawPath: unknown): Pr
   let after: string | null = null;
   const seen = new Set<string>();
   for (;;) {
-    const page: { id: string; size: number }[] = await db()
-      .select({ id: schema.workspaceEntry.id, size: schema.workspaceEntry.size })
+    const page: { id: string; size: number; path: string; inline: boolean }[] = await db()
+      .select({ id: schema.workspaceEntry.id, size: schema.workspaceEntry.size, path: schema.workspaceEntry.path, inline: sql<boolean>`${schema.workspaceEntry.text} is not null` })
       .from(schema.workspaceEntry)
       .where(and(below, after ? gt(schema.workspaceEntry.id, after) : undefined))
       .orderBy(asc(schema.workspaceEntry.id))
@@ -185,6 +239,11 @@ export async function estimateIndex(scope: WorkspaceScope, rawPath: unknown): Pr
     files += page.length;
     const reading: string[] = [];
     for (const file of page) {
+      /* A file kept as bytes is not read for an estimate: a PDF's or Word file's text is taken as a sixteenth of its size, other text as all of it. */
+      if (!file.inline) {
+        tokens += Math.ceil(file.size / (indexableFormat(file.path, null) === 'text' ? 4 : 16));
+        continue;
+      }
       if (read + file.size <= ESTIMATE_READ_BYTES) {
         reading.push(file.id);
         read += file.size;
@@ -267,7 +326,7 @@ export async function queueBelow(executor: Executor, workspaceId: string, paths:
 
 /* ------------------------------------------------------------------ the worker */
 
-export type IndexOutcome = 'indexed' | 'current' | 'dropped' | 'unneeded' | 'budget' | 'insufficient_credits' | 'retry' | 'skipped';
+export type IndexOutcome = 'indexed' | 'current' | 'dropped' | 'unneeded' | 'unreadable' | 'budget' | 'insufficient_credits' | 'retry' | 'skipped';
 
 const startOfUtcDay = (now: Date) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 const nextUtcDay = (now: Date) => new Date(startOfUtcDay(now).getTime() + 24 * 60 * 60_000);
@@ -449,11 +508,18 @@ export async function indexEntry(entryId: string, now = new Date()): Promise<Ind
   if (!entry) return 'skipped';
   try {
     const rules = await indexRules(db(), entry.workspaceId);
-    if (entry.kind !== 'file' || entry.text === null || !wanted(rules, entry)) {
-      /* Not indexed (turned off, unbound, a folder, its Ree deleted): its passages go, and any Ree that had it lets it go. */
+    const readable = entry.kind === 'file' && wanted(rules, entry) ? await readableOf(entry) : null;
+    if (!readable || 'unreadable' in readable) {
+      /*
+       * Not indexed (turned off, unbound, a folder, its Ree deleted, an image),
+       * or nothing to read in it (a scanned PDF): its passages go, and any Ree
+       * that had it lets it go. A file it could not read says why, until a new
+       * version is saved.
+       */
       await db().delete(schema.workspacePassage).where(eq(schema.workspacePassage.entryId, entry.id));
-      await release(entry.id, { indexDueAt: null, indexError: null, indexedRevisionId: null });
-      return entry.indexedRevisionId ? 'dropped' : 'unneeded';
+      await release(entry.id, { indexDueAt: null, indexError: readable ? 'unreadable' : null, indexedRevisionId: null });
+      if (readable) console.info(`workspace file not indexed entry=${entry.id} reason=${readable.unreadable}`);
+      return entry.indexedRevisionId ? 'dropped' : readable ? 'unreadable' : 'unneeded';
     }
     const endpoint = await endpointFor('embedding');
     const space = spaceOf(endpoint);
@@ -462,7 +528,7 @@ export async function indexEntry(entryId: string, now = new Date()): Promise<Ind
       return 'retry';
     }
     const revisionId = entry.currentRevisionId!;
-    const passages = passagesOf(entry.path, entry.text);
+    const passages = readable.passages;
     const missing = missingOf(passages, await heldDigests(entry.workspaceId, passages.map((passage) => passage.digest), space));
     /* Renamed since it was indexed: the passages are cut again under the new name (citations name the file), reusing every vector. */
     const [first] = await db().select({ name: sql<string | null>`${schema.workspacePassage.locator} ->> 'path'` }).from(schema.workspacePassage).where(and(eq(schema.workspacePassage.entryId, entry.id), eq(schema.workspacePassage.ordinal, 0)));
@@ -578,7 +644,7 @@ export async function runIndexQueue(now = new Date(), { limit = WORKSPACE_INDEX_
     ) d
     order by d.turn, d.index_due_at, d.id
     limit ${limit}`);
-  const counts: Record<IndexOutcome, number> = { indexed: 0, current: 0, dropped: 0, unneeded: 0, budget: 0, insufficient_credits: 0, retry: 0, skipped: 0 };
+  const counts: Record<IndexOutcome, number> = { indexed: 0, current: 0, dropped: 0, unneeded: 0, unreadable: 0, budget: 0, insufficient_credits: 0, retry: 0, skipped: 0 };
   const touched = new Map<string, string[]>();
   for (const row of due.rows) {
     if (Date.now() - started > budgetMs) break;

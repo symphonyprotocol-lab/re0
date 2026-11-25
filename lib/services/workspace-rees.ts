@@ -19,7 +19,8 @@
  * the text (source-text.ts).
  */
 import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
-import { MCP_REE_CREATE_PER_DAY } from '@/lib/constants';
+import { MCP_REE_CREATE_PER_DAY, WORKSPACE_INDEX_FILE_MAX } from '@/lib/constants';
+import { indexableFile } from '@/lib/services/ree-file-guard';
 import { activity } from '@/lib/domain/knowledge';
 import { validateReeFields, type ReeFields } from '@/lib/domain/ree';
 import { fileNameForTitle, globToRegex, nameOf, normalizePath, scanSecrets } from '@/lib/domain/workspace';
@@ -114,7 +115,7 @@ async function membersOf(executor: Executor, reeId: string): Promise<Map<string,
     const files = await executor
       .select({ id: schema.workspaceEntry.id, path: schema.workspaceEntry.path, lower: sql<string>`lower(${schema.workspaceEntry.path})`, indexedRevisionId: schema.workspaceEntry.indexedRevisionId, indexedName })
       .from(schema.workspaceEntry)
-      .where(and(eq(schema.workspaceEntry.workspaceId, binding.workspaceId), isNull(schema.workspaceEntry.deletedAt), eq(schema.workspaceEntry.kind, 'file'), isNotNull(schema.workspaceEntry.text), within(binding.path)));
+      .where(and(eq(schema.workspaceEntry.workspaceId, binding.workspaceId), isNull(schema.workspaceEntry.deletedAt), eq(schema.workspaceEntry.kind, 'file'), indexableFile('"agent_workspace_entry"', WORKSPACE_INDEX_FILE_MAX), within(binding.path)));
     const rules = { modes: new Map<string, string>(), bindings: [{ id: binding.id, ree_id: reeId, path: binding.path, lower: binding.lower, exclude: binding.exclude }] };
     for (const file of files) {
       if (excluded.has(file.id) || bindingsOf(rules, file).length === 0) continue;
@@ -184,7 +185,8 @@ export async function syncRee(reeId: string, now = new Date()): Promise<SyncCoun
   /* Covered files not indexed yet are looked at now: a binding indexes whatever it covers. */
   const unindexed = [...members.values()].filter((member) => !member.indexedRevisionId).map((member) => member.id);
   for (let at = 0; at < unindexed.length; at += 1_000) {
-    await db().update(schema.workspaceEntry).set({ indexDueAt: now }).where(and(inArray(schema.workspaceEntry.id, unindexed.slice(at, at + 1_000)), isNull(schema.workspaceEntry.indexDueAt)));
+    /* Not one the index already found it could not read (a scan, an encrypted PDF): that waits for a new version. */
+    await db().update(schema.workspaceEntry).set({ indexDueAt: now }).where(and(inArray(schema.workspaceEntry.id, unindexed.slice(at, at + 1_000)), isNull(schema.workspaceEntry.indexDueAt), isNull(schema.workspaceEntry.indexError)));
   }
   /* The profile (a metered run the owner pays) follows a change of which files there are, not every edit an agent saves. */
   if (ree.isPublic && (counts.added || counts.removed)) await afterKnowledgeReady(reeId);

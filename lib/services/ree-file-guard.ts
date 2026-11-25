@@ -97,3 +97,14 @@ export async function queueReeBindings(executor: Executor, reeId: string, now: D
   if (options.unbind) await executor.delete(schema.reeBinding).where(eq(schema.reeBinding.reeId, reeId));
   for (const row of bound) await queueIndexWithin(executor, row.workspaceId, row.path, now);
 }
+
+/**
+ * Files the index can read, in SQL on `alias`: text kept inline, or a file
+ * kept as bytes up to WORKSPACE_INDEX_FILE_MAX that is a PDF, a Word file or
+ * text (workspace-index.ts reads those from the store). Images, archives and
+ * the like are never indexed.
+ */
+export const indexableFile = (alias: string, maxBytes: number) => {
+  const e = (column: string) => sql.raw(`${alias}.${column}`);
+  return sql`(${e('text')} is not null or (${e('size')} <= ${maxBytes} and (lower(${e('path')}) ~ '\\.(pdf|docx)$' or ${e('media_type')} like 'text/%' or ${e('media_type')} in ('application/json', 'application/jsonl', 'application/yaml', 'application/toml', 'application/xml', 'application/sql'))))`;
+};
