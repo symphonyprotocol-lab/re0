@@ -94,12 +94,13 @@ export async function listApiKeys(userId: string): Promise<ApiKeyItem[]> {
 }
 
 /**
- * Per key: the questions it asked -- the private posts MCP made through it
- * (`source = 'api'`) and the continuations asked on them -- and what their
- * answers were charged: each answer's price once it answered (posts.ts
- * `closeAnswer` settles exactly that; a hold given back cost nothing). Each
- * adds what the key asked through MCP conversations before (`legacy_*`,
- * frozen by migration 0067).
+ * Per key: the questions it asked -- every post MCP made through it
+ * (`ask_ree`'s `source = 'api'` and `create_post`'s, tagged `api_key_id`)
+ * and every follow-up -- and what their answers were charged: each Ree
+ * answer's price once it answered (posts.ts `closeAnswer` settles exactly
+ * that; a hold given back cost nothing) and each AI answer's fee once
+ * written. Each adds what the key asked through MCP conversations before
+ * (`legacy_*`, frozen by migration 0067).
  */
 export async function usageOf(keyIds: readonly string[]): Promise<Map<string, { questions: number; spent: number }>> {
   if (keyIds.length === 0) return new Map();
@@ -110,14 +111,16 @@ export async function usageOf(keyIds: readonly string[]): Promise<Map<string, { 
   const result = await db().execute<{ key_id: string; questions: number; spent: number }>(sql`
     with asked as (
       select p.api_key_id as key_id, p.id as post_id, null::uuid as followup_id
-      from ${schema.post} p where p.api_key_id in (${keys}) and p.source = 'api'
+      from ${schema.post} p where p.api_key_id in (${keys})
       union all
       select f.api_key_id, f.post_id, f.id
       from ${schema.postFollowup} f where f.api_key_id in (${keys})
     )
     select k.id as key_id, (k.legacy_questions + count(q.post_id))::int as questions,
       (k.legacy_spent + coalesce(sum((select coalesce(sum(a.price), 0) from ${schema.postAnswer} a
-        where a.post_id = q.post_id and a.followup_id is not distinct from q.followup_id and a.state = 'answered' and a.base_hold_id is not null)), 0))::int as spent
+        where a.post_id = q.post_id and a.followup_id is not distinct from q.followup_id and a.state = 'answered' and a.base_hold_id is not null)
+        + (select coalesce(sum(ai.price), 0) from ${schema.postAiAnswer} ai
+        where ai.post_id = q.post_id and ai.followup_id is not distinct from q.followup_id and ai.state = 'answered')), 0))::int as spent
     from ${schema.apiKey} k left join asked q on q.key_id = k.id
     where k.id in (${keys})
     group by k.id`);

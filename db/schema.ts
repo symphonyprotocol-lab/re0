@@ -1465,7 +1465,7 @@ export const post = pgTable(
     title: text('title'),
     /** The public post 转为公开 copied this private one into: one copy per private post. */
     publishedCopyId: uuid('published_copy_id').references((): AnyPgColumn => post.id, { onDelete: 'set null' }),
-    /** The API key an MCP ask (`source = 'api'`) came through, for the key's usage; null once the key is deleted. */
+    /** The API key an MCP ask (`ask_ree`'s `source = 'api'`, or `create_post`'s) came through, for the key's usage; null once the key is deleted. */
     apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
     /** The public Q&A row this post was copied from. */
     legacyQaId: uuid('legacy_qa_id').references(() => reePublicQa.id, { onDelete: 'set null' }),
@@ -1659,7 +1659,7 @@ export const postFollowup = pgTable(
     aiOnly: boolean('ai_only').notNull().default(false),
     /** The composer's token: the same token, or the same text under the same post within a minute, asks once. */
     clientToken: uuid('client_token'),
-    /** The API key an MCP continuation of a private post came through (`post.api_key_id` for its first question). */
+    /** The API key an MCP follow-up came through (`ask_ree`'s continuation or `add_followup`), for the key's usage. */
     apiKeyId: uuid('api_key_id').references((): AnyPgColumn => apiKey.id, { onDelete: 'set null' }),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),

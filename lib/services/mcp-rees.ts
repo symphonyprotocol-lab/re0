@@ -13,20 +13,24 @@
  * credits at what it actually costs, as on the web.
  */
 import { randomUUID } from 'node:crypto';
+import { MCP_REE_CREATE_PER_DAY } from '@/lib/constants';
 import { InsufficientCredits } from '@/lib/domain/credits';
+import { holdFor } from '@/lib/domain/knowledge';
 import { isUuid } from '@/lib/domain/list';
 import { reeCommentContent } from '@/lib/domain/ree-comment';
 import { isShareStyle } from '@/lib/domain/share-style';
 import { knowledgeQuery } from '@/lib/http/knowledge';
 import { appBaseUrl } from '@/lib/http/cookies';
 import type { ApiKeyCaller } from '@/lib/services/api-keys';
-import { addKnowledge, KnowledgeInputError, listKnowledge, processKnowledge, type NewKnowledge } from '@/lib/services/knowledge';
+import { addKnowledge, KnowledgeInputError, listKnowledge, processKnowledge, recoverStale, type NewKnowledge } from '@/lib/services/knowledge';
 import { runBatch } from '@/lib/services/knowledge-library';
-import { insufficientCredits, invalidInput, McpToolError, ownReeOf, publicUrl, quietly, requireWrite, routeLimit, usableRee, type Defer } from '@/lib/services/mcp';
+import { checkMaxCost, insufficientCredits, invalidInput, McpToolError, ownReeOf, publicUrl, quietly, requireWrite, routeLimit, usableRee, type Defer } from '@/lib/services/mcp';
+import { hitRateBucket } from '@/lib/services/rate-limit';
 import { closeUnavailableRequests } from '@/lib/services/posts';
 import { refreshProfile } from '@/lib/services/profile';
 import { addReeComment, deleteReeComment, listReeComments } from '@/lib/services/ree-comments';
 import { listFavoriteRees, setReeFavorite } from '@/lib/services/ree-favorites';
+import { validateReeFields } from '@/lib/domain/ree';
 import { createRee, deleteRee, ReeInputError, ReePublicationError, setReePublished, updateRee, type Ree } from '@/lib/services/rees';
 import { shareStatistics } from '@/lib/services/share';
 import { reeStatistics, statisticsQuery } from '@/lib/services/statistics';
@@ -86,21 +90,30 @@ export interface ReeFieldsInput {
   color?: string;
 }
 
-/** A new Ree, private and unpublished unless `is_public` (then `publish_ree` shows it), from the same fields the wizard asks for. */
+/**
+ * A new Ree, private and unpublished unless `is_public` (then `publish_ree`
+ * shows it), from the same fields the wizard asks for; at most
+ * `MCP_REE_CREATE_PER_DAY` a day per account, counted only once the fields
+ * pass.
+ */
 export async function createReeTool(caller: ApiKeyCaller, input: ReeFieldsInput) {
   requireWrite(caller);
+  const fields = {
+    name: input.name ?? '',
+    description: input.intro ?? '',
+    category: input.category,
+    tags: input.tags ?? [],
+    systemPrompt: input.system_prompt ?? '',
+    sampleQuestions: input.sample_questions ?? [],
+    queryFee: input.query_fee ?? 0,
+  };
+  const invalid = validateReeFields(fields, 3);
+  if (invalid) reeInputError(new ReeInputError(invalid.error, invalid.step));
+  if (!(await hitRateBucket(`mcp:ree-create:${caller.user.id}`, MCP_REE_CREATE_PER_DAY, 86_400))) {
+    throw new McpToolError('limit_reached', `At most ${MCP_REE_CREATE_PER_DAY} Rees a day can be created through MCP. Try again tomorrow, or create it on the web.`, { reason: 'ree_daily_limit' });
+  }
   try {
-    const { ree } = await createRee(caller.user.id, {
-      name: input.name ?? '',
-      description: input.intro ?? '',
-      category: input.category,
-      tags: input.tags ?? [],
-      systemPrompt: input.system_prompt ?? '',
-      sampleQuestions: input.sample_questions ?? [],
-      queryFee: input.query_fee ?? 0,
-      isPublic: input.is_public === true,
-      color: input.color,
-    });
+    const { ree } = await createRee(caller.user.id, { ...fields, isPublic: input.is_public === true, color: input.color });
     return { ...reeOut(ree), next: 'Add knowledge with add_knowledge; once a source is ready the Ree can answer. A public Ree is shown to others after publish_ree.' };
   } catch (error) {
     reeInputError(error);
@@ -189,9 +202,15 @@ export interface ListKnowledgeInput {
   trash?: boolean;
 }
 
-/** The knowledge library of one of the caller's Rees, a page at a time, with the counts per state. */
-export async function listKnowledgeTool(caller: ApiKeyCaller, input: ListKnowledgeInput) {
+/**
+ * The knowledge library of one of the caller's Rees, a page at a time, with
+ * the counts per state. Like the library page, reading it first recovers
+ * runs that died (resumed, or failed and refunded) and starts sources whose
+ * run never began.
+ */
+export async function listKnowledgeTool(caller: ApiKeyCaller, input: ListKnowledgeInput, defer: Defer) {
   const ree = await ownReeOf(caller.user.id, input.ree);
+  for (const id of await recoverStale(ree.id)) defer(quietly(`knowledge ${id}`, () => processKnowledge(id)));
   const query = knowledgeQuery({ q: input.query, status: input.status, kind: input.kind, page: input.page ? String(input.page) : undefined, size: '50', view: input.trash ? 'trash' : undefined });
   const result = await listKnowledge(ree.id, query);
   return {
@@ -245,6 +264,7 @@ export interface AddKnowledgeInput {
   title?: string;
   content?: string;
   url?: string;
+  max_cost?: number;
 }
 
 /**
@@ -258,9 +278,11 @@ export async function addKnowledgeTool(caller: ApiKeyCaller, input: AddKnowledge
   const ree = await ownReeOf(caller.user.id, input.ree);
   const source: NewKnowledge =
     input.kind === 'text' ? { kind: 'text', title: input.title ?? '', content: input.content ?? '' } : { kind: input.kind, url: input.url ?? '' };
+  /* What is reserved when it is added; processing then stops before it would pass `max_cost` (knowledge.ts `CostCapReached`). */
+  checkMaxCost(input.max_cost, holdFor(input.kind, input.content), 'Adding this source');
   let id: string;
   try {
-    id = await addKnowledge(caller.user.id, ree, source);
+    id = await addKnowledge(caller.user.id, ree, source, input.max_cost === undefined ? {} : { maxCredits: input.max_cost });
   } catch (error) {
     knowledgeRefusal(error);
   }

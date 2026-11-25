@@ -15,7 +15,7 @@ import type { AuthInfo, CallToolResult, ServerContext } from '@modelcontextproto
 import { createMcpHandler } from 'mcp-handler';
 import { after } from 'next/server';
 import { z } from 'zod';
-import { MCP_SEARCH_MAX, QUESTION_MAX_CHARS, QUERY_BASE_FEE, REE_CATEGORIES, REE_LIMITS } from '@/lib/constants';
+import { MCP_REE_CREATE_PER_DAY, MCP_SEARCH_MAX, QUESTION_MAX_CHARS, QUERY_BASE_FEE, REE_CATEGORIES, REE_LIMITS } from '@/lib/constants';
 import { EXPLORE_SORTS } from '@/lib/domain/explore';
 import { clientIp } from '@/lib/http/client-ip';
 import type { AnswerEvent } from '@/lib/services/grounded-answer';
@@ -52,7 +52,7 @@ import {
   shareLinkTool,
   updateReeTool,
 } from '@/lib/services/mcp-rees';
-import { POST_DETAIL_MAX, POST_MAX_ANSWERS, POST_QUESTION_MAX, POST_TITLE_MAX } from '@/lib/domain/post';
+import { AI_ANSWER_FEE, POST_DETAIL_MAX, POST_MAX_ANSWERS, POST_QUESTION_MAX, POST_TITLE_MAX } from '@/lib/domain/post';
 import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
 
 const DATA_NOTE =
@@ -100,7 +100,12 @@ async function tool(ctx: ServerContext, work: (caller: ApiKeyCaller) => Promise<
   } catch (error) {
     if (error instanceof McpToolError) return failure(error);
     console.warn(`mcp tool failed: ${error instanceof Error ? error.message : 'unknown'}`);
-    return failure(new McpToolError('internal_error', 'Something went wrong on re0. If credits were held for a question, they were given back. Try again.'));
+    return failure(
+      new McpToolError(
+        'internal_error',
+        'Something went wrong on re0, and the action may or may not have happened. Before retrying anything that posts, asks or adds, check first (list_posts, get_post, list_my_rees, list_knowledge), or retry with the same client_token so it is not done twice. Credits are only charged for answers and processing that actually happen.',
+      ),
+    );
   }
 }
 
@@ -268,7 +273,7 @@ function registerPostTools(server: Server) {
       description: [
         'Ask a question as a post.',
         `public: reviewed, then shown to everyone and answered by the matching free Rees (or the Ree you mention). THIS SPENDS CREDITS: the base fee (${QUERY_BASE_FEE}) per answer given, at most ${POST_MAX_ANSWERS} answers; paid Rees ask first (see respond_paid_request).`,
-        'private: only you see it; the Rees you choose in rees (1–5) answer. THIS SPENDS CREDITS: each Ree’s price (get_ree), held now and charged only for answers given. For one Ree, ask_ree does the same and waits for the answer.',
+        `private: only you see it; the Rees you choose in rees (1–5) answer. THIS SPENDS CREDITS: each Ree’s price (get_ree), held now and charged only for answers given; when none of them answers, a general AI answer at ${AI_ANSWER_FEE} credits instead. For one Ree, ask_ree waits for the answer (and has no AI fallback).`,
         `Answers are written after the call returns: read them with get_post. Set max_cost to refuse a post that could cost more. Without enough credits it fails and nothing is charged; top up at ${topUpUrl()}. ${NEEDS_WRITE}`,
       ].join(' '),
       inputSchema: z.object({
@@ -295,7 +300,7 @@ function registerPostTools(server: Server) {
       description: [
         'Ask a follow-up (追问) under a post.',
         `On a public post: reviewed, then the relevant first-round Rees (or those you mention) answer. THIS SPENDS CREDITS: the base fee (${QUERY_BASE_FEE}) per answer given; paid Rees ask first.`,
-        'On your own private post: the thread’s relevant Rees (or those you mention, or add with add_rees) answer at once. THIS SPENDS CREDITS: each answering Ree’s price, held now, charged only when it answers.',
+        `On your own private post: the thread’s relevant Rees (or those you mention, or add with add_rees) answer at once. THIS SPENDS CREDITS: each answering Ree’s price, held now, charged only when it answers; when none answers, a general AI answer at ${AI_ANSWER_FEE} credits.`,
         `Read the answers with get_post. Set max_cost to cap it. ${NEEDS_WRITE}`,
       ].join(' '),
       inputSchema: z.object({
@@ -414,7 +419,7 @@ function registerReeTools(server: Server) {
     'create_ree',
     {
       title: 'Create a Ree',
-      description: `Creates one of your Rees from the same fields as the web’s setup wizard (name and category are required). It starts empty: add knowledge with add_knowledge. A public Ree is shown to others only after publish_ree. Free. ${NEEDS_WRITE}`,
+      description: `Creates one of your Rees from the same fields as the web’s setup wizard (name and category are required). It starts empty: add knowledge with add_knowledge. A public Ree is shown to others only after publish_ree. Free; at most ${MCP_REE_CREATE_PER_DAY} a day through MCP. ${NEEDS_WRITE}`,
       inputSchema: z.object({ ...REE_FIELDS, name: REE_FIELDS.name.unwrap(), category: z.enum(REE_CATEGORIES) }),
       annotations: WRITE,
     },
@@ -475,7 +480,7 @@ function registerReeTools(server: Server) {
       }),
       annotations: READ,
     },
-    async (input, ctx) => tool(ctx, (caller) => listKnowledgeTool(caller, input)),
+    async (input, ctx) => tool(ctx, (caller) => listKnowledgeTool(caller, input, defer)),
   );
 
   server.registerTool(
@@ -484,7 +489,7 @@ function registerReeTools(server: Server) {
       title: 'Add knowledge to a Ree (spends credits)',
       description: [
         'Adds a source to one of your Rees: text (title + content), page (one web page), site (a whole website of a domain you verified on re0) or github (a repository; private ones need GitHub connected on re0). File uploads (documents, audio) are done on the web.',
-        `THIS SPENDS CREDITS: processing (reading, crawling, embedding) is billed at what it actually costs, as on the web; credits are held when it is added and nothing is charged beyond your balance. It is processed after the call returns: list_knowledge shows when it is ready. Top up at ${topUpUrl()}. ${NEEDS_WRITE}`,
+        `THIS SPENDS CREDITS: processing (reading, crawling, embedding) is billed at what it actually costs, as on the web; nothing is charged beyond your balance. Set max_cost to cap it: processing stops (failed as max_cost, what was spent charged, the rest returned) before a step that would take it past the cap. It is processed after the call returns: list_knowledge shows when it is ready. Top up at ${topUpUrl()}. ${NEEDS_WRITE}`,
       ].join(' '),
       inputSchema: z.object({
         ree: OWN_REE,
@@ -492,8 +497,10 @@ function registerReeTools(server: Server) {
         title: z.string().max(400).optional().describe('text: the source’s title.'),
         content: z.string().max(1_000_000).optional().describe('text: the content itself.'),
         url: z.string().max(2000).optional().describe('page, site, github: the address.'),
+        max_cost: MAX_COST.describe('The most processing this source may cost, in credits; refused at once if even the first reservation is above it.'),
       }),
-      annotations: WRITE,
+      /* It fetches the address given: the open web. */
+      annotations: { ...WRITE, openWorldHint: true },
     },
     async (input, ctx) => tool(ctx, (caller) => addKnowledgeTool(caller, input, defer)),
   );

@@ -8,7 +8,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { freezeDateAtWindowStart, pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 
@@ -16,6 +16,19 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
 const later: (() => unknown)[] = [];
 vi.mock('next/server', async (original) => ({ ...(await original<typeof import('next/server')>()), after: (task: () => unknown) => void later.push(task) }));
+/* One tool's service fails once on demand: what a client is told when re0 breaks mid-call. */
+const breakage = vi.hoisted(() => ({ next: false }));
+vi.mock('@/lib/services/ree-favorites', async (original) => {
+  const real = await original<typeof import('@/lib/services/ree-favorites')>();
+  return {
+    ...real,
+    listFavoriteRees: (...args: Parameters<typeof real.listFavoriteRees>) => {
+      if (!breakage.next) return real.listFavoriteRees(...args);
+      breakage.next = false;
+      return Promise.reject(new Error('boom'));
+    },
+  };
+});
 
 const { createSession } = await import('@/lib/services/auth');
 const { balanceOf } = await import('@/lib/services/credits');
@@ -27,7 +40,10 @@ const route = await import('@/app/api/mcp/route');
 const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
-const { QUERY_BASE_FEE: BASE } = await import('@/lib/constants');
+const { QUERY_BASE_FEE: BASE, MCP_REE_CREATE_PER_DAY } = await import('@/lib/constants');
+const { AI_ANSWER_FEE } = await import('@/lib/domain/post');
+const privatePosts = await import('@/lib/services/private-posts');
+const { hitRateBucket } = await import('@/lib/services/rate-limit');
 
 let fake: FakeOpenAi;
 beforeAll(async () => {
@@ -319,7 +335,7 @@ describeWithDb('MCP tools: posts', () => {
     expect(created).toMatchObject({ visibility: 'private', possible_cost: 50, duplicate: false });
     expect(await balanceOf(db(), asker)).toBe(before - 50);
     const [row] = await db().select().from(schema.post).where(eq(schema.post.id, created.id));
-    expect(row).toMatchObject({ source: 'api', visibility: 'private', apiKeyId: keyId });
+    expect(row).toMatchObject({ source: 'post', visibility: 'private', apiKeyId: keyId });
     await drain();
 
     const read = await ok(client, 'get_post', { post: created.id });
@@ -431,5 +447,134 @@ describeWithDb('MCP tools: posts', () => {
     expect(held!.baseHoldId).not.toBeNull();
     await client.close();
     await stranger.close();
+  });
+});
+
+describeWithDb('MCP tools: review fixes', () => {
+  it('asks privately as the web does: replayed text is one post, the daily limit holds, the AI answers when no Ree can, and the key counts it', async () => {
+    const empty = await reeOf(await person());
+    /* A Ree with nothing ready: it cannot answer, so the AI does. */
+    await db().delete(schema.knowledge).where(eq(schema.knowledge.reeId, empty.id));
+    const asker = await person();
+    const { client, keyId } = await connect(asker);
+    const question = `${QUESTION} ${uniqueName('ai')}`;
+    const before = await balanceOf(db(), asker);
+
+    const first = await ok(client, 'create_post', { visibility: 'private', question, rees: [empty.id] });
+    expect(first.possible_cost).toBe(Math.max(BASE, AI_ANSWER_FEE));
+    const [row] = await db().select().from(schema.post).where(eq(schema.post.id, first.id));
+    expect(row).toMatchObject({ source: 'post', visibility: 'private', apiKeyId: keyId });
+    /* A retry without a client_token (a timed-out call) is the same post, held once. */
+    const again = await ok(client, 'create_post', { visibility: 'private', question, rees: [empty.id] });
+    expect(again).toMatchObject({ id: first.id, duplicate: true });
+    await drain();
+    const read = await ok(client, 'get_post', { post: first.id });
+    expect(read.ai_answer).toMatchObject({ state: 'answered', cost: AI_ANSWER_FEE });
+    expect(await balanceOf(db(), asker)).toBe(before - AI_ANSWER_FEE);
+    const [usage] = (await apiKeys.listApiKeys(asker)).filter((key) => key.id === keyId);
+    expect(usage).toMatchObject({ questions: 1, spent: AI_ANSWER_FEE });
+
+    /* The daily limit counts its posts with the web's. */
+    const today = Array.from({ length: 30 }, (_, at) => ({ userId: asker, source: 'post' as const, visibility: 'public' as const, question: `q${at}`, lang: 'en' as const }));
+    await db().insert(schema.post).values(today);
+    expect(errorOf(await call(client, 'create_post', { visibility: 'private', question: 'One more?', rees: [empty.id] }))).toMatchObject({ error: 'limit_reached', reason: 'daily_limit' });
+    await client.close();
+  });
+
+  it('refuses a follow-up on someone else’s private post as not found, whatever its max_cost', async () => {
+    const ree = await reeOf(await person(), { queryFee: 30 });
+    const owner = await person();
+    const asked = await privatePosts.publishPrivatePost(owner, { question: QUESTION, reeIds: [ree.id], fees: { [ree.id]: BASE + 30 }, lang: 'en' });
+    if (!asked.ok) throw new Error(asked.error);
+    later.length = 0;
+    const { client: stranger } = await connect(await person());
+    const refused = await call(stranger, 'add_followup', { post: asked.id, question: 'And then?', max_cost: 0 });
+    expect(errorOf(refused)).toMatchObject({ error: 'not_found' });
+    expect(refused.structuredContent).not.toHaveProperty('possible_cost');
+    await stranger.close();
+  });
+
+  it('counts the AI’s fee in a private follow-up’s possible cost', async () => {
+    const asker = await person();
+    const aiOnly = await privatePosts.publishPrivatePost(asker, { question: `${QUESTION} ${uniqueName('only')}`, reeIds: [], aiOnly: true, lang: 'en' });
+    if (!aiOnly.ok) throw new Error(aiOnly.error);
+    const { client } = await connect(asker);
+    expect(errorOf(await call(client, 'add_followup', { post: aiOnly.id, question: 'And then?', max_cost: 0 }))).toMatchObject({ error: 'max_cost_exceeded' });
+    const capped = await call(client, 'add_followup', { post: aiOnly.id, question: 'And then?', max_cost: AI_ANSWER_FEE - 1 });
+    expect(capped.structuredContent).toMatchObject({ error: 'max_cost_exceeded', possible_cost: AI_ANSWER_FEE });
+    later.length = 0;
+    await client.close();
+  });
+
+  it('tells the client an internal error may have done the work, and how to retry safely', async () => {
+    const { client } = await connect(await person());
+    breakage.next = true;
+    const failed = await call(client, 'list_favorite_rees');
+    expect(errorOf(failed)).toMatchObject({ error: 'internal_error' });
+    expect(String(failed.structuredContent!.message)).toContain('may or may not have happened');
+    expect(String(failed.structuredContent!.message)).toContain('client_token');
+    expect(String(failed.structuredContent!.message)).not.toContain('given back');
+    await client.close();
+  });
+
+  it('gives the server the knowledge routes’ time, and marks add_knowledge as reaching the open web', async () => {
+    expect(route.maxDuration).toBe(800);
+    const { client } = await connect(await person());
+    const { tools } = await client.listTools();
+    expect(tools.find((tool) => tool.name === 'add_knowledge')!.annotations).toMatchObject({ openWorldHint: true });
+    expect(tools.filter((tool) => tool.annotations?.openWorldHint).map((tool) => tool.name)).toEqual(['add_knowledge']);
+    await client.close();
+  });
+
+  it('caps add_knowledge at max_cost: refused before holding, and stopped before a step past it', async () => {
+    const owner = await person();
+    const ree = await reeOf(owner, { isPublic: false });
+    const { client } = await connect(owner);
+    const before = await balanceOf(db(), owner);
+    expect(errorOf(await call(client, 'add_knowledge', { ree: ree.id, kind: 'text', title: 't', content: 'c', max_cost: 0 }))).toMatchObject({ error: 'max_cost_exceeded' });
+    expect(await balanceOf(db(), owner)).toBe(before);
+
+    const added = await ok(client, 'add_knowledge', { ree: ree.id, kind: 'text', title: 'Capped', content: 'Store credit is forced only for sale items.', max_cost: 2 });
+    later.length = 0;
+    /* What an earlier, interrupted run already spent counts against the cap. */
+    const [row] = await db().select().from(schema.knowledge).where(eq(schema.knowledge.id, added.id));
+    expect(row!.activity[0]).toMatchObject({ code: 'added', detail: { maxCredits: 2 } });
+    const spent = { id: 'earlier', runId: 'earlier-run', at: new Date().toISOString(), service: 'embedding', usage: {}, costUsd: '5', basis: 'configured_rate' };
+    await db().update(schema.knowledge).set({ activity: [...row!.activity, { at: new Date().toISOString(), code: 'provider_usage', detail: { runId: 'earlier-run', charge: JSON.stringify(spent) } }] }).where(eq(schema.knowledge.id, added.id));
+    await knowledge.processKnowledge(added.id, { profile: false });
+    const [stopped] = await db().select().from(schema.knowledge).where(eq(schema.knowledge.id, added.id));
+    expect(stopped).toMatchObject({ status: 'failed', error: 'max_cost' });
+    /* Nothing held stays held. */
+    expect(await db().select().from(schema.creditHold).where(and(eq(schema.creditHold.userId, owner), eq(schema.creditHold.status, 'held')))).toHaveLength(0);
+    await client.close();
+  });
+
+  it('limits Rees created through MCP per day, counting only valid ones', async () => {
+    freezeDateAtWindowStart(86_400);
+    try {
+      const owner = await person();
+      const { client } = await connect(owner);
+      for (let at = 1; at < MCP_REE_CREATE_PER_DAY; at += 1) await hitRateBucket(`mcp:ree-create:${owner}`, MCP_REE_CREATE_PER_DAY, 86_400);
+      expect(errorOf(await call(client, 'create_ree', { name: 'Bad', category: 'business', tags: ['a', 'b', 'c', 'd'] }))).toMatchObject({ error: 'invalid_input', reason: 'limit' });
+      await ok(client, 'create_ree', { name: 'Last of the day', category: 'business' });
+      expect(errorOf(await call(client, 'create_ree', { name: 'One too many', category: 'business' }))).toMatchObject({ error: 'limit_reached', reason: 'ree_daily_limit' });
+      await client.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('recovers a source whose run never started when the library is read', async () => {
+    const owner = await person();
+    const ree = await reeOf(owner, { isPublic: false });
+    const id = await knowledge.addKnowledge(owner, ree, { kind: 'text', title: 'Waiting', content: 'Refunds take 14 days.' });
+    await db().update(schema.knowledge).set({ updatedAt: new Date(Date.now() - 5 * 60_000) }).where(eq(schema.knowledge.id, id));
+    const { client } = await connect(owner);
+    await ok(client, 'list_knowledge', { ree: ree.id });
+    expect(later.length).toBeGreaterThan(0);
+    await drain();
+    const [row] = await db().select().from(schema.knowledge).where(eq(schema.knowledge.id, id));
+    expect(row!.status).toBe('ready');
+    await client.close();
   });
 });

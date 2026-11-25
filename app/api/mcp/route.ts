@@ -6,8 +6,13 @@ import { sameOrigin } from '@/lib/http/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-/* An `ask_ree` waits for the whole answer, as a web question streams it. */
-export const maxDuration = 300;
+/*
+ * An `ask_ree` waits for the whole answer, as a web question streams it; and
+ * `add_knowledge` processes its source after the call, as the web's
+ * knowledge routes do, so it gets their time (`KNOWLEDGE_RUN_MAX_MS`): a run
+ * cut short is resumed by the cron, but uses up one of its resumes.
+ */
+export const maxDuration = 800;
 
 /**
  * The MCP server (Streamable HTTP; `lib/http/mcp.ts`), for clients that send

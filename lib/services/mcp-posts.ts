@@ -7,18 +7,26 @@
  * Asking costs what it costs on the web: a public post or follow-up nothing
  * up front, each free Ree's answer the base fee (paid Rees wait for the
  * asker's `respond_paid_request`); a private one the base fee plus each
- * chosen Ree's query fee, held when it is sent. A `max_cost` below what the
+ * chosen Ree's query fee, held when it is sent -- or, when none of them
+ * answers, the AI's answer at its fee instead. A `max_cost` below what the
  * action can cost is refused before anything is saved or held.
+ *
+ * A post or follow-up asked here is the web's own (`source = 'post'`, the
+ * daily limits, the same-text replay and the AI fallback included), tagged
+ * with the key for its usage; only `ask_ree`'s conversations are
+ * `source = 'api'`.
  *
  * The web answers after its response (`after`); so does this, through the
  * `Defer` the HTTP layer passes, and the posts cron picks up whatever that
  * misses. `get_post` reads the answers once they are written.
  */
+import { and, eq } from 'drizzle-orm';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import type { CitationSnapshot } from '@/lib/domain/answer';
-import { FEED_TABS, POST_MAX_ANSWERS, POST_PAGE_SIZE, POST_TITLE_MAX, type FeedTab, type PostAnswerView, type PostAuthor, type PostView } from '@/lib/domain/post';
+import { AI_ANSWER_FEE, FEED_TABS, POST_MAX_ANSWERS, POST_PAGE_SIZE, POST_TITLE_MAX, type FeedTab, type PostAnswerView, type PostAuthor, type PostView } from '@/lib/domain/post';
 import { isUuid } from '@/lib/domain/list';
 import { appBaseUrl } from '@/lib/http/cookies';
+import { db, schema } from '@/lib/infra/db';
 import type { ApiKeyCaller } from '@/lib/services/api-keys';
 import { maxCostFor } from '@/lib/services/grounded-answer';
 import { checkMaxCost, insufficientCredits, invalidInput, McpToolError, quietly, requireWrite, routeLimit, usableRee, type Defer } from '@/lib/services/mcp';
@@ -31,6 +39,7 @@ import {
   listFeed,
   listMyPosts,
   listSavedPosts,
+  ownPrivatePost,
   postAllowance,
   processPost,
   publishPost,
@@ -185,6 +194,11 @@ async function reeIdFor(userId: string, ref: string) {
 
 const PUBLIC_POST_MAX_COST = POST_MAX_ANSWERS * QUERY_BASE_FEE;
 
+/** The most a private round can cost: its Rees' prices, or the AI's fee when none of them answers (or none is asked). */
+function privateRoundCost(prices: readonly number[]): number {
+  return Math.max(prices.reduce((sum, price) => sum + price, 0), AI_ANSWER_FEE);
+}
+
 export interface CreatePostInput {
   visibility: 'public' | 'private';
   question: string;
@@ -231,15 +245,16 @@ export async function createPostTool(caller: ApiKeyCaller, input: CreatePostInpu
     if (refs.length === 0) throw postRefusal('no_rees');
     const rees = await Promise.all(refs.map((ref) => reeIdFor(userId, ref)));
     const fees = Object.fromEntries(rees.map((ree) => [ree.id, maxCostFor(ree, userId)]));
-    checkMaxCost(input.max_cost, Object.values(fees).reduce((sum, fee) => sum + fee, 0), 'Asking these Rees');
-    const result = await publishPrivatePost(userId, { question: input.question, detail: input.detail ?? '', reeIds: rees.map((ree) => ree.id), fees, lang: caller.user.lang, clientToken }, { source: 'api', apiKeyId: caller.keyId });
+    const possible = privateRoundCost(Object.values(fees));
+    checkMaxCost(input.max_cost, possible, 'Asking these Rees');
+    const result = await publishPrivatePost(userId, { question: input.question, detail: input.detail ?? '', reeIds: rees.map((ree) => ree.id), fees, lang: caller.user.lang, clientToken }, { source: 'post', apiKeyId: caller.keyId });
     if (!result.ok) {
       if (result.error === 'insufficient_credits') throw insufficientCredits(result.balance, result.needed);
       if (result.error === 'price_changed') throw new McpToolError('price_changed', 'A Ree’s price changed while you asked. Nothing was charged; check get_ree and ask again.', { prices: result.prices });
       throw postRefusal(result.error);
     }
     if (!result.duplicate) defer(quietly(`private post ${result.id}`, () => processPrivatePost(result.id)));
-    return { id: result.id, url: postUrl(result.id), visibility: 'private', duplicate: Boolean(result.duplicate), possible_cost: Object.values(fees).reduce((sum, fee) => sum + fee, 0), next: 'The Rees are answering now. Call get_post with this id for their answers and what each cost.' };
+    return { id: result.id, url: postUrl(result.id), visibility: 'private', duplicate: Boolean(result.duplicate), possible_cost: possible, next: 'The Rees are answering now. Call get_post with this id for their answers and what each cost.' };
   }
   await routeLimit('post', caller);
   checkMaxCost(input.max_cost, PUBLIC_POST_MAX_COST, 'A public post’s automatic answers');
@@ -253,6 +268,7 @@ export async function createPostTool(caller: ApiKeyCaller, input: CreatePostInpu
     quoteAnswerId: input.quote_answer_id ?? null,
     clientToken,
     lang: caller.user.lang,
+    apiKeyId: caller.keyId,
   });
   if (!result.ok) {
     if (result.error === 'insufficient_credits') throw insufficientCredits(result.balance, result.needed);
@@ -291,16 +307,18 @@ export async function addFollowupTool(caller: ApiKeyCaller, input: FollowupInput
   const userId = caller.user.id;
   const clientToken = input.client_token && isUuid(input.client_token) ? input.client_token : null;
   const isPrivate = await isPrivatePost(input.post);
+  /* Someone else's private post is not found, before anything about it (its Rees, their prices) is looked at. */
+  if (isPrivate && !(await ownsPrivatePost(userId, input.post))) throw postNotFound(input.post);
   await routeLimit(isPrivate ? 'ask' : 'post', caller);
   const mentions = await Promise.all((input.mention_rees ?? []).slice(0, 10).map((ref) => reeIdFor(userId, ref)));
   if (isPrivate) {
     const added = await Promise.all((input.add_rees ?? []).slice(0, 10).map((ref) => reeIdFor(userId, ref)));
     const thread = await privateThreadRees(input.post, userId);
-    /* The price of every Ree this follow-up could go to: those named, or else any of the thread's. */
+    /* The price of every Ree this follow-up could go to: those named, or else any of the thread's; the AI's fee when none answers (or the thread has none). */
     const named = [...mentions, ...added];
     const candidates = named.length ? named : thread.map((entry) => ({ id: entry.reeId, ownerId: entry.ownerId, queryFee: entry.queryFee }));
     const fees = Object.fromEntries(candidates.map((ree) => [ree.id, maxCostFor(ree, userId)]));
-    checkMaxCost(input.max_cost, Object.values(fees).reduce((sum, fee) => sum + fee, 0), 'This follow-up');
+    checkMaxCost(input.max_cost, privateRoundCost(Object.values(fees)), 'This follow-up');
     const result = await askPrivateFollowup(userId, input.post, { question: input.question, mentionReeIds: mentions.map((ree) => ree.id), addReeIds: added.map((ree) => ree.id), fees, clientToken, lang: caller.user.lang }, { apiKeyId: caller.keyId });
     if (!result.ok) {
       if (result.error === 'not_found') throw postNotFound(input.post);
@@ -313,7 +331,7 @@ export async function addFollowupTool(caller: ApiKeyCaller, input: FollowupInput
   }
   if ((input.add_rees ?? []).length) throw invalidInput('add_rees_private_only', 'add_rees is for your own private posts; on a public post mention one of the Rees that answered instead.');
   checkMaxCost(input.max_cost, PUBLIC_POST_MAX_COST, 'A follow-up’s automatic answers');
-  const result = await askFollowup(userId, input.post, { question: input.question, mentionReeIds: mentions.map((ree) => ree.id), clientToken, lang: caller.user.lang });
+  const result = await askFollowup(userId, input.post, { question: input.question, mentionReeIds: mentions.map((ree) => ree.id), clientToken, lang: caller.user.lang, apiKeyId: caller.keyId });
   if (!result.ok) {
     if (result.error === 'not_found') throw postNotFound(input.post);
     if (result.error === 'insufficient_credits') throw insufficientCredits(result.balance, result.needed);
@@ -321,6 +339,11 @@ export async function addFollowupTool(caller: ApiKeyCaller, input: FollowupInput
   }
   if (!result.duplicate) defer(quietly(`followup ${result.id}`, () => processFollowup(result.id)));
   return { id: result.id, post_id: input.post, duplicate: Boolean(result.duplicate), next: 'The follow-up is reviewed, then the relevant Rees answer (the base fee each, only for answers given). Call get_post to follow it.' };
+}
+
+async function ownsPrivatePost(userId: string, id: string): Promise<boolean> {
+  const [row] = await db().select({ id: schema.post.id }).from(schema.post).where(and(eq(schema.post.id, id), ownPrivatePost(userId))).limit(1);
+  return Boolean(row);
 }
 
 /** Its asker deletes a follow-up: gone for everyone with its answers; what was settled stays settled. */

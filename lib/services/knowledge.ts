@@ -233,8 +233,39 @@ async function folderBelongs(tx: Tx, reeId: string, folderId: string | null | un
   return folder.id;
 }
 
-/** Writes the row and reserves its cost. Throws `InsufficientCredits` from the ledger. */
-export async function createKnowledgeInTx(tx: Tx, ownerId: string, ree: { id: string }, input: CheckedKnowledge, now = new Date()): Promise<string> {
+/**
+ * A run stopped before a paid call that would take the source past the most
+ * its owner agreed it may cost (`maxCredits`, MCP's `add_knowledge
+ * max_cost`). An `InsufficientCredits`, so every provider wrapper lets it
+ * through and the run fails and settles as a short balance does: what was
+ * spent is charged, the rest of the reservation goes back.
+ */
+export class CostCapReached extends InsufficientCredits {
+  constructor(needed: number, cap: number) {
+    super(needed, cap);
+    this.name = 'CostCapReached';
+  }
+}
+
+/**
+ * The cap a source was added with and the supplier charges since then, all
+ * runs (resumed ones included); none once it is refreshed or reprocessed --
+ * that is a new decision by its owner (`interruptions` counts the same way).
+ */
+function costCap(log: readonly KnowledgeActivity[]): { max: number; spent: ProviderCharge[] } | null {
+  let start = -1;
+  log.forEach((entry, at) => {
+    if (entry.code === 'added' || entry.code === 'refresh') start = at;
+  });
+  const opened = log[start];
+  const max = opened?.code === 'added' ? Number(opened.detail?.maxCredits) : NaN;
+  if (!Number.isSafeInteger(max) || max < 0) return null;
+  const spent = log.slice(start + 1).filter((entry) => entry.code === 'provider_usage').map((entry) => JSON.parse(String(entry.detail!.charge)) as ProviderCharge);
+  return { max, spent };
+}
+
+/** Writes the row and reserves its cost. Throws `InsufficientCredits` from the ledger. `maxCredits`: the most its processing may cost (`CostCapReached`). */
+export async function createKnowledgeInTx(tx: Tx, ownerId: string, ree: { id: string }, input: CheckedKnowledge, now = new Date(), options: { maxCredits?: number } = {}): Promise<string> {
   const folderId = await folderBelongs(tx, ree.id, input.folderId);
   let values: Omit<typeof schema.knowledge.$inferInsert, 'reeId'>;
   let hold: number;
@@ -274,16 +305,16 @@ export async function createKnowledgeInTx(tx: Tx, ownerId: string, ree: { id: st
   }
   const [row] = await tx
     .insert(schema.knowledge)
-    .values({ ...values, reeId: ree.id, folderId, status: 'pending', activity: [activity('added', { credits: hold }, now)], createdAt: now, updatedAt: now })
+    .values({ ...values, reeId: ree.id, folderId, status: 'pending', activity: [activity('added', { credits: hold, ...(options.maxCredits === undefined ? {} : { maxCredits: options.maxCredits }) }, now)], createdAt: now, updatedAt: now })
     .returning({ id: schema.knowledge.id });
   const holdId = await placeHold(tx, { userId: ownerId, kind: 'knowledge', amount: hold, refId: row!.id, reeId: ree.id, note: values.title }, now);
   await snapshotCostRun(tx, holdId, row!.id, now);
   return row!.id;
 }
 
-export async function addKnowledge(ownerId: string, ree: { id: string }, input: NewKnowledge): Promise<string> {
+export async function addKnowledge(ownerId: string, ree: { id: string }, input: NewKnowledge, options: { maxCredits?: number } = {}): Promise<string> {
   const checked = await checkKnowledge(ownerId, input);
-  return db().transaction((tx) => createKnowledgeInTx(tx, ownerId, ree, checked));
+  return db().transaction((tx) => createKnowledgeInTx(tx, ownerId, ree, checked, new Date(), options));
 }
 
 /* ---------------------------------------------------------- reprocessing */
@@ -363,6 +394,12 @@ async function reserveEstimate(knowledgeId: string, runId: string, inflight: rea
     const holdId = await heldFor(tx, knowledgeId, 'knowledge');
     if (!holdId) throw new Error('knowledge reservation missing');
     const known = runCharges(row.activity, runId).filter((entry) => entry.costUsd !== null);
+    const cap = costCap(row.activity);
+    if (cap) {
+      /* Everything spent since it was added, every run, plus the calls about to be made. */
+      const total = providerTotal([...cap.spent.filter((entry) => entry.costUsd !== null), ...inflight.map((costUsd) => ({ costUsd }))]).credits;
+      if (total > cap.max) throw new CostCapReached(total, cap.max);
+    }
     const extra = await reserveKnowledgeUsage(tx, holdId, providerTotal([...known, ...inflight.map((costUsd) => ({ costUsd }))]).credits, { reeId: row.reeId, note: row.title });
     if (extra > 0) await tx.update(schema.knowledge).set({ activity: appendActivity([activity('reserved', { credits: extra, estimate: 1 })]) }).where(eq(schema.knowledge.id, knowledgeId));
   });
@@ -989,7 +1026,7 @@ async function processKnowledgeRun(knowledgeId: string, runId: string): Promise<
     await drainProviderCalls();
     // Transfer before the failure was incurred all the same; a refusal to reserve it still leaves its receipt.
     await flushTransfer().catch(() => undefined);
-    const code = error instanceof InsufficientCredits ? 'insufficient_credits' : error instanceof ProviderCostUnavailable ? error.code : error instanceof ProcessingFailure ? error.code : 'unknown';
+    const code = error instanceof CostCapReached ? 'max_cost' : error instanceof InsufficientCredits ? 'insufficient_credits' : error instanceof ProviderCostUnavailable ? error.code : error instanceof ProcessingFailure ? error.code : 'unknown';
     console.warn(`knowledge ${row.id} failed code=${code} detail=${failureDetail(error)}`);
     await failAndRefund(row.id, row.reeId, row.title, code, new Date(), runId);
     return null;
