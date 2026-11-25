@@ -38,7 +38,7 @@ const { newReeDraft } = await import('@/lib/domain/ree');
 const { forgetModelCache } = await import('@/lib/infra/ai/models');
 const { consoleAdministrator } = await import('../fixtures/console-administrator');
 const { adminOverview } = await import('@/lib/services/admin-overview');
-const { QUERY_BASE_FEE, EXPLORE_RATE_LIMIT } = await import('@/lib/constants');
+const { QUERY_BASE_FEE, EXPLORE_RATE_LIMIT, WORKSPACE_WRITES_PER_DAY, WORKSPACE_DEBT_WRITE_LIMIT, WORKSPACE_FREE_MB } = await import('@/lib/constants');
 const { POST_DAILY_LIMIT, FOLLOWUP_DAILY_LIMIT, FOLLOWUP_POST_DAILY_LIMIT } = await import('@/lib/domain/post');
 const rateLimits = await import('@/lib/services/rate-limit-settings');
 const traffic = await import('@/lib/services/traffic');
@@ -239,6 +239,9 @@ describeWithDb('console rate limits', () => {
       { key: 'followupsPerPostPerDay', value: FOLLOWUP_POST_DAILY_LIMIT, defaultValue: FOLLOWUP_POST_DAILY_LIMIT, per: 'day', overridden: false },
       { key: 'exploreQuestions', value: EXPLORE_RATE_LIMIT.perUser, defaultValue: EXPLORE_RATE_LIMIT.perUser, per: 'minute', overridden: false },
       { key: 'visitorAsksPerDay', value: VISITOR_ASK_PLATFORM_DAILY, defaultValue: VISITOR_ASK_PLATFORM_DAILY, per: 'day', overridden: false },
+      { key: 'workspaceWritesPerDay', value: WORKSPACE_WRITES_PER_DAY, defaultValue: WORKSPACE_WRITES_PER_DAY, per: 'day', overridden: false },
+      { key: 'workspaceDebtLimit', value: WORKSPACE_DEBT_WRITE_LIMIT, defaultValue: WORKSPACE_DEBT_WRITE_LIMIT, per: 'credits', overridden: false },
+      { key: 'workspaceFreeMb', value: WORKSPACE_FREE_MB, defaultValue: WORKSPACE_FREE_MB, per: 'mb', overridden: false },
     ]);
   });
 
