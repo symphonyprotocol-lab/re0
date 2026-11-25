@@ -298,12 +298,27 @@ async function insertRee(tx: Tx, ownerId: string, values: ReturnType<typeof reeV
 export async function createReeFromDraft(ownerId: string): Promise<{ ree: Ree }> {
   const draft = await getDraft(ownerId);
   if (!draft) throw new ReeInputError('name', 1);
-  const invalid = validateReeFields(draftFields(draft), 3);
+  return createRee(ownerId, { ...draftFields(draft), avatarBlob: draft.avatarBlob }, { clearDraft: true });
+}
+
+/**
+ * A Ree from the three steps' fields, validated as the wizard's last step
+ * validates them: what the wizard creates from its draft, and what MCP's
+ * `create_ree` creates without touching the draft the owner may have open
+ * on the web. Private and unpublished unless `isPublic`; publishing is a
+ * step of its own (`setReePublished`).
+ */
+export async function createRee(
+  ownerId: string,
+  fields: ReeFields & { isPublic: boolean; color: unknown; avatarBlob?: string | null },
+  options: { clearDraft?: boolean } = {},
+): Promise<{ ree: Ree }> {
+  const invalid = validateReeFields(fields, 3);
   if (invalid) throw new ReeInputError(invalid.error, invalid.step);
   return db().transaction(async (tx) => {
-    const avatar = isAvatarPath(draft.avatarBlob, ownerId) ? draft.avatarBlob : null;
-    const ree = await insertRee(tx, ownerId, reeValues(draftFields(draft)), avatar);
-    await tx.update(schema.user).set({ reeDraft: null }).where(eq(schema.user.id, ownerId));
+    const avatar = isAvatarPath(fields.avatarBlob, ownerId) ? fields.avatarBlob : null;
+    const ree = await insertRee(tx, ownerId, reeValues(fields), avatar);
+    if (options.clearDraft) await tx.update(schema.user).set({ reeDraft: null }).where(eq(schema.user.id, ownerId));
     return { ree };
   });
 }

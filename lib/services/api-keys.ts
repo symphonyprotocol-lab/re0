@@ -7,6 +7,12 @@
  * revoked or expired key, or any key of a disabled account, is nobody.
  * Keys are revoked, never deleted, so the questions they asked keep their
  * tag and the settings page can still show what each one spent.
+ *
+ * A key reads and asks (`search_rees`, `get_*`, `list_*`, `ask_ree`); only
+ * one made with `canWrite` may also change things -- post, follow up,
+ * manage Rees and their knowledge (lib/services/mcp.ts `requireWrite`). It
+ * is chosen when the key is made and never widened afterwards: a key that
+ * needs more is a new key.
  */
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { API_KEY_LAST_USED_RESOLUTION_MS, API_KEY_MAX_ACTIVE, API_KEY_MAX_DAYS, API_KEY_NAME_MAX, API_KEY_PREFIX } from '@/lib/constants';
@@ -32,6 +38,8 @@ export interface ApiKeyItem {
   lastUsedAt: Date | null;
   expiresAt: Date | null;
   revokedAt: Date | null;
+  /** May change things through MCP, not only read and ask. */
+  canWrite: boolean;
   /** Questions asked with this key, and the credits they cost. */
   questions: number;
   spent: number;
@@ -48,8 +56,8 @@ export function keyIsLive(key: Pick<ApiKeyRow, 'revokedAt' | 'expiresAt'>, now =
   return !key.revokedAt && (!key.expiresAt || key.expiresAt.getTime() > now.getTime());
 }
 
-/** `{name, expiresInDays?}` → the new key, whose `secret` is never readable again. */
-export async function createApiKey(userId: string, raw: { name?: unknown; expiresInDays?: unknown }, now = new Date()): Promise<{ key: ApiKeyItem; secret: string }> {
+/** `{name, expiresInDays?, canWrite?}` → the new key, whose `secret` is never readable again. Only `canWrite: true` makes a key that may write. */
+export async function createApiKey(userId: string, raw: { name?: unknown; expiresInDays?: unknown; canWrite?: unknown }, now = new Date()): Promise<{ key: ApiKeyItem; secret: string }> {
   const name = typeof raw.name === 'string' ? raw.name.trim() : '';
   if (!name || Array.from(name).length > API_KEY_NAME_MAX) throw new ApiKeyError('invalid_name');
   let expiresAt: Date | null = null;
@@ -68,14 +76,14 @@ export async function createApiKey(userId: string, raw: { name?: unknown; expire
       .from(schema.apiKey)
       .where(and(eq(schema.apiKey.userId, userId), isNull(schema.apiKey.revokedAt), sql`(${schema.apiKey.expiresAt} is null or ${schema.apiKey.expiresAt} > ${now})`));
     if (live >= API_KEY_MAX_ACTIVE) throw new ApiKeyError('too_many_keys');
-    const [created] = await tx.insert(schema.apiKey).values({ userId, name, keyDigest, keyTail: secret.slice(-4), expiresAt, createdAt: now }).returning();
+    const [created] = await tx.insert(schema.apiKey).values({ userId, name, keyDigest, keyTail: secret.slice(-4), expiresAt, canWrite: raw.canWrite === true, createdAt: now }).returning();
     return created!;
   });
   return { key: { ...item(row), questions: 0, spent: 0 }, secret };
 }
 
 function item(row: ApiKeyRow): Omit<ApiKeyItem, 'questions' | 'spent'> {
-  return { id: row.id, name: row.name, tail: row.keyTail, createdAt: row.createdAt, lastUsedAt: row.lastUsedAt, expiresAt: row.expiresAt, revokedAt: row.revokedAt };
+  return { id: row.id, name: row.name, tail: row.keyTail, createdAt: row.createdAt, lastUsedAt: row.lastUsedAt, expiresAt: row.expiresAt, revokedAt: row.revokedAt, canWrite: row.canWrite };
 }
 
 /** Every key of the user, newest first, with what each one asked and spent. */
@@ -86,12 +94,13 @@ export async function listApiKeys(userId: string): Promise<ApiKeyItem[]> {
 }
 
 /**
- * Per key: the questions it asked -- the private posts MCP made through it
- * (`source = 'api'`) and the continuations asked on them -- and what their
- * answers were charged: each answer's price once it answered (posts.ts
- * `closeAnswer` settles exactly that; a hold given back cost nothing). Each
- * adds what the key asked through MCP conversations before (`legacy_*`,
- * frozen by migration 0067).
+ * Per key: the questions it asked -- every post MCP made through it
+ * (`ask_ree`'s `source = 'api'` and `create_post`'s, tagged `api_key_id`)
+ * and every follow-up -- and what their answers were charged: each Ree
+ * answer's price once it answered (posts.ts `closeAnswer` settles exactly
+ * that; a hold given back cost nothing) and each AI answer's fee once
+ * written. Each adds what the key asked through MCP conversations before
+ * (`legacy_*`, frozen by migration 0067).
  */
 export async function usageOf(keyIds: readonly string[]): Promise<Map<string, { questions: number; spent: number }>> {
   if (keyIds.length === 0) return new Map();
@@ -102,14 +111,16 @@ export async function usageOf(keyIds: readonly string[]): Promise<Map<string, { 
   const result = await db().execute<{ key_id: string; questions: number; spent: number }>(sql`
     with asked as (
       select p.api_key_id as key_id, p.id as post_id, null::uuid as followup_id
-      from ${schema.post} p where p.api_key_id in (${keys}) and p.source = 'api'
+      from ${schema.post} p where p.api_key_id in (${keys})
       union all
       select f.api_key_id, f.post_id, f.id
       from ${schema.postFollowup} f where f.api_key_id in (${keys})
     )
     select k.id as key_id, (k.legacy_questions + count(q.post_id))::int as questions,
       (k.legacy_spent + coalesce(sum((select coalesce(sum(a.price), 0) from ${schema.postAnswer} a
-        where a.post_id = q.post_id and a.followup_id is not distinct from q.followup_id and a.state = 'answered' and a.base_hold_id is not null)), 0))::int as spent
+        where a.post_id = q.post_id and a.followup_id is not distinct from q.followup_id and a.state = 'answered' and a.base_hold_id is not null)
+        + (select coalesce(sum(ai.price), 0) from ${schema.postAiAnswer} ai
+        where ai.post_id = q.post_id and ai.followup_id is not distinct from q.followup_id and ai.state = 'answered')), 0))::int as spent
     from ${schema.apiKey} k left join asked q on q.key_id = k.id
     where k.id in (${keys})
     group by k.id`);
@@ -148,6 +159,8 @@ export async function adminRevokeApiKey(administratorId: string, userId: string,
 export interface ApiKeyCaller {
   user: SessionUser;
   keyId: string;
+  /** The key may write (`api_key.can_write`); without it, only reading and `ask_ree`. */
+  canWrite: boolean;
 }
 
 /**
@@ -168,5 +181,5 @@ export async function resolveApiKey(secret: string, now = new Date()): Promise<A
   if (!row.key.lastUsedAt || now.getTime() - row.key.lastUsedAt.getTime() >= API_KEY_LAST_USED_RESOLUTION_MS) {
     await db().update(schema.apiKey).set({ lastUsedAt: now }).where(eq(schema.apiKey.id, row.key.id));
   }
-  return { user: row.user, keyId: row.key.id };
+  return { user: row.user, keyId: row.key.id, canWrite: row.key.canWrite };
 }

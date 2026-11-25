@@ -789,6 +789,13 @@ export const API_KEY_MAX_DAYS = 365;
 export const API_KEY_LAST_USED_RESOLUTION_MS = 60_000;
 /** MCP tool calls per minute, per key and per account (every key of it together). */
 export const MCP_RATE_LIMIT = { windowSeconds: 60, perKey: 30, perUser: 60 } as const;
+/**
+ * Rees one account may create through MCP's `create_ree` per day (a fixed
+ * 24-hour window, `hitRateBucket`).
+ * The web's wizard has no limit of its own (each creation is a person
+ * clicking through three steps); a script with a key could make thousands.
+ */
+export const MCP_REE_CREATE_PER_DAY = 20;
 /** `search_rees` returns at most this many Rees (explore's question search gives 10). */
 export const MCP_SEARCH_MAX = 10;
 /** Ready sources listed by title in `get_ree` for the caller's own Ree. */

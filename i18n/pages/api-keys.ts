@@ -4,8 +4,8 @@ import type { Shape } from '@/i18n/format';
 export const zh = {
   tab: 'API',
   title: 'API Key',
-  lede: '用 API Key 把 re0 接入支持 MCP 的 AI 客户端（Claude Code、Cursor 等）：可以搜索公开 Ree、查看你的 Ree，并向 Ree 提问。',
-  spendNote: '通过 API 提问与网页上一样扣除 credits（基础费 + Ree 的查询费），只在 Ree 给出回答时扣费。请像保管密码一样保管 Key。',
+  lede: '用 API Key 把 re0 接入支持 MCP 的 AI 客户端（Claude Code、Cursor 等）：可以搜索公开 Ree、查看你的 Ree、阅读帖子，并向 Ree 提问；开启「允许修改」的 Key 还可以发帖、追问、管理你的 Ree 和知识库。',
+  spendNote: '通过 API 提问、发帖、追问和添加知识与网页上一样扣除 credits，只按实际产生的回答或处理扣费。请像保管密码一样保管 Key。',
   create: '创建 Key',
   empty: '还没有 API Key。',
   columns: { name: '名称', key: 'Key', created: '创建时间', lastUsed: '最近使用', usage: '用量', status: '状态', action: '操作' },
@@ -18,6 +18,7 @@ export const zh = {
   revokeTitle: '吊销这个 Key？',
   revokeBody: '使用「{name}」的客户端将立即无法连接，此操作不能撤销。',
   revoked: 'Key 已吊销',
+  access: { read: '只读 + 提问', write: '允许修改' },
   form: {
     title: '创建 API Key',
     subtitle: 'Key 只会显示一次，创建后请立即复制保存。',
@@ -25,6 +26,8 @@ export const zh = {
     namePlaceholder: '例如：我的笔记本 · Claude Code',
     expiry: '有效期',
     expiryOptions: { never: '永不过期', d30: '30 天', d90: '90 天', d365: '1 年' },
+    write: '允许修改',
+    writeHint: '可以发帖、追问、创建和删除 Ree、管理知识库与评论。不开启时只能搜索、查看和提问。创建后不能更改，需要时请新建 Key。',
     submit: '创建',
   },
   created: {
@@ -40,7 +43,7 @@ export const zh = {
     url: '服务器地址',
     claude: 'Claude Code',
     json: '其他客户端（JSON 配置）',
-    tools: '可用工具：search_rees（搜索公开 Ree）、get_ree（查看 Ree 详情与价格）、list_my_rees（我的 Ree）、ask_ree（提问，会扣 credits）。',
+    tools: '所有 Key 可用：search_rees、get_ree、list_my_rees、list_favorite_rees、list_posts、get_post、list_knowledge、list_ree_comments、get_share_link、ree_statistics，以及 ask_ree（提问，会扣 credits）。「允许修改」的 Key 还可以：create_post、add_followup（会扣 credits）、publish_post、update_post、trash_post、delete_followup、save_post、mark_helpful、respond_paid_request、create_ree、update_ree、publish_ree、delete_ree、add_knowledge（会扣 credits）、delete_knowledge、add_ree_comment、delete_ree_comment、favorite_ree。',
     copy: '复制',
     docs: '暂不支持 claude.ai / ChatGPT 网页版的 OAuth 连接器，后续版本会提供。',
   },
@@ -62,8 +65,8 @@ export const zh = {
 export const en: Shape<typeof zh> = {
   tab: 'API',
   title: 'API keys',
-  lede: 'Connect re0 to AI clients that speak MCP (Claude Code, Cursor and others) with an API key: search public Rees, see your own, and ask them questions.',
-  spendNote: 'Questions asked through the API spend credits exactly as on the web (the base fee plus the Ree’s query fee), only when the Ree answers. Keep keys as safe as a password.',
+  lede: 'Connect re0 to AI clients that speak MCP (Claude Code, Cursor and others) with an API key: search public Rees, see your own, read posts and ask Rees questions; a key that may make changes can also post, follow up and manage your Rees and their knowledge.',
+  spendNote: 'Asking, posting, following up and adding knowledge through the API spend credits exactly as on the web, only for the answers and processing that happen. Keep keys as safe as a password.',
   create: 'Create key',
   empty: 'No API keys yet.',
   columns: { name: 'Name', key: 'Key', created: 'Created', lastUsed: 'Last used', usage: 'Usage', status: 'Status', action: 'Action' },
@@ -76,6 +79,7 @@ export const en: Shape<typeof zh> = {
   revokeTitle: 'Revoke this key?',
   revokeBody: 'Clients using “{name}” stop working at once. This cannot be undone.',
   revoked: 'Key revoked',
+  access: { read: 'Read + ask', write: 'Can make changes' },
   form: {
     title: 'Create an API key',
     subtitle: 'The key is shown only once; copy it as soon as it is created.',
@@ -83,6 +87,8 @@ export const en: Shape<typeof zh> = {
     namePlaceholder: 'e.g. My laptop · Claude Code',
     expiry: 'Expiry',
     expiryOptions: { never: 'Never', d30: '30 days', d90: '90 days', d365: '1 year' },
+    write: 'Allow changes',
+    writeHint: 'Post, follow up, create and delete Rees, manage knowledge and comments. Without it the key can only search, read and ask. This cannot be changed later; create a new key when you need it.',
     submit: 'Create',
   },
   created: {
@@ -98,7 +104,7 @@ export const en: Shape<typeof zh> = {
     url: 'Server URL',
     claude: 'Claude Code',
     json: 'Other clients (JSON config)',
-    tools: 'Tools: search_rees (search public Rees), get_ree (a Ree’s details and price), list_my_rees (your Rees), ask_ree (ask a question; spends credits).',
+    tools: 'Every key: search_rees, get_ree, list_my_rees, list_favorite_rees, list_posts, get_post, list_knowledge, list_ree_comments, get_share_link, ree_statistics, and ask_ree (spends credits). Keys that may make changes also: create_post, add_followup (spend credits), publish_post, update_post, trash_post, delete_followup, save_post, mark_helpful, respond_paid_request, create_ree, update_ree, publish_ree, delete_ree, add_knowledge (spends credits), delete_knowledge, add_ree_comment, delete_ree_comment, favorite_ree.',
     copy: 'Copy',
     docs: 'OAuth connectors for claude.ai and ChatGPT on the web are not supported yet; they come in a later release.',
   },

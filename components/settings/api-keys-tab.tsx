@@ -18,6 +18,8 @@ export interface ApiKeyView {
   lastUsedAt: string | null;
   expiresAt: string | null;
   revokedAt: string | null;
+  /** May change things through MCP (post, follow up, manage Rees), not only read and ask. */
+  canWrite: boolean;
   questions: number;
   spent: number;
 }
@@ -47,8 +49,9 @@ export function connectSnippets(url: string, secret: string) {
 
 /**
  * `/settings?tab=api`: API keys for the MCP server -- create one (name,
- * optional expiry; the key is shown once), see each one's tail, dates and
- * usage, revoke -- and how to connect a client.
+ * optional expiry, whether it may change things; the key is shown once),
+ * see each one's tail, access, dates and usage, revoke -- and how to
+ * connect a client. A key's access is chosen once: more needs a new key.
  */
 export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; mcpUrl: string }) {
   const { t, locale } = useI18n();
@@ -59,6 +62,7 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [expiry, setExpiry] = useState<(typeof EXPIRIES)[number][0]>('never');
+  const [canWrite, setCanWrite] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [secret, setSecret] = useState<string | null>(null);
@@ -74,7 +78,7 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
     setError('');
     setBusy(true);
     const days = EXPIRIES.find(([value]) => value === expiry)![1];
-    const result = await api<{ secret?: string; error?: string }>('/api/account/api-keys', { method: 'POST', json: { name, expiresInDays: days } });
+    const result = await api<{ secret?: string; error?: string }>('/api/account/api-keys', { method: 'POST', json: { name, expiresInDays: days, canWrite } });
     setBusy(false);
     if (!result.ok || !result.data.secret) {
       const code = result.data.error as keyof typeof a.errors | undefined;
@@ -83,6 +87,7 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
     setCreating(false);
     setName('');
     setExpiry('never');
+    setCanWrite(false);
     setSecret(result.data.secret);
     await reload();
   };
@@ -126,7 +131,8 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
               <div key={key.id} className="domain-row api-key-row">
                 <div className="min-w-0">
                   <h3>
-                    {key.name} <span className="api-key-tail">re0_sk_…{key.tail}</span>
+                    {key.name} <span className="api-key-tail">re0_sk_…{key.tail}</span>{' '}
+                    <span className={`tag ${key.canWrite ? 'orange' : ''} api-key-access`}>{key.canWrite ? a.access.write : a.access.read}</span>
                   </h3>
                   <small>
                     {a.columns.created} {formatDateTime(key.createdAt, locale)} · {a.columns.lastUsed} {key.lastUsedAt ? formatDateTime(key.lastUsedAt, locale) : a.never} ·{' '}
@@ -223,6 +229,13 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
               ))}
             </select>
           </div>
+          <label className="check-row api-key-write">
+            <span>
+              <strong>{a.form.write}</strong>
+              <small>{a.form.writeHint}</small>
+            </span>
+            <input type="checkbox" checked={canWrite} onChange={(event) => setCanWrite(event.target.checked)} />
+          </label>
           {error && (
             <p role="alert" className="form-error">
               {error}

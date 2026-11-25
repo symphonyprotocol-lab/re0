@@ -2223,6 +2223,17 @@
 .settings-page .api-key-gap {
   margin-top: 7px;
 }
+.settings-page .api-key-access {
+  vertical-align: 1px;
+}
+.settings-page .api-key-write {
+  margin-top: 4px;
+  border-top: 1px solid #edf0f7;
+}
+.settings-page .api-key-write span {
+  display: grid;
+  gap: 3px;
+}
 
 /* 兑换码 (docs/design/redeem-codes.md 6.2): a code in, what it gave or why not. */
 .settings-page .redeem-card {
