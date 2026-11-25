@@ -4,6 +4,8 @@
 
 **状态**：设计稿，待评审。不含实现代码，未改迁移。第 9 节的问题需要用户拍板，其余部分给的是推荐方案。
 
+**设计稿（界面）**：用 re0 现有样式表渲染的桌面和手机画面放在 artifact 里，不在仓库中：https://claude.ai/artifact/WsFUB1HkGRDSTcYYvVgyDY 。本文的网页版：https://claude.ai/artifact/LN6kJeWsDEr4nLwCgLquj2 。画图时对本文做的调整（网页路由改为 `/files`、侧栏入口、连接工具页的位置、一期网页的写操作）已经合入下文。
+
 **一句话**：re0 给每个用户一个通过 MCP 读写的**工作区**。Claude Code、Codex、Cursor、claude.ai 等工具都把文件写在这里，彼此可见。**Ree 建在工作区之上**：选定一些工作区路径作为知识，加上索引、检索、问答、引用和市场。
 
 ## 0. 现状（设计依据）
@@ -178,7 +180,9 @@ re0 的优势是**共享、可检索、可问答的上下文**，以及**从 age
 | --- | --- | --- |
 | Claude Code、Codex CLI、Cursor（有 shell） | `claude mcp add --transport http re0 …/api/mcp --header "Authorization: Bearer re0_sk_…"`，用限定到 `/projects/foo` 的工作区 Key | 文本通过 `ws_read`、`ws_edit`、`ws_write` 处理。二进制（第三期）：`ws_upload_url` → `curl -X PUT --data-binary @report.pdf "<url>"`，下载用 `ws_download_url` → `curl -o`。字节不经过模型上下文，也不用 base64。 |
 | claude.ai、ChatGPT 网页版（无 shell） | **依赖 MCP OAuth**（`docs/mcp.md` 中的"后续阶段"）。没有 OAuth 时只能经过 `mcp-remote` 或桌面客户端接入 | 只能处理文本，可以 list、read、write、append、edit、grep、search。遇到二进制文件，`ws_read` 返回 `binary_file`，提示"请在有 shell 的客户端下载"。不提供 base64 读写：1 MB 文件的 base64 约 1.4 MB，占用的上下文得不偿失。 |
-| 网页 `/workspace` | 站内会话 | 第一期提供文件树、查看、历史和回收站恢复，第三期补充上传、下载和版本对比。 |
+| 网页 `/files` | 站内会话 | 第一期提供文件树、查看、版本历史与恢复、回收站（恢复和永久删除）、连接工具页（`/files/connect`），第二期加用量与索引页（`/files/usage`），第三期补充上传、下载和版本对比。 |
+
+**网页路由用 `/files`，不用 `/workspace`。** `/workspace`、`/api/workspace` 已经是 Ree 主人后台（answers、sources）的路由，侧栏也把 `/workspace` 归到「我的 Ree」。工作区页面用 `/files`、`/files/trash`、`/files/usage`、`/files/connect`，网页接口用 `/api/files/…`；界面上仍叫「工作区」（现有中文文案没有用过这个词）。桌面侧栏在「我的 Ree」下面加「工作区」，手机底栏已有 5 项，不加，从侧栏抽屉进入。设置 → API 只负责创建和吊销 Key，各客户端的配置片段放在 `/files/connect`，两处互相链接。
 
 工具说明（`INSTRUCTIONS`）里写明推荐用法：先 `ws_list` 或 `ws_grep` 定位，再 `ws_read`；修改用 `ws_edit` 并带 `if_match`；不要整文件重写大文件。
 
@@ -240,7 +244,7 @@ re0 的优势是**共享、可检索、可问答的上下文**，以及**从 age
 
 | 阶段 | 范围 | 迁移 | 验收 |
 | --- | --- | --- | --- |
-| **一期 MVP：文本工作区 + MCP 读写 + 限定范围的 Key** | `workspace`、`workspace_entry`、`workspace_revision`；工具 `ws_list/stat/read/write/append/edit/mkdir/move/copy/delete/restore/history/grep`；路径规则、版本合并、`if_match`；Key 的 `workspace_access/workspace_id/workspace_root` 和按范围过滤工具列表；独立限流桶；`accrueWorkspaceStorage` 并入 `charge-storage`；`purge-trash` 清理工作区回收站和过期版本，并删除无人引用的 Blob；`isSafeBlobPathname` 放行 `workspace/` 前缀；网页 `/workspace` 只读文件树、历史和恢复；设置页可创建工作区 Key；更新 `docs/mcp.md`。 | `0095_workspace`（三张表和索引），`0096_api_key_workspace_scope` | Claude Code 写入、Codex 读取，读出的字节完全一致；两个客户端带同一个 etag 并发写入时，一个成功、一个返回 `conflict`；60 秒内连续 20 次保存只留 1 个版本；限定到 `/a` 的 Key 读不到 `/b`，越界时返回 `not_found`；存量 Key 看不到 `ws_*` 工具；欠款超限时写入被拒，读取正常。 |
+| **一期 MVP：文本工作区 + MCP 读写 + 限定范围的 Key** | `workspace`、`workspace_entry`、`workspace_revision`；工具 `ws_list/stat/read/write/append/edit/mkdir/move/copy/delete/restore/history/grep`；路径规则、版本合并、`if_match`；Key 的 `workspace_access/workspace_id/workspace_root` 和按范围过滤工具列表；独立限流桶；`accrueWorkspaceStorage` 并入 `charge-storage`；`purge-trash` 清理工作区回收站和过期版本，并删除无人引用的 Blob；`isSafeBlobPathname` 放行 `workspace/` 前缀；网页 `/files`：文件树、查看、版本历史与恢复、回收站（恢复和永久删除）、连接工具页，侧栏加「工作区」；设置页可创建工作区 Key；更新 `docs/mcp.md`。 | `0095_workspace`（三张表和索引），`0096_api_key_workspace_scope` | Claude Code 写入、Codex 读取，读出的字节完全一致；两个客户端带同一个 etag 并发写入时，一个成功、一个返回 `conflict`；60 秒内连续 20 次保存只留 1 个版本；限定到 `/a` 的 Key 读不到 `/b`，越界时返回 `not_found`；存量 Key 看不到 `ws_*` 工具；欠款超限时写入被拒，读取正常。 |
 | **二期：索引 + 从文件夹建 Ree** | `workspace_passage`、`index_mode`、`workspace-index` cron、digest 复用、每日预算；`ws_index`、`ws_search`；`ree_binding`、`knowledge.kind='file'`、`syncReeBindings`；`create_ree_from_folder`、`bind_ree_paths`；公开 Ree 的"待确认"状态和密钥扫描；存量 Ree 回填命令（按 owner 选择执行）；Ree 知识页显示"来自工作区"的条目。可以并行做 MCP OAuth，让 claude.ai 和 ChatGPT 能接入。 | `0097_workspace_index`（passage 表、entry 索引列、预算列），`0098_ree_binding`（`ree_binding`、`knowledge` 新列和 kind check） | 编辑 1 000 行文件中的 1 行，只重嵌 1 到 2 个块；连续保存 10 次只触发 1 次索引；同一个文件绑定到两个 Ree，嵌入只付一次费；文件移出绑定文件夹后从 Ree 回答中消失，可从回收站恢复；公开 Ree 的新文件在确认前不出现在任何公开回答或引用中；回填不产生处理费用，Blob 存储不重复计费。 |
 | **三期：二进制、大文件、版本界面** | `ws_upload_url`（≤ 4 MB 单次 PUT，经由 re0 路由）、`ws_download_url`（签名 URL）；Blob 服务端分片上传，支持到 100 MB；PDF 和 docx 的索引；网页上传、下载、版本对比和恢复；工作区用量与费用页。 | 视需要为 `workspace_upload` 建表（记录上传票据与状态） | 用 curl 上传 50 MB PDF，下载后 sha256 一致；未完成的上传 24 小时后被清理且不计费；无 shell 客户端遇到二进制时得到明确的错误提示。 |
 | **四期：协作与开放** | 团队工作区（与 Team Ree 的成员模型合并设计）；逐个文件选择公开原文；同步 CLI（默认跳过 agent 指令类文件）；MCP resources（`re0://ws/…`）；评估检索直接读 `workspace_passage`，去掉 `chunk` 副本。 | 另行设计 | — |
