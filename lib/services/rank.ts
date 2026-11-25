@@ -9,7 +9,7 @@ import { QUALITY_WINDOW_DAYS } from '@/lib/constants';
 import { qualityScore, type ReeRank } from '@/lib/domain/explore';
 import { db, schema } from '@/lib/infra/db';
 import { clearRateBuckets } from '@/lib/services/explore';
-import { ANSWERED, ASKED, askedByOthers } from '@/lib/services/ree-counts';
+import { ANSWERED, ASKED, askedByOthers, SUCCESSFUL } from '@/lib/services/ree-counts';
 
 type Counts = Record<string, unknown> & {
   id: string;
@@ -75,10 +75,10 @@ export async function computeRanks(now = new Date()): Promise<number> {
       group by pulled.ree_id
     ) p on p.ree_id = r.id
     left join (
-      /* The explore "回答最多" order, all time: once an hour here instead of over every answer on every browse. */
+      /* The explore "回答最多" order, all time: once an hour here instead of over every answer on every browse -- the same successful answers the cards show (ree-counts.ts answersByOthersOf). */
       select a.ree_id, count(*) as answers
       from ${schema.postAnswer} a join ${schema.post} p on p.id = a.post_id join ${schema.ree} o on o.id = a.ree_id
-      where ${ANSWERED} and ${askedByOthers(owner)}
+      where ${SUCCESSFUL} and ${askedByOthers(owner)}
       group by a.ree_id
     ) a on a.ree_id = r.id
     left join (

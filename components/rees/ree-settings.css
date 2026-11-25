@@ -991,3 +991,206 @@
   padding-left: 18px;
   list-style: decimal;
 }
+/*
+ * 分享页样式 (components/rees/share-style-fields.tsx): the two layouts as
+ * the visibility choice is drawn, each with a sketch of its first screen,
+ * then the product sheet.
+ */
+.dot-settings-page .share-style-lede {
+  margin: -6px 0 16px;
+  font-size: 11px;
+  line-height: 1.8;
+  color: rgb(93, 105, 132);
+}
+.dot-settings-page .share-style-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.dot-settings-page .share-style-options > label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 12px;
+  cursor: pointer;
+}
+.dot-settings-page .share-style-options > label:has(input:checked) {
+  background: rgb(240, 246, 255);
+  border-color: rgb(150, 194, 247);
+}
+.dot-settings-page .share-style-options > label:has(input:focus-visible) {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.dot-settings-page .share-style-options input {
+  grid-row: 2;
+  width: 14px;
+  height: 14px;
+  margin: 2px 0 0;
+}
+.dot-settings-page .share-style-text strong {
+  font-size: 12px;
+}
+.dot-settings-page .share-style-text small {
+  display: block;
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 1.8;
+  color: rgb(141, 157, 181);
+}
+/* The sketch: grey bars for text, the tone for the button, a tinted block for the photo or the exchange. */
+.dot-settings-page .share-style-sketch {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: repeat(4, auto) 1fr;
+  column-gap: 12px;
+  row-gap: 6px;
+  height: 104px;
+  border-radius: 7px;
+  background: rgb(255, 255, 255);
+  border: 1px solid rgb(229, 234, 243);
+  padding: 14px;
+}
+.dot-settings-page .share-style-sketch i {
+  display: block;
+  grid-column: 1;
+  border-radius: 3px;
+  background: rgb(224, 229, 238);
+}
+.dot-settings-page .share-style-sketch .a {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: rgb(214, 230, 251);
+}
+.dot-settings-page .share-style-sketch .k {
+  width: 40%;
+  height: 5px;
+  background: rgb(150, 194, 247);
+}
+.dot-settings-page .share-style-sketch .h {
+  width: 85%;
+  height: 10px;
+  background: rgb(51, 61, 92);
+}
+.dot-settings-page .share-style-sketch .l {
+  width: 100%;
+  height: 5px;
+}
+.dot-settings-page .share-style-sketch .b {
+  width: 50%;
+  height: 10px;
+  margin-top: 4px;
+  background: var(--blue);
+}
+.dot-settings-page .share-style-sketch .f {
+  grid-column: 1 / -1;
+  align-self: end;
+  height: 5px;
+  width: 60%;
+}
+.dot-settings-page .share-style-sketch .photo,
+.dot-settings-page .share-style-sketch .qa {
+  grid-column: 2;
+  grid-row: 1 / 5;
+  height: auto;
+  border-radius: 6px;
+  background: rgb(237, 244, 255);
+}
+.dot-settings-page .share-style-sketch .photo {
+  background: linear-gradient(135deg, rgb(214, 230, 251), rgb(237, 244, 255));
+}
+.dot-settings-page .share-style-sketch .qa {
+  background: repeating-linear-gradient(180deg, rgb(237, 244, 255) 0 10px, rgb(255, 255, 255) 10px 13px, rgb(237, 244, 255) 13px 22px);
+}
+.dot-settings-page .share-style-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 11px;
+  color: var(--blue);
+}
+.dot-settings-page .share-style-open svg {
+  width: 13px;
+  height: 13px;
+}
+.dot-settings-page .share-style-product {
+  margin-top: 22px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+.dot-settings-page .share-style-product h3 {
+  font-size: 13px;
+  font-weight: 600;
+}
+.dot-settings-page .share-style-product > .form-hint {
+  margin: 6px 0 18px;
+}
+.dot-settings-page .share-style-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 14px;
+}
+.dot-settings-page .share-style-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 9px;
+  color: rgb(156, 164, 185);
+}
+.dot-settings-page .share-style-list {
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+}
+.dot-settings-page .share-style-list:empty {
+  display: none;
+}
+.dot-settings-page .share-style-feature,
+.dot-settings-page .share-style-spec {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+.dot-settings-page .share-style-spec {
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr) auto;
+}
+.dot-settings-page .share-style-list input,
+.dot-settings-page .share-style-list textarea {
+  width: 100%;
+  border: 1px solid rgb(223, 228, 239);
+  border-radius: 7px;
+  padding: 8px 11px;
+  background: rgb(255, 255, 255);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.dot-settings-page .share-style-list .btn {
+  margin-top: 3px;
+}
+@media (max-width: 760px) {
+  .dot-settings-page .share-style-options,
+  .dot-settings-page .share-style-row {
+    grid-template-columns: 1fr;
+  }
+  .dot-settings-page .share-style-feature {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .dot-settings-page .share-style-feature textarea {
+    grid-column: 1;
+  }
+  .dot-settings-page .share-style-feature .btn {
+    grid-row: 1;
+    grid-column: 2;
+  }
+}

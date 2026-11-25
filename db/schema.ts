@@ -41,6 +41,7 @@ import type { RoleMetrics } from '@/lib/domain/roles';
 import type { ReeRank } from '@/lib/domain/explore';
 import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
 import { VISITOR_ASK_PER_DAY, VISITOR_ASK_PER_VISITOR } from '@/lib/domain/visitor-ask';
+import { SHARE_STYLES, type ProductSheet, type ShareStyle } from '@/lib/domain/share-style';
 import { TASK_KINDS, type TaskKind } from '@/lib/domain/invites';
 import { PAGE_KINDS, type PageKind } from '@/lib/domain/traffic';
 import { CRAWLER_FAMILIES, type ChargeScope, type CrawlerFamily } from '@/lib/domain/crawler-traffic';
@@ -174,6 +175,10 @@ export const ree = pgTable(
     visitorAsks: boolean('visitor_asks').notNull().default(false),
     visitorAsksPerVisitor: integer('visitor_asks_per_visitor').notNull().default(VISITOR_ASK_PER_VISITOR.default),
     visitorAsksPerDay: integer('visitor_asks_per_day'),
+    /** How `/s/[slug]` lays it out (lib/domain/share-style.ts): the share page as it is, or a product sheet. */
+    shareStyle: text('share_style').$type<ShareStyle>().notNull().default('default'),
+    /** The product sheet's own fields, typed by the owner (`ProductSheet`); read only when `shareStyle` is `product`. */
+    productSheet: jsonb('product_sheet').$type<Partial<ProductSheet>>().notNull().default({}),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
@@ -196,6 +201,7 @@ export const ree = pgTable(
     check('ree_moderated_private_check', sql`moderated_at is null or not is_public`),
     check('ree_pin_order_check', sql`pin_order is null or pin_order between 1 and 999`),
     check('ree_published_public_check', sql`not is_published or (is_public and moderated_at is null and deleted_at is null)`),
+    check('ree_share_style_check', oneOf('share_style', SHARE_STYLES)),
     check('ree_visitor_asks_check', sql`visitor_asks_per_visitor between ${sql.raw(String(VISITOR_ASK_PER_VISITOR.min))} and ${sql.raw(String(VISITOR_ASK_PER_VISITOR.max))} and (visitor_asks_per_day is null or visitor_asks_per_day between ${sql.raw(String(VISITOR_ASK_PER_DAY.min))} and ${sql.raw(String(VISITOR_ASK_PER_DAY.max))})`),
   ],
 );
@@ -1729,6 +1735,8 @@ export const postAnswer = pgTable(
     uniqueIndex('post_answer_post_ree_key').on(t.postId, t.reeId).where(sql`followup_id is null`),
     uniqueIndex('post_answer_followup_ree_key').on(t.followupId, t.reeId).where(sql`followup_id is not null`),
     index('post_answer_ree_idx').on(t.reeId, t.answeredAt.desc(), t.id.desc()).where(sql`state = 'answered' and hidden_by is null`),
+    /* A Ree page's answered questions (posts.ts `reeAnsweredExamples`): the unpinned picks in their order, so a page reads three rows, not every answer. */
+    index('post_answer_ree_pick_idx').on(t.reeId, t.helpfulCount.desc(), t.answeredAt.desc(), t.id.desc()).where(sql`state = 'answered' and hidden_by is null and followup_id is null and uncovered = false and pinned_at is null`),
     uniqueIndex('post_answer_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
     uniqueIndex('post_answer_pinned_key').on(t.reeId).where(sql`pinned_at is not null`),
     check('post_answer_state_check', oneOf('state', [...ANSWER_STATES])),
