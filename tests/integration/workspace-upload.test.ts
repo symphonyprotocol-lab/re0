@@ -301,3 +301,180 @@ describeWithDb('the web: upload, download, compare', () => {
     expect(await old.text()).toBe('one\ntwo\nthree\n');
   });
 });
+
+describeWithDb('review fixes (phase 3)', () => {
+  const ticketRow = async (url: string) => {
+    const { sha256: digest } = await import('@/lib/infra/crypto/tokens');
+    const [row] = await db().select().from(schema.workspaceUpload).where(eq(schema.workspaceUpload.tokenHash, await digest(tokenOf(url))));
+    return row!;
+  };
+
+  it('1. never saves a version whose bytes are gone, and a refused upload leaves the bytes another upload of them needs', async () => {
+    const userId = await person();
+    const scope = await workspace.webScope(userId);
+    /* (A) Bytes removed between the put and the save (the trash emptied meanwhile): the save refuses. */
+    await expect(workspace.saveUploaded(scope, { path: '/gone.bin', sha: 'e'.repeat(64), size: 10, text: null })).rejects.toMatchObject({ code: 'not_found', details: { reason: 'bytes_missing' } });
+    expect(await workspace.kindAt(scope, '/gone.bin')).toBeNull();
+    /* (B) The same bytes to two paths; the first save is refused, the second still finds its bytes. */
+    const { client } = await connect(userId);
+    const bytes = binary(5_000, 11);
+    const first = await ok(client, 'ws_upload_url', { path: '/x/a.bin', size: bytes.length, if_none_match: '*' });
+    const second = await ok(client, 'ws_upload_url', { path: '/x/b.bin', size: bytes.length });
+    await ok(client, 'ws_write', { path: '/x/a.bin', content: 'taken meanwhile' });
+    expect((await put(first.url, bytes)).status).toBe(409);
+    expect((await put(second.url, bytes)).status).toBe(200);
+    expect(sha(await bytesOf(await download((await ok(client, 'ws_download_url', { path: '/x/b.bin' })).url)))).toBe(sha(bytes));
+  });
+
+  it('2. gives up on a file the index keeps failing on, and on a Word file that inflates too far', async () => {
+    const userId = await person();
+    const { client } = await connect(userId);
+    await ok(client, 'ws_mkdir', { path: '/p' });
+    await ok(client, 'ws_index', { path: '/p', mode: 'on' });
+    await ok(client, 'ws_write', { path: '/p/notes.md', content: 'Notes that keep crashing the run.' });
+    const scope = await workspace.webScope(userId);
+    const [entry] = await db().select().from(schema.workspaceEntry).where(and(eq(schema.workspaceEntry.workspaceId, scope.workspaceId), eq(schema.workspaceEntry.path, '/p/notes.md')));
+    /* Three runs took it and never finished (killed, timed out): the fourth gives up. */
+    await db().update(schema.workspaceEntry).set({ indexAttempts: 3, indexDueAt: new Date(Date.now() - 1_000) }).where(eq(schema.workspaceEntry.id, entry!.id));
+    expect(await index.indexEntry(entry!.id, new Date())).toBe('unreadable');
+    expect(await ok(client, 'ws_stat', { path: '/p/notes.md' })).toMatchObject({ index: 'unreadable' });
+    /* Each claim moves the file back in the queue, so a crashing file is not the next run's first. */
+    await ok(client, 'ws_write', { path: '/p/notes.md', content: 'A new version tries again.' });
+    const [fresh] = await db().select().from(schema.workspaceEntry).where(eq(schema.workspaceEntry.id, entry!.id));
+    expect(fresh!.indexAttempts).toBe(0);
+    const { deflatedZip } = await import('../fixtures/docx');
+    const bomb = await deflatedZip('word/document.xml', 60 * 1024 * 1024);
+    const ticket = await ok(client, 'ws_upload_url', { path: '/p/bomb.docx', size: bomb.length });
+    expect((await put(ticket.url, bomb)).status).toBe(200);
+    await index.runIndexQueue(new Date(Date.now() + 3 * 60_000), { limit: 100 });
+    expect(await ok(client, 'ws_stat', { path: '/p/bomb.docx' })).toMatchObject({ index: 'unreadable' });
+  });
+
+  it('4. never ends an upload that is being put together, whatever its expiry', async () => {
+    const userId = await person();
+    const { client } = await connect(userId);
+    const ticket = await ok(client, 'ws_upload_url', { path: '/lease.bin', size: WORKSPACE_UPLOAD_PART + 5 });
+    const row = await ticketRow(ticket.url);
+    await db().update(schema.workspaceUpload).set({ status: 'assembling', leaseUntil: new Date(Date.now() + 60_000), expiresAt: new Date(Date.now() - 60_000) }).where(eq(schema.workspaceUpload.id, row.id));
+    await uploads.reapUploads(new Date());
+    expect((await ticketRow(ticket.url)).status).toBe('assembling');
+    /* Stalled for an hour: ended. */
+    await uploads.reapUploads(new Date(Date.now() + 2 * 60 * 60_000));
+    expect((await ticketRow(ticket.url)).status).toBe('failed');
+  });
+
+  it('5. estimates a PDF from its text, never below what indexing it costs', async () => {
+    const userId = await person();
+    const { client } = await connect(userId);
+    const pdf = makePdf(handbookPages().slice(0, 6));
+    const ticket = await ok(client, 'ws_upload_url', { path: '/e/handbook.pdf', size: pdf.length });
+    await put(ticket.url, pdf);
+    const scope = await workspace.webScope(userId);
+    const estimate = await index.estimateIndex(scope, '/e');
+    const [entry] = await db().select().from(schema.workspaceEntry).where(and(eq(schema.workspaceEntry.workspaceId, scope.workspaceId), eq(schema.workspaceEntry.path, '/e/handbook.pdf')));
+    const readable = await index.readableOf(entry!);
+    const { estimateTokens } = await import('@/lib/domain/knowledge');
+    const actual = (readable as { passages: { content: string }[] }).passages.reduce((sum, passage) => sum + estimateTokens(passage.content), 0);
+    expect(estimate.tokens).toBe(actual);
+    expect(estimate.tokens).toBeGreaterThan(Math.ceil(pdf.length / 16) / 10);
+  });
+
+  it('6, 7. takes no part once the file is being put together, and caps how often parts are sent', async () => {
+    const userId = await person();
+    const { client } = await connect(userId);
+    const file = binary(WORKSPACE_UPLOAD_PART + 7, 5);
+    const first = file.slice(0, WORKSPACE_UPLOAD_PART);
+    const capped = await ok(client, 'ws_upload_url', { path: '/cap.bin', size: file.length });
+    /* Two parts: four PUTs in all. */
+    for (let i = 0; i < 4; i += 1) expect((await put(capped.url, first, 1)).status).toBe(200);
+    expect((await put(capped.url, first, 1)).status).toBe(429);
+    const busy = await ok(client, 'ws_upload_url', { path: '/busy.bin', size: file.length });
+    await db().update(schema.workspaceUpload).set({ status: 'assembling', leaseUntil: new Date(Date.now() + 60_000) }).where(eq(schema.workspaceUpload.id, (await ticketRow(busy.url)).id));
+    const late = await put(busy.url, first, 1);
+    expect(late.status).toBe(409);
+    expect(await late.json()).toMatchObject({ error: 'assembling' });
+    expect(await (await putRoute.GET(new NextRequest(busy.url), { params: Promise.resolve({ token: tokenOf(busy.url) }) })).json()).toMatchObject({ status: 'assembling', parts: 2 });
+  });
+
+  it('8. lets no disabled account finish an upload or download', async () => {
+    const userId = await person();
+    const { client } = await connect(userId);
+    const ticket = await ok(client, 'ws_upload_url', { path: '/d.bin', size: 30 });
+    await ok(client, 'ws_write', { path: '/r.txt', content: 'readable until disabled' });
+    const link = await ok(client, 'ws_download_url', { path: '/r.txt' });
+    await db().update(schema.user).set({ disabledAt: new Date() }).where(eq(schema.user.id, userId));
+    expect((await put(ticket.url, binary(30))).status).toBe(403);
+    expect((await download(link.url)).status).toBe(403);
+  });
+
+  it('9. gives a curl loop that exits non-zero when a part fails', async () => {
+    const userId = await person();
+    const { client } = await connect(userId);
+    const dir = mkdtempSync(join(tmpdir(), 're0-curl-'));
+    try {
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(join(dir, 'big.bin'), binary(WORKSPACE_UPLOAD_PART + 100));
+      const ticket = await ok(client, 'ws_upload_url', { path: '/big.bin', size: WORKSPACE_UPLOAD_PART + 100 });
+      /* Nothing listens at the URL's host in tests: the first PUT fails. */
+      const { spawnSync } = await import('node:child_process');
+      const run = spawnSync('bash', ['-c', ticket.curl.replaceAll('http://localhost:3000', 'http://127.0.0.1:9')], { cwd: dir, env: { ...process.env, TMPDIR: dir } });
+      expect(run.status).not.toBe(0);
+      expect(readdirSync(dir)).toEqual(['big.bin']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('stitches across steps and a lost lease, resuming the hash, and finishes from the cron', async () => {
+    const userId = await person();
+    const { client } = await connect(userId);
+    const file = binary(4 * WORKSPACE_UPLOAD_PART + 999, 13);
+    const ticket = await ok(client, 'ws_upload_url', { path: '/resume.bin', size: file.length });
+    const row = await ticketRow(ticket.url);
+    /* Every part in, as if the last request died before stitching. */
+    for (let n = 1; n <= 5; n += 1) {
+      const { putWorkspaceObject, workspaceUploadPartPath } = await import('@/lib/infra/workspace-store');
+      await putWorkspaceObject(workspaceUploadPartPath(row.workspaceId, row.id, n), file.slice((n - 1) * WORKSPACE_UPLOAD_PART, n * WORKSPACE_UPLOAD_PART), 'application/octet-stream');
+    }
+    await db().update(schema.workspaceUpload).set({ status: 'assembling', received: [1, 2, 3, 4, 5] }).where(eq(schema.workspaceUpload.id, row.id));
+    const step = await uploads.stitch(row.id, new Date(), 0);
+    expect(step).toMatchObject({ done: false, assembling: true });
+    expect((await ticketRow(ticket.url)).stitched).toBe(2);
+    /* The worker of the next step dies holding the lease: the lease runs out, the cron takes over. */
+    await db().update(schema.workspaceUpload).set({ leaseUntil: new Date(Date.now() - 1_000) }).where(eq(schema.workspaceUpload.id, row.id));
+    expect(await uploads.continueStitching(new Date())).toBe(1);
+    const done = await ticketRow(ticket.url);
+    expect(done).toMatchObject({ status: 'done', sha256: sha(file) });
+    /* Files only: the local store leaves the empty folder, which Blob does not have. */
+    const left = readdirSync(blobDir, { recursive: true }).map(String).filter((name) => name.includes(`${row.id}/`));
+    expect(left, JSON.stringify(left)).toEqual([]);
+    expect(sha(await bytesOf(await download((await ok(client, 'ws_download_url', { path: '/resume.bin' })).url)))).toBe(sha(file));
+  });
+
+  it('binds a download to its key, encodes the name fully, and treats an older PDF version as bytes', async () => {
+    const userId = await person();
+    const { client: owner } = await connect(userId);
+    await ok(owner, 'ws_write', { path: "/k/it's (final)!*.txt", content: 'bound to a key' });
+    const { client: scoped, keyId } = await connect(userId, { kind: 'workspace', workspaceRoot: '/k' });
+    const link = await ok(scoped, 'ws_download_url', { path: "/it's (final)!*.txt" });
+    const got = await download(link.url);
+    expect(got.headers.get('content-disposition')).toContain("filename*=UTF-8''it%27s%20%28final%29%21%2A.txt");
+    await db().update(schema.apiKey).set({ workspaceRoot: '/elsewhere' }).where(eq(schema.apiKey.id, keyId));
+    expect((await download(link.url)).status).toBe(403);
+    /* A .pdf path written as text: its older versions are bytes, as an upload of one is. */
+    await ok(owner, 'ws_write', { path: '/k/report.pdf', content: 'v1 as text' });
+    const [old] = (await ok(owner, 'ws_history', { path: '/k/report.pdf' })).versions;
+    await db().update(schema.workspaceRevision).set({ runStartedAt: new Date(Date.now() - 120_000) }).where(eq(schema.workspaceRevision.id, old.revision));
+    await ok(owner, 'ws_write', { path: '/k/report.pdf', content: 'v2 as text' });
+    expect((await refused(owner, 'ws_read', { path: '/k/report.pdf', revision: old.revision })).error).toBe('binary_file');
+  });
+
+  it('sandboxes downloads in the response policy', async () => {
+    // @ts-expect-error -- the config is plain JavaScript, without types
+    const config = (await import('../../next.config.mjs')).default as { headers: () => Promise<{ source: string; headers: { key: string; value: string }[] }[]> };
+    const rules = await config.headers();
+    const last = (source: string) => rules.filter((rule) => rule.source === source).at(-1)!.headers.find((header) => /Content-Security-Policy/.test(header.key))!.value;
+    expect(last('/api/files/download/:path*')).toContain('sandbox');
+    expect(last('/api/files/raw')).toContain('sandbox');
+  });
+});

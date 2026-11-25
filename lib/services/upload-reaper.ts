@@ -142,7 +142,7 @@ export async function purgeOrphanUploads(now = new Date()): Promise<Record<strin
   const removed: Record<string, number> = {};
   let budget = UPLOAD_REAP_BATCH;
   for (const { prefix, owner, known, referenced } of PREFIXES) {
-    removed[prefix] = 0;
+    removed[prefix] ??= 0;
     let cursor: string | undefined;
     let seen = 0;
     do {

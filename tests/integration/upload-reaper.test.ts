@@ -87,7 +87,16 @@ suite('orphan upload reaper', () => {
     await db().delete(schema.workspace).where(inArray(schema.workspace.id, [deleted!.id]));
     const deletedObject = `workspace/${deleted!.id}/${'d'.repeat(64)}`;
 
-    blobs.listed.set('workspace/', [keptObject, orphanObject, foreignObject, deletedObject].map((pathname) => ({ pathname, uploadedAt: old })));
+    /* An upload's parts stay while it takes parts or is being put together; those of one that ended (or of none) go. */
+    const ticket = (status: 'open' | 'assembling' | 'done') =>
+      db().insert(schema.workspaceUpload).values({ tokenHash: id(), workspaceId: space!.id, userId: u, path: '/x.bin', size: 10, parts: 3, status, expiresAt: now }).returning().then((rows) => rows[0]!.id);
+    const [openUpload, stitching, finished] = [await ticket('open'), await ticket('assembling'), await ticket('done')];
+    const keptPart = `workspace/${space!.id}/upload/${openUpload}/1`;
+    const keptPiece = `workspace/${space!.id}/upload/${stitching}/assembled.2`;
+    const latePart = `workspace/${space!.id}/upload/${finished}/3`;
+    const strayPart = `workspace/${space!.id}/upload/${id()}/1`;
+
+    blobs.listed.set('workspace/', [keptObject, orphanObject, foreignObject, deletedObject, keptPart, keptPiece, latePart, strayPart].map((pathname) => ({ pathname, uploadedAt: old })));
     blobs.listed.set('knowledge/', [registered, orphanFile, foreignFile].map((pathname) => ({ pathname, uploadedAt: old })).concat({ pathname: recentFile, uploadedAt: recent }));
     blobs.listed.set('avatars/', [avatar, reeAvatar, draftAvatar, orphanAvatar].map((pathname) => ({ pathname, uploadedAt: old })));
     blobs.listed.set('ree-covers/', [keptCover, orphanCover, foreignCover].map((pathname) => ({ pathname, uploadedAt: old })));
@@ -95,7 +104,7 @@ suite('orphan upload reaper', () => {
     blobs.deleted = [];
 
     const removed = await purgeOrphanUploads(now);
-    expect(new Set(blobs.deleted)).toEqual(new Set([orphanFile, orphanAvatar, orphanCover, orphanImage, orphanThumb, orphanObject, deletedObject]));
-    expect(removed).toEqual({ 'knowledge/': 1, 'avatars/': 1, 'ree-covers/': 1, 'post-images/': 2, 'workspace/': 2 });
+    expect(new Set(blobs.deleted)).toEqual(new Set([orphanFile, orphanAvatar, orphanCover, orphanImage, orphanThumb, orphanObject, deletedObject, latePart, strayPart]));
+    expect(removed).toEqual({ 'knowledge/': 1, 'avatars/': 1, 'ree-covers/': 1, 'post-images/': 2, 'workspace/': 4 });
   });
 });

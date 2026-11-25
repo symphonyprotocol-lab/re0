@@ -195,4 +195,13 @@ describe('bytes in the workspace (third phase)', () => {
     }
     expect(diffLines(Array.from({ length: 50 }, (_, i) => `a${i}`).join('\n'), Array.from({ length: 50 }, (_, i) => `b${i}`).join('\n'), 10)).toBeNull();
   });
+
+  it('stays small and quick on two large, heavily rewritten files, and gives up past the line limit', () => {
+    const lines = (seed: string, n: number) => Array.from({ length: n }, (_, i) => `${seed}${i % 7}`).join('\n');
+    const started = Date.now();
+    expect(diffLines(lines('a', 19_000), lines('b', 19_000))).toBeNull();
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(diffLines(lines('a', 30_000), lines('a', 30_000) + '\nmore')).toBeNull();
+    expect(diffLines(lines('a', 1_000), `${lines('a', 1_000)}\nmore`)!.filter((line) => line.kind === 'added')).toHaveLength(1);
+  });
 });

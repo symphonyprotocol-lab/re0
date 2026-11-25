@@ -10,25 +10,33 @@
  * only credential: the token is random, kept here as a digest, and lives
  * WORKSPACE_UPLOAD_TTL_MS. A file up to WORKSPACE_UPLOAD_PART comes in one
  * PUT; a larger one, up to WORKSPACE_UPLOAD_MAX, in parts of exactly that
- * size (the last one smaller), `?part=1..n`, in any order. Each part is
- * checked against its exact length before its body is read, kept as its own
- * object (a part sent again replaces itself), and the request that brings
- * the last one stitches the file: the parts are read in order as one stream,
- * once to hash it and once to write it to `workspace/<ws>/<sha256>` --
- * Blob takes that write in parts of its own, so 100 MB is never held whole
- * -- then saved as a version like any write (debt, daily writes, quota and
- * `if_match` checked again, under the owner's lock), and the parts deleted.
- * A key revoked, narrowed or moved meanwhile makes the upload fail. An upload
- * not finished in time has its parts deleted by `reapUploads`; parts are
- * never counted in the workspace's usage, so an unfinished upload is never
- * billed.
+ * size (the last one smaller), `?part=1..n`, in any order. Each part's length
+ * is checked, and the PUT counted against WORKSPACE_UPLOAD_REWRITES, before
+ * its body is read; it is kept as its own object, a part sent again replacing
+ * itself. Once every part is in, the ticket takes no more (409) and the file
+ * is stitched a step at a time (`stitch`): two parts a step, added to a
+ * SHA-256 whose state is saved with the step and to the store's multipart
+ * upload, under a lease -- so a request that runs out of time, or dies,
+ * leaves the rest to the next one or the cron, and 100 MB never has to fit
+ * one function run or its memory. The stitched object is copied by the store
+ * under its sha256, then saved as a version like any write (debt, daily
+ * writes, quota and `if_match` checked again under the owner's lock, and the
+ * bytes checked to still be there), and the parts deleted. An account
+ * disabled, or a key revoked or narrowed meanwhile, makes the upload fail.
+ * An upload not finished in time, or stalled while stitching, has its parts
+ * deleted by `reapUploads`; parts are never counted in the workspace's
+ * usage, so an unfinished upload is never billed. Objects left behind are
+ * the daily orphan sweep's (upload-reaper.ts).
  *
  * Download: `ws_download_url` (and the web) give a URL,
- * `/api/files/download/<token>`, signed with the server's secret for one
- * version of one file and WORKSPACE_DOWNLOAD_TTL_MS. The route checks the
- * signature, the expiry and that the version still belongs to a live file,
- * then streams the object as an attachment (`nosniff`, a sandboxing CSP,
- * never cached), its type from the file's extension.
+ * `/api/files/download/<token>`, signed (HMAC, with a key derived for this
+ * use from the server's secret) for one version of one file, the user and
+ * the key it was given to, for WORKSPACE_DOWNLOAD_TTL_MS. The route checks
+ * the signature, the expiry, that the account and the key can still read the
+ * file, and that the version still belongs to a live file. Up to
+ * WORKSPACE_DOWNLOAD_INLINE_MAX the bytes stream through as an attachment
+ * (`nosniff`, a sandboxing CSP, never cached); larger files are a redirect
+ * to a store URL signed for that object alone for a minute.
  */
 import { createHash, hkdfSync } from 'node:crypto';
 import { and, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
@@ -319,8 +327,8 @@ export async function stitch(ticketId: string, now: Date, budgetMs: number) {
   const type = mediaTypeOf(ticket.path, { binary: true });
   try {
     while (ticket.stitched < ticket.parts) {
-      if (Date.now() - started > budgetMs) {
-        /* Out of time here: the lease is let go, and the cron (or a GET) carries on. */
+      /* At least one step a call; after that, out of time here lets the lease go, and the cron carries on. */
+      if (ticket.stitched > taken.stitched && Date.now() - started > budgetMs) {
         await db().update(schema.workspaceUpload).set({ leaseUntil: null }).where(eq(schema.workspaceUpload.id, ticket.id));
         return { done: false as const, assembling: true, stitched: ticket.stitched, parts: ticket.parts };
       }
