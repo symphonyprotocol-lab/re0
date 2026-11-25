@@ -7,6 +7,7 @@ export const zh = {
   nav: {
     dashboard: '工作台',
     rees: '我的 Ree',
+    files: '工作区',
     activities: '活动',
     activitiesPending: '有可领取的奖励',
     main: '主导航',
@@ -108,6 +109,7 @@ export const en: Shape<typeof zh> = {
   nav: {
     dashboard: 'Dashboard',
     rees: 'My Rees',
+    files: 'Workspace',
     activities: 'Activities',
     activitiesPending: 'Rewards to claim',
     main: 'Main navigation',

@@ -472,7 +472,7 @@ export async function listEntries(scope: WorkspaceScope, input: ListInput) {
   const more = rows.length > limit;
   return {
     path: shown(scope, folder),
-    entries: page.map((row) => (input.trash ? { ...view(scope, row), trash_id: row.id, deleted_at: row.deletedAt } : view(scope, row))),
+    entries: page.map((row): EntryView & { trash_id?: string; deleted_at?: Date | null } => (input.trash ? { ...view(scope, row), trash_id: row.id, deleted_at: row.deletedAt } : view(scope, row))),
     next_cursor: more ? page[page.length - 1]!.path.toLowerCase() : null,
   };
 }
@@ -535,6 +535,35 @@ async function revisionText(scope: WorkspaceScope, revision: Revision): Promise<
   const bytes = await readWorkspaceObject(workspaceObjectPath(scope.workspaceId, revision.sha256));
   if (!bytes) throw new Error(`workspace object missing: ${revision.sha256}`);
   return new TextDecoder().decode(bytes);
+}
+
+/** A file's whole text, or one version's: the web's download and file page (a file holds at most WORKSPACE_TEXT_MAX bytes). */
+export async function fileText(scope: WorkspaceScope, rawPath: unknown, revision?: string) {
+  const path = resolvePath(scope, rawPath);
+  const entry = await existing(db(), scope, path);
+  if (entry.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder.`, { path: shown(scope, path) });
+  const text = revision && revision !== entry.currentRevisionId ? await revisionText(scope, await revisionOf(entry, revision)) : (entry.text ?? '');
+  return { ...view(scope, entry), revision: revision ?? entry.currentRevisionId, text };
+}
+
+/** Every live folder's path (at most `limit`), for the web's folder tree. */
+export async function folderPaths(scope: WorkspaceScope, limit = 2000): Promise<string[]> {
+  const rows = await db()
+    .select({ path: schema.workspaceEntry.path })
+    .from(schema.workspaceEntry)
+    .where(and(live(scope), eq(schema.workspaceEntry.kind, 'folder')))
+    .orderBy(sql`lower(${schema.workspaceEntry.path})`)
+    .limit(limit);
+  return rows.map((row) => shown(scope, row.path));
+}
+
+/** What lives at a path: a file, a folder, the (possibly empty) root, or nothing. */
+export async function kindAt(scope: WorkspaceScope, rawPath: unknown): Promise<'file' | 'folder' | null> {
+  const path = normalizePath(rawPath);
+  if (!path) return null;
+  if (path === '/') return 'folder';
+  const entry = await liveEntry(db(), scope, underRoot(scope.root, path));
+  return entry?.kind ?? null;
 }
 
 /** A file's versions, newest first. */

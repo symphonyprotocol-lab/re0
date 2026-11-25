@@ -311,7 +311,7 @@ export default async function UserDetailPage({ params, searchParams }: Props) {
               <Fragment key="name">
                 <strong>{key.name}</strong>
                 <Subline>
-                  {key.canWrite ? a.access.write : a.access.read} · {key.expiresAt ? fill(a.expires, { date: formatDate(key.expiresAt, locale) }) : a.noExpiry}
+                  {key.kind === 'workspace' ? `${a.kinds.workspace} · ${a.workspaceAccess[key.workspaceAccess]} · ${key.workspaceRoot}` : `${key.canWrite ? a.access.write : a.access.read} · ${fill(a.workspaceTag, { access: a.workspaceAccess[key.workspaceAccess] })}`} · {key.expiresAt ? fill(a.expires, { date: formatDate(key.expiresAt, locale) }) : a.noExpiry}
                 </Subline>
               </Fragment>,
               <code key="key">{label}</code>,
