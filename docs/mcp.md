@@ -86,7 +86,7 @@ that does not exist, is `not_found` alike.
 
 | Tool | What it does | Cost |
 | --- | --- | --- |
-| `create_post {visibility, question, detail?, anonymous?, mention_ree?, quote_post_id?, quote_answer_id?, rees?, max_cost?, client_token?}` | `public`: reviewed, then answered by matching free Rees; `private`: the Rees in `rees` (1–5) answer. Answers are written after the call; read them with `get_post` | **Spends credits**: public, the base fee per answer given (at most 5); private, each Ree's price, held at once |
+| `create_post {visibility, question, detail?, anonymous?, mention_ree?, quote_post_id?, quote_answer_id?, rees?, max_cost?, client_token?}` | `public`: reviewed, then answered by matching free Rees; `private`: the Rees in `rees` (1–5) answer, or the AI when none can. A web post in every way (daily limit, same-text replay), tagged with the key. Answers are written after the call; read them with `get_post` | **Spends credits**: public, the base fee per answer given (at most 5); private, each Ree's price, held at once (or the AI answer's fee) |
 | `add_followup {post, question, mention_rees?, add_rees?, max_cost?, client_token?}` | 追问 under a public post (reviewed) or your own private post (`add_rees` brings in new Rees) | **Spends credits**, as the post does |
 | `respond_paid_request {request, action, max_cost?}` | Agree to (at no more than `max_cost`, the price `get_post` showed) or decline a paid Ree waiting on your post or follow-up | **Agreeing spends credits**: the price, held, charged when it answers |
 | `publish_post {post, anonymous?}` | 转为公开: a public copy of your private post and its answers, reviewed; once per post | Free |
@@ -95,11 +95,11 @@ that does not exist, is `not_found` alike.
 | `delete_followup {followup}` | **Destructive**: deletes your follow-up and its answers | Free |
 | `save_post {post, saved?}` | 收藏 a post | Free |
 | `mark_helpful {post? \| answer?, helpful?}` | 有帮助 on a post or an answer | Free |
-| `create_ree {name, category, intro?, tags?, system_prompt?, sample_questions?, query_fee?, is_public?, color?}` | A new Ree from the wizard's fields, validated as the wizard does; the web draft is left alone | Free |
+| `create_ree {name, category, intro?, tags?, system_prompt?, sample_questions?, query_fee?, is_public?, color?}` | A new Ree from the wizard's fields, validated as the wizard does; the web draft is left alone. At most 20 a day per account | Free |
 | `update_ree {ree, …fields, public_qa_enabled?, answers_posts?, share_style?}` | Your Ree's settings: only the fields passed change | Free |
 | `publish_ree {ree, published?}` | Publish (or unpublish) a public Ree | Free |
 | `delete_ree {ree}` | **Destructive**: deletes your Ree | Free |
-| `add_knowledge {ree, kind, title?, content?, url?}` | `text`, `page`, `site` (a verified domain) or `github`; processed after the call | **Spends credits**: processing at what it actually costs, held as on the web |
+| `add_knowledge {ree, kind, title?, content?, url?, max_cost?}` | `text`, `page`, `site` (a verified domain) or `github`; processed after the call. With `max_cost`, processing stops (failed as `max_cost`) before a step that would take it past the cap | **Spends credits**: processing at what it actually costs, held as on the web |
 | `delete_knowledge {ree, knowledge}` | **Destructive**: a source to the trash (restorable on the web for 30 days) | Free |
 | `add_ree_comment {ree, content, client_token?}` | A comment under a public Ree, limited as on the web | Free |
 | `delete_ree_comment {ree, comment}` | **Destructive**: your comment, or any under your Ree | Free |
