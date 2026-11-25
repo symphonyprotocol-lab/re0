@@ -88,13 +88,18 @@ const PREFIXES: Prefix[] = [
      * (workspace.ts puts under the owner's usage lock, inside the write's
      * transaction): no `agent_workspace_blob` row names it. A later write of the
      * same content puts it again, so only the instant between this check and
-     * the delete could lose one, a day after the failed write.
+     * the delete could lose one, a day after the failed write. A deleted
+     * workspace's objects go the same way, by its tombstone.
      */
     prefix: 'workspace/',
     owner: new RegExp(`^workspace/(${UUID})/[0-9a-f]{64}$`),
     async known(ids) {
-      const rows = await db().select({ id: schema.workspace.id }).from(schema.workspace).where(inArray(schema.workspace.id, ids));
-      return new Set(rows.map((row) => row.id));
+      /* A workspace deleted here (its owner's account) left a tombstone: its objects are ours to remove, and nothing names them. */
+      const [live, gone] = await Promise.all([
+        db().select({ id: schema.workspace.id }).from(schema.workspace).where(inArray(schema.workspace.id, ids)),
+        db().select({ id: schema.workspaceGone.workspaceId }).from(schema.workspaceGone).where(inArray(schema.workspaceGone.workspaceId, ids)),
+      ]);
+      return new Set([...live, ...gone].map((row) => row.id));
     },
     async referenced(pathnames) {
       const pairs = pathnames.map((pathname) => pathname.split('/'));

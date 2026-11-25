@@ -204,8 +204,10 @@ that does not exist, is `not_found` alike.
 Text files of up to 1 MB that every tool connected to the account reads and
 writes; the owner sees them at `/files`. Nothing here spends credits: storage
 above the free 100 MB per account is billed daily, like knowledge storage.
-Calls count against the `workspaceRead` / `workspaceWrite` limits (300 and 60
-a minute per account by default), not the per-minute cap above.
+Calls count against the `workspaceRead` / `workspaceWrite` limits per key (300
+and 60 a minute by default; an account's keys together up to four times that),
+and `ws_grep` also against `workspaceGrep` (20 a minute), not the per-minute cap
+above.
 
 | Tool | What it does | Access |
 | --- | --- | --- |
@@ -223,16 +225,19 @@ a minute per account by default), not the per-minute cap above.
 | `ws_delete {path, if_match?}` | **Destructive**: to the trash for 30 days (only the web deletes for good) | write |
 | `ws_restore {trash_id? \| path?, revision?}` | Back from the trash (a taken path gets " (restored)"), or with `path` and `revision` an older version back as the newest | write |
 
-Every change keeps the previous content as a version; saves by the same key
-within 60 seconds of each other are merged into one. `etag` changes with every
+Every save is a version with an id of its own. Saves by the same key within 60
+seconds of the first save of a run show as one version in the history (the
+window does not slide, so a save loop still leaves one a minute); a superseded
+version stays readable by its id for a day. `etag` changes with every
 change of content: pass the one you read as `if_match` and a change made by
 another tool meanwhile is refused with `conflict` (and its `current_etag`)
 instead of overwritten. Other refusals: `not_found` (also for anything outside
 a workspace key's root), `invalid_path`, `exists`, `is_a_directory`,
 `not_a_directory`, `too_large`, `quota_exceeded` (10 GB or 100 000 entries per
 account), `limit_reached` (writes per workspace a day), `insufficient_credits`
-(writes pause while the account owes more than the console's limit; reads and
-deletes still work) and `workspace_not_allowed`. The client's own name from
+(writes pause while the account owes more than the console's limit; reading,
+`ws_delete` and emptying the trash on the web always work, as they do past the
+daily write limit) and `workspace_not_allowed`. The client's own name from
 `initialize` is recorded on the key and shown as each version's writer.
 
 Tools that spend credits fail with `insufficient_credits` (and a top-up link)

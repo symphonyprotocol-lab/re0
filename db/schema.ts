@@ -2916,8 +2916,8 @@ export const workspaceEntry = pgTable(
     lineCount: integer('line_count'),
     updatedByKeyId: uuid('updated_by_key_id'),
     updatedClient: text('updated_client'),
-    /** The last `ws_append`'s `client_token`: the same token again is that append's retry, answered without appending twice. */
-    appendToken: uuid('append_token'),
+    /** The latest `ws_append` `client_token`s (WORKSPACE_APPEND_TOKENS of them, newest last): one of them again is that append's retry, answered without appending twice, whoever appended since. */
+    appendTokens: uuid('append_tokens').array().notNull().default(sql`'{}'::uuid[]`),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
@@ -2953,12 +2953,17 @@ export const workspaceRevision = pgTable(
     apiKeyId: uuid('api_key_id'),
     clientName: text('client_name'),
     saves: integer('saves').notNull().default(1),
+    /** When the run of merged saves this version ends began: a save by the same key within WORKSPACE_COALESCE_MS of it supersedes this version; the window never slides. */
+    runStartedAt: timestampTz('run_started_at').notNull().defaultNow(),
+    /** The version that superseded this one within its run: hidden from the history, kept (and readable by id) until the purge. */
+    squashedInto: uuid('squashed_into'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
   (t) => [
     index('agent_workspace_revision_entry_idx').on(t.entryId, t.updatedAt),
-    index('agent_workspace_revision_age_idx').on(t.updatedAt),
+    index('agent_workspace_revision_workspace_idx').on(t.workspaceId, t.updatedAt),
+    index('agent_workspace_revision_squashed_idx').on(t.workspaceId).where(sql`squashed_into is not null`),
     check('agent_workspace_revision_op_check', oneOf('op', ['write', 'append', 'edit', 'restore', 'copy'])),
   ],
 );
@@ -3007,4 +3012,18 @@ export const workspaceUsage = pgTable('agent_workspace_usage', {
   blobByteMs: numeric('blob_byte_ms', { precision: 40, scale: 0 }).notNull().default('0'),
   databaseByteMs: numeric('database_byte_ms', { precision: 40, scale: 0 }).notNull().default('0'),
   measuredAt: timestampTz('measured_at').notNull().defaultNow(),
+  /** When storage was last charged (the daily charge takes the longest-waiting first, writes or not), and when the purge last went through the account. */
+  chargedAt: timestampTz('charged_at').notNull().defaultNow(),
+  purgedAt: timestampTz('purged_at'),
+}, (t) => [index('agent_workspace_usage_charged_idx').on(t.chargedAt), index('agent_workspace_usage_purged_idx').on(t.purgedAt)]);
+
+/**
+ * A workspace that was deleted (its owner's account, by cascade), written by
+ * the `agent_workspace_gone_on_delete` trigger (migration 0095): the orphan
+ * sweep (upload-reaper.ts) deletes its Blob objects, which no row names any
+ * more; the purge forgets it after WORKSPACE_TRASH_DAYS.
+ */
+export const workspaceGone = pgTable('agent_workspace_gone', {
+  workspaceId: uuid('workspace_id').primaryKey(),
+  goneAt: timestampTz('gone_at').notNull().defaultNow(),
 });
