@@ -22,7 +22,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const state = vi.hoisted(() => ({ user: null as { id: string } | null, sparse: false, visitorAsks: false }));
+const state = vi.hoisted(() => ({ user: null as { id: string } | null, sparse: false, visitorAsks: false, queryFee: 0 }));
 const t = messages('zh');
 vi.mock('@/lib/http/session', () => ({ currentUser: async () => state.user }));
 vi.mock('@/i18n/server', async () => {
@@ -50,7 +50,7 @@ const second: PostView = {
   answers: [{ ...post.answers[0]!, id: '00000000-0000-4000-8000-0000000000a2', text: '在个税 App 里填报 [1][2]。', pinned: false, helpful: 1,
     citations: [{ index: 1, knowledgeId: '00000000-0000-4000-8000-0000000000e1', title: '个人所得税法实施条例', kind: 'document', locator: {}, excerpt: '……' }] }],
 };
-vi.mock('@/lib/services/public-rees', async (original) => ({ ...(await original<typeof import('@/lib/services/public-rees')>()), publicReeBySlug: async () => (state.sparse ? { ...ree, sources: 0, answers: 0, sampleQuestions: [] } : { ...ree, visitorAsks: state.visitorAsks }) }));
+vi.mock('@/lib/services/public-rees', async (original) => ({ ...(await original<typeof import('@/lib/services/public-rees')>()), publicReeBySlug: async () => (state.sparse ? { ...ree, sources: 0, answers: 0, sampleQuestions: [] } : { ...ree, visitorAsks: state.visitorAsks, queryFee: state.queryFee }) }));
 vi.mock('@/lib/services/posts', async (original) => ({ ...(await original<typeof import('@/lib/services/posts')>()), reePostPicks: async () => (state.sparse ? { items: [], total: 0 } : { items: [post, second], total: 4 }) }));
 vi.mock('@/lib/services/share-landing', () => ({
   reeSourceMix: async () => (state.sparse ? [] : [{ kind: 'document', count: 2 }, { kind: 'page', count: 1 }]),
@@ -88,6 +88,7 @@ beforeEach(() => {
   state.user = null;
   state.sparse = false;
   state.visitorAsks = false;
+  state.queryFee = 0;
 });
 
 /** The box 向 {name} 提问 at the foot of the share page. */
@@ -109,7 +110,7 @@ describe('the share page', () => {
     expect(html).not.toContain('[1]');
     /* 可以这样问它, its sources by kind and the ones public answers cited. */
     expect(html).toContain('租房扣除每个月能扣多少？');
-    expect(html).toContain('文档<strong class="font-mono text-[13px]">2</strong>');
+    expect(html).toContain('文档<strong>2</strong>');
     expect(html).toContain('个人所得税法实施条例');
     expect(html).toContain('被 2 个回答引用');
     /* The other picks, and the way to all of them. */
@@ -122,6 +123,30 @@ describe('the share page', () => {
     expect(html).toContain('>登录后提问<span class="workspace-link-progress"');
     expect(html).not.toContain('开始对话');
     expect(html).not.toContain('免登录试聊');
+  });
+
+  it('leads with the price, puts the box beside 可以这样问它 and closes on the creator (design A)', async () => {
+    const html = await share();
+    /* The figures, the price first in the Ree's color. */
+    expect(html).toMatch(/<dl class="share-facts"[^>]*><div class="is-price"><dt>credits \/ 每次回答<\/dt><dd>20<\/dd><\/div>/);
+    /* 向 {name} 提问 is the second band: its questions, then the box. */
+    const band = html.slice(html.indexOf('share-ask-band'), html.indexOf('share-picks'));
+    expect(band).toContain('<h2 id="share-ask"');
+    expect(band.indexOf('租房扣除每个月能扣多少？')).toBeLessThan(band.indexOf('id="ask"'));
+    expect(band).toContain('点一个问题，它会填进下面的提问框。');
+    /* The dark foot: the last ask, then 由 RE0 提供; no creator without a profile. */
+    const foot = html.slice(html.indexOf('<footer class="share-foot">'));
+    expect(foot).toContain('class="share-foot-title [overflow-wrap:anywhere]">向 个税顾问 提问</p>');
+    expect(foot).toContain('由 RE0 提供');
+    expect(foot).not.toContain('author-profile');
+    expect(html).not.toContain('radial-gradient');
+  });
+
+  it('shows the owner the price less the base fee', async () => {
+    state.queryFee = 5;
+    expect(await share()).toContain('<dd>20</dd>');
+    state.user = { id: ree.ownerId };
+    expect(await share()).toContain('<dd>15</dd>');
   });
 
   it('gives a signed-in reader the composer naming the Ree', async () => {
