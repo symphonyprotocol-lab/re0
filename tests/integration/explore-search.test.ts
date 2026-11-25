@@ -78,6 +78,33 @@ async function source(reeId: string): Promise<string> {
   return row!.id;
 }
 
+/*
+ * The other files' profiles, set aside while this file runs and put back
+ * after it. Theirs come from one-hot passages and bag-of-words text, so
+ * hundreds of them share a few binary copies. In the binary HNSW graph those
+ * are all 0 bits apart: each fills its neighbour lists with its twins, and
+ * the pruning keeps no link to a profile far from all of them -- these
+ * tests' sign patterns, some 900 bits away. One inserted after the build is
+ * then reached only by chance (the graph's levels are random): the search
+ * read 40 of the twins and stopped without it, now and then, depending on
+ * which files ran first. Real profiles are dense and spread out; these
+ * tests measure the search on their own Rees. (Files run one at a time
+ * against the shared database, so nothing else reads profiles meanwhile.)
+ */
+const ASIDE = 'explore_search_profiles_aside';
+
+async function setOtherProfilesAside(): Promise<void> {
+  await db().execute(sql.raw(`create table if not exists ${ASIDE} (like public.ree_profile_vector)`));
+  await db().execute(sql.raw(`with moved as (delete from public.ree_profile_vector returning *) insert into ${ASIDE} select * from moved`));
+}
+
+async function putOtherProfilesBack(): Promise<void> {
+  /* A Ree deleted meanwhile took its profiles with it. */
+  await db().execute(sql.raw(`with back as (delete from ${ASIDE} returning *)
+    insert into public.ree_profile_vector select * from back where ree_id in (select id from public.ree) on conflict (id) do nothing`));
+  await db().execute(sql.raw(`drop table ${ASIDE}`));
+}
+
 /* The index statements as `ensureSearchIndexes` writes them, without CONCURRENTLY (nothing else runs). */
 async function buildSearchIndexes(): Promise<string[]> {
   const { rows } = await db().execute<{ name: string }>(sql`select indexname as name from pg_indexes where schemaname = 'public'`);
@@ -100,6 +127,7 @@ describeWithDb('explore search', () => {
   let built: string[] = [];
 
   beforeAll(async () => {
+    await setOtherProfilesAside();
     built = await buildSearchIndexes();
   }, 120_000);
 
@@ -110,8 +138,9 @@ describeWithDb('explore search', () => {
     }
     /* Leave the database as found: the other files search exactly. */
     for (const name of built) await db().execute(sql.raw(`drop index if exists "${name}"`));
+    await putOtherProfilesBack();
     explore.forgetSearchIndexCheck();
-  });
+  }, 120_000);
 
   it('reads the profiles through their binary HNSW index, then keeps public, not excluded Rees', async () => {
     expect(await explore.searchIndexes()).toEqual({ passages: 'bit', profiles: 'bit' });
