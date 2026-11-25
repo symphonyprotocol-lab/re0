@@ -1,12 +1,13 @@
 /**
- * A server module (a page, layout or route under `app/`, or anything under
- * `lib/`) that imports a value from a `'use client'` module gets a client
- * reference on the server, not the value: #215's share page built its
- * sign-in link from `REE_ASK_ANCHOR` imported from the box's client module
- * and production sent `returnTo=/s/<slug>#function(){throw Error(...)}`.
+ * A server module that imports a value from a `'use client'` module gets a
+ * client reference on the server, not the value: #215's share page built
+ * its sign-in link from `REE_ASK_ANCHOR` imported from the box's client
+ * module and production sent `returnTo=/s/<slug>#function(){throw Error(...)}`.
  * Vitest does not apply the directive, so no render test sees it; this
- * reads the imports instead. Components (PascalCase) and type-only imports
- * are what a server module may take from a client one.
+ * reads the imports instead. The server graph is every module reachable
+ * from `app/` and `lib/` without passing through a client module; from a
+ * client module it may take components (PascalCase) and types only --
+ * imported, or re-exported (`export { X } from`).
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
@@ -22,7 +23,9 @@ function walk(dir: string): string[] {
   });
 }
 
-const isClient = (path: string) => /^\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)\s*)*['"]use client['"]/.test(readFileSync(path, 'utf8').slice(0, 400));
+const source = new Map<string, string>();
+const read = (path: string) => source.get(path) ?? source.set(path, readFileSync(path, 'utf8')).get(path)!;
+const isClient = (path: string) => /^\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)\s*)*['"]use client['"]/.test(read(path).slice(0, 400));
 
 function resolve(spec: string, from: string): string | null {
   const base = spec.startsWith('@/') ? join(ROOT, spec.slice(2)) : spec.startsWith('.') ? normalize(join(dirname(from), spec)) : null;
@@ -30,24 +33,42 @@ function resolve(spec: string, from: string): string | null {
   return ['.tsx', '.ts', '/index.tsx', '/index.ts'].map((ext) => base + ext).find((path) => existsSync(path)) ?? null;
 }
 
-/** A named import a server module may take from a client module: a component. */
+/** Every `import ... from` / `export ... from` of a module: what it names (null for a default or namespace import) and from where. */
+function edges(path: string): { names: string[] | null; typeOnly: boolean; target: string }[] {
+  const found: { names: string[] | null; typeOnly: boolean; target: string }[] = [];
+  for (const match of read(path).matchAll(/(?:import|export)\s+(type\s+)?([^;'"]*?)\s+from\s+['"]([^'"]+)['"]/g)) {
+    const target = resolve(match[3]!, path);
+    if (!target) continue;
+    const braces = /\{([^}]*)\}/.exec(match[2]!);
+    const names = braces ? braces[1]!.split(',').map((part) => part.trim()).filter(Boolean) : null;
+    found.push({ names, typeOnly: Boolean(match[1]), target });
+  }
+  return found;
+}
+
+/** What a server module may take from a client module: a component. */
 const isComponent = (name: string) => /^[A-Z][a-z0-9]/.test(name) && !/^[A-Z0-9_]+$/.test(name);
 
 describe('the client boundary', () => {
-  it('no server module imports a value other than a component from a client module', () => {
-    const files = ['app', 'components', 'lib', 'i18n'].flatMap((dir) => walk(join(ROOT, dir)));
-    const client = new Set(files.filter(isClient));
-    const servers = files.filter((path) => !client.has(path) && /^(app|lib)\//.test(relative(ROOT, path)));
+  it('no server module imports or re-exports a value other than a component from a client module', () => {
+    const entries = ['app', 'lib'].flatMap((dir) => walk(join(ROOT, dir))).filter((path) => !isClient(path));
+    const seen = new Set<string>();
+    const queue = [...entries];
     const found: string[] = [];
-    for (const path of servers) {
-      for (const match of readFileSync(path, 'utf8').matchAll(/import\s+(type\s+)?\{([^}]*)\}\s+from\s+['"]([^'"]+)['"]/g)) {
-        if (match[1]) continue;
-        const target = resolve(match[3]!, path);
-        if (!target || !client.has(target)) continue;
-        for (const raw of match[2]!.split(',').map((part) => part.trim()).filter(Boolean)) {
+    while (queue.length) {
+      const path = queue.pop()!;
+      if (seen.has(path)) continue;
+      seen.add(path);
+      for (const edge of edges(path)) {
+        if (!isClient(edge.target)) {
+          queue.push(edge.target);
+          continue;
+        }
+        if (edge.typeOnly || !edge.names) continue;
+        for (const raw of edge.names) {
           if (raw.startsWith('type ')) continue;
           const name = raw.split(/\s+as\s+/)[0]!.trim();
-          if (!isComponent(name)) found.push(`${relative(ROOT, path)} imports ${name} from ${relative(ROOT, target)}`);
+          if (!isComponent(name)) found.push(`${relative(ROOT, path)} takes ${name} from ${relative(ROOT, edge.target)}`);
         }
       }
     }
