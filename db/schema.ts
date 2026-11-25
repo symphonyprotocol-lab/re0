@@ -68,24 +68,6 @@ import {
 import { PUBLIC_QA_ANSWER_MAX_CHARS, PUBLIC_QA_HIDERS, PUBLIC_QA_SOURCES, PUBLIC_QA_STATUSES, type PublicQaHider, type PublicQaSource, type PublicQaStatus } from '@/lib/domain/public-qa';
 import { CHAIN_AUDIENCES, COOLING_REASONS, type ChainAudience, type SwitchingClass } from '@/lib/domain/model-failover';
 import { MODEL_KINDS, VIDEO_EXPORT_TEMPLATES, VIDEO_TEMPLATES, type ModelKind } from '@/lib/constants';
-import {
-  ANSWER_REVIEWS,
-  COMPETITION_ANSWER_STATES,
-  COMPETITION_PAYERS,
-  COMPETITION_STATUSES,
-  ENTRY_STATUSES,
-  JUDGE_STATES,
-  QUESTION_MODES,
-  type AnswerReview,
-  type CompetitionAnswerState,
-  type CompetitionPayer,
-  type CompetitionStatus,
-  type CompetitionWeights,
-  type EntryStatus,
-  type JudgeRun,
-  type JudgeState,
-  type QuestionMode,
-} from '@/lib/domain/competition';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const timestampTz = (name: string) => timestamp(name, { withTimezone: true });
@@ -606,14 +588,6 @@ export const CREDIT_ENTRY_REASONS = [
   'deduction_release',
   /* A refund or chargeback of such a purchase gives the earned credits back in proportion. */
   'deduction_return',
-  /* Ree 比赛 (docs/design/competitions.md 9.2): the host's deposit, held from submitting to the deadline. */
-  'competition_deposit_hold',
-  'competition_deposit_settle',
-  'competition_deposit_release',
-  /* The judge's fee (and a draft's 试评), paid by the host to the platform. */
-  'judge_hold',
-  'judge_settle',
-  'judge_refund',
 ] as const;
 export type CreditEntryReason = (typeof CREDIT_ENTRY_REASONS)[number];
 
@@ -649,7 +623,7 @@ export const creditHold = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => user.id),
-    kind: text('kind').$type<'chat' | 'knowledge' | 'video' | 'payout' | 'post' | 'deduction' | 'competition'>().notNull(),
+    kind: text('kind').$type<'chat' | 'knowledge' | 'video' | 'payout' | 'post' | 'deduction'>().notNull(),
     amount: bigint('amount', { mode: 'number' }).notNull(),
     allocations: jsonb('allocations').$type<Allocation[]>().notNull(),
     status: text('status').$type<'held' | 'settled' | 'released'>().notNull().default('held'),
@@ -665,7 +639,7 @@ export const creditHold = pgTable(
     index('credit_hold_user_idx').on(t.userId, t.status),
     index('credit_hold_ref_idx').on(t.refId),
     index('credit_hold_open_idx').on(t.kind, t.createdAt).where(sql`status = 'held'`),
-    check('credit_hold_kind_check', oneOf('kind', ['chat', 'knowledge', 'video', 'payout', 'post', 'deduction', 'competition'])),
+    check('credit_hold_kind_check', oneOf('kind', ['chat', 'knowledge', 'video', 'payout', 'post', 'deduction'])),
     check('credit_hold_status_check', oneOf('status', ['held', 'settled', 'released'])),
   ],
 );
@@ -1956,7 +1930,7 @@ export const verificationRequest = pgTable(
   ],
 );
 
-export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal', 'post_ai_answer', 'visitor_ask_paused', 'competition_published', 'competition_balance_short', 'competition_review_ready', 'competition_results'] as const;
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal', 'post_ai_answer', 'visitor_ask_paused'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**
@@ -2744,225 +2718,4 @@ export const apiKey = pgTable(
     index('api_key_user_idx').on(t.userId, t.createdAt),
     check('api_key_name_check', sql`char_length(name) between 1 and 60`),
   ],
-);
-
-/* ------------------------------------------------------ Ree 比赛 (competitions) */
-
-/**
- * A Ree competition (docs/design/competitions.md): a channel with rules. Its
- * channel is made with the draft (`channel_id`, one competition per
- * channel); its questions become posts in it (`source = 'competition'`)
- * when they are public. Answers stay in `competition_answer` until the
- * results, when the passed ones are copied into `post_answer`.
- */
-export const competition = pgTable(
-  'competition',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    /** The channel's name: the URL `/competitions/[slug]`. */
-    slug: text('slug').notNull(),
-    channelId: uuid('channel_id').references(() => channel.id, { onDelete: 'set null' }),
-    hostId: uuid('host_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-    title: text('title').notNull(),
-    /** Markdown: the rules as the public reads them. */
-    description: text('description').notNull().default(''),
-    lang: text('lang').$type<'zh' | 'en'>().notNull(),
-    status: text('status').$type<CompetitionStatus>().notNull().default('draft'),
-    /** `open` (开卷): questions public while entries are open; `closed` (闭卷): only at the deadline. */
-    questionMode: text('question_mode').$type<QuestionMode>().notNull().default('open'),
-    payer: text('payer').$type<CompetitionPayer>().notNull().default('entrant'),
-    maxEntries: integer('max_entries').notNull(),
-    maxEntriesPerUser: integer('max_entries_per_user').notNull().default(1),
-    weights: jsonb('weights').$type<CompetitionWeights>().notNull(),
-    revealReference: boolean('reveal_reference').notNull().default(true),
-    deadlineAt: timestampTz('deadline_at'),
-    reviewHours: integer('review_hours').notNull().default(72),
-    /** Written on entering `review`: the results go out by themselves then. */
-    reviewEndsAt: timestampTz('review_ends_at'),
-    /** The prices as they stood when it opened (9.1). */
-    answerFee: integer('answer_fee'),
-    judgeFee: integer('judge_fee'),
-    /** The models it answers and is judged with, fixed at the deadline (7.3, 8.1). */
-    answerModel: text('answer_model'),
-    judgeModel: text('judge_model'),
-    /** The host's deposit (submitting → deadline) and the judge's fee (deadline → results). */
-    depositHoldId: uuid('deposit_hold_id'),
-    judgeHoldId: uuid('judge_hold_id'),
-    moderationAttempts: integer('moderation_attempts').notNull().default(0),
-    rejectedReason: text('rejected_reason'),
-    /** Entries that count: entered or locked (kept as entries come and go). */
-    entryCount: integer('entry_count').notNull().default(0),
-    hiddenBy: text('hidden_by').$type<'admin'>(),
-    reportCount: integer('report_count').notNull().default(0),
-    cancelledReason: text('cancelled_reason'),
-    createdAt: createdAt(),
-    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
-    submittedAt: timestampTz('submitted_at'),
-    openedAt: timestampTz('opened_at'),
-    lockedAt: timestampTz('locked_at'),
-    publishedAt: timestampTz('published_at'),
-    cancelledAt: timestampTz('cancelled_at'),
-  },
-  (t) => [
-    /* A cancelled or refused competition gives its name back; at most one live one per name. */
-    uniqueIndex('competition_slug_key').on(t.slug).where(sql`status not in ('cancelled', 'rejected')`),
-    uniqueIndex('competition_channel_key').on(t.channelId).where(sql`channel_id is not null`),
-    index('competition_status_idx').on(t.status, t.deadlineAt),
-    index('competition_host_idx').on(t.hostId, t.createdAt.desc()),
-    index('competition_published_idx').on(t.publishedAt.desc()).where(sql`status = 'published' and hidden_by is null`),
-    check('competition_status_check', oneOf('status', COMPETITION_STATUSES)),
-    check('competition_question_mode_check', oneOf('question_mode', QUESTION_MODES)),
-    check('competition_payer_check', oneOf('payer', COMPETITION_PAYERS)),
-    check('competition_lang_check', oneOf('lang', ['zh', 'en'])),
-    check('competition_title_check', sql`char_length(title) between 1 and 80`),
-    check('competition_description_check', sql`char_length(description) <= 8000`),
-    check('competition_max_entries_check', sql`max_entries between 1 and 100`),
-    check('competition_max_entries_per_user_check', sql`max_entries_per_user between 1 and 3`),
-    check('competition_review_hours_check', sql`review_hours between 0 and 168`),
-    check('competition_hidden_by_check', sql`hidden_by is null or hidden_by = 'admin'`),
-  ],
-);
-
-/**
- * One question. `reference_answer` and `rubric` are never public before the
- * results (and after them only with `reveal_reference`): only the host's
- * own reads and the judge select them (lib/services/competitions.ts).
- */
-export const competitionQuestion = pgTable(
-  'competition_question',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    competitionId: uuid('competition_id').notNull().references(() => competition.id, { onDelete: 'cascade' }),
-    ordinal: integer('ordinal').notNull(),
-    question: text('question').notNull(),
-    detail: text('detail').notNull().default(''),
-    referenceAnswer: text('reference_answer').notNull(),
-    rubric: text('rubric').notNull().default(''),
-    weight: real('weight').notNull().default(1),
-    /** Its public post, once the question is public. */
-    postId: uuid('post_id').references(() => post.id, { onDelete: 'set null' }),
-    /** The question's embedding, made once at the deadline and shared by every entry (11.2). */
-    embedding: jsonb('embedding').$type<{ vector: number[]; model: string; space: string }>(),
-  },
-  (t) => [
-    uniqueIndex('competition_question_ordinal_key').on(t.competitionId, t.ordinal),
-    index('competition_question_post_idx').on(t.postId).where(sql`post_id is not null`),
-    check('competition_question_ordinal_check', sql`ordinal between 1 and 20`),
-    check('competition_question_question_check', sql`char_length(question) between 1 and 300`),
-    check('competition_question_detail_check', sql`char_length(detail) <= 2000`),
-    check('competition_question_reference_check', sql`char_length(reference_answer) between 1 and 4000`),
-    check('competition_question_rubric_check', sql`char_length(rubric) <= 2000`),
-    check('competition_question_weight_check', sql`weight between 0.1 and 10`),
-  ],
-);
-
-/** One Ree in one competition (at most once), put in by its owner. */
-export const competitionEntry = pgTable(
-  'competition_entry',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    competitionId: uuid('competition_id').notNull().references(() => competition.id, { onDelete: 'cascade' }),
-    reeId: uuid('ree_id').notNull().references(() => ree.id, { onDelete: 'cascade' }),
-    userId: uuid('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-    status: text('status').$type<EntryStatus>().notNull().default('entered'),
-    /** The deadline it was locked at: the knowledge it answers from (7.3). */
-    lockedAt: timestampTz('locked_at'),
-    /** The Ree's system prompt at the deadline, answered under (7.3). */
-    systemPrompt: text('system_prompt'),
-    /** Who pays its answers, and the hold for them. */
-    payerId: uuid('payer_id'),
-    holdId: uuid('hold_id'),
-    answered: integer('answered').notNull().default(0),
-    totalScore: real('total_score'),
-    rank: integer('rank'),
-    /** The 24-hour balance reminder went out (5.2). */
-    remindedAt: timestampTz('reminded_at'),
-    disqualifiedReason: text('disqualified_reason'),
-    createdAt: createdAt(),
-    withdrawnAt: timestampTz('withdrawn_at'),
-  },
-  (t) => [
-    uniqueIndex('competition_entry_ree_key').on(t.competitionId, t.reeId),
-    index('competition_entry_status_idx').on(t.competitionId, t.status),
-    index('competition_entry_user_idx').on(t.userId, t.createdAt.desc()),
-    index('competition_entry_rank_idx').on(t.competitionId, t.rank).where(sql`rank is not null`),
-    check('competition_entry_status_check', oneOf('status', ENTRY_STATUSES)),
-  ],
-);
-
-/** One entry's answer to one question, its judgement and its review; copied into `post_answer` at the results. */
-export const competitionAnswer = pgTable(
-  'competition_answer',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    competitionId: uuid('competition_id').notNull().references(() => competition.id, { onDelete: 'cascade' }),
-    entryId: uuid('entry_id').notNull().references(() => competitionEntry.id, { onDelete: 'cascade' }),
-    questionId: uuid('question_id').notNull().references(() => competitionQuestion.id, { onDelete: 'cascade' }),
-    reeId: uuid('ree_id').notNull().references(() => ree.id, { onDelete: 'cascade' }),
-    state: text('state').$type<CompetitionAnswerState>().notNull().default('queued'),
-    attempts: integer('attempts').notNull().default(0),
-    nextAttemptAt: timestampTz('next_attempt_at'),
-    startedAt: timestampTz('started_at'),
-    answeredAt: timestampTz('answered_at'),
-    text: text('text').notNull().default(''),
-    citations: jsonb('citations').$type<CitationSnapshot[]>().notNull().default([]),
-    model: text('model'),
-    judgeState: text('judge_state').$type<JudgeState>(),
-    judgeAttempts: integer('judge_attempts').notNull().default(0),
-    judgeStartedAt: timestampTz('judge_started_at'),
-    aiScores: jsonb('ai_scores').$type<JudgeRun[]>().notNull().default([]),
-    aiScore: real('ai_score'),
-    rationale: text('rationale'),
-    injection: boolean('injection').notNull().default(false),
-    hostScore: real('host_score'),
-    finalScore: real('final_score'),
-    review: text('review').$type<AnswerReview>(),
-    reviewAttempts: integer('review_attempts').notNull().default(0),
-    postAnswerId: uuid('post_answer_id').references(() => postAnswer.id, { onDelete: 'set null' }),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    uniqueIndex('competition_answer_key').on(t.entryId, t.questionId),
-    index('competition_answer_run_idx').on(t.state, t.nextAttemptAt).where(sql`state in ('queued', 'answering')`),
-    index('competition_answer_judge_idx').on(t.judgeState).where(sql`judge_state in ('pending', 'running')`),
-    index('competition_answer_review_idx').on(t.review).where(sql`review = 'pending'`),
-    index('competition_answer_question_idx').on(t.questionId, t.finalScore.desc()),
-    index('competition_answer_competition_idx').on(t.competitionId, t.state),
-    check('competition_answer_state_check', oneOf('state', COMPETITION_ANSWER_STATES)),
-    check('competition_answer_judge_state_check', sql`judge_state is null or judge_state in (${sql.raw(JUDGE_STATES.map((state) => `'${state}'`).join(', '))})`),
-    check('competition_answer_review_check', sql`review is null or review in (${sql.raw(ANSWER_REVIEWS.map((state) => `'${state}'`).join(', '))})`),
-    check('competition_answer_text_check', sql`char_length(text) <= ${sql.raw(String(PUBLIC_QA_ANSWER_MAX_CHARS))}`),
-    check('competition_answer_host_score_check', sql`host_score is null or host_score between 0 and 10`),
-  ],
-);
-
-/** Every score override (7.5): who, from what to what, and why. */
-export const competitionScoreLog = pgTable(
-  'competition_score_log',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    answerId: uuid('answer_id').notNull().references(() => competitionAnswer.id, { onDelete: 'cascade' }),
-    actor: text('actor').$type<'host' | 'admin'>().notNull(),
-    actorId: uuid('actor_id'),
-    fromScore: real('from_score'),
-    toScore: real('to_score').notNull(),
-    note: text('note').notNull(),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    index('competition_score_log_answer_idx').on(t.answerId, t.createdAt),
-    check('competition_score_log_actor_check', oneOf('actor', ['host', 'admin'])),
-    check('competition_score_log_note_check', sql`char_length(note) between 1 and 500`),
-  ],
-);
-
-/** "举报" on a competition: one per reporter (the account, or an HMAC of the visitor's network), as `post_report`. */
-export const competitionReport = pgTable(
-  'competition_report',
-  {
-    competitionId: uuid('competition_id').notNull().references(() => competition.id, { onDelete: 'cascade' }),
-    reporterKey: text('reporter_key').notNull(),
-    createdAt: createdAt(),
-  },
-  (t) => [primaryKey({ columns: [t.competitionId, t.reporterKey] })],
 );

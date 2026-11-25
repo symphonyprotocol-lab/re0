@@ -36,7 +36,7 @@ export interface FollowupComposerHandle {
  * fee, paid by whoever asks; the follow-up is reviewed and public like any
  * other. A private thread no Ree is in (只问 AI) reads the same.
  */
-export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: string; isPrivate?: boolean; aiOnly?: boolean; candidates: FollowupCandidate[]; signedIn: boolean; loginHref: string; blocked: 'full' | 'closed' | null; onAsked: () => void }>(function FollowupComposer(
+export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: string; isPrivate?: boolean; aiOnly?: boolean; candidates: FollowupCandidate[]; signedIn: boolean; loginHref: string; blocked: 'full' | null; onAsked: () => void }>(function FollowupComposer(
   { postId, isPrivate = false, aiOnly: publicAi = false, candidates: threadRees, signedIn, loginHref, blocked, onAsked },
   ref,
 ) {
@@ -96,8 +96,6 @@ export const FollowupComposer = forwardRef<FollowupComposerHandle, { postId: str
     },
   }), [candidates, isPrivate]);
 
-  /* A competition's question post (docs/design/competitions.md 10): up to a hundred Rees answered it; follow-ups stay off, signed in or not. */
-  if (blocked === 'closed') return <div className="post-state is-unmatched" id="followup">{f.closed}</div>;
   if (!signedIn) {
     return (
       <div className="fu-composer is-visitor" id="followup">
