@@ -612,7 +612,7 @@ export async function convertToPublic(userId: string, id: string, options: { ano
     if (!target) return { ok: false, error: 'not_found' } as const;
     if (target.publishedCopyId) return { ok: false, error: 'already', id: target.publishedCopyId } as const;
     const given = await tx
-      .select({ reeId: answer.reeId, text: answer.text, citations: answer.citations, model: answer.model, answeredAt: answer.answeredAt })
+      .select({ reeId: answer.reeId, text: answer.text, citations: answer.citations, model: answer.model, uncovered: answer.uncovered, answeredAt: answer.answeredAt })
       .from(answer)
       .innerJoin(ree, eq(ree.id, answer.reeId))
       .where(and(eq(answer.postId, id), firstRound(), shownAnswer()))
@@ -639,7 +639,7 @@ export async function convertToPublic(userId: string, id: string, options: { ano
     });
     if (given.length) {
       await tx.insert(answer).values(
-        given.map((entry, index) => ({ postId: copyId, reeId: entry.reeId, state: 'answered' as const, text: entry.text, citations: entry.citations, model: entry.model, similarity: null, answeredAt: entry.answeredAt ?? now, createdAt: new Date(now.getTime() + index) })),
+        given.map((entry, index) => ({ postId: copyId, reeId: entry.reeId, state: 'answered' as const, text: entry.text, citations: entry.citations, model: entry.model, uncovered: entry.uncovered, similarity: null, answeredAt: entry.answeredAt ?? now, createdAt: new Date(now.getTime() + index) })),
       );
     }
     /* The same images (the same objects), reviewed with the copy. */
