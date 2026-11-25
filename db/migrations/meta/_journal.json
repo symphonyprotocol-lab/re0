@@ -652,6 +652,13 @@
       "when": 1795608896008,
       "tag": "0094_api_key_can_write",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1795613905183,
+      "tag": "0095_agent_workspace",
+      "breakpoints": true
     }
   ]
 }

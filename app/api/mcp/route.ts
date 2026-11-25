@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { apiKeyCaller, bearerToken } from '@/lib/http/api-key';
-import { authInfoFor, mcpHandler } from '@/lib/http/mcp';
+import { authInfoFor, mcpHandlerFor } from '@/lib/http/mcp';
+import { noteKeyClient } from '@/lib/services/api-keys';
 import { fail } from '@/lib/http/respond';
 import { sameOrigin } from '@/lib/http/session';
 
@@ -26,7 +27,12 @@ async function serve(request: NextRequest): Promise<Response> {
   const caller = await apiKeyCaller(request);
   if (caller instanceof Response) return caller;
   request.auth = authInfoFor(caller, bearerToken(request.headers)!);
-  return mcpHandler(request);
+  /* The client's own name (`initialize`), so the files it writes say which tool wrote them; the server is stateless, so later calls cannot tell. */
+  if (request.method === 'POST' && (request.headers.get('content-type') ?? '').includes('application/json')) {
+    const message = (await request.clone().json().catch(() => null)) as { method?: unknown; params?: { clientInfo?: { name?: unknown } } } | null;
+    if (message?.method === 'initialize') await noteKeyClient(caller.keyId, message.params?.clientInfo?.name);
+  }
+  return mcpHandlerFor(caller)(request);
 }
 
 export { serve as GET, serve as POST, serve as DELETE };

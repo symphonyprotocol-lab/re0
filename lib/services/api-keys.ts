@@ -20,11 +20,13 @@ import { db, schema } from '@/lib/infra/db';
 import { randomHex, sha256 } from '@/lib/infra/crypto/tokens';
 import { AdminInputError, audit } from '@/lib/services/admin';
 import type { SessionUser } from '@/lib/services/auth';
+import { cleanClientName, clientLabel, normalizePath, WORKSPACE_ACCESS, type WorkspaceAccess } from '@/lib/domain/workspace';
+import { defaultWorkspace } from '@/lib/services/workspace';
 
 export type ApiKeyRow = typeof schema.apiKey.$inferSelect;
 
 export class ApiKeyError extends Error {
-  constructor(readonly code: 'invalid_name' | 'invalid_expiry' | 'too_many_keys') {
+  constructor(readonly code: 'invalid_name' | 'invalid_expiry' | 'too_many_keys' | 'invalid_workspace_access' | 'invalid_workspace_root') {
     super(code);
   }
 }
@@ -40,6 +42,12 @@ export interface ApiKeyItem {
   revokedAt: Date | null;
   /** May change things through MCP, not only read and ask. */
   canWrite: boolean;
+  /** `workspace`: confined to one workspace's `ws_*` tools under `workspaceRoot`; `account`: the Ree and post tools, and the workspace if `workspaceAccess` allows. */
+  kind: 'account' | 'workspace';
+  workspaceAccess: WorkspaceAccess;
+  workspaceRoot: string;
+  /** What the client last called itself when it connected (`clientInfo.name`), for display. */
+  client: string | null;
   /** Questions asked with this key, and the credits they cost. */
   questions: number;
   spent: number;
@@ -56,10 +64,26 @@ export function keyIsLive(key: Pick<ApiKeyRow, 'revokedAt' | 'expiresAt'>, now =
   return !key.revokedAt && (!key.expiresAt || key.expiresAt.getTime() > now.getTime());
 }
 
-/** `{name, expiresInDays?, canWrite?}` → the new key, whose `secret` is never readable again. Only `canWrite: true` makes a key that may write. */
-export async function createApiKey(userId: string, raw: { name?: unknown; expiresInDays?: unknown; canWrite?: unknown }, now = new Date()): Promise<{ key: ApiKeyItem; secret: string }> {
+/**
+ * `{name, expiresInDays?, canWrite?, kind?, workspaceAccess?, workspaceRoot?}`
+ * → the new key, whose `secret` is never readable again. Only
+ * `canWrite: true` makes a key that may write Rees and posts, and only an
+ * explicit `workspaceAccess` one that reaches files: every default is the
+ * narrowest. A `workspace` key needs `read` or `write`, never writes Rees or
+ * posts, and is bound to the account's default workspace at `workspaceRoot`.
+ */
+export async function createApiKey(
+  userId: string,
+  raw: { name?: unknown; expiresInDays?: unknown; canWrite?: unknown; kind?: unknown; workspaceAccess?: unknown; workspaceRoot?: unknown },
+  now = new Date(),
+): Promise<{ key: ApiKeyItem; secret: string }> {
   const name = typeof raw.name === 'string' ? raw.name.trim() : '';
   if (!name || Array.from(name).length > API_KEY_NAME_MAX) throw new ApiKeyError('invalid_name');
+  const kind = raw.kind === 'workspace' ? 'workspace' : 'account';
+  const access = raw.workspaceAccess === undefined || raw.workspaceAccess === null ? 'none' : raw.workspaceAccess;
+  if (!(WORKSPACE_ACCESS as readonly unknown[]).includes(access) || (kind === 'workspace' && access === 'none')) throw new ApiKeyError('invalid_workspace_access');
+  const root = kind === 'workspace' ? normalizePath(raw.workspaceRoot ?? '/') : '/';
+  if (!root) throw new ApiKeyError('invalid_workspace_root');
   let expiresAt: Date | null = null;
   if (raw.expiresInDays !== undefined && raw.expiresInDays !== null && raw.expiresInDays !== '') {
     const days = Number(raw.expiresInDays);
@@ -76,14 +100,42 @@ export async function createApiKey(userId: string, raw: { name?: unknown; expire
       .from(schema.apiKey)
       .where(and(eq(schema.apiKey.userId, userId), isNull(schema.apiKey.revokedAt), sql`(${schema.apiKey.expiresAt} is null or ${schema.apiKey.expiresAt} > ${now})`));
     if (live >= API_KEY_MAX_ACTIVE) throw new ApiKeyError('too_many_keys');
-    const [created] = await tx.insert(schema.apiKey).values({ userId, name, keyDigest, keyTail: secret.slice(-4), expiresAt, canWrite: raw.canWrite === true, createdAt: now }).returning();
+    const workspaceId = kind === 'workspace' ? await defaultWorkspace(userId, tx) : null;
+    const [created] = await tx
+      .insert(schema.apiKey)
+      .values({
+        userId,
+        name,
+        keyDigest,
+        keyTail: secret.slice(-4),
+        expiresAt,
+        canWrite: kind === 'account' && raw.canWrite === true,
+        workspaceAccess: access as WorkspaceAccess,
+        workspaceId,
+        workspaceRoot: root,
+        createdAt: now,
+      })
+      .returning();
     return created!;
   });
   return { key: { ...item(row), questions: 0, spent: 0 }, secret };
 }
 
 function item(row: ApiKeyRow): Omit<ApiKeyItem, 'questions' | 'spent'> {
-  return { id: row.id, name: row.name, tail: row.keyTail, createdAt: row.createdAt, lastUsedAt: row.lastUsedAt, expiresAt: row.expiresAt, revokedAt: row.revokedAt, canWrite: row.canWrite };
+  return {
+    id: row.id,
+    name: row.name,
+    tail: row.keyTail,
+    createdAt: row.createdAt,
+    lastUsedAt: row.lastUsedAt,
+    expiresAt: row.expiresAt,
+    revokedAt: row.revokedAt,
+    canWrite: row.canWrite,
+    kind: row.workspaceId ? 'workspace' : 'account',
+    workspaceAccess: row.workspaceAccess,
+    workspaceRoot: row.workspaceRoot,
+    client: clientLabel(row.clientName),
+  };
 }
 
 /** Every key of the user, newest first, with what each one asked and spent. */
@@ -161,6 +213,12 @@ export interface ApiKeyCaller {
   keyId: string;
   /** The key may write (`api_key.can_write`); without it, only reading and `ask_ree`. */
   canWrite: boolean;
+  /** What the key may do with files, and where (lib/http/mcp-workspace.ts). A workspace key has `workspaceId` and sees nothing else. */
+  workspaceAccess: WorkspaceAccess;
+  workspaceId: string | null;
+  workspaceRoot: string;
+  /** The MCP client's own name from its last `initialize` with this key. */
+  clientName: string | null;
 }
 
 /**
@@ -181,5 +239,20 @@ export async function resolveApiKey(secret: string, now = new Date()): Promise<A
   if (!row.key.lastUsedAt || now.getTime() - row.key.lastUsedAt.getTime() >= API_KEY_LAST_USED_RESOLUTION_MS) {
     await db().update(schema.apiKey).set({ lastUsedAt: now }).where(eq(schema.apiKey.id, row.key.id));
   }
-  return { user: row.user, keyId: row.key.id, canWrite: row.key.canWrite };
+  return {
+    user: row.user,
+    keyId: row.key.id,
+    canWrite: row.key.canWrite,
+    workspaceAccess: row.key.workspaceAccess,
+    workspaceId: row.key.workspaceId,
+    workspaceRoot: row.key.workspaceRoot,
+    clientName: row.key.clientName,
+  };
+}
+
+/** Remembers what an MCP client called itself when it connected with this key (`initialize`), when that changed. */
+export async function noteKeyClient(keyId: string, raw: unknown): Promise<void> {
+  const name = cleanClientName(raw);
+  if (!name) return;
+  await db().update(schema.apiKey).set({ clientName: name }).where(and(eq(schema.apiKey.id, keyId), sql`${schema.apiKey.clientName} is distinct from ${name}`));
 }
