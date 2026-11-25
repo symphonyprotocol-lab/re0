@@ -14,6 +14,8 @@ vi.mock('@/lib/infra/workspace-store', () => ({
   workspaceObjectPath: (workspaceId: string, sha: string) => `workspace/${workspaceId.toLowerCase()}/${sha}`,
   putWorkspaceObject: async (path: string, bytes: Uint8Array) => void objects.set(path, bytes),
   readWorkspaceObject: async (path: string) => objects.get(path) ?? null,
+  openWorkspaceObject: async (path: string) => (objects.has(path) ? { stream: new Response(Buffer.from(objects.get(path)!)).body, size: objects.get(path)!.length } : null),
+  workspaceUploadPartPath: (workspaceId: string, id: string, n: number) => `workspace/${workspaceId}/upload/${id}/${n}`,
   deleteWorkspaceObjects: async (paths: readonly string[]) => paths.forEach((path) => objects.delete(path)),
 }));
 const signedIn = vi.hoisted(() => ({ id: '' }));
