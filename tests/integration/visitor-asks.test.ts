@@ -341,6 +341,50 @@ describeWithDb('visitor asks on the share page', () => {
     });
   });
 
+  describe('channels', () => {
+    /* Letters only: a digit run in a tag reads as a phone number and is redacted out of it (post-channels.test.ts). */
+    const tag = (prefix: string) => `${prefix}${Array.from(crypto.getRandomValues(new Uint8Array(12)), (byte) => String.fromCharCode(97 + (byte % 26))).join('')}`;
+    const channelNamed = (name: string) => db().select().from(schema.channel).where(eq(schema.channel.name, name));
+    const listed = async (name: string) => (await posts.listFeed('latest', { channel: name })).items.map((item) => item.id);
+
+    it("files a visitor's question under a channel that exists, listed there once review publishes it", async () => {
+      const ree = await shared(500, { perVisitor: 5 });
+      const name = tag('garden');
+      await db().insert(schema.channel).values({ name, createdBy: null });
+      const asked = await ask(ree.slug, browser(), `Which roses suit clay soil? #${name}`);
+      if (!asked.ok) throw new Error(asked.error);
+      /* Filed at once, not listed while under review. */
+      expect((await db().select().from(schema.postChannel).where(eq(schema.postChannel.postId, asked.id))).length).toBe(1);
+      expect(await listed(name)).toEqual([]);
+      expect(await posts.moderatePost(asked.id, approve)).toBe('published');
+      expect(await listed(name)).toEqual([asked.id]);
+      expect((await posts.getPost(asked.id))?.channels).toEqual([name]);
+    });
+
+    it('never makes a channel from a visitor\'s tag', async () => {
+      const ree = await shared(500, { perVisitor: 5 });
+      const name = tag('newtopic');
+      const asked = await ask(ree.slug, browser(), `Anyone? #${name}`);
+      if (!asked.ok) throw new Error(asked.error);
+      expect(await channelNamed(name)).toEqual([]);
+      expect(await db().select().from(schema.postChannel).where(eq(schema.postChannel.postId, asked.id))).toEqual([]);
+      await posts.moderatePost(asked.id, approve);
+      expect((await posts.getPost(asked.id))?.channels).toEqual([]);
+    });
+
+    it('reads the tags after redaction: a phone number in a tag is cut out before the channel is looked up', async () => {
+      const ree = await shared(500, { perVisitor: 5 });
+      const name = tag('call');
+      await db().insert(schema.channel).values({ name, createdBy: null });
+      const asked = await ask(ree.slug, browser(), `Who can help? #${name}13812345678`);
+      if (!asked.ok) throw new Error(asked.error);
+      expect((await postRow(asked.id)).question).not.toContain('13812345678');
+      expect(await channelNamed(`${name}13812345678`)).toEqual([]);
+      await posts.moderatePost(asked.id, approve);
+      expect((await posts.getPost(asked.id))?.channels).toEqual([name]);
+    });
+  });
+
   describe("telling the owner when their balance turns visitors away", () => {
     const noticesOf = (ownerId: string) => db().select({ kind: schema.notice.kind, params: schema.notice.params, refId: schema.notice.refId }).from(schema.notice).where(and(eq(schema.notice.userId, ownerId), eq(schema.notice.kind, 'visitor_ask_paused')));
     const request = (slug: string, method: 'GET' | 'POST', ip: string, body?: unknown) =>
