@@ -8,6 +8,7 @@ export const zh = {
   button: '分享',
   dialog: {
     title: '分享这个 Ree',
+    titleNamed: '分享「{name}」',
     subtitle: '任何人打开链接都能看到它，登录后即可向它提问。',
     link: '分享链接',
     copy: '复制链接',
@@ -94,6 +95,7 @@ export const en: Shape<typeof zh> = {
   button: 'Share',
   dialog: {
     title: 'Share this Ree',
+    titleNamed: 'Share “{name}”',
     subtitle: 'Anyone with the link can see it, and ask it once signed in.',
     link: 'Share link',
     copy: 'Copy link',

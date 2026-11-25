@@ -6,12 +6,15 @@ import { parseExploreQuery } from '@/lib/domain/explore';
 import { currentUser } from '@/lib/http/session';
 import { explore } from '@/lib/services/explore';
 import { favoriteReeIds } from '@/lib/services/ree-favorites';
+import { rewardSettings } from '@/lib/services/invites';
+import { ownShareableRee } from '@/lib/services/public-rees';
+import { appBaseUrl } from '@/lib/http/cookies';
 import { introsFor } from '@/lib/services/video';
 import { publicPage, siteJsonLd, SITE_NAME, UNLISTED_ROBOTS } from '@/lib/seo';
 import { serverMessages } from '@/i18n/server';
 import { fill, formatNumber } from '@/i18n/format';
 import { FeedColumns } from '@/components/shell/feed-columns';
-import { ExploreView, RailSearch, SiteRail } from '@/components/discover/explore-view';
+import { ExploreView, RailSearch, SiteRail, type RailShare } from '@/components/discover/explore-view';
 import { Icon } from '@/components/ui/icons';
 import { JsonLd } from '@/components/site/json-ld';
 import { feedTabOf, FEED_TABS, type FeedTab } from '@/lib/domain/post';
@@ -26,7 +29,7 @@ import '@/components/ui/tabs.css';
 /** 首页 shows this many Rees until there are posts; 发现 has them all. */
 const HOME_REES = 6;
 /** Once there are posts, the right column links this many of the most active Rees (GSC review 2026-11, A9: the page's HTML had no Ree links at all). */
-const RAIL_REES = 8;
+const RAIL_REES = 5;
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
@@ -79,11 +82,13 @@ async function Home({ searchParams }: Props) {
   const channelsTab = params.tab === 'channels';
   const tab: FeedTab = q ? 'latest' : feedTabOf(params.tab);
   const query = parseExploreQuery({});
-  const [feed, waiting, active, channels] = await Promise.all([
+  const [feed, waiting, active, channels, own, rewards] = await Promise.all([
     channelsTab ? { items: [], next: null } : listFeed(tab, { viewerId: user?.id, q }),
     unansweredCount(),
     explore(query, { cursor: null, size: EXPLORE_BATCH_SIZES[0] }, { includeIntros: false }),
     channelsTab ? listChannels({ q }) : null,
+    user ? ownShareableRee(user.id) : null,
+    user ? rewardSettings() : null,
   ]);
   /* 为你推荐 with nothing answered yet reads as 最新; no posts at all, a few Rees. */
   const shown = !channelsTab && !q && tab === 'for_you' && feed.items.length === 0 ? await listFeed('latest', { viewerId: user?.id }) : feed;
@@ -98,6 +103,13 @@ async function Home({ searchParams }: Props) {
         introsFor(rees.filter((ree) => !ree.coverBlob).map((ree) => ree.id)),
       ])
     : [undefined, new Map()];
+  /* The 分享 card: the most active public Ree's share page as the example (a live link), the user's own Ree to share, and what an invitation pays while it pays anything. */
+  const exampleSlug = active.items[0]?.slug;
+  const share: RailShare = {
+    example: exampleSlug ? { slug: exampleSlug, url: `${appBaseUrl()}/s/${exampleSlug}` } : null,
+    own,
+    inviteCredits: rewards?.invitesEnabled && rewards.inviteCredits > 0 ? rewards.inviteCredits : null,
+  };
   const v = t.site.visitor;
   const ph = t.posts.home;
   const searchLabel = t.posts.explore.searchPosts;
@@ -117,7 +129,7 @@ async function Home({ searchParams }: Props) {
   return (
     <>
       <JsonLd data={siteJsonLd(t.site.seo.description)} />
-      <FeedColumns title={t.common.nav.homeFeed} heading={Boolean(user)} tabs={tabs} rail={<SiteRail search={{ action: '/', label: searchLabel, defaultValue: q ?? '' }} popular={popular} signedIn={Boolean(user)} />}>
+      <FeedColumns title={t.common.nav.homeFeed} heading={Boolean(user)} tabs={tabs} rail={<SiteRail search={{ action: '/', label: searchLabel, defaultValue: q ?? '' }} popular={popular} share={share} signedIn={Boolean(user)} />}>
         {/* Where the right column has folded away (under 1200px), its search sits here. */}
         {!channelsTab && (
           <div className="xcol-search">

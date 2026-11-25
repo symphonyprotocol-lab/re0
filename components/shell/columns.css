@@ -61,10 +61,10 @@
 .xshell .app-main {
   --color-bg: #ffffff;
 }
-/* Inside the box (shell.css): the centre column and the right one, 640 + 28 + 340. No lines down the sides of the centre column (v6): the sidebar's is the only vertical line. */
+/* Inside the box (shell.css): the centre column and the right one, 680 + 28 + 300 (was 640 + 28 + 340 until the rail's 分享 card, 2026-11). No lines down the sides of the centre column (v6): the sidebar's is the only vertical line. */
 .xmain-grid {
   display: grid;
-  grid-template-columns: minmax(0, 640px) 340px;
+  grid-template-columns: minmax(0, 680px) 300px;
   gap: 28px;
 }
 .xcol {
@@ -146,14 +146,14 @@
   align-self: start;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   /* The first block (a 38px search box, or a card's top) sits centred on the head's title row: (56 - 38) / 2. */
   padding: 9px 0 40px;
 }
 .xrail .discovery-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   /*
    * explore.css gives .discovery-page `margin: auto`: in this flex column
    * that shrinks the card to its content and centres it (a post page's rail
@@ -170,11 +170,22 @@
 .xrail .discovery-page .knowledge-banner {
   flex-direction: column;
   align-items: flex-start;
+  gap: 10px;
   margin-top: 0;
-  padding: 18px;
+  padding: 14px;
+}
+/* In the narrow column the create-a-Ree card is one line of title, not explore.css's large type. */
+.xrail .discovery-page .knowledge-banner h3 {
+  margin-bottom: 4px;
+  font-size: 13px;
+  line-height: 1.35;
+  text-wrap: wrap;
+}
+.xrail .discovery-page .knowledge-banner p {
+  font-size: 11px;
 }
 .xrail .rail-card {
-  padding: 16px;
+  padding: 14px;
   border: 1px solid var(--color-line);
   border-radius: 14px;
   background: #ffffff;
@@ -193,7 +204,24 @@
 .xrail .rail-card ol {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+}
+/* A card's title with its "查看全部 →" on the right. */
+.xrail .rail-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.xrail .rail-card-head h3 {
+  margin-bottom: 0;
+}
+/* A Ree's avatar in a rail list (热门 Ree, a post's answering Rees): 28px (ReeAvatar sm is 32). */
+.xrail .rail-card ol > li > span:first-child {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
 }
 .xrail .rail-card strong {
   display: block;
@@ -206,6 +234,100 @@
 .xrail .rail-card small {
   color: #606670;
   font-size: 10px;
+}
+
+/* 首页's 分享 card (explore-view.tsx ShareCard), in the visitor welcome's tint. */
+.xrail .rail-share {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+  border: 1px solid #d6e6fb;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f5f9ff 0%, #faf8ff 100%);
+}
+.xrail .rail-share-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.xrail .rail-share h3 {
+  font-size: 14px;
+  font-weight: 750;
+}
+.xrail .rail-share p {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #4a5270;
+}
+.xrail .rail-share-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #e0eafa;
+  border-radius: 8px;
+  background: var(--color-soft);
+  color: var(--color-brand-blue);
+}
+.xrail .rail-share-icon.is-gift {
+  border-color: #f2e4cc;
+  background: #fff6ea;
+  color: var(--color-orange);
+}
+/* The example share link, shown (not a control: the link under it opens the page). */
+.xrail .rail-share-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #4a5270;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.xrail .rail-share-link > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xrail .rail-share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.xrail .rail-share-invite {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 2px;
+  padding-top: 11px;
+  border-top: 1px solid #dfe7f5;
+}
+.xrail .rail-share-invite strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 650;
+}
+.xrail .rail-share-invite small {
+  display: block;
+  color: #606670;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.xrail .rail-share-invite:hover strong,
+.xrail .rail-share-arrow {
+  color: var(--color-blue);
+}
+.xrail .rail-share-arrow {
+  margin-left: auto;
 }
 
 /* A visitor's welcome on 首页 (v6): one card in the feed's own gutter, one primary action. */
@@ -326,10 +448,10 @@
 .xfab {
   display: none;
 }
-/* Under 1280 the box loses its spare room: the right column narrows to 300, then from 1199px it folds away and the centre column stays on the left, by the sidebar. */
+/* Under 1280 the box loses its spare room: the right column narrows to 272, then from 1199px it folds away and the centre column stays on the left, by the sidebar. */
 @media (max-width: 1279px) {
   .xmain-grid {
-    grid-template-columns: minmax(0, 640px) 300px;
+    grid-template-columns: minmax(0, 680px) 272px;
   }
 }
 @media (max-width: 1199px) {

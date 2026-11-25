@@ -12,6 +12,7 @@ import { Icon } from '@/components/ui/icons';
 import { FeedRee } from '@/components/discover/feed-ree';
 import { ReeAvatar } from '@/components/ui/ree-avatar';
 import { RoundtableEntry } from '@/components/discover/roundtable-entry';
+import { ShareButton } from '@/components/share/share-button';
 import { rememberExploreReturn, takePublicReturn } from '@/components/discover/public-visit';
 import { explorePageCount, explorePagePath } from '@/components/discover/explore-pages';
 import { useLoadOnScroll } from '@/components/ui/use-load-on-scroll';
@@ -45,6 +46,18 @@ export interface RailRee {
   avatarBlob: string | null;
   color: string;
   ownerName: string;
+}
+
+/**
+ * 首页's 分享 card (right column): a public Ree whose share page stands as
+ * the example (the most active one, so the link is live), the signed-in
+ * user's own public Ree to share (null: none yet), and what one invitation
+ * pays (null: invitations are off or pay nothing, or signed out).
+ */
+export interface RailShare {
+  example: { slug: string; url: string } | null;
+  own: { name: string; slug: string } | null;
+  inviteCredits: number | null;
 }
 
 export function ExploreView({ query, result, limited, signedIn, favoriteIds, viewerId, renderedAt, page = 1, intro, variant = 'explore' }: {
@@ -396,7 +409,7 @@ export function ExploreView({ query, result, limited, signedIn, favoriteIds, vie
  * and the small links. Below 1200px the column folds away; 首页 then shows
  * its search at the top of the centre column (RailSearch `inline`).
  */
-export function SiteRail({ search, popular, saved, signedIn }: { search?: { action: string; label: string; defaultValue?: string }; popular?: RailRee[]; saved?: RailRee[]; signedIn: boolean }) {
+export function SiteRail({ search, popular, saved, share, signedIn }: { search?: { action: string; label: string; defaultValue?: string }; popular?: RailRee[]; saved?: RailRee[]; share?: RailShare; signedIn: boolean }) {
   const { t } = useI18n();
   const e = t.discover.explore;
   return (
@@ -404,7 +417,12 @@ export function SiteRail({ search, popular, saved, signedIn }: { search?: { acti
       {search && <RailSearch action={search.action} label={search.label} defaultValue={search.defaultValue} />}
       {popular && popular.length > 0 && (
         <section className="rail-card" aria-labelledby="rail-popular-heading">
-          <h3 id="rail-popular-heading">{e.railPopular}</h3>
+          <div className="rail-card-head">
+            <h3 id="rail-popular-heading">{e.railPopular}</h3>
+            <Link href="/explore" className="text-link" aria-label={t.site.visitor.allRees}>
+              {e.railAll} →
+            </Link>
+          </div>
           <ol>
             {popular.map((ree) => (
               <li key={ree.id}>
@@ -416,11 +434,9 @@ export function SiteRail({ search, popular, saved, signedIn }: { search?: { acti
               </li>
             ))}
           </ol>
-          <Link href="/explore" className="text-link mt-3 inline-flex text-[12px]">
-            {t.site.visitor.allRees} →
-          </Link>
         </section>
       )}
+      {share && <ShareCard share={share} signedIn={signedIn} />}
       {saved && saved.length > 0 && (
         <div className="rail-card">
           <h3>{e.railSaved}</h3>
@@ -445,6 +461,79 @@ export function SiteRail({ search, popular, saved, signedIn }: { search?: { acti
         <Link href="/pricing" className="hover:text-blue">{t.common.nav.pricing}</Link> · <Link href="/about" className="hover:text-blue">{t.common.nav.about}</Link> · <Link href="/legal/privacy" className="hover:text-blue">{t.site.visitor.privacy}</Link> · <Link href="/legal/terms" className="hover:text-blue">{t.site.visitor.terms}</Link>
       </p>
     </div>
+  );
+}
+
+/**
+ * 首页's 分享 card (right column, under 热门 Ree). Signed out: every public
+ * Ree has a share page, with a live one as the example. Signed in: share
+ * your own public Ree through the share dialog (link, QR code), or create
+ * one first; and, while invitations pay, the way to invite friends. Sharing
+ * itself pays nothing (lib/services/share.ts counts visits and questions);
+ * only an invitation does (lib/services/invites.ts).
+ */
+function ShareCard({ share, signedIn }: { share: RailShare; signedIn: boolean }) {
+  const { t, locale } = useI18n();
+  const s = t.discover.explore.railShare;
+  const { example, own, inviteCredits } = share;
+  return (
+    <section className="rail-share" aria-labelledby="rail-share-heading">
+      <div className="rail-share-head">
+        <span className="rail-share-icon" aria-hidden="true">
+          <Icon name="share" className="size-4" />
+        </span>
+        <h3 id="rail-share-heading">{signedIn ? s.ownTitle : s.title}</h3>
+      </div>
+      {signedIn ? (
+        <>
+          <p>{own ? s.ownBody : s.noneBody}</p>
+          <div className="rail-share-actions">
+            {own ? (
+              <ShareButton ree={own} state="public" named className="btn-secondary btn-sm" labelClassName="" label={s.shareButton} />
+            ) : (
+              <Link href="/rees/new" className="btn-secondary btn-sm">
+                <Icon name="plus" className="size-4" />
+                {t.discover.explore.create}
+              </Link>
+            )}
+            {example && (
+              <Link href={`/s/${example.slug}`} className="text-link">
+                {s.exampleShort} →
+              </Link>
+            )}
+          </div>
+          {inviteCredits !== null && (
+            <Link href="/settings?tab=invite" className="rail-share-invite">
+              <span className="rail-share-icon is-gift" aria-hidden="true">
+                <Icon name="gift" className="size-4" />
+              </span>
+              <span className="min-w-0">
+                <strong>{t.invites.activities.invite.title}</strong>
+                <small>{fill(s.inviteBody, { n: formatNumber(inviteCredits, locale) })}</small>
+              </span>
+              <span className="rail-share-arrow" aria-hidden="true">
+                →
+              </span>
+            </Link>
+          )}
+        </>
+      ) : (
+        <>
+          <p>{s.body}</p>
+          {example && (
+            <>
+              <span className="rail-share-link" aria-hidden="true">
+                <Icon name="link" className="size-[14px]" />
+                <span>{example.url.replace(/^https?:\/\//, '')}</span>
+              </span>
+              <Link href={`/s/${example.slug}`} className="text-link">
+                {s.example} →
+              </Link>
+            </>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 
