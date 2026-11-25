@@ -8,6 +8,8 @@ import { fail } from '@/lib/http/respond';
 import { rateLimited } from '@/lib/http/rate-limit';
 import { apiUser } from '@/lib/http/session';
 import { webScope, WorkspaceError, type WorkspaceScope } from '@/lib/services/workspace';
+import { WorkspaceReeError } from '@/lib/services/workspace-rees';
+import { ReeInputError } from '@/lib/services/rees';
 
 export async function filesScope(request: Request, kind: 'read' | 'write'): Promise<WorkspaceScope | Response> {
   const user = await apiUser(request);
@@ -25,10 +27,13 @@ const STATUS: Partial<Record<WorkspaceError['code'], number>> = {
   limit_reached: 429,
   too_large: 413,
   quota_exceeded: 413,
+  max_cost_exceeded: 402,
 };
 
 /** A workspace refusal as the web's `{error}` body; anything else is rethrown. */
 export function filesFailure(error: unknown): Response {
   if (error instanceof WorkspaceError) return fail(error.code, STATUS[error.code] ?? 422, error.details);
+  if (error instanceof WorkspaceReeError) return fail(error.code, error.code === 'not_found' ? 404 : error.code === 'max_cost_exceeded' ? 402 : error.code === 'limit_reached' ? 429 : 422, error.details);
+  if (error instanceof ReeInputError) return fail(error.field, 422, { step: error.step });
   throw error;
 }

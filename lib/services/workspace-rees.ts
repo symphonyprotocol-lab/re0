@@ -23,7 +23,6 @@ import { db, schema, type Tx } from '@/lib/infra/db';
 import { BASE_SPACE } from '@/lib/services/embedding-space';
 import { appendActivity } from '@/lib/services/knowledge';
 import { afterKnowledgeReady } from '@/lib/services/profile';
-import { hitRateBucket } from '@/lib/services/rate-limit';
 import { createRee, ownedRee, ReeInputError, type Ree } from '@/lib/services/rees';
 import { bindingsOf, digestOf, estimateIndex, queueBelow, type IndexEstimate } from '@/lib/services/workspace-index';
 import { existing, liveEntry, requireWriteAccess, resolvePath, shown, webScope, within, WorkspaceError, writeFile, type WorkspaceScope } from '@/lib/services/workspace';
@@ -332,7 +331,12 @@ export async function createReeFromFolder(scope: WorkspaceScope, input: FolderRe
   if (input.maxCost !== undefined && (estimate.credits === null || estimate.credits > input.maxCost)) {
     throw new WorkspaceReeError('max_cost_exceeded', `Indexing this folder could cost up to ${estimate.credits ?? 'an unknown number of'} credits, above your max_cost of ${input.maxCost}. Nothing was created.`, { estimate });
   }
-  if (!(await hitRateBucket(`workspace:ree-create:${scope.userId}`, MCP_REE_CREATE_PER_DAY, 86_400))) {
+  /* Counted from the Rees themselves (rate buckets live an hour): at most this many new Rees a day, however they were made. */
+  const [{ today } = { today: 0 }] = await db()
+    .select({ today: sql<number>`count(*)::int` })
+    .from(schema.ree)
+    .where(and(eq(schema.ree.ownerId, scope.userId), sql`${schema.ree.createdAt} >= date_trunc('day', now() at time zone 'utc') at time zone 'utc'`));
+  if (today >= MCP_REE_CREATE_PER_DAY) {
     throw new WorkspaceReeError('limit_reached', `At most ${MCP_REE_CREATE_PER_DAY} Rees a day can be created from folders.`, { reason: 'ree_daily_limit' });
   }
   /* Always private first: publishing is the owner's separate step, after which new files wait for confirmation. */
@@ -451,3 +455,22 @@ export async function moveReeToWorkspace(ownerId: string, reeId: string, now = n
   return { moved, folder: base, left };
 }
 
+/** The owner's Rees a workspace file answers in (its live `file` sources), for the file page. */
+export async function reesUsingEntry(ownerId: string, entryId: string) {
+  return db()
+    .select({ id: schema.ree.id, name: schema.ree.name, awaiting: schema.knowledge.awaitingConfirmation, enabled: schema.knowledge.enabled })
+    .from(schema.knowledge)
+    .innerJoin(schema.ree, and(eq(schema.ree.id, schema.knowledge.reeId), eq(schema.ree.ownerId, ownerId), isNull(schema.ree.deletedAt)))
+    .where(and(eq(schema.knowledge.workspaceEntryId, entryId), isNull(schema.knowledge.deletedAt)));
+}
+
+/** What the knowledge page's workspace card shows: the bindings, the files waiting, and whether there is pasted text to move. */
+export async function reeWorkspaceCard(ownerId: string, reeId: string) {
+  const ree = await ownReeOrNotFound(ownerId, reeId);
+  const [bindings, waiting, [{ texts } = { texts: 0 }]] = await Promise.all([
+    bindingsOfRee(ownerId, reeId),
+    awaitingFiles(ownerId, reeId),
+    db().select({ texts: sql<number>`count(*)::int` }).from(schema.knowledge).where(and(eq(schema.knowledge.reeId, reeId), eq(schema.knowledge.kind, 'text'), isNull(schema.knowledge.deletedAt))),
+  ]);
+  return { published: reachable(ree), bindings, waiting, texts };
+}

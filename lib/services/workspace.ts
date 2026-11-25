@@ -473,6 +473,8 @@ export interface EntryView {
   lines: number | null;
   updated_at: Date;
   updated_by: string | null;
+  /** A file's index: `indexed` (current version), `queued` (waiting for its quiet minutes or a run), `stale`, `budget` / `insufficient_credits` / `failed` (stopped), or null (not indexed). */
+  index: string | null;
 }
 
 function view(scope: WorkspaceScope, entry: Entry): EntryView {
@@ -487,6 +489,7 @@ function view(scope: WorkspaceScope, entry: Entry): EntryView {
     lines: entry.kind === 'file' ? entry.lineCount : null,
     updated_at: entry.updatedAt,
     updated_by: clientLabel(entry.updatedClient),
+    index: entry.kind !== 'file' ? null : entry.indexError ?? (entry.indexedRevisionId && entry.indexedRevisionId === entry.currentRevisionId ? 'indexed' : entry.indexDueAt && entry.indexedRevisionId ? 'queued' : entry.indexedRevisionId ? 'stale' : null),
   };
 }
 

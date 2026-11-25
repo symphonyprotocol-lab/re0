@@ -142,6 +142,15 @@ above.
 | `ws_copy {from, to}` | Copies one file | write |
 | `ws_delete {path, if_match?}` | **Destructive**: to the trash for 30 days (only the web deletes for good) | write |
 | `ws_restore {trash_id? \| path?, revision?}` | Back from the trash (a taken path gets " (restored)"), or with `path` and `revision` an older version back as the newest | write |
+| `ws_search {query, path?, limit?}` | Passages of **indexed** files that answer a question, by meaning and keyword (path, line range, excerpt); counts against `workspaceGrep` | read |
+| `ws_index {path, mode, max_cost?}` | **Spends credits**: a file's or folder's index mode (`on`, `off`, `inherit`). Turning it on returns the estimate, and `max_cost` refuses above it. Files are indexed two minutes after their last change, only changed passages embedded, within the account's daily index budget (50 credits by default) | write |
+
+An account key with workspace access and "Allow changes" also has:
+
+| Tool | What it does |
+| --- | --- |
+| `create_ree_from_folder {path, name, category, intro?, tags?, system_prompt?, sample_questions?, query_fee?, exclude?, max_cost?}` | **Spends credits** (indexing): a new private Ree whose knowledge is the folder; files added or changed later follow. Returns the estimate; `max_cost` refuses above it before anything is made |
+| `bind_ree_paths {ree, add?, remove?, exclude?, auto_enable?}` | Binds folders or files to one of your Rees, or unbinds them (their sources go to the Ree's trash). In a published Ree new files wait for your confirmation on its knowledge page unless `auto_enable`; a file that looks like it holds a secret never answers there |
 
 Every save is a version with an id of its own. Saves by the same key within 60
 seconds of the first save of a run show as one version in the history (the
