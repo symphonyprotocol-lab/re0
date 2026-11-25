@@ -341,6 +341,7 @@ suite('console rate limits and exemptions', () => {
     expect(await ceilingFor('exploreQuestions', id)).toBe(EXPLORE_RATE_LIMIT.perUser);
     expect((await listCeilings()).map((row) => [row.key, row.exemptedBy])).toEqual([
       ['postsPerDay', 'post'], ['followupsPerDay', 'post'], ['followupsPerPostPerDay', 'post'], ['exploreQuestions', null], ['visitorAsksPerDay', null],
+      ['workspaceWritesPerDay', null], ['workspaceDebtLimit', null], ['workspaceFreeMb', null],
     ]);
   });
 

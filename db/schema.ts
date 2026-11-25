@@ -38,6 +38,7 @@ import type { ProviderCharge, ProviderRate } from '@/lib/domain/provider-cost';
 import type { CallPurpose, CallStatus, CostBasis } from '@/lib/domain/model-calls';
 import type { KnowledgeActivity, KnowledgeChild } from '@/lib/domain/knowledge';
 import type { RoleMetrics } from '@/lib/domain/roles';
+import type { WorkspaceAccess } from '@/lib/domain/workspace';
 import type { ReeRank } from '@/lib/domain/explore';
 import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
 import { VISITOR_ASK_PER_DAY, VISITOR_ASK_PER_VISITOR } from '@/lib/domain/visitor-ask';
@@ -2727,11 +2728,170 @@ export const apiKey = pgTable(
      * key reads and asks only -- what every key did before migration 0094.
      */
     canWrite: boolean('can_write').notNull().default(false),
+    /**
+     * The agent workspace (docs/design/agent-workspace.md §7.1): what the key
+     * may do with files -- nothing (every key made before 0096), read, or
+     * read and write. A key with `workspace_id` is a workspace key: it sees
+     * only that workspace's `ws_*` tools, with `workspace_root` as its `/`,
+     * and never the Ree or post tools (so `can_write` is false). A key
+     * without one reaches the account's default workspace at its root.
+     */
+    workspaceAccess: text('workspace_access').$type<WorkspaceAccess>().notNull().default('none'),
+    workspaceId: uuid('workspace_id').references(() => workspace.id),
+    workspaceRoot: text('workspace_root').notNull().default('/'),
+    /** What the client called itself (MCP `initialize` `clientInfo.name`) when it last connected with this key; file versions show it as their writer. */
+    clientName: text('client_name'),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('api_key_digest_key').on(t.keyDigest),
     index('api_key_user_idx').on(t.userId, t.createdAt),
     check('api_key_name_check', sql`char_length(name) between 1 and 60`),
+    check('api_key_workspace_access_check', oneOf('workspace_access', ['none', 'read', 'write'])),
+    check('api_key_workspace_key_check', sql`workspace_id is null or (not can_write and workspace_access <> 'none')`),
   ],
 );
+
+/* ------------------------------------------------- the agent workspace (docs/design/agent-workspace.md) */
+
+/**
+ * A place files live that every MCP client of the account can reach. The
+ * schema allows several per account; the first phase opens one, `default`,
+ * made on first use (lib/services/workspace.ts `defaultWorkspace`).
+ */
+export const workspace = pgTable(
+  'agent_workspace',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    name: text('name').notNull().default('default'),
+    createdAt: createdAt(),
+    deletedAt: timestampTz('deleted_at'),
+  },
+  (t) => [
+    uniqueIndex('agent_workspace_owner_name_key').on(t.ownerId, sql`lower(${t.name})`).where(sql`deleted_at is null`),
+    check('agent_workspace_name_check', sql`char_length(name) between 1 and 60`),
+  ],
+);
+
+/**
+ * A file or folder, addressed by path (lib/domain/workspace.ts). Folders
+ * have rows so an empty one exists. A file's current text is here when it is
+ * text of at most WORKSPACE_TEXT_MAX bytes (all of phase 1's), for line reads
+ * and grep; every version's bytes are in Blob (`agent_workspace_revision`). `etag`
+ * is new on every change of content, so `if_match` notices A→B→A. Deleting
+ * sets `deleted_at` on the entry and everything under it, keeping their
+ * paths; two live entries may not share a path, ignoring case.
+ */
+export const workspaceEntry = pgTable(
+  'agent_workspace_entry',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    kind: text('kind').$type<'file' | 'folder'>().notNull(),
+    mediaType: text('media_type'),
+    size: bigint('size', { mode: 'number' }).notNull().default(0),
+    sha256: text('sha256'),
+    etag: text('etag'),
+    currentRevisionId: uuid('current_revision_id'),
+    text: text('text'),
+    lineCount: integer('line_count'),
+    updatedByKeyId: uuid('updated_by_key_id'),
+    updatedClient: text('updated_client'),
+    /** The last `ws_append`'s `client_token`: the same token again is that append's retry, answered without appending twice. */
+    appendToken: uuid('append_token'),
+    deletedAt: timestampTz('deleted_at'),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('agent_workspace_entry_path_key').on(t.workspaceId, sql`lower(${t.path})`).where(sql`deleted_at is null`),
+    index('agent_workspace_entry_prefix_idx').on(t.workspaceId, sql`lower(${t.path}) text_pattern_ops`),
+    index('agent_workspace_entry_trash_idx').on(t.workspaceId, t.deletedAt).where(sql`deleted_at is not null`),
+    check('agent_workspace_entry_kind_check', oneOf('kind', ['file', 'folder'])),
+    check('agent_workspace_entry_path_check', sql`left(path, 1) = '/' and octet_length(path) <= 1024`),
+  ],
+);
+
+/**
+ * One version of a file: its bytes in Blob at `workspace/<workspace>/<sha256>`
+ * (one object per distinct content, counted in `agent_workspace_blob`), who wrote it
+ * and through which key and client. Writes by the same key within
+ * WORKSPACE_COALESCE_MS of the last one update that version in place
+ * (`saves` counts them) instead of adding one.
+ */
+export const workspaceRevision = pgTable(
+  'agent_workspace_revision',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    entryId: uuid('entry_id')
+      .notNull()
+      .references(() => workspaceEntry.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id').notNull(),
+    sha256: text('sha256').notNull(),
+    size: bigint('size', { mode: 'number' }).notNull(),
+    op: text('op').$type<'write' | 'append' | 'edit' | 'restore' | 'copy'>().notNull(),
+    userId: uuid('user_id').notNull(),
+    apiKeyId: uuid('api_key_id'),
+    clientName: text('client_name'),
+    saves: integer('saves').notNull().default(1),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('agent_workspace_revision_entry_idx').on(t.entryId, t.updatedAt),
+    index('agent_workspace_revision_age_idx').on(t.updatedAt),
+    check('agent_workspace_revision_op_check', oneOf('op', ['write', 'append', 'edit', 'restore', 'copy'])),
+  ],
+);
+
+/**
+ * One stored content of a workspace: how many versions name it. At zero it
+ * waits for the purge (`purgeWorkspaces`), which deletes the Blob object and
+ * the row under the owner's usage lock, the same lock every write takes
+ * before it puts an object, so a write never loses the object it just named.
+ */
+export const workspaceBlob = pgTable(
+  'agent_workspace_blob',
+  {
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    sha256: text('sha256').notNull(),
+    size: bigint('size', { mode: 'number' }).notNull(),
+    refs: integer('refs').notNull().default(0),
+    releasedAt: timestampTz('released_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.sha256] }),
+    index('agent_workspace_blob_released_idx').on(t.releasedAt).where(sql`refs = 0`),
+    check('agent_workspace_blob_refs_check', sql`refs >= 0`),
+  ],
+);
+
+/**
+ * Per account, what its workspaces store, kept current by every write in the
+ * same transaction (whose row lock serialises one account's writes): Blob
+ * bytes (distinct contents), database bytes (current texts) and entries, and
+ * the byte-milliseconds of each above the free allowance since the last
+ * charge. The daily storage charge prices those and starts them again from 0.
+ */
+export const workspaceUsage = pgTable('agent_workspace_usage', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  blobBytes: bigint('blob_bytes', { mode: 'number' }).notNull().default(0),
+  databaseBytes: bigint('database_bytes', { mode: 'number' }).notNull().default(0),
+  entries: integer('entries').notNull().default(0),
+  /** Writes today (UTC `writes_day`), against the console's `workspaceWritesPerDay`; counted here, under the same lock, since rate buckets live an hour. */
+  writesDay: date('writes_day', { mode: 'string' }),
+  writes: integer('writes').notNull().default(0),
+  blobByteMs: numeric('blob_byte_ms', { precision: 40, scale: 0 }).notNull().default('0'),
+  databaseByteMs: numeric('database_byte_ms', { precision: 40, scale: 0 }).notNull().default('0'),
+  measuredAt: timestampTz('measured_at').notNull().defaultNow(),
+});

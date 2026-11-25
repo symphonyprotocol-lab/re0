@@ -101,17 +101,28 @@ export async function accrueStorage(tx: Tx, where: SQL, now = new Date()): Promi
   const charges: StorageCharge[] = [];
   for (const [userId, sums] of perUser) {
     const costPico = sums.reduce((sum, part, at) => sum + storageCostPico(part.blob, part.database, segments[at]!.rates), 0n);
-    await tx.insert(schema.storageAccrual).values({ userId, updatedAt: now }).onConflictDoNothing();
-    const [accrual] = await tx.select().from(schema.storageAccrual).where(eq(schema.storageAccrual.userId, userId)).for('update');
-    const total = BigInt(accrual!.costPico) + costPico;
-    const due = picoCredits(total) - accrual!.chargedCredits;
-    if (due > 0) await takeOrOwe(tx, { userId, amount: due, reason: 'storage_charge', refId: null, note: 'Knowledge storage' }, now);
-    await tx.update(schema.storageAccrual)
-      .set({ costPico: total.toString(), chargedCredits: accrual!.chargedCredits + Math.max(0, due), updatedAt: now })
-      .where(eq(schema.storageAccrual.userId, userId));
-    charges.push({ userId, costPico, credits: Math.max(0, due) });
+    charges.push({ userId, costPico, credits: await chargeStorageCost(tx, userId, costPico, now, 'Knowledge storage') });
   }
   return charges;
+}
+
+/**
+ * Adds `costPico` of storage to the owner's `storage_accrual` and charges the
+ * credits that brings due (`ceil(total cost) - charged so far`), in the
+ * caller's transaction; what a balance cannot cover is owed. Knowledge and
+ * the agent workspace (workspace.ts `chargeWorkspaceStorage`) share it, so
+ * their fractions of a credit add up before either is rounded.
+ */
+export async function chargeStorageCost(tx: Tx, userId: string, costPico: bigint, now: Date, note: string): Promise<number> {
+  await tx.insert(schema.storageAccrual).values({ userId, updatedAt: now }).onConflictDoNothing();
+  const [accrual] = await tx.select().from(schema.storageAccrual).where(eq(schema.storageAccrual.userId, userId)).for('update');
+  const total = BigInt(accrual!.costPico) + costPico;
+  const due = picoCredits(total) - accrual!.chargedCredits;
+  if (due > 0) await takeOrOwe(tx, { userId, amount: due, reason: 'storage_charge', refId: null, note }, now);
+  await tx.update(schema.storageAccrual)
+    .set({ costPico: total.toString(), chargedCredits: accrual!.chargedCredits + Math.max(0, due), updatedAt: now })
+    .where(eq(schema.storageAccrual.userId, userId));
+  return Math.max(0, due);
 }
 
 /** Storage of one owner's knowledge, every row of every Ree of theirs. */

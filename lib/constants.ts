@@ -562,6 +562,9 @@ export const USER_RATE_LIMITS = {
   domainVerify: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
   /* `/api/explore` without a question; a question has its own EXPLORE_RATE_LIMIT. */
   browse: [{ windowSeconds: 60, limit: 120 }, { windowSeconds: 3_600, limit: 2_000 }],
+  /* The agent workspace's MCP tools (`ws_*`) and its web pages: reading (list, read, grep, history) and changing files. */
+  workspaceRead: [{ windowSeconds: 60, limit: 300 }, { windowSeconds: 3_600, limit: 10_000 }],
+  workspaceWrite: [{ windowSeconds: 60, limit: 60 }, { windowSeconds: 3_600, limit: 1_000 }],
 } as const satisfies Record<string, readonly { windowSeconds: number; limit: number }[]>;
 /** What a console exemption from `USER_RATE_LIMITS` covers unless the administrator picks otherwise: no model-cost routes. */
 export const RATE_LIMIT_EXEMPT_DEFAULT = ['uploadToken', 'browse'] as const satisfies readonly (keyof typeof USER_RATE_LIMITS)[];
@@ -800,3 +803,34 @@ export const MCP_REE_CREATE_PER_DAY = 20;
 export const MCP_SEARCH_MAX = 10;
 /** Ready sources listed by title in `get_ree` for the caller's own Ree. */
 export const MCP_SOURCE_TITLES = 30;
+
+/* ------------------------------------------------ agent workspace (docs/design/agent-workspace.md) */
+
+/** A text file up to this size keeps its current version in Postgres too, for line reads and grep; phase 1 stores nothing larger. */
+export const WORKSPACE_TEXT_MAX = 1024 * 1024;
+/** One `ws_read` returns at most this much text; the rest is `truncated` with a `next_offset`. */
+export const WORKSPACE_READ_MAX = 256 * 1024;
+/** A workspace path: at most this many bytes in all, and per segment. */
+export const WORKSPACE_PATH_MAX = 1024;
+export const WORKSPACE_SEGMENT_MAX = 255;
+/** Per account: entries (files and folders, the trash included) and stored bytes (every kept version, deduplicated). */
+export const WORKSPACE_ENTRIES_MAX = 100_000;
+export const WORKSPACE_BYTES_MAX = 10 * 1024 * 1024 * 1024;
+/** One `ws_list` page. */
+export const WORKSPACE_LIST_MAX = 500;
+/** One `ws_grep`: text scanned, and matching lines returned. */
+export const WORKSPACE_GREP_SCAN_MAX = 50 * 1024 * 1024;
+export const WORKSPACE_GREP_HITS_MAX = 200;
+/** One `ws_move` of a folder moves at most this many entries. */
+export const WORKSPACE_MOVE_MAX = 10_000;
+/** Writes to one file through the same key (or the same web user) within this long of the last one are one version. */
+export const WORKSPACE_COALESCE_MS = 60_000;
+/** Older versions are kept this many days, and the latest this many always. */
+export const WORKSPACE_REVISION_DAYS = 30;
+export const WORKSPACE_REVISIONS_KEPT = 10;
+/** Deleted entries stay in the trash this many days. */
+export const WORKSPACE_TRASH_DAYS = 30;
+/** Defaults of the console's workspace ceilings (rate-limit-settings.ts): free storage per account, writes per workspace a day, and the debt above which writes are refused. */
+export const WORKSPACE_FREE_MB = 100;
+export const WORKSPACE_WRITES_PER_DAY = 5_000;
+export const WORKSPACE_DEBT_WRITE_LIMIT = 100;

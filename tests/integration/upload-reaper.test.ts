@@ -75,6 +75,15 @@ suite('orphan upload reaper', () => {
     const keptThumb = `post-images/${u}/${thumbed}.thumb.jpg`;
     const orphanThumb = `post-images/${u}/${id()}.thumb.jpg`;
 
+    /* An agent workspace object is kept while `agent_workspace_blob` counts it; one a rolled-back write left behind goes. */
+    const [space] = await db().insert(schema.workspace).values({ ownerId: u }).returning();
+    const keptSha = 'a'.repeat(64);
+    await db().insert(schema.workspaceBlob).values({ workspaceId: space!.id, sha256: keptSha, size: 3, refs: 1 });
+    const keptObject = `workspace/${space!.id}/${keptSha}`;
+    const orphanObject = `workspace/${space!.id}/${'b'.repeat(64)}`;
+    const foreignObject = `workspace/${id()}/${'c'.repeat(64)}`;
+
+    blobs.listed.set('workspace/', [keptObject, orphanObject, foreignObject].map((pathname) => ({ pathname, uploadedAt: old })));
     blobs.listed.set('knowledge/', [registered, orphanFile, foreignFile].map((pathname) => ({ pathname, uploadedAt: old })).concat({ pathname: recentFile, uploadedAt: recent }));
     blobs.listed.set('avatars/', [avatar, reeAvatar, draftAvatar, orphanAvatar].map((pathname) => ({ pathname, uploadedAt: old })));
     blobs.listed.set('ree-covers/', [keptCover, orphanCover, foreignCover].map((pathname) => ({ pathname, uploadedAt: old })));
@@ -82,7 +91,7 @@ suite('orphan upload reaper', () => {
     blobs.deleted = [];
 
     const removed = await purgeOrphanUploads(now);
-    expect(new Set(blobs.deleted)).toEqual(new Set([orphanFile, orphanAvatar, orphanCover, orphanImage, orphanThumb]));
-    expect(removed).toEqual({ 'knowledge/': 1, 'avatars/': 1, 'ree-covers/': 1, 'post-images/': 2 });
+    expect(new Set(blobs.deleted)).toEqual(new Set([orphanFile, orphanAvatar, orphanCover, orphanImage, orphanThumb, orphanObject]));
+    expect(removed).toEqual({ 'knowledge/': 1, 'avatars/': 1, 'ree-covers/': 1, 'post-images/': 2, 'workspace/': 1 });
   });
 });

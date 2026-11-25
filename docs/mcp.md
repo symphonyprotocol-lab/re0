@@ -21,6 +21,18 @@ it and create another. An account can hold up to 10 live keys.
   knowledge, comments and favorites). A write tool called with a read-only
   key fails with `write_not_allowed` and changes nothing.
 
+**Workspace access** (docs/design/agent-workspace.md) decides what the key may do
+with the account's shared file workspace: none (the default, and what every key
+made before migration 0095 keeps), read, or read and write. There are two kinds
+of key:
+
+- an *account key* lists the tools below, plus the `ws_*` tools when its
+  workspace access is read or write; it reaches the whole workspace;
+- a *workspace key* lists only the `ws_*` tools, never "Allow changes", and is
+  confined to a root folder it chooses (say `/projects/a`), which is its `/`:
+  every path it sends or gets back is relative to it, and nothing outside can
+  be named. Give each agent tool its own workspace key.
+
 A key's access is fixed when it is made; for more, create a new key. A
 leaked read-only key can still spend credits through `ask_ree` (as before),
 but cannot post, delete or change anything.
@@ -104,6 +116,42 @@ that does not exist, is `not_found` alike.
 | `add_ree_comment {ree, content, client_token?}` | A comment under a public Ree, limited as on the web | Free |
 | `delete_ree_comment {ree, comment}` | **Destructive**: your comment, or any under your Ree | Free |
 | `favorite_ree {ree, favorite?}` | Favorite someone else's public Ree, or not | Free |
+
+### Workspace (keys with workspace access)
+
+Text files of up to 1 MB that every tool connected to the account reads and
+writes; the owner sees them at `/files`. Nothing here spends credits: storage
+above the free 100 MB per account is billed daily, like knowledge storage.
+Calls count against the `workspaceRead` / `workspaceWrite` limits (300 and 60
+a minute per account by default), not the per-minute cap above.
+
+| Tool | What it does | Access |
+| --- | --- | --- |
+| `ws_list {path?, recursive?, pattern?, trash?, cursor?, limit?}` | A folder's entries (or everything below it), sorted by path, with size, `etag`, lines, last change and which client made it; `pattern` is a glob (`*.md` matches names at any depth, `docs/*.md` paths below the folder); `trash` lists what was deleted there with its `trash_id` | read |
+| `ws_stat {path}` | One entry: kind, size, `etag`, versions, last writer | read |
+| `ws_read {path, offset?, limit?, byte_offset?, byte_length?, line_numbers?, revision?}` | The text, byte for byte, whole or a window of lines or bytes (256 KB a call, `next_offset` to continue); `revision` reads an older version. The content comes as its own text part | read |
+| `ws_grep {pattern, literal?, path?, glob?, ignore_case?, context?, limit?}` | Matching lines (POSIX regex, or literal text) by path and line, up to 200; `partial` when the 50 MB scan cap was reached | read |
+| `ws_history {path, cursor?, limit?}` | A file's versions, newest first, with the writer and how many saves each merged | read |
+| `ws_write {path, content, if_match?, if_none_match?}` | Creates or replaces a file (folders above it are made) | write |
+| `ws_append {path, content, client_token?}` | Adds to the end, atomically; `client_token` makes a retry a no-op | write |
+| `ws_edit {path, old_string, new_string, replace_all?, if_match?}` | Replaces one exact occurrence (or all) | write |
+| `ws_mkdir {path}` | Makes a folder and the ones above it | write |
+| `ws_move {from, to, overwrite?, if_match?}` | Moves or renames a file or folder (with what is in it) | write |
+| `ws_copy {from, to}` | Copies one file | write |
+| `ws_delete {path, if_match?}` | **Destructive**: to the trash for 30 days (only the web deletes for good) | write |
+| `ws_restore {trash_id? \| path?, revision?}` | Back from the trash (a taken path gets " (restored)"), or with `path` and `revision` an older version back as the newest | write |
+
+Every change keeps the previous content as a version; saves by the same key
+within 60 seconds of each other are merged into one. `etag` changes with every
+change of content: pass the one you read as `if_match` and a change made by
+another tool meanwhile is refused with `conflict` (and its `current_etag`)
+instead of overwritten. Other refusals: `not_found` (also for anything outside
+a workspace key's root), `invalid_path`, `exists`, `is_a_directory`,
+`not_a_directory`, `too_large`, `quota_exceeded` (10 GB or 100 000 entries per
+account), `limit_reached` (writes per workspace a day), `insufficient_credits`
+(writes pause while the account owes more than the console's limit; reads and
+deletes still work) and `workspace_not_allowed`. The client's own name from
+`initialize` is recorded on the key and shown as each version's writer.
 
 Tools that spend credits fail with `insufficient_credits` (and a top-up link)
 when the balance is short, and with `max_cost_exceeded` when the action could

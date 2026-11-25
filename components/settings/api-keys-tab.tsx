@@ -20,6 +20,12 @@ export interface ApiKeyView {
   revokedAt: string | null;
   /** May change things through MCP (post, follow up, manage Rees), not only read and ask. */
   canWrite: boolean;
+  /** A workspace key reaches only the agent workspace's files, under its root. */
+  kind: 'account' | 'workspace';
+  workspaceAccess: 'none' | 'read' | 'write';
+  workspaceRoot: string;
+  /** The MCP client that last connected with it, as it named itself. */
+  client: string | null;
   questions: number;
   spent: number;
 }
@@ -63,6 +69,9 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
   const [name, setName] = useState('');
   const [expiry, setExpiry] = useState<(typeof EXPIRIES)[number][0]>('never');
   const [canWrite, setCanWrite] = useState(false);
+  const [kind, setKind] = useState<'workspace' | 'account'>('workspace');
+  const [access, setAccess] = useState<'none' | 'read' | 'write'>('write');
+  const [root, setRoot] = useState('/');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [secret, setSecret] = useState<string | null>(null);
@@ -78,7 +87,7 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
     setError('');
     setBusy(true);
     const days = EXPIRIES.find(([value]) => value === expiry)![1];
-    const result = await api<{ secret?: string; error?: string }>('/api/account/api-keys', { method: 'POST', json: { name, expiresInDays: days, canWrite } });
+    const result = await api<{ secret?: string; error?: string }>('/api/account/api-keys', { method: 'POST', json: { name, expiresInDays: days, canWrite: kind === 'account' && canWrite, kind, workspaceAccess: access, workspaceRoot: root } });
     setBusy(false);
     if (!result.ok || !result.data.secret) {
       const code = result.data.error as keyof typeof a.errors | undefined;
@@ -88,6 +97,9 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
     setName('');
     setExpiry('never');
     setCanWrite(false);
+    setKind('workspace');
+    setAccess('write');
+    setRoot('/');
     setSecret(result.data.secret);
     await reload();
   };
@@ -132,7 +144,18 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
                 <div className="min-w-0">
                   <h3>
                     {key.name} <span className="api-key-tail">re0_sk_…{key.tail}</span>{' '}
-                    <span className={`tag ${key.canWrite ? 'orange' : ''} api-key-access`}>{key.canWrite ? a.access.write : a.access.read}</span>
+                    {key.kind === 'workspace' ? (
+                      <>
+                        <span className="tag blue api-key-access">{a.kinds.workspace}</span>{' '}
+                        <span className={`tag ${key.workspaceAccess === 'write' ? 'orange' : ''} api-key-access`}>{a.workspaceAccess[key.workspaceAccess]}</span>{' '}
+                        <span className="tag api-key-access">{key.workspaceRoot}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className={`tag ${key.canWrite ? 'orange' : ''} api-key-access`}>{key.canWrite ? a.access.write : a.access.read}</span>{' '}
+                        <span className="tag api-key-access">{fill(a.workspaceTag, { access: a.workspaceAccess[key.workspaceAccess] })}</span>
+                      </>
+                    )}
                   </h3>
                   <small>
                     {a.columns.created} {formatDateTime(key.createdAt, locale)} · {a.columns.lastUsed} {key.lastUsedAt ? formatDateTime(key.lastUsedAt, locale) : a.never} ·{' '}
@@ -215,6 +238,25 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
             void create();
           }}
         >
+          <div className="api-key-kinds" role="radiogroup" aria-label={a.form.kind}>
+            {(['workspace', 'account'] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={kind === value}
+                className={kind === value ? 'is-on' : undefined}
+                onClick={() => {
+                  setKind(value);
+                  setAccess(value === 'workspace' ? 'write' : 'none');
+                }}
+              >
+                <I name={value === 'workspace' ? 'folder' : 'key'} />
+                <strong>{a.kinds[value]}</strong>
+                <small>{a.kindHints[value]}</small>
+              </button>
+            ))}
+          </div>
           <div className="field">
             <label htmlFor="api-key-name">{a.form.name}</label>
             <input id="api-key-name" value={name} placeholder={a.form.namePlaceholder} maxLength={60} required autoFocus onChange={(event) => setName(event.target.value)} />
@@ -229,13 +271,37 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
               ))}
             </select>
           </div>
-          <label className="check-row api-key-write">
-            <span>
-              <strong>{a.form.write}</strong>
-              <small>{a.form.writeHint}</small>
-            </span>
-            <input type="checkbox" checked={canWrite} onChange={(event) => setCanWrite(event.target.checked)} />
-          </label>
+          {kind === 'workspace' && (
+            <div className="field">
+              <label htmlFor="api-key-root">{a.form.root}</label>
+              <input id="api-key-root" className="mono" value={root} maxLength={1024} onChange={(event) => setRoot(event.target.value)} />
+              <p className="form-hint">{a.form.rootHint}</p>
+            </div>
+          )}
+          {kind === 'account' && (
+            <label className="check-row api-key-write">
+              <span>
+                <strong>{a.form.write}</strong>
+                <small>{a.form.writeHint}</small>
+              </span>
+              <input type="checkbox" checked={canWrite} onChange={(event) => setCanWrite(event.target.checked)} />
+            </label>
+          )}
+          <div className="field">
+            <span className="field-label">{a.form.workspace}</span>
+            <div className="api-key-access-options" role="radiogroup" aria-label={a.form.workspace}>
+              {(kind === 'workspace' ? (['read', 'write'] as const) : (['none', 'read', 'write'] as const)).map((value) => (
+                <label key={value} className={access === value ? 'is-on' : undefined}>
+                  <input type="radio" name="api-key-workspace" checked={access === value} onChange={() => setAccess(value)} />
+                  <span>
+                    <strong>{a.workspaceAccess[value]}</strong>
+                    <small>{a.workspaceAccessHints[value]}</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="form-hint">{kind === 'workspace' ? a.form.workspaceKeyHint : a.form.workspaceHint}</p>
+          </div>
           {error && (
             <p role="alert" className="form-error">
               {error}
