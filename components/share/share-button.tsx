@@ -22,12 +22,18 @@ export function ShareButton({
   settingsHref,
   className = 'btn-ghost',
   labelClassName = 'hidden lg:inline',
+  label,
+  named = false,
 }: {
   ree: { name: string; slug: string; description?: string };
   state: ShareState;
   settingsHref?: string;
   className?: string;
   labelClassName?: string;
+  /** The button's words; 分享 by default. */
+  label?: string;
+  /** Name the Ree in the dialog's title: where the button does not sit on the Ree's own page (首页's 分享 card). */
+  named?: boolean;
 }) {
   const { t } = useI18n();
   const s = t.share;
@@ -73,11 +79,11 @@ export function ShareButton({
 
   return (
     <>
-      <button type="button" className={className} title={s.button} aria-label={s.button} onClick={() => setOpen(true)}>
+      <button type="button" className={className} title={label ?? s.button} aria-label={label ?? s.button} onClick={() => setOpen(true)}>
         <Icon name="share" />
-        <span className={labelClassName}>{s.button}</span>
+        <span className={labelClassName}>{label ?? s.button}</span>
       </button>
-      <Modal open={open} onClose={() => setOpen(false)} title={state === 'public' ? s.dialog.title : s.dialog.privateTitle} subtitle={state === 'public' ? s.dialog.subtitle : ree.name}>
+      <Modal open={open} onClose={() => setOpen(false)} title={state === 'public' ? (named ? fill(s.dialog.titleNamed, { name: ree.name }) : s.dialog.title) : s.dialog.privateTitle} subtitle={state === 'public' ? s.dialog.subtitle : ree.name}>
         {state === 'public' ? (
           <div className="flex flex-col gap-5">
             <div>
