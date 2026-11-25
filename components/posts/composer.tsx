@@ -155,13 +155,40 @@ export interface FormFrame {
   onPublished?: (id: string) => void;
 }
 
+/** What `POST /api/posts` is sent: no `mentionReeId` once the chip's × took the mention off. */
+export function publicPostBody({ question, detail, anonymous, mention, quote, clientToken, images }: { question: string; detail: string; anonymous: boolean; mention: Mention | null; quote: { postId: string; answerId: string | null } | null; clientToken: string; images: string[] }) {
+  return { question, detail, anonymous, mentionReeId: mention?.id ?? null, quotePostId: quote?.postId ?? null, quoteAnswerId: quote?.answerId ?? null, clientToken, images };
+}
+
+/**
+ * The @Ree chip above a public question. Its × sits on the chip's top-right
+ * corner: shown on hover and on keyboard focus, and always on a touch screen,
+ * which has no hover (posts.css `.mention-remove`).
+ */
+export function MentionChip({ name, onRemove }: { name: string; onRemove: () => void }) {
+  const { t } = useI18n();
+  const c = t.posts.composer;
+  const label = fill(c.removeMention, { name });
+  return (
+    <span className="fu-chip ask-chip mention-chip" title={fill(c.mention, { name })}>
+      <Icon name="at" className="size-3.5" />
+      {name}
+      <button type="button" className="mention-remove" aria-label={label} title={label} onClick={onRemove}>
+        <Icon name="close" className="" />
+      </button>
+    </span>
+  );
+}
+
 /**
  * The public post form (v5 "发帖"): the question, an optional detail, 匿名发布,
  * the mentioned Ree, and what today's post costs. Publishing opens the
- * post's page, which shows the Rees answering. `lockMention`: the box
- * belongs to that Ree, which shows as a chip that cannot be removed.
+ * post's page, which shows the Rees answering. The mentioned Ree -- the
+ * one a Ree page or share page box is for, the one 发帖问它 names, a quoted
+ * answer's -- is a chip with its own ×: without it the post goes to the
+ * most relevant Rees, as any other.
  */
-export function PublicPostForm({ mention: initialMention = null, quote = null, autoFocus = false, leave, lockMention = false, head, placeholder, question: initialQuestion = '', onQuestionChange, onPublished }: { mention?: Mention | null; quote?: { postId: string; answerId: string | null } | null; autoFocus?: boolean; leave?: (navigate: () => void) => void; lockMention?: boolean } & FormFrame) {
+export function PublicPostForm({ mention: initialMention = null, quote = null, autoFocus = false, leave, head, placeholder, question: initialQuestion = '', onQuestionChange, onPublished }: { mention?: Mention | null; quote?: { postId: string; answerId: string | null } | null; autoFocus?: boolean; leave?: (navigate: () => void) => void } & FormFrame) {
   const { t, locale } = useI18n();
   const c = t.posts.composer;
   const router = useRouter();
@@ -171,6 +198,12 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
   const [showDetail, setShowDetail] = useState(false);
   const [anonymous, setAnonymous] = useState(false);
   const [mention, setMention] = useState(initialMention);
+  const questionBox = useRef<HTMLTextAreaElement>(null);
+  /* Taking the mention off: the question keeps the focus the × had. */
+  const unmention = () => {
+    setMention(null);
+    questionBox.current?.focus();
+  };
   const [allowance, setAllowance] = useState<Allowance | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -232,7 +265,7 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
       const response = await fetch('/api/posts', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ question, detail, anonymous, mentionReeId: mention?.id ?? null, quotePostId: quote?.postId ?? null, quoteAnswerId: quote?.answerId ?? null, clientToken: token, images: images.pathnames }),
+        body: JSON.stringify(publicPostBody({ question, detail, anonymous, mention, quote, clientToken: token, images: images.pathnames })),
       });
       const body = (await response.json().catch(() => ({}))) as { id?: string; error?: string; balance?: number; needed?: number };
       if ((response.status === 201 || response.status === 200) && body.id) {
@@ -286,25 +319,15 @@ export function PublicPostForm({ mention: initialMention = null, quote = null, a
           {quoted === 'loading' ? <p className="post-hint">{t.posts.quote.loading}</p> : <QuoteCard quote={quoted === 'gone' ? { kind: quote?.answerId ? 'answer' : 'post', available: false } : quoted} now={Date.now()} />}
         </div>
       )}
-      {mention && lockMention ? (
+      {mention && (
         <div className="ree-pick">
-          <span className="fu-chip ask-chip">
-            <Icon name="at" className="size-3.5" />
-            {mention.name}
-          </span>
-        </div>
-      ) : mention && (
-        <div className="post-mention">
-          <Icon name="at" className="size-3.5" />
-          {fill(c.mention, { name: mention.name })}
-          <button type="button" className="text-link" onClick={() => setMention(null)}>
-            {c.removeMention}
-          </button>
+          <MentionChip name={mention.name} onRemove={unmention} />
         </div>
       )}
       <textarea
+        ref={questionBox}
         aria-label={c.label}
-        placeholder={placeholder ?? c.placeholder}
+        placeholder={(initialMention && !mention ? null : placeholder) ?? c.placeholder}
         value={question}
         maxLength={POST_QUESTION_MAX + 50}
         autoFocus={autoFocus}

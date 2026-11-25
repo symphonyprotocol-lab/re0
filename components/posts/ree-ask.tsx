@@ -195,7 +195,7 @@ export function ReeAsk({ ree, option, takesPosts, signedIn, loginHref, share = n
             </div>
           </div>
         ) : visibility === 'public' ? (
-          <PublicPostForm key={`public:${generation}`} mention={{ id: ree.id, name: ree.name }} lockMention head={head} placeholder={placeholder} question={text} onQuestionChange={(value) => remember({ text: value })} onPublished={published} />
+          <PublicPostForm key={`public:${generation}`} mention={{ id: ree.id, name: ree.name }} head={head} placeholder={placeholder} question={text} onQuestionChange={(value) => remember({ text: value })} onPublished={published} />
         ) : (
           <PrivatePostForm key={`private:${generation}`} rees={[option]} head={head} placeholder={placeholder} question={text} onQuestionChange={(value) => remember({ text: value })} onPublished={published} />
         )}
