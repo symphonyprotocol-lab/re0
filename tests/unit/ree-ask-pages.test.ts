@@ -51,22 +51,30 @@ const second: PostView = {
     citations: [{ index: 1, knowledgeId: '00000000-0000-4000-8000-0000000000e1', title: '个人所得税法实施条例', kind: 'document', locator: {}, excerpt: '……' }] }],
 };
 vi.mock('@/lib/services/public-rees', async (original) => ({ ...(await original<typeof import('@/lib/services/public-rees')>()), publicReeBySlug: async () => (state.sparse ? { ...ree, sources: 0, answers: 0, sampleQuestions: [] } : { ...ree, visitorAsks: state.visitorAsks, queryFee: state.queryFee }) }));
-vi.mock('@/lib/services/posts', async (original) => ({ ...(await original<typeof import('@/lib/services/posts')>()), reePostPicks: async () => (state.sparse ? { items: [], total: 0 } : { items: [post, second], total: 4 }) }));
+const example = { postId: post.id, question: '年度汇算什么时候办？', lang: 'zh' as const, summary: '每年 3 月 1 日至 6 月 30 日 [1]。', sources: [{ index: 1, title: '个人所得税法实施条例' }] };
+vi.mock('@/lib/services/posts', async (original) => ({
+  ...(await original<typeof import('@/lib/services/posts')>()),
+  reePostPicks: async () => (state.sparse ? { items: [], total: 0 } : { items: [post, second], total: 4 }),
+  reeAnsweredExamples: async () => (state.sparse ? [] : [example]),
+}));
 vi.mock('@/lib/services/share-landing', () => ({
   reeSourceMix: async () => (state.sparse ? [] : [{ kind: 'document', count: 2 }, { kind: 'page', count: 1 }]),
   reeCitedSources: async () => (state.sparse ? [] : [{ knowledgeId: '00000000-0000-4000-8000-0000000000e1', title: '个人所得税法实施条例', kind: 'document', answers: 2 }]),
 }));
 
 const SharePage = (await import('@/app/s/[slug]/page')).default;
+const reeRoute = await import('@/app/(product)/(discover)/r/[slug]/page');
+const { ReeExamples } = await import('@/components/discover/ree-examples');
 const { ReeDetailView } = await import('@/components/discover/ree-detail-view');
 
 const wrap = (element: ReactElement) => renderToStaticMarkup(createElement(I18nProvider, { locale: 'zh', t, children: element }));
 const share = async () => wrap((await SharePage({ params: Promise.resolve({ slug: 'tax' }), searchParams: Promise.resolve({}) })) as ReactElement);
-const reePage = (viewerId?: string) =>
+const reePage = (viewerId?: string, { sparse = false }: { sparse?: boolean } = {}) =>
   wrap(
     createElement(ReeDetailView, {
-      savedRee: ree, query: {}, viewerId, preview: false, related: null, author: null, video: null,
-      comments: { items: [], total: 0, next: null } as never, posts: { items: [post], total: 1, next: null }, renderedAt: Date.parse('2026-11-20T01:00:00Z'),
+      savedRee: sparse ? { ...ree, answers: 0 } : ree, query: {}, viewerId, preview: false, related: null, author: null, video: null,
+      comments: { items: [], total: 0, next: null } as never, posts: sparse ? { items: [], total: 0, next: null } : { items: [post], total: 1, next: null }, renderedAt: Date.parse('2026-11-20T01:00:00Z'),
+      examples: sparse ? null : createElement(ReeExamples, { examples: [example], locale: 'zh', labels: t.discover.public.examples }),
     }),
   );
 
@@ -214,10 +222,59 @@ describe('the Ree page', () => {
     expect(html).toContain('>登录后提问<span class="workspace-link-progress"');
   });
 
+  it('shows the questions it answered under the introduction: h3s under one h2, a plain link to each post (GSC review 2026-11, B8)', () => {
+    const html = reePage();
+    expect(html.match(/<h1\b/g)).toHaveLength(1);
+    const section = html.slice(html.indexOf('<section class="ree-examples'), html.indexOf('</section>', html.indexOf('<section class="ree-examples')));
+    expect(html.indexOf('<section class="ree-examples')).toBeLessThan(html.indexOf('role="tablist"'));
+    expect(section).toContain('>已回答的问题</h2>');
+    expect(section).toContain('>年度汇算什么时候办？</h3>');
+    expect(section).toContain('title="个人所得税法实施条例">[1]</sup>');
+    expect(section).toContain(`href="/zh/p/${post.id}"`);
+    expect(section).not.toMatch(/href="[^"]*\?/);
+  });
+
+  it('shows no section and no empty states when nothing is answered', () => {
+    const html = reePage(undefined, { sparse: true });
+    expect(html.match(/<h1\b/g)).toHaveLength(1);
+    expect(html).not.toContain('ree-examples');
+    expect(html).not.toContain('还没有回答的帖子');
+    expect(html).not.toContain(t.discover.public.answers);
+    expect(html).not.toContain(t.discover.public.rating);
+    expect(html).not.toContain(`<strong>0</strong>${t.discover.public.qa.count}`);
+    expect(html).not.toMatch(/<span>0<\/span><\/button>/);
+    expect(html).toContain(`<strong>3</strong>${t.discover.public.sources}`);
+    expect(html).toContain('aria-label="向 个税顾问 提问"');
+  });
+
   it('gives the owner 置顶 and 隐藏 on its answer', () => {
     const html = reePage(ree.ownerId);
     expect(html).toContain('class="ree-post-owner"');
     expect(html).toContain('取消置顶');
+  });
+});
+
+describe('the Ree page route', () => {
+  const props = { params: Promise.resolve({ slug: 'tax' }), searchParams: Promise.resolve({}) };
+
+  it('opens its description with the first answered question, then what the Ree covers', async () => {
+    const meta = await reeRoute.generateMetadata(props);
+    expect(meta.description).toBe('年度汇算什么时候办？每年 3 月 1 日至 6 月 30 日。个人所得税和年度汇算。');
+    expect(meta.title).toBe('个税顾问 — 提问，获得带出处的回答');
+  });
+
+  it('keeps the Ree\'s own description when nothing is answered', async () => {
+    state.sparse = true;
+    expect((await reeRoute.generateMetadata(props)).description).toBe('个人所得税和年度汇算。');
+  });
+
+  it('hands the page its answered questions, rendered on the server', async () => {
+    const page = (await reeRoute.default(props)) as ReactElement<{ children: ReactElement<{ examples: ReactElement }>[] }>;
+    const examples = page.props.children[1]!.props.examples;
+    expect(renderToStaticMarkup(examples)).toContain('>年度汇算什么时候办？</h3>');
+    state.sparse = true;
+    const sparse = (await reeRoute.default(props)) as typeof page;
+    expect(renderToStaticMarkup(sparse.props.children[1]!.props.examples)).toBe('');
   });
 });
 

@@ -40,6 +40,7 @@ import { generateText } from 'ai';
 import { citationSnapshots, readsAsUncovered, type CitationSnapshot } from '@/lib/domain/answer';
 import { InsufficientCredits } from '@/lib/domain/credits';
 import { isUuid } from '@/lib/domain/list';
+import { answerSummary, REE_EXAMPLE_READ_CHARS, REE_EXAMPLES, type ReeExample } from '@/lib/domain/ree-examples';
 import {
   AUTHORED_SOURCES,
   POST_ANSWERING_STALE_MS,
@@ -2186,6 +2187,46 @@ export async function reePostPicks(reeId: string, count: number, viewerId?: stri
   const rows = await selectPosts(inArray(post.id, picked.map((row) => row.postId)), [desc(post.createdAt)], picked.length);
   const ordered = picked.map((row) => rows.find((entry) => entry.id === row.postId)).filter((row): row is PostRow => Boolean(row));
   return { items: await viewsOf(ordered, viewerId, { whole: false, onlyRee: reeId }), total: counted?.n ?? 0 };
+}
+
+/**
+ * A public Ree page's "Answered questions" (lib/domain/ree-examples.ts):
+ * the best few posts this Ree answered, picked as the share page picks them
+ * (`reePostPicks`) -- the pinned answer first, then the most helpful, then
+ * the newest; never an answer that says its sources do not cover the
+ * question -- and only posts a search engine may index, as `postMetadata`
+ * decides: public, published, not deleted, with this Ree's answer shown.
+ * Runs on every Ree page, so it reads little: the question, the first
+ * `REE_EXAMPLE_READ_CHARS` of the answer and its citations' numbers and
+ * titles, at most `count` + 1 rows read in index order (migration 0092).
+ * Empty for a Ree that is not public.
+ */
+export async function reeAnsweredExamples(reeId: string, count = REE_EXAMPLES): Promise<ReeExample[]> {
+  if (!isUuid(reeId)) return [];
+  const pick = (where: SQL, limit: number) =>
+    db()
+      .select({
+        postId: answer.postId,
+        question: post.question,
+        lang: post.lang,
+        text: sql<string>`left(${answer.text}, ${REE_EXAMPLE_READ_CHARS})`,
+        long: sql<boolean>`char_length(${answer.text}) > ${REE_EXAMPLE_READ_CHARS}`,
+        sources: sql<{ index: number; title: string }[]>`(select coalesce(jsonb_agg(jsonb_build_object('index', c->'index', 'title', c->'title')), '[]'::jsonb) from jsonb_array_elements(${answer.citations}) c)`,
+      })
+      .from(answer)
+      .innerJoin(ree, eq(ree.id, answer.reeId))
+      .innerJoin(post, eq(post.id, answer.postId))
+      /* Never an answer that says its sources do not cover the question, however helpful or pinned (post_answer.uncovered). */
+      .where(and(eq(answer.reeId, reeId), firstRound(), shownAnswer(), visiblePost(), eq(answer.uncovered, false), where))
+      /* NULLS LAST as the index has it: a plain DESC (nulls first) would not match it, and every answer would be sorted. */
+      .orderBy(sql`${answer.helpfulCount} desc nulls last`, sql`${answer.answeredAt} desc nulls last`, sql`${answer.id} desc nulls last`)
+      .limit(limit);
+  /* Two walks of an index each (post_answer_pinned_key, post_answer_ree_pick_idx), not a sort of every answer: `pinned_at is null` first in one ORDER BY would read them all. */
+  const [pinned, rest] = await Promise.all([pick(isNotNull(answer.pinnedAt), 1), pick(isNull(answer.pinnedAt), count)]);
+  return [...pinned, ...rest]
+    .map((row) => ({ postId: row.postId, question: row.question.trim(), lang: row.lang, summary: answerSummary(row.text, row.long), sources: row.sources ?? [] }))
+    .filter((row) => row.question && row.summary)
+    .slice(0, count);
 }
 
 /** Shown answers per Ree, for the explore cards' activity line. */

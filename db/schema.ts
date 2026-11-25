@@ -1729,6 +1729,8 @@ export const postAnswer = pgTable(
     uniqueIndex('post_answer_post_ree_key').on(t.postId, t.reeId).where(sql`followup_id is null`),
     uniqueIndex('post_answer_followup_ree_key').on(t.followupId, t.reeId).where(sql`followup_id is not null`),
     index('post_answer_ree_idx').on(t.reeId, t.answeredAt.desc(), t.id.desc()).where(sql`state = 'answered' and hidden_by is null`),
+    /* A Ree page's answered questions (posts.ts `reeAnsweredExamples`): the unpinned picks in their order, so a page reads three rows, not every answer. */
+    index('post_answer_ree_pick_idx').on(t.reeId, t.helpfulCount.desc(), t.answeredAt.desc(), t.id.desc()).where(sql`state = 'answered' and hidden_by is null and followup_id is null and uncovered = false and pinned_at is null`),
     uniqueIndex('post_answer_legacy_qa_key').on(t.legacyQaId).where(sql`legacy_qa_id is not null`),
     uniqueIndex('post_answer_pinned_key').on(t.reeId).where(sql`pinned_at is not null`),
     check('post_answer_state_check', oneOf('state', [...ANSWER_STATES])),

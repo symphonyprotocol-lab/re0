@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { QUERY_BASE_FEE } from '@/lib/constants';
 import { publicTags } from '@/lib/domain/explore';
@@ -49,7 +49,7 @@ const RELATED_SHOWN = 3;
  * "使用这个 Ree" column, whose 向它提问 goes to the box (稿 2, section 6).
  */
 export function ReeDetailView({
-  savedRee, query, viewerId, preview, draftId, related, author, video, comments, posts, favoriteIds, renderedAt,
+  savedRee, query, viewerId, preview, draftId, related, author, video, comments, posts, examples, favoriteIds, renderedAt,
 }: {
   savedRee: PublicRee;
   query: Search;
@@ -61,6 +61,8 @@ export function ReeDetailView({
   video: IntroProps | null;
   comments: ReeCommentPage | null;
   posts: ReePostPage | null;
+  /** 已回答的问题, server-rendered under the introduction (components/discover/ree-examples.tsx); none on a preview or a Ree with nothing answered. */
+  examples?: ReactNode;
   favoriteIds?: string[];
   renderedAt: number;
 }) {
@@ -201,13 +203,16 @@ export function ReeDetailView({
                   {p.publicRee}
                 </span>
               </div>
+              {/* Only figures that say something: a "0 answers" or "— ratings" only makes a new Ree's page look empty (GSC review 2026-11, 9). */}
               <div className="ree-profile-stats">
-                <span><strong>{n(ree.answers)}</strong>{p.answers}</span>
-                <span><strong>{ree.positiveRate === null ? '—' : `${ree.positiveRate}%`}</strong>{p.rating}</span>
-                <span><strong>{n(posts?.total ?? 0)}</strong>{q.count}</span>
+                {ree.answers > 0 && <span><strong>{n(ree.answers)}</strong>{p.answers}</span>}
+                {ree.positiveRate !== null && <span><strong>{`${ree.positiveRate}%`}</strong>{p.rating}</span>}
+                {(posts?.total ?? 0) > 0 && <span><strong>{n(posts!.total)}</strong>{q.count}</span>}
                 <span><strong>{n(ree.sources)}</strong>{p.sources}</span>
               </div>
             </header>
+
+            {examples}
 
             <div className="cl-tabs" role="tablist" aria-label={q.tabs}>
               {([
@@ -218,24 +223,17 @@ export function ReeDetailView({
                 <button key={key} type="button" role="tab" aria-selected={tab === key} className={`cl-tab${tab === key ? ' active' : ''}`} onClick={() => choose(key)}>
                   <Icon name={icon} className="" />
                   {label}
-                  {count !== null && <span>{n(count)}</span>}
+                  {count !== null && count > 0 && <span>{n(count)}</span>}
                 </button>
               ))}
             </div>
 
             <div role="tabpanel" hidden={tab !== 'qa'}>
               {askBox}
-              {posts && posts.items.length > 0 ? (
+              {/* Nothing answered yet: only the box. An empty state ("No answered posts yet") is what made a new Ree's page read as a shell (GSC review 2026-11, 9). */}
+              {posts && posts.items.length > 0 && (
                 <div className="mt-4">
                   <ReePostList key={ree.id} reeId={ree.id} initial={posts} signedIn={Boolean(viewerId)} owner={owner} paged renderedAt={renderedAt} />
-                </div>
-              ) : (
-                <div className="ree-qa-empty">
-                  <span className="mb-2 grid size-9 place-items-center rounded-lg bg-soft text-blue">
-                    <Icon name="chat" className="size-4" />
-                  </span>
-                  <p className="text-[13px] font-semibold">{ree.publicQaEnabled ? q.emptyTitle : q.closedTitle}</p>
-                  <p className="mt-0.5 text-[12px] text-muted">{ree.publicQaEnabled ? q.emptyBody : q.closedBody}</p>
                 </div>
               )}
             </div>
