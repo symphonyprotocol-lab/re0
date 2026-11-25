@@ -10,21 +10,25 @@
  * a source whose file has a newer index gets its passages replaced, in one
  * transaction (an answer reads the old passages or the new, never half); a
  * source whose file left the binding (moved out, deleted, excluded, unbound)
- * goes to the Ree's trash. In a published public Ree a new file waits for
- * the owner (`awaiting_confirmation`, 待确认) unless the binding says
- * `auto_enable`, and a file the secret scan flags never answers there.
+ * goes to the Ree's trash. In a published public Ree a new file (or one
+ * back from the trash) waits for the owner (`awaiting_confirmation`, 待确认)
+ * unless the binding says `auto_enable`, and a file the secret scan flags
+ * never answers there. A file source the owner trashes is excluded from the
+ * Ree's bindings (`agent_ree_file_exclusion`) until they restore it or bind
+ * its path again. A file source keeps no copy of the text: its chunks are
+ * the text (source-text.ts).
  */
 import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { MCP_REE_CREATE_PER_DAY } from '@/lib/constants';
 import { activity } from '@/lib/domain/knowledge';
 import { validateReeFields, type ReeFields } from '@/lib/domain/ree';
 import { fileNameForTitle, globToRegex, nameOf, normalizePath, scanSecrets } from '@/lib/domain/workspace';
-import { db, schema, type Tx } from '@/lib/infra/db';
+import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { BASE_SPACE } from '@/lib/services/embedding-space';
 import { appendActivity } from '@/lib/services/knowledge';
 import { afterKnowledgeReady } from '@/lib/services/profile';
 import { createRee, ownedRee, ReeInputError, type Ree } from '@/lib/services/rees';
-import { bindingsOf, digestOf, estimateIndex, queueBelow, type IndexEstimate } from '@/lib/services/workspace-index';
+import { bindingsOf, digestOf, estimateIndex, PASSAGE_SWAP, queueBelow, type IndexEstimate } from '@/lib/services/workspace-index';
 import { existing, liveEntry, requireWriteAccess, resolvePath, shown, webScope, within, WorkspaceError, writeFile, type WorkspaceScope } from '@/lib/services/workspace';
 
 export class WorkspaceReeError extends Error {
@@ -42,10 +46,39 @@ const reachable = (ree: Pick<Ree, 'isPublic' | 'isPublished' | 'moderatedAt' | '
 
 /* ------------------------------------------------------------------ sync */
 
-/** Every Ree with a binding in the workspace, brought up to date (after an index run, a move, a delete, a restore). */
+/** Every Ree with a binding in the workspace, brought up to date. */
 export async function syncWorkspaceRees(workspaceId: string): Promise<void> {
   const rees = await db().selectDistinct({ reeId: schema.reeBinding.reeId }).from(schema.reeBinding).where(eq(schema.reeBinding.workspaceId, workspaceId));
-  for (const { reeId } of rees) {
+  await syncEach(rees.map((row) => row.reeId));
+}
+
+/** The Rees that hold these files or whose bindings cover them, brought up to date (after an index run). */
+export async function syncReesForEntries(workspaceId: string, entryIds: readonly string[]): Promise<void> {
+  if (entryIds.length === 0) return;
+  const ids = sql.join(entryIds.map((id) => sql`${id}::uuid`), sql`, `);
+  const rows = await db().execute<{ ree_id: string }>(sql`
+    select k.ree_id from ${schema.knowledge} k where k.workspace_entry_id in (${ids})
+    union
+    select b.ree_id from ${schema.reeBinding} b
+      join ${schema.workspaceEntry} be on be.id = b.entry_id and be.deleted_at is null
+      join ${schema.workspaceEntry} f on f.id in (${ids})
+    where b.workspace_id = ${workspaceId}
+      and (be.path = '/' or lower(f.path) = lower(be.path) or starts_with(lower(f.path), lower(be.path) || '/'))`);
+  await syncEach(rows.rows.map((row) => row.ree_id));
+}
+
+/** The Rees with a source from this entry or anything below it, brought up to date (after a move, a delete, a restore). */
+export async function syncReesBelow(workspaceId: string, entryId: string): Promise<void> {
+  const rows = await db().execute<{ ree_id: string }>(sql`
+    select distinct k.ree_id from ${schema.knowledge} k
+    join ${schema.workspaceEntry} f on f.id = k.workspace_entry_id
+    join ${schema.workspaceEntry} top on top.id = ${entryId}::uuid
+    where f.workspace_id = ${workspaceId} and (f.id = top.id or starts_with(lower(f.path), lower(top.path) || '/'))`);
+  await syncEach(rows.rows.map((row) => row.ree_id));
+}
+
+async function syncEach(reeIds: readonly string[]): Promise<void> {
+  for (const reeId of new Set(reeIds)) {
     try {
       await syncRee(reeId);
     } catch (error) {
@@ -54,128 +87,193 @@ export async function syncWorkspaceRees(workspaceId: string): Promise<void> {
   }
 }
 
+/** The name a file's passages cite it by (the first passage's locator): it changes when a renamed file is indexed again. */
+const indexedName = sql<string | null>`(select p.locator ->> 'path' from ${schema.workspacePassage} p where p.entry_id = ${sql.raw('"agent_workspace_entry"."id"')} and p.ordinal = 0)`;
+
 interface Member {
   id: string;
-  path: string;
-  text: string;
-  size: number;
+  indexedName: string | null;
   indexedRevisionId: string | null;
   bindings: { id: string; autoEnable: boolean }[];
 }
 
-/** The live text files the Ree's bindings cover, with the bindings that cover each. */
-async function membersOf(tx: Tx, reeId: string): Promise<{ members: Map<string, Member> }> {
-  const bindings = await tx
+/**
+ * The live text files the Ree's bindings cover, with the bindings that cover
+ * each -- ids and versions only, no text -- less the files the owner took
+ * out of the Ree (`agent_ree_file_exclusion`).
+ */
+async function membersOf(executor: Executor, reeId: string): Promise<Map<string, Member>> {
+  const bindings = await executor
     .select({ id: schema.reeBinding.id, workspaceId: schema.reeBinding.workspaceId, autoEnable: schema.reeBinding.autoEnable, exclude: schema.reeBinding.exclude, path: schema.workspaceEntry.path, lower: sql<string>`lower(${schema.workspaceEntry.path})` })
     .from(schema.reeBinding)
     .innerJoin(schema.workspaceEntry, and(eq(schema.workspaceEntry.id, schema.reeBinding.entryId), isNull(schema.workspaceEntry.deletedAt)))
     .where(eq(schema.reeBinding.reeId, reeId));
+  const excluded = new Set((await executor.select({ entryId: schema.reeFileExclusion.entryId }).from(schema.reeFileExclusion).where(eq(schema.reeFileExclusion.reeId, reeId))).map((row) => row.entryId));
   const members = new Map<string, Member>();
   for (const binding of bindings) {
-    const files = await tx
-      .select({ id: schema.workspaceEntry.id, path: schema.workspaceEntry.path, lower: sql<string>`lower(${schema.workspaceEntry.path})`, text: schema.workspaceEntry.text, size: schema.workspaceEntry.size, indexedRevisionId: schema.workspaceEntry.indexedRevisionId })
+    const files = await executor
+      .select({ id: schema.workspaceEntry.id, path: schema.workspaceEntry.path, lower: sql<string>`lower(${schema.workspaceEntry.path})`, indexedRevisionId: schema.workspaceEntry.indexedRevisionId, indexedName })
       .from(schema.workspaceEntry)
       .where(and(eq(schema.workspaceEntry.workspaceId, binding.workspaceId), isNull(schema.workspaceEntry.deletedAt), eq(schema.workspaceEntry.kind, 'file'), isNotNull(schema.workspaceEntry.text), within(binding.path)));
     const rules = { modes: new Map<string, string>(), bindings: [{ id: binding.id, ree_id: reeId, path: binding.path, lower: binding.lower, exclude: binding.exclude }] };
     for (const file of files) {
-      if (bindingsOf(rules, file).length === 0) continue;
-      const member = members.get(file.id) ?? { id: file.id, path: file.path, text: file.text ?? '', size: file.size, indexedRevisionId: file.indexedRevisionId, bindings: [] };
+      if (excluded.has(file.id) || bindingsOf(rules, file).length === 0) continue;
+      const member = members.get(file.id) ?? { id: file.id, indexedName: file.indexedName, indexedRevisionId: file.indexedRevisionId, bindings: [] };
       member.bindings.push({ id: binding.id, autoEnable: binding.autoEnable });
       members.set(file.id, member);
     }
   }
-  return { members };
+  return members;
 }
 
-/** The Ree's `file` sources made to match its bindings and the files' indexes (see the header). Answers what changed. */
-export async function syncRee(reeId: string, now = new Date()): Promise<{ added: number; updated: number; removed: number; waiting: number }> {
-  const result = await db().transaction(async (tx) => {
-    const [ree] = await tx.select().from(schema.ree).where(eq(schema.ree.id, reeId)).for('update');
-    if (!ree || ree.deletedAt) return null;
-    const { members } = await membersOf(tx, reeId);
-    const sources = await tx
-      .select({ id: schema.knowledge.id, entryId: schema.knowledge.workspaceEntryId, revisionId: schema.knowledge.workspaceRevisionId, deletedAt: schema.knowledge.deletedAt, enabled: schema.knowledge.enabled })
-      .from(schema.knowledge)
-      .where(and(eq(schema.knowledge.reeId, reeId), eq(schema.knowledge.kind, 'file')));
-    const byEntry = new Map(sources.map((source) => [source.entryId!, source]));
-    const counts = { added: 0, updated: 0, removed: 0, waiting: 0 };
-    const published = reachable(ree);
-    for (const member of members.values()) {
-      if (!member.indexedRevisionId) {
-        counts.waiting += 1;
-        continue;
-      }
-      const secret = scanSecrets(member.text);
+/** Changed files a sync brings in per transaction: each reads only its own files' indexed passages. */
+const SYNC_BATCH = 50;
+
+type SyncCounts = { added: number; updated: number; removed: number; waiting: number };
+
+/**
+ * The Ree's `file` sources made to match its bindings and the files'
+ * indexes (see the header). Only files whose index changed are read, a
+ * batch per transaction; each is scanned for secrets in the version its
+ * passages index -- the text the Ree will answer from -- never the file's
+ * newer text. A source the owner trashed is not a member (its file is
+ * excluded), so only sources this sync trashed itself come back. Answers
+ * what changed.
+ */
+export async function syncRee(reeId: string, now = new Date()): Promise<SyncCounts> {
+  const counts: SyncCounts = { added: 0, updated: 0, removed: 0, waiting: 0 };
+  const [ree] = await db().select().from(schema.ree).where(eq(schema.ree.id, reeId));
+  if (!ree || ree.deletedAt || ree.moderatedAt) return counts;
+  const members = await membersOf(db(), reeId);
+  const sources = await db()
+    .select({ entryId: schema.knowledge.workspaceEntryId, revisionId: schema.knowledge.workspaceRevisionId, deletedAt: schema.knowledge.deletedAt, fileName: schema.knowledge.fileName })
+    .from(schema.knowledge)
+    .where(and(eq(schema.knowledge.reeId, reeId), eq(schema.knowledge.kind, 'file')));
+  const byEntry = new Map(sources.map((source) => [source.entryId!, source]));
+  const changed: Member[] = [];
+  for (const member of members.values()) {
+    if (!member.indexedRevisionId) counts.waiting += 1;
+    else {
       const source = byEntry.get(member.id);
-      const name = nameOf(member.path);
-      if (source && !source.deletedAt && source.revisionId === member.indexedRevisionId) continue;
-      if (!source) {
-        /* New in a published Ree: waits for the owner unless a covering binding says otherwise; a secret always waits. */
-        const waits = published && (Boolean(secret) || !member.bindings.some((binding) => binding.autoEnable));
-        const [made] = await tx
-          .insert(schema.knowledge)
-          .values({
-            reeId,
-            kind: 'file',
-            title: name,
-            originalTitle: name,
-            source: null,
-            fileName: name,
-            fileSize: member.size,
-            status: 'ready',
-            enabled: !waits,
-            awaitingConfirmation: waits,
-            secretFound: secret,
-            content: member.text,
-            workspaceEntryId: member.id,
-            workspaceRevisionId: member.indexedRevisionId,
-            activity: [activity('ready', undefined, now)],
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning({ id: schema.knowledge.id });
-        await copyPassages(tx, made!.id, reeId, member.id);
-        counts.added += 1;
-        continue;
+      /* A new index, back from the trash, or re-indexed under a new name (the source and its citations carry the file's name). */
+      if (!source || source.deletedAt || source.revisionId !== member.indexedRevisionId || (member.indexedName !== null && source.fileName !== member.indexedName)) changed.push(member);
+    }
+  }
+  for (let at = 0; at < changed.length; at += SYNC_BATCH) {
+    const done = await db().transaction((tx) => syncBatch(tx, reeId, changed.slice(at, at + SYNC_BATCH), now));
+    counts.added += done.added;
+    counts.updated += done.updated;
+  }
+  /* Sources whose file left every binding go to the trash, restorable for 30 days; membership is read again under the Ree's lock. */
+  if (sources.some((source) => !source.deletedAt && !members.has(source.entryId!))) {
+    counts.removed = await db().transaction(async (tx) => {
+      const [locked] = await tx.select({ id: schema.ree.id }).from(schema.ree).where(and(eq(schema.ree.id, reeId), isNull(schema.ree.deletedAt))).for('update');
+      if (!locked) return 0;
+      const current = await membersOf(tx, reeId);
+      const live = await tx
+        .select({ id: schema.knowledge.id, entryId: schema.knowledge.workspaceEntryId })
+        .from(schema.knowledge)
+        .where(and(eq(schema.knowledge.reeId, reeId), eq(schema.knowledge.kind, 'file'), isNull(schema.knowledge.deletedAt)));
+      const gone = live.filter((source) => !current.has(source.entryId!)).map((source) => source.id);
+      if (gone.length) {
+        await tx.update(schema.knowledge).set({ deletedAt: now, updatedAt: now, activity: appendActivity([activity('trashed', undefined, now)]) }).where(inArray(schema.knowledge.id, gone));
       }
-      /* A newer index, or back from the trash: passages replaced, the secret scan run again. */
-      const quarantine = published && Boolean(secret) && source.enabled;
-      await tx
-        .update(schema.knowledge)
-        .set({
-          title: name,
-          fileName: name,
-          fileSize: member.size,
-          content: member.text,
-          secretFound: secret,
-          workspaceRevisionId: member.indexedRevisionId,
-          deletedAt: null,
-          updatedAt: now,
-          ...(quarantine ? { enabled: false, awaitingConfirmation: true } : {}),
-          activity: appendActivity([activity(source.deletedAt ? 'restored' : 'ready', undefined, now)]),
-        })
-        .where(eq(schema.knowledge.id, source.id));
-      await copyPassages(tx, source.id, reeId, member.id);
-      counts.updated += 1;
-    }
-    /* Sources whose file left every binding go to the trash, restorable for 30 days. */
-    const gone = sources.filter((source) => !source.deletedAt && !members.has(source.entryId!));
-    if (gone.length) {
-      await tx
-        .update(schema.knowledge)
-        .set({ deletedAt: now, updatedAt: now, activity: appendActivity([activity('trashed', undefined, now)]) })
-        .where(inArray(schema.knowledge.id, gone.map((source) => source.id)));
-      counts.removed = gone.length;
-    }
-    /* Covered files not indexed yet are looked at now: a binding indexes whatever it covers. */
-    const unindexed = [...members.values()].filter((member) => !member.indexedRevisionId && member.text !== null).map((member) => member.id);
-    if (unindexed.length) await tx.update(schema.workspaceEntry).set({ indexDueAt: now }).where(and(inArray(schema.workspaceEntry.id, unindexed), isNull(schema.workspaceEntry.indexDueAt)));
-    return { counts, public: ree.isPublic };
-  });
-  if (!result) return { added: 0, updated: 0, removed: 0, waiting: 0 };
+      return gone.length;
+    });
+  }
+  /* Covered files not indexed yet are looked at now: a binding indexes whatever it covers. */
+  const unindexed = [...members.values()].filter((member) => !member.indexedRevisionId).map((member) => member.id);
+  for (let at = 0; at < unindexed.length; at += 1_000) {
+    await db().update(schema.workspaceEntry).set({ indexDueAt: now }).where(and(inArray(schema.workspaceEntry.id, unindexed.slice(at, at + 1_000)), isNull(schema.workspaceEntry.indexDueAt)));
+  }
   /* The profile (a metered run the owner pays) follows a change of which files there are, not every edit an agent saves. */
-  if (result.public && (result.counts.added || result.counts.removed)) await afterKnowledgeReady(reeId);
-  return result.counts;
+  if (ree.isPublic && (counts.added || counts.removed)) await afterKnowledgeReady(reeId);
+  return counts;
+}
+
+/** One batch of changed files brought into the Ree, under its lock, each from the version its index holds now. */
+async function syncBatch(tx: Tx, reeId: string, batch: readonly Member[], now: Date): Promise<{ added: number; updated: number }> {
+  const done = { added: 0, updated: 0 };
+  const [ree] = await tx.select().from(schema.ree).where(eq(schema.ree.id, reeId)).for('update');
+  if (!ree || ree.deletedAt || ree.moderatedAt) return done;
+  const published = reachable(ree);
+  const ids = batch.map((member) => member.id);
+  /* Shared locks on the files: an index swap waits for this batch, so the version read is the version whose passages are copied. */
+  const files = await tx
+    .select({ id: schema.workspaceEntry.id, path: schema.workspaceEntry.path, size: schema.workspaceEntry.size, indexedRevisionId: schema.workspaceEntry.indexedRevisionId, indexedName })
+    .from(schema.workspaceEntry)
+    .where(and(inArray(schema.workspaceEntry.id, ids), isNull(schema.workspaceEntry.deletedAt)))
+    .for('share');
+  const texts = await tx.execute<{ entry_id: string; text: string }>(sql`
+    select p.entry_id, string_agg(p.content, E'\n' order by p.ordinal) as text
+    from ${schema.workspacePassage} p
+    where p.entry_id in (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)}) and p.ordinal < ${PASSAGE_SWAP}
+    group by p.entry_id`);
+  const textOf = new Map(texts.rows.map((row) => [row.entry_id, row.text]));
+  const sources = await tx
+    .select({ id: schema.knowledge.id, entryId: schema.knowledge.workspaceEntryId, revisionId: schema.knowledge.workspaceRevisionId, deletedAt: schema.knowledge.deletedAt, enabled: schema.knowledge.enabled, fileName: schema.knowledge.fileName })
+    .from(schema.knowledge)
+    .where(and(eq(schema.knowledge.reeId, reeId), eq(schema.knowledge.kind, 'file'), inArray(schema.knowledge.workspaceEntryId, ids)));
+  const byEntry = new Map(sources.map((source) => [source.entryId!, source]));
+  const bindingsOfMember = new Map(batch.map((member) => [member.id, member.bindings]));
+  for (const file of files) {
+    if (!file.indexedRevisionId) continue;
+    const source = byEntry.get(file.id);
+    const name = file.indexedName ?? nameOf(file.path);
+    if (source && !source.deletedAt && source.revisionId === file.indexedRevisionId && source.fileName === name) continue;
+    const secret = scanSecrets(textOf.get(file.id) ?? '');
+    const autoEnable = (bindingsOfMember.get(file.id) ?? []).some((binding) => binding.autoEnable);
+    /* New -- or back from the trash -- in a published Ree: it waits for the owner unless a covering binding says otherwise; a secret always waits. */
+    const waits = published && (Boolean(secret) || !autoEnable);
+    if (!source) {
+      const [made] = await tx
+        .insert(schema.knowledge)
+        .values({
+          reeId,
+          kind: 'file',
+          title: name,
+          originalTitle: name,
+          source: null,
+          fileName: name,
+          fileSize: file.size,
+          status: 'ready',
+          enabled: !waits,
+          awaitingConfirmation: waits,
+          secretFound: secret,
+          /* The text is the passages, stored once as this source's chunks (see source-text.ts). */
+          content: null,
+          workspaceEntryId: file.id,
+          workspaceRevisionId: file.indexedRevisionId,
+          activity: [activity('ready', undefined, now)],
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: schema.knowledge.id });
+      await copyPassages(tx, made!.id, reeId, file.id);
+      done.added += 1;
+      continue;
+    }
+    const restored = Boolean(source.deletedAt);
+    const quarantine = published && (restored ? waits : Boolean(secret) && source.enabled);
+    await tx
+      .update(schema.knowledge)
+      .set({
+        title: name,
+        fileName: name,
+        fileSize: file.size,
+        content: null,
+        secretFound: secret,
+        workspaceRevisionId: file.indexedRevisionId,
+        deletedAt: null,
+        updatedAt: now,
+        ...(quarantine ? { enabled: false, awaitingConfirmation: true } : {}),
+        activity: appendActivity([activity(restored ? 'restored' : 'ready', undefined, now)]),
+      })
+      .where(eq(schema.knowledge.id, source.id));
+    await copyPassages(tx, source.id, reeId, file.id);
+    done.updated += 1;
+  }
+  return done;
 }
 
 /** A source's passages replaced by its file's index: vectors copied inside the database, in their space. */
@@ -185,7 +283,7 @@ async function copyPassages(tx: Tx, knowledgeId: string, reeId: string, entryId:
     insert into ${schema.chunk} (knowledge_id, ree_id, ordinal, content, embedding, embedding_space, locator)
     select ${knowledgeId}::uuid, ${reeId}::uuid, p.ordinal, p.content, p.embedding, p.embedding_space, p.locator
     from ${schema.workspacePassage} p
-    where p.entry_id = ${entryId}::uuid`);
+    where p.entry_id = ${entryId}::uuid and p.ordinal < ${PASSAGE_SWAP}`);
 }
 
 /* ------------------------------------------------------------------ binding */
@@ -269,6 +367,10 @@ export async function bindPaths(
       /* Binding what is already bound changes only what was asked. */
       if (Object.keys(change).length) await insert.onConflictDoUpdate({ target: [schema.reeBinding.reeId, schema.reeBinding.entryId], set: change });
       else await insert.onConflictDoNothing();
+      /* Binding a path again brings back the files at or below it the owner had taken out of this Ree. */
+      await tx.execute(sql`
+        delete from ${schema.reeFileExclusion} x using ${schema.workspaceEntry} e
+        where x.ree_id = ${ree.id}::uuid and e.id = x.entry_id and e.workspace_id = ${scope.workspaceId}::uuid and ${within(entry.path, sql`e.path`)}`);
       added.push(entry.path);
     }
     for (const path of remove) {
@@ -403,10 +505,25 @@ export async function moveReeToWorkspace(ownerId: string, reeId: string, now = n
   let moved = 0;
   for (const source of sources) {
     const folder = source.folder ? `${base}/${fileNameForTitle(source.folder).replace(/\.md$/, '')}` : base;
+    const content = source.content ?? '';
     let path = normalizePath(`${folder}/${fileNameForTitle(source.title)}`);
     if (!path) continue;
-    for (let n = 2; await liveEntry(db(), scope, path); n += 1) path = normalizePath(`${folder}/${fileNameForTitle(`${source.title} ${n}`)}`)!;
-    const written = await writeFile(scope, { path, content: source.content ?? '', ifNoneMatch: '*' });
+    /*
+     * A run that stopped after writing the file and before turning the source
+     * into it left the file there: it is taken as it is (same text, no source
+     * uses it yet) rather than written again under a new name.
+     */
+    let revision: string | null = null;
+    for (let n = 2; ; n += 1) {
+      const there = await liveEntry(db(), scope, path);
+      if (!there) break;
+      if (there.kind === 'file' && there.text === content && !(await usedBySource(there.id))) {
+        revision = there.currentRevisionId;
+        break;
+      }
+      path = normalizePath(`${folder}/${fileNameForTitle(`${source.title} ${n}`)}`)!;
+    }
+    const written = revision ? { revision } : await writeFile(scope, { path, content, ifNoneMatch: '*' });
     await db().transaction(async (tx) => {
       const entry = (await liveEntry(tx, scope, path!))!;
       /* The file's index is the source's own passages: same text, same vectors, nothing to embed. */
@@ -433,26 +550,31 @@ export async function moveReeToWorkspace(ownerId: string, reeId: string, now = n
       await tx.update(schema.workspaceEntry).set({ indexedRevisionId: written.revision, indexDueAt: null, indexError: null }).where(eq(schema.workspaceEntry.id, entry.id));
       await tx
         .update(schema.knowledge)
-        .set({ kind: 'file', source: null, fileName: nameOf(path!), workspaceEntryId: entry.id, workspaceRevisionId: written.revision, secretFound: scanSecrets(source.content ?? ''), updatedAt: now, activity: appendActivity([activity('moved', { folder: path! }, now)]) })
+        .set({ kind: 'file', source: null, content: null, fileName: nameOf(path!), workspaceEntryId: entry.id, workspaceRevisionId: written.revision, secretFound: scanSecrets(content), updatedAt: now, activity: appendActivity([activity('moved', { folder: path! }, now)]) })
         .where(eq(schema.knowledge.id, source.id));
     });
     moved += 1;
   }
-  if (moved) {
-    const folderEntry = await liveEntry(db(), scope, base);
-    if (folderEntry) {
-      await db()
-        .insert(schema.reeBinding)
-        .values({ reeId: ree.id, workspaceId: scope.workspaceId, entryId: folderEntry.id, createdBy: ownerId, createdAt: now })
-        .onConflictDoNothing();
-    }
+  /* Bound even when this run moved nothing new: a run that stopped before binding is finished by the next. */
+  const folderEntry = await liveEntry(db(), scope, base);
+  if (folderEntry) {
+    await db()
+      .insert(schema.reeBinding)
+      .values({ reeId: ree.id, workspaceId: scope.workspaceId, entryId: folderEntry.id, createdBy: ownerId, createdAt: now })
+      .onConflictDoNothing();
   }
   const [{ left } = { left: 0 }] = await db()
     .select({ left: sql<number>`count(*)::int` })
     .from(schema.knowledge)
     .where(and(eq(schema.knowledge.reeId, ree.id), sql`${schema.knowledge.kind} <> 'file'`, isNull(schema.knowledge.deletedAt)));
-  if (moved) await syncRee(ree.id, now);
+  if (folderEntry) await syncRee(ree.id, now);
   return { moved, folder: base, left };
+}
+
+/** Whether any Ree's source is this workspace file. */
+async function usedBySource(entryId: string): Promise<boolean> {
+  const [row] = await db().select({ id: schema.knowledge.id }).from(schema.knowledge).where(eq(schema.knowledge.workspaceEntryId, entryId)).limit(1);
+  return Boolean(row);
 }
 
 /** The owner's Rees a workspace file answers in (its live `file` sources), for the file page. */

@@ -8,13 +8,14 @@
  * republish it), takes it out of discovery, and tells the owner why. Restoring makes it public again and rebuilds its
  * discovery profile.
  */
-import { quarantineFlaggedFiles } from '@/lib/services/ree-file-guard';
+import { quarantineFlaggedFiles, queueReeBindings } from '@/lib/services/ree-file-guard';
 import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { ADMIN_SOURCE_PAGE_SIZE } from '@/lib/constants';
 import { parseAdminReason } from '@/lib/domain/adjustments';
 import { parsePinOrder } from '@/lib/domain/admin-lists';
 import type { ReesView, ReeVisibility } from '@/lib/domain/admin-lists';
 import { clampPage, likePattern, param, type ListResult } from '@/lib/domain/list';
+import { sourceText } from '@/lib/services/source-text';
 import { db, schema } from '@/lib/infra/db';
 import { AdminInputError, audit, assertConsole, type Administrator } from '@/lib/services/admin';
 import { notify } from '@/lib/services/notices';
@@ -203,7 +204,7 @@ export async function adminReeSource(administrator: Administrator, reeId: string
       status: schema.knowledge.status,
       state: sourceState,
       error: schema.knowledge.error,
-      content: schema.knowledge.content,
+      content: sourceText(),
       children: schema.knowledge.children,
       deletedAt: schema.knowledge.deletedAt,
       createdAt: schema.knowledge.createdAt,
@@ -264,6 +265,8 @@ export async function takeDownRee(administratorId: string, reeId: string, rawRea
       .update(schema.ree)
       .set({ isPublic: false, isPublished: false, moderatedAt: now, moderatedBy: administratorId, moderatedReason: reason, updatedAt: now })
       .where(eq(schema.ree.id, reeId));
+    /* A taken-down Ree indexes nothing: files only it kept indexed stop being indexed (and charged for) until it is restored. */
+    await queueReeBindings(tx, reeId, now);
     await audit(tx, {
       administratorId,
       action: 'ree.takedown',
@@ -296,6 +299,8 @@ export async function restoreRee(administratorId: string, reeId: string, rawReas
       .set({ isPublic: true, isPublished: published, moderatedAt: null, moderatedBy: null, moderatedReason: null, updatedAt: now })
       .where(eq(schema.ree.id, reeId));
     if (published) await quarantineFlaggedFiles(tx, reeId, now);
+    /* Its workspace files are indexed again, and the Ree catches up with them. */
+    await queueReeBindings(tx, reeId, now);
     await audit(tx, {
       administratorId,
       action: 'ree.restore',

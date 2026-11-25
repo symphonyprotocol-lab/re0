@@ -13,6 +13,7 @@ import { activity, cleanFolderName, cleanTitle } from '@/lib/domain/knowledge';
 import { deleteBlob } from '@/lib/infra/blob';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { appendActivity, checkReprocess, KnowledgeInputError, abandonPending, recoverStale, reprocessInTx } from '@/lib/services/knowledge';
+import { excludeTrashedFiles, includeRestoredFiles, quarantineFlaggedFiles } from '@/lib/services/ree-file-guard';
 import { accrueStorage, rowsIn } from '@/lib/services/storage-billing';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -149,7 +150,8 @@ export async function runBatch(ownerId: string, reeId: string, input: BatchInput
     return { changed: ids.length, process: ids };
   }
 
-  return db().transaction(async (tx) => {
+  let restoredFiles = false;
+  const result = await db().transaction(async (tx) => {
     const touch = async (changed: string[], set: Partial<typeof schema.knowledge.$inferInsert>, entry: ReturnType<typeof activity>) => {
       if (changed.length === 0) return;
       await tx
@@ -199,16 +201,28 @@ export async function runBatch(ownerId: string, reeId: string, input: BatchInput
         /* A source being processed holds credits; it finishes before it can go. */
         if (rows.some(busy)) throw new KnowledgeInputError('busy');
         await touch(ids, { deletedAt: now }, activity('trashed', undefined, now));
+        /* A workspace file trashed here leaves the Ree: its bindings stop bringing it back. */
+        await excludeTrashedFiles(tx, reeId, ids);
         return { changed: ids.length, process: [] };
       }
       case 'restore': {
         await rowsOf(tx, reeId, ids, true);
         await touch(ids, { deletedAt: null }, activity('restored', undefined, now));
+        restoredFiles = (await includeRestoredFiles(tx, reeId, ids)) > 0;
+        /* A flagged file never answers in a public Ree, restored or not. */
+        const [owner] = await tx.select({ isPublic: schema.ree.isPublic }).from(schema.ree).where(eq(schema.ree.id, reeId));
+        if (owner?.isPublic) await quarantineFlaggedFiles(tx, reeId, now);
         return { changed: ids.length, process: [] };
       }
     }
     throw new KnowledgeInputError('not_found');
   });
+  /* A restored workspace file catches up with its file (a newer index, or a file no longer bound goes back to the trash). */
+  if (restoredFiles) {
+    const { syncRee } = await import('@/lib/services/workspace-rees');
+    await syncRee(reeId, now);
+  }
+  return result;
 }
 
 /** The display name only; the original name and the source stay (prototype "修改名称"). */

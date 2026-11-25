@@ -67,6 +67,7 @@ import {
 } from '@/lib/domain/workspace';
 import { storageCostPico } from '@/lib/domain/infra-cost';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
+import { mayNeedIndex, queueIndexWithin } from '@/lib/services/ree-file-guard';
 import { deleteWorkspaceObjects, putWorkspaceObject, readWorkspaceObject, workspaceObjectPath } from '@/lib/infra/workspace-store';
 import { infraCostRates } from '@/lib/services/infra-pricing';
 import { effectiveCeiling } from '@/lib/services/rate-limit-settings';
@@ -441,8 +442,8 @@ async function putText(
     updatedByKeyId: scope.apiKeyId,
     updatedClient: scope.client,
     updatedAt: now,
-    /* The index worker looks at it once the saves stop for a while (workspace-index.ts); it decides whether this file is indexed at all. */
-    indexDueAt: new Date(now.getTime() + WORKSPACE_INDEX_DELAY_MS),
+    /* The index worker looks at it once the saves stop for a while (workspace-index.ts), if it may need the index or had one. */
+    ...((current.indexedRevisionId !== null || (await ask(tx, mayNeedIndex(scope.workspaceId, sql`${path}::text`)))) ? { indexDueAt: new Date(now.getTime() + WORKSPACE_INDEX_DELAY_MS) } : {}),
     ...extra,
   };
   meter.database += bytes.length - byteLength(current.text ?? '');
@@ -884,18 +885,18 @@ export async function moveEntry(scope: WorkspaceScope, input: { from: string; to
     }
     await tx.update(schema.workspaceEntry).set({ path: to, updatedAt: now, updatedByKeyId: scope.apiKeyId, updatedClient: scope.client }).where(eq(schema.workspaceEntry.id, source.id));
     /* Moved under (or out of) an indexed or bound folder: the index worker looks again now. */
-    await tx.update(schema.workspaceEntry).set({ indexDueAt: now }).where(and(live(scope), eq(schema.workspaceEntry.kind, 'file'), within(to)));
-    return { from: shown(scope, from), to: shown(scope, to), kind: source.kind, moved };
-  }).then(async (done) => {
-    await reesFollow(scope.workspaceId);
+    await queueIndexWithin(tx, scope.workspaceId, to, now);
+    return { from: shown(scope, from), to: shown(scope, to), kind: source.kind, moved, entryId: source.id };
+  }).then(async ({ entryId, ...done }) => {
+    await reesFollow(scope.workspaceId, entryId);
     return done;
   });
 }
 
-/** Rees bound in the workspace follow a move, a delete or a restore (loaded late: workspace-rees.ts imports this module). */
-async function reesFollow(workspaceId: string): Promise<void> {
-  const { syncWorkspaceRees } = await import('@/lib/services/workspace-rees');
-  await syncWorkspaceRees(workspaceId);
+/** The Rees with a source from this entry or anything below it follow a move, a delete or a restore (loaded late: workspace-rees.ts imports this module). */
+async function reesFollow(workspaceId: string, entryId: string): Promise<void> {
+  const { syncReesBelow } = await import('@/lib/services/workspace-rees');
+  await syncReesBelow(workspaceId, entryId);
 }
 
 /** A copy of one file under another path; the content is shared, not stored twice. */
@@ -930,7 +931,7 @@ export async function trashEntry(scope: WorkspaceScope, input: { path: string; i
     },
     { stores: false },
   ).then(async (done) => {
-    await reesFollow(scope.workspaceId);
+    await reesFollow(scope.workspaceId, done.trash_id);
     return done;
   });
 }
@@ -995,10 +996,10 @@ export async function restoreEntry(scope: WorkspaceScope, input: { path?: string
       restored += rows.length;
     }
     await tx.update(schema.workspaceEntry).set({ deletedAt: null, path: destination, updatedAt: now }).where(eq(schema.workspaceEntry.id, target.id));
-    await tx.update(schema.workspaceEntry).set({ indexDueAt: now }).where(and(live(scope), eq(schema.workspaceEntry.kind, 'file'), within(destination)));
-    return { path: shown(scope, destination), restored, renamed: destination !== target.path };
-  }).then(async (done) => {
-    await reesFollow(scope.workspaceId);
+    await queueIndexWithin(tx, scope.workspaceId, destination, now);
+    return { path: shown(scope, destination), restored, renamed: destination !== target.path, entryId: target.id };
+  }).then(async ({ entryId, ...done }) => {
+    await reesFollow(scope.workspaceId, entryId);
     return done;
   });
 }

@@ -143,7 +143,7 @@ above.
 | `ws_delete {path, if_match?}` | **Destructive**: to the trash for 30 days (only the web deletes for good) | write |
 | `ws_restore {trash_id? \| path?, revision?}` | Back from the trash (a taken path gets " (restored)"), or with `path` and `revision` an older version back as the newest | write |
 | `ws_search {query, path?, limit?}` | Passages of **indexed** files that answer a question, by meaning and keyword (path, line range, excerpt); counts against `workspaceGrep` | read |
-| `ws_index {path, mode, max_cost?}` | **Spends credits**: a file's or folder's index mode (`on`, `off`, `inherit`). Turning it on returns the estimate, and `max_cost` refuses above it. Files are indexed two minutes after their last change, only changed passages embedded, within the account's daily index budget (50 credits by default) | write |
+| `ws_index {path, mode, max_cost?}` | **Spends credits**: a file's or folder's index mode (`on`, `off`, `inherit`). Turning it on returns the estimate, and `max_cost` refuses above it. Files are indexed two minutes after their last change, only changed passages embedded, billed as one charge a day (rounded up once), within the account's daily index budget (50 credits by default) | write |
 
 An account key with workspace access and "Allow changes" also has:
 

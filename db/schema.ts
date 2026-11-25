@@ -19,6 +19,7 @@ import {
   integer,
   jsonb,
   numeric,
+  doublePrecision,
   pgTable,
   primaryKey,
   real,
@@ -2925,9 +2926,15 @@ export const workspaceUsage = pgTable('agent_workspace_usage', {
   /** When storage was last charged (the daily charge takes the longest-waiting first, writes or not), and when the purge last went through the account. */
   chargedAt: timestampTz('charged_at').notNull().defaultNow(),
   purgedAt: timestampTz('purged_at'),
-  /** Credits indexing cost today (UTC `index_spent_day`), against the console's `workspaceIndexBudget`. */
+  /**
+   * Credits indexing took today (UTC `index_spent_day`), against the console's
+   * `workspaceIndexBudget`: each embedding call reserves its quote here in one
+   * conditional update before it runs (so concurrent workers cannot pass the
+   * budget) and gives back what it did not use. Fractional: the day's
+   * indexing is billed as one run, rounded up once (workspace-index.ts).
+   */
   indexSpentDay: date('index_spent_day', { mode: 'string' }),
-  indexSpent: integer('index_spent').notNull().default(0),
+  indexSpent: doublePrecision('index_spent').notNull().default(0),
 }, (t) => [index('agent_workspace_usage_charged_idx').on(t.chargedAt), index('agent_workspace_usage_purged_idx').on(t.purgedAt)]);
 
 /**
@@ -2966,6 +2973,8 @@ export const workspacePassage = pgTable(
   (t) => [
     primaryKey({ columns: [t.entryId, t.ordinal] }),
     index('agent_workspace_passage_digest_idx').on(t.workspaceId, t.contentDigest, t.embeddingSpace),
+    /* Passages left in an old embedding space, found after a model switch (workspace-index.ts `queueStaleSpaces`). */
+    index('agent_workspace_passage_space_idx').on(t.embeddingSpace, t.entryId),
   ],
 );
 
@@ -2999,4 +3008,24 @@ export const reeBinding = pgTable(
     index('agent_ree_binding_workspace_idx').on(t.workspaceId),
     check('agent_ree_binding_exclude_check', sql`cardinality(exclude) <= 20`),
   ],
+);
+
+/**
+ * A workspace file the owner took out of a Ree (trashed its `file` source on
+ * the knowledge page): the Ree's bindings no longer bring it in, so no sync
+ * restores or re-adds it, until the owner restores the source or binds that
+ * path again.
+ */
+export const reeFileExclusion = pgTable(
+  'agent_ree_file_exclusion',
+  {
+    reeId: uuid('ree_id')
+      .notNull()
+      .references(() => ree.id, { onDelete: 'cascade' }),
+    entryId: uuid('entry_id')
+      .notNull()
+      .references(() => workspaceEntry.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.reeId, t.entryId] })],
 );

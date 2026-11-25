@@ -364,7 +364,7 @@ export function registerWorkspaceTools(server: Server) {
     'ws_index',
     {
       title: 'Turn indexing on or off (spends credits)',
-      description: `Sets a file's or folder's index mode: on (it and everything below, unless a folder below says off), off, or inherit (the nearest folder's). Indexed files can be searched with ws_search and become a Ree's knowledge. THIS SPENDS CREDITS: indexing embeds each file's new passages (unchanged ones are reused) two minutes after its last change, billed at cost within the account's daily index budget. Turning it on returns the estimate; pass max_cost to refuse above it before anything changes.${NEEDS_WRITE}`,
+      description: `Sets a file's or folder's index mode: on (it and everything below, unless a folder below says off), off, or inherit (the nearest folder's). Indexed files can be searched with ws_search and become a Ree's knowledge. THIS SPENDS CREDITS: indexing embeds each file's new passages (unchanged ones are reused) two minutes after its last change, billed at cost as one charge a day (rounded up once, so small edits cost what they cost) within the account's daily index budget. Turning it on returns the estimate; pass max_cost to refuse above it before anything changes.${NEEDS_WRITE}`,
       inputSchema: z.object({ path: PATH, mode: z.enum(['on', 'off', 'inherit']), max_cost: z.number().int().min(0).optional().describe('The most credits indexing what is there now may cost; refused (and nothing changed) above it.') }),
       annotations: IDEMPOTENT,
     },

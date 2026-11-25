@@ -109,9 +109,10 @@ describeWithDb('workspace index', () => {
     expect(counts.indexed).toBe(2);
     const found = await ok(client, 'ws_search', { query: 'how long is the bus to Encarnación' });
     expect(found.passages[0]).toMatchObject({ path: '/docs/transport.md', lines: [1, 3] });
-    const [run] = await db().select().from(schema.knowledgeCostRun).where(and(eq(schema.knowledgeCostRun.userId, userId), eq(schema.knowledgeCostRun.kind, 'workspace_index')));
-    expect(run).toMatchObject({ status: 'ready' });
-    expect((await index.indexBudget(userId)).spent).toBeGreaterThanOrEqual(0);
+    /* Both files are on the day's one run, open until the day is over. */
+    const runs = () => db().select().from(schema.knowledgeCostRun).where(and(eq(schema.knowledgeCostRun.userId, userId), eq(schema.knowledgeCostRun.kind, 'workspace_index')));
+    expect((await runs()).map((run) => run.status)).toEqual(['processing']);
+    expect((await index.indexBudget(userId)).spent).toBeGreaterThan(0);
     /* Files outside an indexed folder are not indexed: they stay greppable. */
     await ok(client, 'ws_write', { path: '/scratch/todo.md', content: 'buy tickets' });
     await indexNow();
