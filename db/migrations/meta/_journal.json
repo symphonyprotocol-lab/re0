@@ -659,6 +659,13 @@
       "when": 1795615510535,
       "tag": "0095_agent_workspace",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1795617194590,
+      "tag": "0096_workspace_review_fixes",
+      "breakpoints": true
     }
   ]
 }

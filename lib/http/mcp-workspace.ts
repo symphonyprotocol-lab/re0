@@ -20,7 +20,10 @@ import type { AuthInfo, CallToolResult, ServerContext } from '@modelcontextproto
 import { z } from 'zod';
 import { WORKSPACE_GREP_HITS_MAX, WORKSPACE_LIST_MAX, WORKSPACE_READ_MAX, WORKSPACE_TEXT_MAX } from '@/lib/constants';
 import type { ApiKeyCaller } from '@/lib/services/api-keys';
-import { McpToolError, routeLimit } from '@/lib/services/mcp';
+import { McpToolError } from '@/lib/services/mcp';
+import { WORKSPACE_ACCOUNT_LIMIT_FACTOR } from '@/lib/constants';
+import { hitRateBucket } from '@/lib/services/rate-limit';
+import { effectiveRateRules, type RateLimitName } from '@/lib/services/rate-limit-settings';
 import {
   appendFile,
   copyFile,
@@ -79,13 +82,15 @@ function plain(value: unknown): Record<string, unknown> {
 }
 
 function data(value: unknown): CallToolResult {
-  const body = plain(value);
+  /* The framing travels in the structured result too, for clients that read only that (docs/design/agent-workspace.md §7.2). */
+  const body: Record<string, unknown> = { ...plain(value), data_note: WS_NOTE };
   /* A file's text goes as its own part, unescaped, after the metadata. */
   if (typeof body.content === 'string') {
-    const { content, ...meta } = body;
-    return { content: [{ type: 'text', text: `${WS_NOTE}\n${JSON.stringify(meta, null, 2)}` }, { type: 'text', text: content }], structuredContent: body };
+    const { content, data_note: _note, ...meta } = body;
+    return { content: [{ type: 'text', text: `${WS_NOTE}\n${JSON.stringify(meta, null, 2)}` }, { type: 'text', text: content as string }], structuredContent: body };
   }
-  return { content: [{ type: 'text', text: `${WS_NOTE}\n${JSON.stringify(body, null, 2)}` }], structuredContent: body };
+  const { data_note: _note, ...shown } = body;
+  return { content: [{ type: 'text', text: `${WS_NOTE}\n${JSON.stringify(shown, null, 2)}` }], structuredContent: body };
 }
 
 function failure(code: string, message: string, details: Record<string, unknown> = {}): CallToolResult {
@@ -93,8 +98,28 @@ function failure(code: string, message: string, details: Record<string, unknown>
   return { isError: true, content: [{ type: 'text', text: JSON.stringify(body, null, 2) }], structuredContent: body };
 }
 
-/** One `ws_*` call: the key's access, the limit for reading or writing, then the work. */
-async function wsTool(ctx: ServerContext, kind: 'read' | 'write', work: (scope: WorkspaceScope) => Promise<unknown>): Promise<CallToolResult> {
+/**
+ * The console's limit `name` for one key, and for the account at
+ * WORKSPACE_ACCOUNT_LIMIT_FACTOR times it (all its keys together), so one
+ * leaked or runaway key cannot use up what the others need. An account
+ * exempt from `name` passes.
+ */
+async function keyLimit(name: RateLimitName, caller: ApiKeyCaller, now = new Date()): Promise<void> {
+  const rules = await effectiveRateRules(name, caller.user.id);
+  if (!rules) return;
+  let retry = 0;
+  for (const rule of rules) {
+    const byKey = await hitRateBucket(`${name}:${rule.windowSeconds}:key:${caller.keyId}`, rule.limit, rule.windowSeconds, now);
+    const byAccount = await hitRateBucket(`${name}:${rule.windowSeconds}:account:${caller.user.id}`, rule.limit * WORKSPACE_ACCOUNT_LIMIT_FACTOR, rule.windowSeconds, now);
+    if (byKey && byAccount) continue;
+    const windowMs = rule.windowSeconds * 1_000;
+    retry = Math.max(retry, Math.ceil((windowMs - (now.getTime() % windowMs)) / 1_000));
+  }
+  if (retry) throw new McpToolError('rate_limited', `Too many workspace calls for now with this key (or this account). Try again in ${retry} seconds.`, { retry_after_seconds: retry });
+}
+
+/** One `ws_*` call: the key's access, its limits for reading or writing (and grep's own), then the work. */
+async function wsTool(ctx: ServerContext, kind: 'read' | 'write' | 'grep', work: (scope: WorkspaceScope) => Promise<unknown>): Promise<CallToolResult> {
   const caller = callerOf(ctx);
   try {
     if (caller.workspaceAccess === 'none') {
@@ -103,7 +128,8 @@ async function wsTool(ctx: ServerContext, kind: 'read' | 'write', work: (scope: 
     if (kind === 'write' && caller.workspaceAccess !== 'write') {
       return failure('workspace_not_allowed', 'This API key may only read the workspace. Create a key with workspace write access in Settings → API to change files.');
     }
-    await routeLimit(kind === 'read' ? 'workspaceRead' : 'workspaceWrite', caller);
+    await keyLimit(kind === 'write' ? 'workspaceWrite' : 'workspaceRead', caller);
+    if (kind === 'grep') await keyLimit('workspaceGrep', caller);
     return data(await work(await scopeOf(caller)));
   } catch (error) {
     if (error instanceof WorkspaceError) return failure(error.code, error.message, error.details);
@@ -311,7 +337,7 @@ export function registerWorkspaceTools(server: Server) {
       annotations: READ,
     },
     async (input, ctx) =>
-      wsTool(ctx, 'read', (scope) =>
+      wsTool(ctx, 'grep', (scope) =>
         grepFiles(scope, { pattern: input.pattern, literal: input.literal, path: input.path, glob: input.glob, ignoreCase: input.ignore_case, context: input.context, limit: input.limit }),
       ),
   );

@@ -10,7 +10,7 @@ import {
   lineWindow,
   normalizePath,
   relativeToRoot,
-  restoredName,
+  restoredCandidate,
   underRoot,
 } from '@/lib/domain/workspace';
 
@@ -42,10 +42,10 @@ describe('workspace paths', () => {
     expect(match('a+b.(md)', 'a+b.(md)')).toBe(true);
   });
 
-  it('names a restored path that is free', () => {
-    const taken = new Set(['/a/plan (restored).md']);
-    expect(restoredName('/a/plan.md', (path) => taken.has(path))).toBe('/a/plan (restored 2).md');
-    expect(restoredName('/proj', () => false)).toBe('/proj (restored)');
+  it('names the candidates for a restored path', () => {
+    expect(restoredCandidate('/a/plan.md', 1)).toBe('/a/plan (restored).md');
+    expect(restoredCandidate('/a/plan.md', 2)).toBe('/a/plan (restored 2).md');
+    expect(restoredCandidate('/proj', 1)).toBe('/proj (restored)');
   });
 });
 
@@ -68,8 +68,8 @@ describe('workspace reads', () => {
 
 describe('workspace versions and storage', () => {
   const at = (seconds: number) => new Date(Date.UTC(2031, 0, 1, 0, 0, seconds));
-  const latest = { apiKeyId: 'k', userId: 'u', updatedAt: at(0), op: 'write' };
-  it('merges the same key’s saves within the window only', () => {
+  const latest = { apiKeyId: 'k', userId: 'u', runStartedAt: at(0), op: 'write' };
+  it('merges the same key’s saves within a window anchored at the run start', () => {
     expect(coalesces(latest, { apiKeyId: 'k', userId: 'u', op: 'edit' }, at(59), 60_000)).toBe(true);
     expect(coalesces(latest, { apiKeyId: 'k', userId: 'u', op: 'edit' }, at(60), 60_000)).toBe(false);
     expect(coalesces(latest, { apiKeyId: 'other', userId: 'u', op: 'write' }, at(1), 60_000)).toBe(false);

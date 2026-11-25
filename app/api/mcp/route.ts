@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 import { apiKeyCaller, bearerToken } from '@/lib/http/api-key';
 import { authInfoFor, mcpHandlerFor } from '@/lib/http/mcp';
 import { noteKeyClient } from '@/lib/services/api-keys';
+import { clientFromUserAgent } from '@/lib/domain/workspace';
 import { fail } from '@/lib/http/respond';
 import { sameOrigin } from '@/lib/http/session';
 
@@ -26,6 +27,9 @@ async function serve(request: NextRequest): Promise<Response> {
   if (request.headers.get('origin') && !sameOrigin(request.headers)) return fail('cross_origin', 403);
   const caller = await apiKeyCaller(request);
   if (caller instanceof Response) return caller;
+  /* A request whose User-Agent names a known tool is that tool's, even on a key another tool connected with last. */
+  const agent = clientFromUserAgent(request.headers.get('user-agent'));
+  if (agent) caller.clientName = agent;
   request.auth = authInfoFor(caller, bearerToken(request.headers)!);
   /* The client's own name (`initialize`), so the files it writes say which tool wrote them; the server is stateless, so later calls cannot tell. */
   if (request.method === 'POST' && (request.headers.get('content-type') ?? '').includes('application/json')) {
