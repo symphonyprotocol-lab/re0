@@ -1,9 +1,24 @@
 /*
- * The share page `/s/[slug]` as the Ree's landing page. Each Ree's own color
- * (components/ui/ree-avatar.tsx, the six defaults) tints its hero panel,
- * the source bar and the closing band: `--tone` for ink and marks, `--tone-tint`
- * for fields, `--tone-line` for their edges. The rest is the site's palette.
+ * The share page `/s/[slug]` as the Ree's landing page (design A,
+ * 2026-11-25). Flat grounds, no gradients or resting shadows: sections part
+ * by a change of ground or by space. Instrument Sans (app/s/[slug]/layout.tsx)
+ * at 400 and 500, Chinese on the site's own fallbacks.
+ *
+ * Each Ree's own color (components/ui/ree-avatar.tsx, the six defaults)
+ * tints the page: `--tone` for ink and marks, `--tone-tint` for the hero's
+ * exchange and the source tiles, `--tone-line` for edges. The rest is the
+ * site's palette.
  */
+.share-page {
+  --share-font: var(--font-instrument), 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', var(--font-sans);
+  --share-ink2: #2f3756;
+  --share-surface: #f3f6fb;
+  --share-rule: #dde3ee;
+  --share-dark: #091135;
+  --share-dark-muted: #a5abc0;
+  font-family: var(--share-font);
+  background: #ffffff;
+}
 .share-landing {
   --tone: #0867c4;
   --tone-tint: #edf4ff;
@@ -35,149 +50,347 @@
   --tone-line: #dbe2ee;
 }
 
-/* Hero: who it is on the left, one real exchange on the tinted right. */
-.share-hero {
-  display: grid;
-  overflow: hidden;
-  border: 1px solid var(--color-line);
-  border-radius: 20px;
-  background: #fff;
-  box-shadow: 0 18px 48px #0911350d;
+/* One content width, equal edges: 48px gutters, 20px on a phone. */
+.share-wrap {
+  width: 100%;
+  max-width: 1248px;
+  margin: 0 auto;
+  padding: 0 20px;
 }
-@media (min-width: 960px) {
-  .share-hero.has-side {
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+@media (min-width: 640px) {
+  .share-wrap {
+    padding: 0 48px;
+  }
+}
+
+.share-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.share-top {
+  display: flex;
+  align-items: center;
+  height: 64px;
+}
+@media (min-width: 640px) {
+  .share-top {
+    height: 76px;
+  }
+}
+
+/* Buttons: one solid style, 48px (44px in the bar), a verb and its object. */
+.share-btn {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 12px;
+  background: var(--tone, #0867c4);
+  padding: 0 22px;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: center;
+  transition: transform 0.15s, filter 0.15s;
+}
+.share-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(0.94);
+}
+.share-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+.share-btn svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.share-btn-sm {
+  min-height: 44px;
+  padding: 0 18px;
+  font-size: 15px;
+}
+.share-btn-light {
+  background: #ffffff;
+  color: var(--share-dark);
+}
+.share-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  color: var(--tone, #0867c4);
+  font-size: 16px;
+  font-weight: 500;
+}
+.share-link svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.15s;
+}
+.share-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.share-link:hover svg {
+  transform: translateX(3px);
+}
+
+/* The first screen: who it is on the left, one real exchange on the right. */
+.share-hero {
+  padding: 16px 0 64px;
+}
+.share-hero-grid {
+  display: grid;
+  gap: 40px;
+}
+@media (min-width: 1024px) {
+  .share-hero {
+    display: flex;
+    min-height: calc(100svh - 76px);
+    padding: 40px 0 56px;
+  }
+  .share-hero-grid {
+    align-items: stretch;
+  }
+  .share-hero.has-side .share-hero-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 72px;
   }
 }
 .share-hero-main {
-  padding: 28px 20px 24px;
-}
-@media (min-width: 640px) {
-  .share-hero-main {
-    padding: 44px 44px 36px;
-  }
-}
-.share-hero-side {
   display: flex;
+  min-width: 0;
   flex-direction: column;
-  justify-content: center;
-  border-top: 1px solid var(--tone-line);
-  background: var(--tone-tint);
-  padding: 20px;
+}
+.share-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-muted);
+  font-size: 15px;
+}
+.share-avatar {
+  margin-top: 32px;
 }
 @media (min-width: 640px) {
-  .share-hero-side {
-    padding: 36px;
-  }
-}
-@media (min-width: 960px) {
-  .share-hero-side {
-    border-top: 0;
-    border-left: 1px solid var(--tone-line);
+  .share-avatar {
+    width: 72px !important;
+    height: 72px !important;
+    border-radius: 20px !important;
+    margin-top: 40px;
   }
 }
 .share-name {
-  font-size: 32px;
-  line-height: 1.08;
-  font-weight: 800;
-  letter-spacing: -0.025em;
+  margin-top: 20px;
+  font-size: 40px;
+  font-weight: 500;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
   overflow-wrap: anywhere;
   text-wrap: balance;
 }
 @media (min-width: 640px) {
   .share-name {
-    font-size: 46px;
+    margin-top: 24px;
+    font-size: 72px;
+    letter-spacing: -0.036em;
   }
 }
-.share-lede {
-  max-width: 58ch;
+.share-byline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 16px;
+  color: var(--color-muted);
   font-size: 15px;
-  line-height: 1.65;
-  color: #3b4361;
+}
+.share-lede {
+  max-width: 34em;
+  margin-top: 24px;
+  color: var(--share-ink2);
+  font-size: 17px;
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 @media (min-width: 640px) {
   .share-lede {
-    font-size: 16px;
+    font-size: 20px;
+    line-height: 1.5;
   }
 }
-
-/* The figures: a row of plain numbers, each with what it counts. */
-.share-facts {
+.share-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px 28px;
-  margin-top: 28px;
-  padding-top: 20px;
-  border-top: 1px solid var(--color-line);
+  margin-top: 14px;
+  color: var(--color-muted);
+  font-size: 14px;
+}
+.share-tags li + li::before {
+  content: '·';
+  margin: 0 8px;
+}
+.share-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 32px;
+}
+.share-actions .share-link {
+  justify-content: center;
+  white-space: nowrap;
+}
+@media (min-width: 640px) {
+  .share-actions {
+    flex-direction: row;
+    align-items: center;
+    gap: 28px;
+  }
+}
+.share-preparing {
+  color: var(--color-muted);
+  font-size: 15px;
+}
+
+/* The figures: plain numbers, the price first in the Ree's color. */
+.share-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px 20px;
+  margin-top: 36px;
+}
+@media (min-width: 640px) {
+  .share-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px 40px;
+    margin-top: auto;
+    padding-top: 48px;
+  }
 }
 .share-facts div {
   display: flex;
-  flex-direction: column-reverse;
   min-width: 0;
-}
-.share-facts dt {
-  font-size: 11px;
-  color: var(--color-muted);
+  flex-direction: column-reverse;
+  justify-content: flex-end;
 }
 .share-facts dd {
-  font-family: var(--font-mono);
-  font-size: 22px;
-  font-weight: 600;
-  line-height: 1.2;
-  color: var(--color-ink);
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.share-facts dt {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+@media (min-width: 640px) {
+  .share-facts dd {
+    font-size: 38px;
+  }
+  .share-facts dt {
+    font-size: 14px;
+  }
+}
+.share-facts .is-price dd {
+  color: var(--tone);
 }
 
 /* The real exchange: the question as asked, the answer as given, what it cited. */
 .share-proof {
-  border: 1px solid var(--tone-line);
-  border-radius: 14px;
-  background: #fff;
-  padding: 18px;
-  box-shadow: 0 10px 28px #0911350a;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border-radius: 22px;
+  background: var(--tone-tint);
+  padding: 24px 20px;
 }
 @media (min-width: 640px) {
   .share-proof {
-    padding: 22px;
+    border-radius: 28px;
+    padding: 40px;
   }
 }
+.share-proof-label {
+  color: var(--tone);
+  font-size: 15px;
+  font-weight: 500;
+}
+.share-who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 22px;
+  color: var(--color-muted);
+  font-size: 14px;
+}
 .share-proof-question {
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.45;
+  align-self: flex-start;
+  max-width: 100%;
+  margin-top: 10px;
+  border-radius: 18px 18px 18px 6px;
+  background: #ffffff;
+  padding: 14px 20px;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
-.share-proof-answer {
-  margin-top: 14px;
-  border-left: 3px solid var(--tone);
-  padding-left: 14px;
+@media (min-width: 640px) {
+  .share-proof-question {
+    font-size: 22px;
+  }
 }
 .share-excerpt {
-  font-size: 13px;
-  line-height: 1.7;
-  color: #3b4361;
+  color: var(--share-ink2);
+  font-size: 15px;
+  line-height: 1.75;
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 7;
   overflow: hidden;
 }
+.share-proof-answer {
+  margin-top: 12px;
+  -webkit-line-clamp: 9;
+}
+@media (min-width: 640px) {
+  .share-excerpt {
+    font-size: 16px;
+  }
+}
+.share-cites-wrap {
+  margin-top: 18px;
+}
 .share-cites {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
+  gap: 8px;
+  margin-top: 8px;
 }
 .share-cite {
   display: inline-flex;
   max-width: 100%;
   align-items: center;
-  gap: 5px;
-  border: 1px solid var(--tone-line);
-  border-radius: 999px;
-  background: var(--tone-tint);
-  padding: 2px 9px 2px 7px;
-  font-size: 11px;
+  gap: 8px;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px 12px;
+  color: var(--color-ink);
+  font-size: 14px;
+}
+.share-cite svg {
   color: var(--tone);
 }
 .share-cite span {
@@ -185,73 +398,304 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* Sections below the hero: a heading column and the content beside it. */
-.share-section {
-  display: grid;
-  gap: 16px;
-  margin-top: 56px;
+.share-proof-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 20px;
+  color: var(--color-muted);
+  font-size: 14px;
 }
-@media (min-width: 960px) {
-  .share-section {
-    grid-template-columns: 300px minmax(0, 1fr);
-    gap: 48px;
-    margin-top: 72px;
+.share-hero-video {
+  min-width: 0;
+  align-self: center;
+  overflow: hidden;
+  border-radius: 22px;
+}
+
+/* Bands under the hero: a ground change or space between them, never a line or box. */
+.share-band {
+  padding: 80px 0;
+}
+.share-band + .share-band {
+  padding-top: 24px;
+}
+@media (min-width: 640px) {
+  .share-band {
+    padding: 120px 0;
+  }
+  .share-band + .share-band {
+    padding-top: 40px;
   }
 }
-.share-section-title {
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  line-height: 1.3;
+.share-ask-band {
+  background: var(--share-surface);
 }
-.share-section-note {
-  margin-top: 6px;
-  font-size: 13px;
-  line-height: 1.6;
+.share-ask-band + .share-band {
+  padding-top: 80px;
+}
+@media (min-width: 640px) {
+  .share-ask-band + .share-band {
+    padding-top: 120px;
+  }
+}
+.share-h2 {
+  font-size: 32px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+@media (min-width: 640px) {
+  .share-h2 {
+    font-size: 48px;
+    letter-spacing: -0.03em;
+  }
+}
+.share-sub {
+  max-width: 40em;
+  margin-top: 14px;
   color: var(--color-muted);
+  font-size: 16px;
+  line-height: 1.6;
+}
+@media (min-width: 640px) {
+  .share-sub {
+    margin-top: 16px;
+    font-size: 18px;
+  }
+}
+.share-h3 {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+@media (min-width: 640px) {
+  .share-h3 {
+    font-size: 20px;
+  }
+}
+.share-note {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.55;
 }
 
-/* 可以这样问它: each question a line to pick. */
+/* 向 {name} 提问: 可以这样问它 beside the box, the questions put into it. */
+.share-ask-grid {
+  display: grid;
+  gap: 40px;
+  margin-top: 40px;
+}
+@media (min-width: 1024px) {
+  .share-ask-grid {
+    margin-top: 56px;
+  }
+  .share-ask-grid.has-topics {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: 72px;
+    align-items: start;
+  }
+  .share-ask-grid:not(.has-topics) .share-ask-box {
+    max-width: 720px;
+  }
+}
 .share-questions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  margin-top: 20px;
+  border-bottom: 1px solid var(--share-rule);
+}
+.share-questions li {
+  border-top: 1px solid var(--share-rule);
 }
 .share-question {
   display: flex;
+  min-height: 64px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  border: 1px solid var(--color-line);
-  border-radius: 12px;
-  background: #fff;
-  padding: 13px 16px;
-  font-size: 14px;
-  line-height: 1.5;
+  gap: 16px;
+  padding: 14px 4px;
+  font-size: 17px;
+  line-height: 1.45;
   overflow-wrap: anywhere;
 }
+@media (min-width: 640px) {
+  .share-question {
+    min-height: 72px;
+    font-size: 20px;
+  }
+}
 a.share-question {
-  transition: border-color 0.15s, color 0.15s;
+  transition: color 0.15s;
 }
 a.share-question svg {
-  color: var(--color-muted);
+  width: 20px;
+  height: 20px;
+  color: var(--tone);
+  transition: transform 0.15s;
 }
 a.share-question:hover {
-  border-color: var(--tone);
   color: var(--tone);
 }
 a.share-question:hover svg {
-  color: var(--tone);
+  transform: translateX(3px);
 }
 
-/* Its sources by kind: one bar in proportion, then the counts. */
+/* The box (components/posts/ree-ask.tsx) on white, larger to type in. */
+.share-ask-box .post-composer {
+  grid-template-columns: minmax(0, 1fr);
+  border: 0;
+  border-radius: 20px;
+  background: #ffffff;
+  padding: 20px;
+}
+@media (min-width: 640px) {
+  .share-ask-box .post-composer {
+    border-radius: 24px;
+    padding: 32px;
+  }
+}
+.share-ask-box .post-composer > span:first-child {
+  display: none;
+}
+.share-ask-box .post-composer textarea {
+  min-height: 132px;
+  margin-top: 12px;
+  border: 1.5px solid var(--tone-line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 17px;
+}
+.share-ask-box .post-composer textarea:focus {
+  border-color: var(--tone);
+}
+.share-ask-box .ask-vis {
+  border-radius: 12px;
+  padding: 4px;
+}
+.share-ask-box .ask-vis button {
+  height: 36px;
+  border-radius: 9px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.share-ask-box .ask-vis button[aria-checked='true'] {
+  box-shadow: none;
+}
+.share-ask-box .ask-vis svg {
+  width: 15px;
+  height: 15px;
+}
+.share-ask-box .ask-chip {
+  font-size: 14px;
+}
+.share-ask-box .post-hint,
+.share-ask-box .post-composer-foot .post-cost {
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.share-ask-box .post-composer-foot {
+  margin-top: 16px;
+  font-size: 14px;
+}
+.share-ask-box .post-composer-foot .btn {
+  min-height: 44px;
+  border-radius: 12px;
+  background: var(--tone);
+  padding: 0 20px;
+  font-size: 15px;
+  font-weight: 500;
+}
+@media (max-width: 639px) {
+  .share-ask-box .post-composer-foot .btn {
+    width: 100%;
+  }
+}
+
+/* 大家问过的: question beside answer, one exchange a row, rules inside the edges. */
+.share-picks {
+  margin-top: 40px;
+  border-bottom: 1px solid var(--share-rule);
+}
+.share-qa {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--share-rule);
+  padding: 24px 0;
+}
+@media (min-width: 720px) {
+  .share-qa {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 48px;
+    padding: 32px 0;
+  }
+}
+.share-qa-question {
+  display: block;
+  margin-top: 6px;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.share-qa-question:hover {
+  color: var(--tone);
+}
+.share-qa .share-cite {
+  background: var(--tone-tint);
+}
+
+.share-video {
+  max-width: 880px;
+  overflow: hidden;
+  border-radius: 22px;
+}
+
+/* 它的回答从哪里来: the count, its kinds in one bar, then the sources answers cited. */
+.share-knows-grid {
+  display: grid;
+  gap: 48px;
+  margin-top: 40px;
+}
+@media (min-width: 1024px) {
+  .share-knows-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: 72px;
+    margin-top: 56px;
+  }
+}
+.share-big {
+  color: var(--tone);
+  font-size: 72px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+.share-big span {
+  display: block;
+  margin-top: 8px;
+  color: var(--color-muted);
+  font-size: 17px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+@media (min-width: 640px) {
+  .share-big {
+    font-size: 96px;
+  }
+}
 .share-mix-bar {
   display: flex;
-  height: 10px;
+  height: 12px;
   gap: 2px;
   overflow: hidden;
   border-radius: 999px;
+  background: var(--share-surface);
 }
 .share-mix-bar span {
   background: var(--tone);
@@ -265,46 +709,148 @@ a.share-question:hover svg {
 .share-mix-bar span:nth-child(n + 4) {
   opacity: 0.32;
 }
-.share-list {
-  border: 1px solid var(--color-line);
-  border-radius: 14px;
-  background: #fff;
+.share-mix {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  margin-top: 16px;
+  font-size: 16px;
 }
-.share-list > li + li {
-  border-top: 1px solid var(--color-line);
+.share-mix li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
-
-/* 大家问过的: question beside answer, one exchange per row. */
-.share-qa {
+.share-mix strong {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.share-cited {
+  margin-top: 16px;
+  border-bottom: 1px solid var(--share-rule);
+}
+.share-cited li {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-top: 1px solid var(--share-rule);
+  padding: 18px 0;
+}
+.share-cited strong {
+  display: block;
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.share-cited-tile {
   display: grid;
-  gap: 10px;
-  padding: 18px;
-}
-@media (min-width: 720px) {
-  .share-qa {
-    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-    gap: 28px;
-    padding: 22px 24px;
-  }
+  width: 48px;
+  height: 48px;
+  flex: none;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--tone-tint);
+  color: var(--tone);
 }
 
-/* The closing band: the ask box on the Ree's own tint. */
-.share-closing {
-  margin-top: 64px;
-  border: 1px solid var(--tone-line);
-  border-radius: 20px;
-  background: var(--tone-tint);
-  padding: 24px 16px;
+/* The dark foot: the last ask, the creator, then the mark and 由 RE0 提供. */
+.share-foot {
+  background: var(--share-dark);
+  padding: 80px 0 28px;
+  color: #ffffff;
 }
 @media (min-width: 640px) {
-  .share-closing {
-    padding: 40px 44px;
+  .share-foot {
+    padding: 112px 0 40px;
   }
 }
-.share-closing .post-ask {
-  margin-top: 20px;
+.share-foot-row {
+  display: grid;
+  gap: 56px;
+  margin-bottom: 72px;
 }
-.share-closing .post-composer {
-  border-radius: 14px;
-  background: #fff;
+@media (min-width: 1024px) {
+  .share-foot-row.has-two {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 72px;
+    align-items: start;
+  }
+}
+.share-foot-title {
+  font-size: 32px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+@media (min-width: 640px) {
+  .share-foot-title {
+    font-size: 48px;
+    letter-spacing: -0.03em;
+  }
+}
+.share-legal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 24px;
+  color: var(--share-dark-muted);
+  font-size: 14px;
+}
+.share-legal .share-brand {
+  color: #ffffff;
+  font-size: 16px;
+}
+.share-legal-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+}
+.share-legal-link:hover {
+  color: #ffffff;
+}
+
+/* The creator (components/discover/author-profile.tsx) set on the dark foot. */
+.share-creator #author-profile {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+.share-creator #author-profile-heading {
+  color: var(--share-dark-muted);
+  font-size: 14px;
+  font-weight: 500;
+}
+.share-creator h3 {
+  color: #ffffff;
+  font-size: 22px;
+  font-weight: 500;
+}
+.share-creator #author-contact {
+  color: var(--share-dark-muted);
+  font-size: 14px;
+}
+.share-creator .text-blue {
+  color: #9cc6ff;
+}
+.share-creator .text-muted {
+  color: var(--share-dark-muted);
+}
+.share-creator p {
+  color: #d3d7e4;
+}
+.share-creator .bg-wash {
+  border-color: #26305a;
+  background: #121c45;
+}
+.share-creator .btn-secondary {
+  border-color: #2c376a;
+  background: transparent;
+  color: #ffffff;
+}
+.share-creator .btn-secondary:hover {
+  background: #162042;
 }

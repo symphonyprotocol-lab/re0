@@ -23,7 +23,6 @@ import { KIND_ICONS } from '@/components/knowledge/kind-icons';
 import { ShareFrame } from '@/components/share/share-frame';
 import { ShareVisit } from '@/components/share/share-visit';
 import { AskJump, TryQuestions } from '@/components/share/share-ask';
-import '@/components/share/share.css';
 
 /** Metadata and the page share one lookup per request. */
 const publicReeBySlug = cache(lookup);
@@ -72,24 +71,29 @@ function Cites({ post, label }: { post: PostView; label: string }) {
   const cited = [...new Map((post.answers[0]?.citations ?? []).map((entry) => [entry.knowledgeId, entry])).values()].slice(0, 3);
   if (!cited.length) return null;
   return (
-    <ul className="share-cites" aria-label={label}>
-      {cited.map((entry) => (
-        <li key={entry.knowledgeId} className="share-cite" title={entry.title}>
-          <Icon name={KIND_ICONS[entry.kind] ?? 'file'} className="size-3 flex-none" />
-          <span>{entry.title}</span>
-        </li>
-      ))}
-    </ul>
+    <div className="share-cites-wrap">
+      <p className="share-note">{label}</p>
+      <ul className="share-cites" aria-label={label}>
+        {cited.map((entry) => (
+          <li key={entry.knowledgeId} className="share-cite" title={entry.title}>
+            <Icon name={KIND_ICONS[entry.kind] ?? 'file'} className="size-3.5 flex-none" />
+            <span>{entry.title}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
 /**
  * `/s/[slug]`: the share page -- the link a Ree's owner (or anyone) sends
- * out, laid out as the Ree's own landing page. Its hero (who it is, who
- * made it, 向 {name} 提问, its figures) beside one real exchange from a
- * public post; 可以这样问它, whose questions go into the box; where its
- * answers come from (its sources by kind, and those its public answers
- * cited); more of what people asked; the creator; and the box to close.
+ * out, laid out as the Ree's own landing page (design A, 2026-11-25: flat
+ * grounds, the real exchange leading). The first screen: who it is, who
+ * made it, 向 {name} 提问 and its figures, its price first, beside one real
+ * exchange from a public post (else its introduction video). Then the box
+ * itself with 可以这样问它 beside it, whose questions go into it; more of
+ * what people asked; the video when the exchange took the hero; where its
+ * answers come from; and a dark foot with the last ask and the creator.
  * Only public things: a public Ree's public posts, shown answers and the
  * counts every public page shows -- never a source nobody was shown, a
  * private post or 试问. A section with nothing to show is left out.
@@ -124,148 +128,192 @@ export default async function SharePage({ params, searchParams }: Props) {
   /* The hero's right side: one real exchange, else the introduction video. */
   const side = proof ? 'proof' : video ? 'video' : null;
 
+  const foot =
+    ready || hasCreator ? (
+      <div className={`share-foot-row${ready && hasCreator ? ' has-two' : ''}`}>
+        {ready && (
+          <div className="min-w-0">
+            <p className="share-foot-title [overflow-wrap:anywhere]">{ask}</p>
+            <AskJump slug={ree.slug} className="share-btn share-btn-light mt-8">
+              <Icon name="chat" />
+              {t.posts.ask.jump}
+            </AskJump>
+          </div>
+        )}
+        {hasCreator && (
+          <div className="share-creator min-w-0">
+            <AuthorProfile author={{ name: ree.ownerName, avatar: ree.ownerAvatar, role: ree.role, title: ree.ownerTitle, description: ree.ownerDescription, website: ree.ownerWebsite, socialContacts: ree.ownerSocialContacts }} />
+          </div>
+        )}
+      </div>
+    ) : null;
+
   return (
     <ShareFrame
       powered={s.powered}
       wide
-      action={ready ? <AskJump slug={ree.slug} className="btn btn-sm">{t.posts.ask.jump}</AskJump> : null}
+      footer={foot}
+      action={
+        ready ? (
+          <AskJump slug={ree.slug} className="share-btn share-btn-sm">
+            <Icon name="chat" />
+            {t.posts.ask.jump}
+          </AskJump>
+        ) : null
+      }
     >
       <ShareVisit slug={ree.slug} />
       <div className={`share-landing ${tone}`}>
         <article className={`share-hero${side ? ' has-side' : ''}`} aria-labelledby="share-name">
-          <div className="share-hero-main">
-            <p className="text-[12px] text-muted">{fill(s.sharedBy, { name: ree.ownerName })}</p>
-            <div className="mt-5 flex items-start gap-4">
-              <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="lg" className="sm:size-[76px]" />
-              <div className="min-w-0">
-                <h1 id="share-name" className="share-name">{ree.name}</h1>
-                <p className="mt-2 flex flex-wrap items-center text-[13px] text-muted">
-                  {fill(s.by, { name: ree.ownerName })}
-                  <RoleBadge role={ree.role} />
-                </p>
+          <div className="share-wrap share-hero-grid">
+            <div className="share-hero-main">
+              <p className="share-notice">
+                <UserAvatar name={ree.ownerName} avatar={ree.ownerAvatar} className="size-6 rounded-[7px] text-[9px]" />
+                <span className="min-w-0 [overflow-wrap:anywhere]">{fill(s.sharedBy, { name: ree.ownerName })}</span>
+              </p>
+              <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="lg" className="share-avatar" />
+              <h1 id="share-name" className="share-name">{ree.name}</h1>
+              <p className="share-byline">
+                {fill(s.by, { name: ree.ownerName })}
+                <RoleBadge role={ree.role} />
+              </p>
+              {ree.description && <p className="share-lede">{ree.description}</p>}
+              <ul className="share-tags" aria-label={category}>
+                <li>{category}</li>
+                {tags.slice(0, 5).map((tag) => (
+                  <li key={tag}>{tag}</li>
+                ))}
+              </ul>
+              <div className="share-actions">
+                {ready ? (
+                  <AskJump slug={ree.slug} className="share-btn">
+                    <Icon name="chat" />
+                    {ask}
+                  </AskJump>
+                ) : (
+                  <p className="share-preparing">{s.preparing}</p>
+                )}
+                <Link href={`/r/${ree.slug}`} className="share-link">
+                  {s.profile}
+                  <Icon name="arrow" />
+                </Link>
               </div>
-            </div>
-            {ree.description && <p className="share-lede mt-6">{ree.description}</p>}
-            <ul className="mt-5 flex flex-wrap gap-2" aria-label={category}>
-              <li className="tag">{category}</li>
-              {tags.slice(0, 5).map((tag) => (
-                <li key={tag} className="tag">{tag}</li>
-              ))}
-            </ul>
-            <div className="mt-7 flex flex-wrap items-center gap-3">
-              {ready ? (
-                <AskJump slug={ree.slug} className="btn">
-                  <Icon name="chat" />
-                  {ask}
-                </AskJump>
-              ) : (
-                <p className="text-[12px] text-muted">{s.preparing}</p>
-              )}
-              <Link href={`/r/${ree.slug}`} className="btn-secondary">
-                {s.profile}
-              </Link>
-            </div>
-            <dl className="share-facts" aria-label={fill(s.facts.label, { name: ree.name })}>
-              {ree.answers > 0 && (
-                <div>
-                  <dt>{s.facts.answers}</dt>
-                  <dd>{n(ree.answers)}</dd>
+              <dl className="share-facts" aria-label={fill(s.facts.label, { name: ree.name })}>
+                <div className="is-price">
+                  <dt>{s.facts.price}</dt>
+                  <dd>{n(own ? ree.price - ree.queryFee : ree.price)}</dd>
                 </div>
-              )}
-              {ree.positiveRate !== null && (
-                <div>
-                  <dt>{s.facts.helpful}</dt>
-                  <dd>{ree.positiveRate}%</dd>
-                </div>
-              )}
-              {ready && (
-                <div>
-                  <dt>{s.facts.sources}</dt>
-                  <dd>{n(ree.sources)}</dd>
-                </div>
-              )}
-              <div>
-                <dt>{s.facts.price}</dt>
-                <dd>{n(own ? ree.price - ree.queryFee : ree.price)}</dd>
-              </div>
-            </dl>
-          </div>
-
-          {side === 'proof' && proof && (
-            <div className="share-hero-side">
-              <figure className="share-proof">
-                <figcaption className="text-[11px] font-semibold text-[color:var(--tone)]">{s.proof.label}</figcaption>
-                <div className="mt-3 flex items-center gap-2 text-[11px] text-muted">
-                  <UserAvatar name={askerName(proof, t)} avatar={proof.author.kind === 'user' ? proof.author.avatar : null} className="size-5 text-[8px]" />
-                  {fill(s.proof.asked, { name: askerName(proof, t) })}
-                </div>
-                <p className="share-proof-question mt-1.5">{proof.question}</p>
-                <div className="share-proof-answer">
-                  <div className="flex items-center gap-2 text-[11px] text-muted">
-                    <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="sm" className="size-5! rounded-[6px]! [&_svg]:size-3!" />
-                    {fill(s.proof.answered, { name: ree.name })}
+                {ready && (
+                  <div>
+                    <dt>{s.facts.sources}</dt>
+                    <dd>{n(ree.sources)}</dd>
                   </div>
-                  <p className="share-excerpt mt-2">{excerpt(proof.answers[0]!.text)}</p>
-                  <Cites post={proof} label={s.proof.cited} />
-                </div>
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
+                )}
+                {ree.answers > 0 && (
+                  <div>
+                    <dt>{s.facts.answers}</dt>
+                    <dd>{n(ree.answers)}</dd>
+                  </div>
+                )}
+                {ree.positiveRate !== null && (
+                  <div>
+                    <dt>{s.facts.helpful}</dt>
+                    <dd>{ree.positiveRate}%</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+
+            {side === 'proof' && proof && (
+              <figure className="share-proof">
+                <figcaption className="share-proof-label">{s.proof.label}</figcaption>
+                <p className="share-who">
+                  <UserAvatar name={askerName(proof, t)} avatar={proof.author.kind === 'user' ? proof.author.avatar : null} className="size-7 text-[10px]" />
+                  {fill(s.proof.asked, { name: askerName(proof, t) })}
+                </p>
+                <p className="share-proof-question">{proof.question}</p>
+                <p className="share-who">
+                  <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="sm" className="size-7! rounded-[8px]! [&_svg]:size-4!" />
+                  {fill(s.proof.answered, { name: ree.name })}
+                </p>
+                <p className="share-excerpt share-proof-answer">{excerpt(proof.answers[0]!.text)}</p>
+                <Cites post={proof} label={s.proof.cited} />
+                <div className="share-proof-foot">
                   {proof.helpful > 0 ? (
-                    <span className="inline-flex items-center gap-1">
-                      <Icon name="thumbUp" className="size-3" />
+                    <span className="inline-flex items-center gap-1.5">
+                      <Icon name="thumbUp" className="size-3.5" />
                       {fill(s.helpful, { n: n(proof.helpful) })}
                     </span>
                   ) : <span />}
-                  <Link href={`/p/${proof.id}`} className="text-link">
+                  <Link href={`/p/${proof.id}`} className="share-link">
                     {s.proof.read}
-                    <Icon name="chevronRight" className="size-3" />
+                    <Icon name="arrow" />
                   </Link>
                 </div>
               </figure>
-            </div>
-          )}
-          {side === 'video' && video && (
-            <div className="share-hero-side">
-              <PublicIntro ree={ree} video={video} autoPlay={one(query.video) === '1'} />
-            </div>
-          )}
+            )}
+            {side === 'video' && video && (
+              <div className="share-hero-video">
+                <PublicIntro ree={ree} video={video} autoPlay={one(query.video) === '1'} />
+              </div>
+            )}
+          </div>
         </article>
 
-        {video && side !== 'video' && (
-          <section className="share-section" aria-labelledby="share-video">
-            <div>
-              <h2 id="share-video" className="share-section-title">{t.discover.public.video}</h2>
-            </div>
-            <div className="overflow-hidden rounded-[14px] border border-line bg-white">
-              <PublicIntro ree={ree} video={video} autoPlay={one(query.video) === '1'} />
+        {ready ? (
+          <section className="share-band share-ask-band" aria-labelledby="share-ask">
+            <div className="share-wrap">
+              <h2 id="share-ask" className="share-h2 [overflow-wrap:anywhere]">{ask}</h2>
+              <p className="share-sub">
+                {!user && ree.visitorAsks ? fill(s.closing.visitor, { owner: ree.ownerName }) : [ree.takesPosts ? s.closing.body : s.closing.privateOnly, s.closing.cost].join(locale === 'zh' ? '' : ' ')}
+              </p>
+              <div className={`share-ask-grid${questions.length ? ' has-topics' : ''}`}>
+                {questions.length > 0 && (
+                  <div className="min-w-0">
+                    <h3 id="share-topics" className="share-h3">{s.topics}</h3>
+                    <p className="share-note">{s.topicsHint}</p>
+                    <TryQuestions slug={ree.slug} questions={questions} live />
+                  </div>
+                )}
+                <div className="share-ask-box min-w-0">
+                  <ReeAsk
+                    ree={{ id: ree.id, slug: ree.slug, name: ree.name }}
+                    option={askOption(ree, own)}
+                    takesPosts={ree.takesPosts}
+                    signedIn={Boolean(user)}
+                    loginHref={`/login?returnTo=${encodeURIComponent(`/s/${ree.slug}#${REE_ASK_ANCHOR}`)}`}
+                    share={user && !own ? ree.slug : null}
+                    visitorAsk={ree.visitorAsks}
+                  />
+                </div>
+              </div>
             </div>
           </section>
+        ) : (
+          questions.length > 0 && (
+            <section className="share-band share-ask-band" aria-labelledby="share-topics">
+              <div className="share-wrap">
+                <h2 id="share-topics" className="share-h2">{s.topics}</h2>
+                <p className="share-sub">{s.preparing}</p>
+                <div className="share-ask-grid">
+                  <TryQuestions slug={ree.slug} questions={questions} live={false} />
+                </div>
+              </div>
+            </section>
+          )
         )}
-
-        {questions.length > 0 && (
-          <section className="share-section" aria-labelledby="share-topics">
-            <div>
-              <h2 id="share-topics" className="share-section-title">{s.topics}</h2>
-              {ready && <p className="share-section-note">{s.topicsHint}</p>}
-            </div>
-            <TryQuestions slug={ree.slug} questions={questions} live={ready} />
-          </section>
-        )}
-
-        {ready && <Knowledge ree={ree} mix={mix} cited={cited} t={t} n={n} />}
 
         {highlights.length > 0 && (
-          <section className="share-section" aria-labelledby="share-picks">
-            <div>
-              <h2 id="share-picks" className="share-section-title">{s.picks}</h2>
-              <p className="share-section-note">{fill(s.picksCount, { n: n(picks.total) })}</p>
-            </div>
-            <div>
-              <ul className="share-list">
+          <section className="share-band" aria-labelledby="share-picks">
+            <div className="share-wrap">
+              <h2 id="share-picks" className="share-h2">{s.picks}</h2>
+              <p className="share-sub">{fill(s.picksCount, { n: n(picks.total) })}</p>
+              <ul className="share-list share-picks">
                 {highlights.map((post) => (
                   <li key={post.id} className="share-qa">
                     <div className="min-w-0">
-                      <p className="text-[11px] text-muted">{fill(s.proof.asked, { name: askerName(post, t) })}</p>
-                      <Link href={`/p/${post.id}`} className="mt-1 block text-[15px] leading-snug font-bold [overflow-wrap:anywhere] hover:text-blue">
+                      <p className="share-note">{fill(s.proof.asked, { name: askerName(post, t) })}</p>
+                      <Link href={`/p/${post.id}`} className="share-qa-question">
                         {post.question}
                       </Link>
                     </div>
@@ -273,8 +321,8 @@ export default async function SharePage({ params, searchParams }: Props) {
                       <p className="share-excerpt">{excerpt(post.answers[0]!.text)}</p>
                       <Cites post={post} label={s.proof.cited} />
                       {post.helpful > 0 && (
-                        <p className="mt-2 inline-flex items-center gap-1 text-[11px] text-muted">
-                          <Icon name="thumbUp" className="size-3" />
+                        <p className="share-note mt-3 inline-flex items-center gap-1.5">
+                          <Icon name="thumbUp" className="size-3.5" />
                           {fill(s.helpful, { n: n(post.helpful) })}
                         </p>
                       )}
@@ -282,42 +330,26 @@ export default async function SharePage({ params, searchParams }: Props) {
                   </li>
                 ))}
               </ul>
-              <Link href={`/r/${ree.slug}`} className="text-link mt-3">
+              <Link href={`/r/${ree.slug}`} className="share-link mt-6">
                 {fill(s.allAnswers, { n: n(picks.total) })}
-                <Icon name="chevronRight" className="size-3" />
+                <Icon name="arrow" />
               </Link>
             </div>
           </section>
         )}
 
-        {hasCreator && (
-          <div className="mt-14 min-w-0 rounded-[14px] border border-line bg-white px-5 pb-6 sm:px-7 lg:mt-[72px] [&>section]:mt-0! [&>section]:border-t-0! [&>section]:pt-6!">
-            <AuthorProfile author={{ name: ree.ownerName, avatar: ree.ownerAvatar, role: ree.role, title: ree.ownerTitle, description: ree.ownerDescription, website: ree.ownerWebsite, socialContacts: ree.ownerSocialContacts }} />
-          </div>
-        )}
-
-        {ready && (
-          <section className="share-closing" aria-labelledby="share-closing">
-            <div className="mx-auto max-w-[680px]">
-              <div className="flex items-center gap-3">
-                <ReeAvatar avatar={ree.avatarBlob} color={ree.color} size="md" />
-                <h2 id="share-closing" className="share-section-title min-w-0 [overflow-wrap:anywhere]">{ask}</h2>
+        {video && side !== 'video' && (
+          <section className="share-band" aria-labelledby="share-video">
+            <div className="share-wrap">
+              <h2 id="share-video" className="share-h2">{t.discover.public.video}</h2>
+              <div className="share-video mt-10">
+                <PublicIntro ree={ree} video={video} autoPlay={one(query.video) === '1'} />
               </div>
-              <p className="share-section-note">
-                {!user && ree.visitorAsks ? fill(s.closing.visitor, { owner: ree.ownerName }) : [ree.takesPosts ? s.closing.body : s.closing.privateOnly, s.closing.cost].join(locale === 'zh' ? '' : ' ')}
-              </p>
-              <ReeAsk
-                ree={{ id: ree.id, slug: ree.slug, name: ree.name }}
-                option={askOption(ree, own)}
-                takesPosts={ree.takesPosts}
-                signedIn={Boolean(user)}
-                loginHref={`/login?returnTo=${encodeURIComponent(`/s/${ree.slug}#${REE_ASK_ANCHOR}`)}`}
-                share={user && !own ? ree.slug : null}
-                visitorAsk={ree.visitorAsks}
-              />
             </div>
           </section>
         )}
+
+        {ready && <Knowledge ree={ree} mix={mix} cited={cited} t={t} n={n} />}
       </div>
     </ShareFrame>
   );
@@ -329,51 +361,55 @@ function Knowledge({ ree, mix, cited, t, n }: { ree: PublicRee; mix: Awaited<Ret
   const total = mix.reduce((sum, entry) => sum + entry.count, 0);
   if (!total && !cited.length) return null;
   return (
-    <section className="share-section" aria-labelledby="share-knows">
-      <div>
-        <h2 id="share-knows" className="share-section-title">{k.heading}</h2>
-        <p className="share-section-note">{fill(k.lede, { name: ree.name, n: n(ree.sources) })}</p>
-      </div>
-      <div className="flex min-w-0 flex-col gap-5">
-        {total > 0 && (
-          <div className="rounded-[14px] border border-line bg-white p-5">
-            <h3 className="text-[12px] font-semibold">{k.mix}</h3>
-            <div className="share-mix-bar mt-3" aria-hidden="true">
-              {mix.map((entry) => (
-                <span key={entry.kind} style={{ flexGrow: entry.count, flexBasis: 0 }} />
-              ))}
+    <section className="share-band" aria-labelledby="share-knows">
+      <div className="share-wrap">
+        <h2 id="share-knows" className="share-h2">{k.heading}</h2>
+        <p className="share-sub">{fill(k.lede, { name: ree.name, n: n(ree.sources) })}</p>
+        <div className="share-knows-grid">
+          {total > 0 && (
+            <div className="min-w-0">
+              <p className="share-big">
+                {n(ree.sources)}
+                <span>{t.share.page.facts.sources}</span>
+              </p>
+              <h3 className="share-h3 mt-10">{k.mix}</h3>
+              <div className="share-mix-bar mt-4" aria-hidden="true">
+                {mix.map((entry) => (
+                  <span key={entry.kind} style={{ flexGrow: entry.count, flexBasis: 0 }} />
+                ))}
+              </div>
+              <ul className="share-mix">
+                {mix.map((entry) => (
+                  <li key={entry.kind}>
+                    <Icon name={KIND_ICONS[entry.kind]} className="size-4 text-[color:var(--tone)]" />
+                    {t.common.kinds[entry.kind]}
+                    <strong>{n(entry.count)}</strong>
+                  </li>
+                ))}
+              </ul>
             </div>
-            <ul className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-[13px]">
-              {mix.map((entry) => (
-                <li key={entry.kind} className="inline-flex items-center gap-2">
-                  <Icon name={KIND_ICONS[entry.kind]} className="size-3.5 text-[color:var(--tone)]" />
-                  {t.common.kinds[entry.kind]}
-                  <strong className="font-mono text-[13px]">{n(entry.count)}</strong>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {cited.length > 0 && (
-          <div>
-            <h3 className="mb-2 text-[12px] font-semibold">{k.cited}</h3>
-            <ul className="share-list">
-              {cited.map((entry) => (
-                <li key={entry.knowledgeId} className="flex items-center gap-3 px-4 py-3">
-                  <span className="grid size-8 flex-none place-items-center rounded-lg bg-[var(--tone-tint)] text-[color:var(--tone)]">
-                    <Icon name={KIND_ICONS[entry.kind]} className="size-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <strong className="block truncate text-[13px] font-semibold" title={entry.title}>{entry.title}</strong>
-                    <span className="text-[11px] text-muted">
-                      {t.common.kinds[entry.kind]} · {entry.answers === 1 ? k.citedOne : fill(k.citedCount, { n: n(entry.answers) })}
+          )}
+          {cited.length > 0 && (
+            <div className="min-w-0">
+              <h3 className="share-h3">{k.cited}</h3>
+              <ul className="share-cited">
+                {cited.map((entry) => (
+                  <li key={entry.knowledgeId}>
+                    <span className="share-cited-tile">
+                      <Icon name={KIND_ICONS[entry.kind]} className="size-5" />
                     </span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+                    <span className="min-w-0 flex-1">
+                      <strong title={entry.title}>{entry.title}</strong>
+                      <span className="share-note">
+                        {t.common.kinds[entry.kind]} · {entry.answers === 1 ? k.citedOne : fill(k.citedCount, { n: n(entry.answers) })}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );
