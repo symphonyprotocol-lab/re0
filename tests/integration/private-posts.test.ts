@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-import { dropConversationTables, pointModelsAt, restoreConversationTables, runBackfill, TEST_DATABASE_URL, uniqueName } from './setup';
+import { dropConversationTables, pointModelsAt, restoreConversationTables, runBackfill, TEST_DATABASE_URL, uniqueName, uniqueWord } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import type { AnswerOne } from '@/lib/services/posts';
 
@@ -332,7 +332,7 @@ describeWithDb('private posts (私密提问)', () => {
     expect(await privatePosts.setAnswerUnhelpful(author, given!.id, false)).toEqual({ unhelpful: 0, unvoted: false, helpful: 1, voted: true });
 
     /* A public post's answer takes no 没帮助. */
-    const posted = await posts.publishPost(author, { question: `Public one ${crypto.randomUUID()}`, lang: 'en' });
+    const posted = await posts.publishPost(author, { question: `Public one ${uniqueWord('ask')}`, lang: 'en' });
     await posts.processPost((posted as { id: string }).id, { judge: async () => ({ publish: true }), match: async () => ({ answerers: [{ reeId: one.reeId, similarity: 0.9, mentioned: false }], candidates: 1, skipped: 0, vector: null }), answerOne: answerAll });
     const [publicAnswer] = await answerRows((posted as { id: string }).id);
     expect(await privatePosts.setAnswerUnhelpful(author, publicAnswer!.id, true)).toBeNull();

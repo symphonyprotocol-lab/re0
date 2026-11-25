@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { pointModelsAt, TEST_DATABASE_URL, uniqueName, uniqueWord } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import type { AiAnswerer, AiAnswerInput } from '@/lib/services/ai-answers';
 import type { AnswerOne, Matcher } from '@/lib/services/posts';
@@ -265,7 +265,7 @@ describeWithDb('AI 通用回答 when no Ree answers', () => {
 
     /* A Ree owner's 试问 and an MCP ask: private posts that name Rees, never an AI answer. */
     for (const source of ['test', 'api'] as const) {
-      const made = await privatePosts.publishPrivatePost(free.ownerId, { question: `Try ${crypto.randomUUID()}`, reeIds: [free.reeId], fees: { [free.reeId]: BASE }, lang: 'en' }, { source });
+      const made = await privatePosts.publishPrivatePost(free.ownerId, { question: `Try ${uniqueWord('ask')}`, reeIds: [free.reeId], fees: { [free.reeId]: BASE }, lang: 'en' }, { source });
       if (!made.ok) throw new Error(made.error);
       await privatePosts.processPrivatePost(made.id, { answerOne: says(() => null), aiAnswer: aiStub() });
       expect(await aiRows(made.id)).toEqual([]);
@@ -376,7 +376,7 @@ describeWithDb('AI 通用回答 when no Ree answers', () => {
   it('answers a private post whose chosen Rees found nothing, asks the AI alone (只问 AI), and its follow-ups', async () => {
     const ree = await makeRee();
     const author = await user('ai-author', 200);
-    const made = await privatePosts.publishPrivatePost(author, { question: `Rent deduction without a receipt? ${crypto.randomUUID()}`, reeIds: [ree.reeId], fees: { [ree.reeId]: BASE }, lang: 'en' });
+    const made = await privatePosts.publishPrivatePost(author, { question: `Rent deduction without a receipt? ${uniqueWord('ask')}`, reeIds: [ree.reeId], fees: { [ree.reeId]: BASE }, lang: 'en' });
     if (!made.ok) throw new Error(made.error);
     await privatePosts.processPrivatePost(made.id, { answerOne: says(() => null), aiAnswer: aiStub('Usually yes; keep the lease.') });
     /* The Ree's hold came back; the AI's base fee was charged. */
@@ -489,10 +489,10 @@ describeWithDb('AI 通用回答 when no Ree answers', () => {
     const other = await user('ai-reader');
     const id = await publish(author);
     await posts.processPost(id, { judge: approve, match: noMatch, aiAnswer: aiStub('Old answer.') });
-    const asked = await followups.askFollowup(author, id, { question: `Old follow-up ${crypto.randomUUID()}?`, lang: 'en' });
+    const asked = await followups.askFollowup(author, id, { question: `Old follow-up ${uniqueWord('ask')}?`, lang: 'en' });
     if (!asked.ok) throw new Error(asked.error);
     await followups.processFollowup(asked.id, { judge: approve, aiAnswer: aiStub('Old follow-up answer.') });
-    const only = await privatePosts.publishPrivatePost(author, { question: `Private ${crypto.randomUUID()}`, reeIds: [], aiOnly: true, lang: 'en' });
+    const only = await privatePosts.publishPrivatePost(author, { question: `Private ${uniqueWord('ask')}`, reeIds: [], aiOnly: true, lang: 'en' });
     if (!only.ok) throw new Error(only.error);
     await privatePosts.processPrivatePost(only.id, { aiAnswer: aiStub('Private answer.') });
     /* As they stood before 0072: never reviewed, the 继续问 AI published at once and not counted. */

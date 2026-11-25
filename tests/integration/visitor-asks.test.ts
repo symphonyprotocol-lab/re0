@@ -9,7 +9,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq, like } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { pointModelsAt, TEST_DATABASE_URL, uniqueName, uniqueWord } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import type { ProcessDeps } from '@/lib/services/posts';
 import type { Visitor } from '@/lib/services/visitor-asks';
@@ -101,7 +101,7 @@ async function ownerEntries(ownerId: string) {
   return db().select({ reason: schema.creditEntry.reason, delta: schema.creditEntry.delta, note: schema.creditEntry.note, reeId: schema.creditEntry.reeId }).from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, ownerId), like(schema.creditEntry.reason, 'query_%'))).orderBy(schema.creditEntry.createdAt);
 }
 
-async function ask(slug: string, who = browser(), question = `${QUESTION} ${crypto.randomUUID().slice(0, 8)}`) {
+async function ask(slug: string, who = browser(), question = `${QUESTION} ${uniqueWord('ask')}`) {
   return visitorAsks.askAsVisitor(slug, { question, lang: 'en' }, who);
 }
 

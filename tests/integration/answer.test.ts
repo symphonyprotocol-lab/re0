@@ -7,9 +7,8 @@
  * question onto it.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { pointModelsAt, TEST_DATABASE_URL, uniqueName, uniqueWord } from './setup';
 import { and, asc, eq } from 'drizzle-orm';
-import { randomUUID } from 'node:crypto';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import { handbookPages, makePdf } from '../fixtures/pdf';
 import { startFakeFirecrawl } from '../fixtures/fake-firecrawl';
@@ -77,7 +76,7 @@ async function setUp(withKnowledge: boolean) {
  * own question.
  */
 async function ask(userId: string, reeId: string, question: string) {
-  const made = await privatePosts.publishPrivatePost(userId, { question: `${question} ${randomUUID().slice(0, 8)}`, reeIds: [reeId], fees: { [reeId]: 20 }, lang: 'zh' });
+  const made = await privatePosts.publishPrivatePost(userId, { question: `${question} ${uniqueWord('ask')}`, reeIds: [reeId], fees: { [reeId]: 20 }, lang: 'zh' });
   if (!made.ok) return { refused: made, answer: null };
   await privatePosts.processPrivatePost(made.id, noAi);
   const [answer] = await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.postId, made.id));

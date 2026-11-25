@@ -17,6 +17,7 @@ const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 const { createSession } = await import('@/lib/services/auth');
 const rees = await import('@/lib/services/rees');
 const share = await import('@/lib/services/share');
+const { ownShareableRee } = await import('@/lib/services/public-rees');
 const { reeStatistics, statisticsQuery } = await import('@/lib/services/statistics');
 const { db, schema } = await import('@/lib/infra/db');
 const { newReeDraft } = await import('@/lib/domain/ree');
@@ -44,6 +45,23 @@ const visit = (slug: string, visitorId: string, options: { userId?: string | nul
   share.recordShareVisit({ slug, visitorId, freshVisitor: options.fresh ?? false, userId: options.userId ?? null, ip: options.ip ?? null }, at);
 
 describeWithDb('share page', () => {
+  it("offers 首页's 分享 card the owner's latest public Ree, never a private one or someone else's", async () => {
+    const owner = await person();
+    const other = await person();
+    expect(await ownShareableRee(owner)).toBeNull();
+    await reeOf(owner, false);
+    expect(await ownShareableRee(owner)).toBeNull();
+    const first = await reeOf(owner);
+    const latest = await reeOf(owner);
+    await reeOf(other);
+    await db().update(schema.ree).set({ updatedAt: new Date(Date.now() - 60_000) }).where(eq(schema.ree.id, first.id));
+    expect(await ownShareableRee(owner)).toEqual({ name: latest.name, slug: latest.slug });
+    // Taken down, it is no longer shareable: the earlier public one stands in.
+    await db().update(schema.ree).set({ isPublic: false, isPublished: false, moderatedAt: new Date() }).where(eq(schema.ree.id, latest.id));
+    expect(await ownShareableRee(owner)).toEqual({ name: first.name, slug: first.slug });
+  });
+
+
   it('records visits for public Rees only, once per visitor every half hour, never for the owner', async () => {
     const owner = await person();
     const visitor = await person();

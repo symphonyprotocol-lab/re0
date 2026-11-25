@@ -191,6 +191,22 @@ export async function publicReeRef(slug: string): Promise<{ id: string; ownerId:
   return row ?? null;
 }
 
+/**
+ * The owner's most recently changed public Ree, behind the same gate as its
+ * share page (`publicRee()`): what 首页's 分享 card opens the share dialog
+ * for. Null when the owner has no public Ree yet.
+ */
+export async function ownShareableRee(ownerId: string): Promise<{ name: string; slug: string } | null> {
+  if (!isUuid(ownerId)) return null;
+  const [row] = await db()
+    .select({ name: schema.ree.name, slug: schema.ree.slug })
+    .from(schema.ree)
+    .where(and(eq(schema.ree.ownerId, ownerId), publicRee()))
+    .orderBy(desc(schema.ree.updatedAt), desc(schema.ree.id))
+    .limit(1);
+  return row?.slug ? { name: row.name, slug: row.slug } : null;
+}
+
 /** A public Ree as the sitemap lists it (app/sitemap.ts): its URL, when it changed, and whose it is (lib/seo.ts `reeContentLocale`). */
 export interface SitemapRee {
   slug: string;

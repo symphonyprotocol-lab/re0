@@ -31,12 +31,40 @@ export function pointModelsAt(baseUrl: string): void {
   ]);
 }
 
+/*
+ * Letters only, and no q, w or x. Test names end up in posts, and publishing
+ * redacts what reads as personal (`redact`, lib/domain/public-qa.ts): any run
+ * of 7 or more digits, and an id after a QQ or WeChat hint (qq, wx, vx,
+ * wechat, weixin). A base36 timestamp sometimes held such a run, and a name
+ * written into a question was cut before the test searched for it.
+ */
+const LETTERS = 'abcdefghijklmnoprstuvyz';
+function lettersOf(value: number): string {
+  let out = '';
+  do {
+    out = LETTERS[value % LETTERS.length] + out;
+    value = Math.floor(value / LETTERS.length);
+  } while (value > 0);
+  return out;
+}
+
 let counter = 0;
 /* Per test process: with `Date` frozen (freezeDateAtWindowStart), the time alone repeats across runs against one database. */
-const PROCESS_TAG = Math.random().toString(36).slice(2, 6);
+const PROCESS_TAG = Array.from(crypto.getRandomValues(new Uint8Array(4)), (byte) => LETTERS[byte % LETTERS.length]).join('');
+
+/** A name no other test uses: `prefix-<time><process>-<counter>`, with no digit after the prefix. */
 export function uniqueName(prefix: string): string {
   counter += 1;
-  return `${prefix}-${Date.now().toString(36)}${PROCESS_TAG}-${counter}`;
+  return `${prefix}-${lettersOf(Date.now())}${PROCESS_TAG}-${lettersOf(counter)}`;
+}
+
+/**
+ * The same as one word, without hyphens: for a #tag, or a word a test puts
+ * in a question to tell its post from another's (the duplicate window, a
+ * search). Never a random UUID there: its hex digits get redacted too.
+ */
+export function uniqueWord(prefix: string): string {
+  return uniqueName(prefix).replaceAll('-', '');
 }
 
 /**
