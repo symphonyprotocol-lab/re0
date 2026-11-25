@@ -43,7 +43,7 @@ export async function reeSourceMix(reeId: string): Promise<SourceMix[]> {
     .sort((a, b) => b.count - a.count || KNOWLEDGE_KIND_LIST.indexOf(a.kind) - KNOWLEDGE_KIND_LIST.indexOf(b.kind));
 }
 
-/** The sources this Ree's public answers cite most, as those answers name them. */
+/** The sources this Ree's public answers cite most, as those answers name them; an answer that says its sources do not cover the question (`uncovered`) cites nothing that counts. */
 export async function reeCitedSources(reeId: string, limit = SHARE_CITED_SOURCES): Promise<CitedSource[]> {
   if (!isUuid(reeId)) return [];
   const { postAnswer: answer, post, ree, knowledge } = schema;
@@ -59,6 +59,7 @@ export async function reeCitedSources(reeId: string, limit = SHARE_CITED_SOURCES
     join ${knowledge} on ${knowledge.id}::text = c.value->>'knowledgeId'
     where ${answer.reeId} = ${reeId}::uuid
       and ${and(firstRound(), shownAnswer(), visiblePost())}
+      and not ${answer.uncovered}
       and ${knowledge.reeId} = ${answer.reeId}
       and ${knowledge.status} = 'ready' and ${knowledge.enabled} and ${knowledge.deletedAt} is null
     group by 1
