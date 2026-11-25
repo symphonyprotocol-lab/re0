@@ -1,5 +1,5 @@
 {
-  "id": "713cb054-9137-4dd2-88f6-4bf9706b84b6",
+  "id": "7cfc4860-c96e-4005-9458-5b7ab84399b4",
   "prevId": "21274674-4d79-4f02-8af7-01c096fbae61",
   "version": "7",
   "dialect": "postgresql",
@@ -12743,6 +12743,19 @@
         },
         "entries": {
           "name": "entries",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "writes_day": {
+          "name": "writes_day",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "writes": {
+          "name": "writes",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

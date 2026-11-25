@@ -2,7 +2,8 @@
  * `/api/cron/purge-uploads` (daily, idempotent): files a browser uploaded
  * with a token from `/api/upload-token` but never registered — a knowledge
  * file no `knowledge.source` names, an avatar no user, Ree or setup draft
- * names, a cover no Ree names, a post image no post names — are deleted once older than
+ * names, a cover no Ree names, a post image no post names, a workspace object no
+ * version counts — are deleted once older than
  * UPLOAD_ORPHAN_HOURS. Unregistered files are never billed for storage, so
  * this is what keeps them from accumulating. A replaced avatar or cover is
  * unreferenced too and goes the same way.
@@ -79,6 +80,28 @@ const PREFIXES: Prefix[] = [
         select pathname from ${schema.postImage} where pathname in (${list})
         union select thumb_pathname from ${schema.postImage} where thumb_pathname in (${list})`);
       return new Set(rows.rows.map((row) => row.pathname));
+    },
+  },
+  {
+    /*
+     * An agent workspace object whose write rolled back after the put
+     * (workspace.ts puts under the owner's usage lock, inside the write's
+     * transaction): no `workspace_blob` row names it. A later write of the
+     * same content puts it again, so only the instant between this check and
+     * the delete could lose one, a day after the failed write.
+     */
+    prefix: 'workspace/',
+    owner: new RegExp(`^workspace/(${UUID})/[0-9a-f]{64}$`),
+    async known(ids) {
+      const rows = await db().select({ id: schema.workspace.id }).from(schema.workspace).where(inArray(schema.workspace.id, ids));
+      return new Set(rows.map((row) => row.id));
+    },
+    async referenced(pathnames) {
+      const pairs = pathnames.map((pathname) => pathname.split('/'));
+      const list = sql.join(pairs.map(([, workspaceId, sha]) => sql`(${workspaceId}::uuid, ${sha})`), sql`, `);
+      const rows = await db().execute<{ workspace_id: string; sha256: string }>(sql`
+        select workspace_id, sha256 from ${schema.workspaceBlob} where (workspace_id, sha256) in (${list})`);
+      return new Set(rows.rows.map((row) => `workspace/${row.workspace_id}/${row.sha256}`));
     },
   },
 ];

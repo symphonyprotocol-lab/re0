@@ -2888,6 +2888,9 @@ export const workspaceUsage = pgTable('workspace_usage', {
   blobBytes: bigint('blob_bytes', { mode: 'number' }).notNull().default(0),
   databaseBytes: bigint('database_bytes', { mode: 'number' }).notNull().default(0),
   entries: integer('entries').notNull().default(0),
+  /** Writes today (UTC `writes_day`), against the console's `workspaceWritesPerDay`; counted here, under the same lock, since rate buckets live an hour. */
+  writesDay: date('writes_day', { mode: 'string' }),
+  writes: integer('writes').notNull().default(0),
   blobByteMs: numeric('blob_byte_ms', { precision: 40, scale: 0 }).notNull().default('0'),
   databaseByteMs: numeric('database_byte_ms', { precision: 40, scale: 0 }).notNull().default('0'),
   measuredAt: timestampTz('measured_at').notNull().defaultNow(),

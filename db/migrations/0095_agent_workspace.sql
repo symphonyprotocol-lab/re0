@@ -65,6 +65,8 @@ CREATE TABLE "workspace_usage" (
 	"blob_bytes" bigint DEFAULT 0 NOT NULL,
 	"database_bytes" bigint DEFAULT 0 NOT NULL,
 	"entries" integer DEFAULT 0 NOT NULL,
+	"writes_day" date,
+	"writes" integer DEFAULT 0 NOT NULL,
 	"blob_byte_ms" numeric(40, 0) DEFAULT '0' NOT NULL,
 	"database_byte_ms" numeric(40, 0) DEFAULT '0' NOT NULL,
 	"measured_at" timestamp with time zone DEFAULT now() NOT NULL

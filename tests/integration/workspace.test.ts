@@ -27,6 +27,7 @@ const workspace = await import('@/lib/services/workspace');
 const route = await import('@/app/api/mcp/route');
 const { db, schema } = await import('@/lib/infra/db');
 const { forgetRateLimitSettings } = await import('@/lib/services/rate-limit-settings');
+const { clearRateBuckets } = await import('@/lib/services/rate-limit');
 
 const URL_ = 'http://localhost:3000/api/mcp';
 
@@ -342,6 +343,9 @@ describeWithDb('workspace: limits, usage and billing', () => {
     await setCeiling('workspaceWritesPerDay', 3);
     try {
       for (let i = 0; i < 3; i += 1) await ok(client, 'ws_write', { path: '/c.md', content: `${i}` });
+      expect((await refused(client, 'ws_write', { path: '/c.md', content: 'four' })).error).toBe('limit_reached');
+      /* The hourly rate-bucket sweep does not reset it: the count lives on the usage row for the whole day. */
+      await clearRateBuckets(new Date(Date.now() + 2 * 3_600_000));
       expect((await refused(client, 'ws_write', { path: '/c.md', content: 'four' })).error).toBe('limit_reached');
     } finally {
       await setCeiling('workspaceWritesPerDay', null);

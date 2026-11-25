@@ -8,7 +8,8 @@
  * `workspace_usage` row, so one account's writes are serialised: the usage
  * counters stay exact, the quota checks cannot race, and a Blob object is put
  * or deleted only under that lock (see `workspace_blob`). A write:
- *   1. refuses above the console's debt limit and past the day's writes;
+ *   1. refuses above the console's debt limit and past the day's writes
+ *      (counted on the usage row);
  *   2. checks `if_match` / `if_none_match` against the entry's `etag`;
  *   3. creates the missing folders above it;
  *   4. puts the content's object (once per distinct content of a workspace)
@@ -66,7 +67,6 @@ import { storageCostPico } from '@/lib/domain/infra-cost';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { deleteWorkspaceObjects, putWorkspaceObject, readWorkspaceObject, workspaceObjectPath } from '@/lib/infra/workspace-store';
 import { infraCostRates } from '@/lib/services/infra-pricing';
-import { hitRateBucket } from '@/lib/services/rate-limit';
 import { effectiveCeiling } from '@/lib/services/rate-limit-settings';
 import { chargeStorageCost } from '@/lib/services/storage-billing';
 
@@ -244,11 +244,16 @@ async function mutate<T>(scope: WorkspaceScope, work: (tx: Tx, meter: Meter, now
     throw new WorkspaceError('insufficient_credits', `Writing is paused while the account owes ${owed} credits (more than ${limit}). Top up to pay the debt; reading and deleting files still work.`, { debt: owed, limit });
   }
   const perDay = await effectiveCeiling('workspaceWritesPerDay');
-  if (!(await hitRateBucket(`workspace-writes:${scope.workspaceId}`, perDay, 86_400, now))) {
-    throw new WorkspaceError('limit_reached', `This workspace has had ${perDay} writes today, the daily limit. It resets at 00:00 UTC.`, { limit: perDay });
-  }
   return db().transaction(async (tx) => {
-    const meter = new Meter(await lockUsage(tx, scope.userId), now);
+    const usage = await lockUsage(tx, scope.userId);
+    /* Writes a day, on the locked row: exact under concurrency, and kept the whole day (rate buckets are cleared hourly). */
+    const today = now.toISOString().slice(0, 10);
+    const writes = usage.writesDay === today ? usage.writes : 0;
+    if (writes >= perDay) {
+      throw new WorkspaceError('limit_reached', `This workspace has had ${perDay} writes today, the daily limit. It resets at 00:00 UTC.`, { limit: perDay });
+    }
+    await tx.update(schema.workspaceUsage).set({ writesDay: today, writes: writes + 1 }).where(eq(schema.workspaceUsage.userId, scope.userId));
+    const meter = new Meter(usage, now);
     const result = await work(tx, meter, now);
     await meter.save(tx);
     return result;
