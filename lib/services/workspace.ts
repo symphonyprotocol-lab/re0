@@ -304,8 +304,12 @@ async function mutate<T>(scope: WorkspaceScope, work: (tx: Tx, meter: Meter, now
 const sha256Of = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const newEtag = () => randomBytes(9).toString('base64url');
 
-/** One more version names `sha`: its object is put when the workspace does not hold it yet (or it was released). */
-async function addRef(tx: Tx, meter: Meter, workspaceId: string, sha: string, bytes: Uint8Array, mediaType: string): Promise<void> {
+/**
+ * One more version names `sha`: its object is put when the workspace does
+ * not hold it yet (or it was released) -- unless `bytes` is null, for an
+ * object already put (an upload, put together before its transaction).
+ */
+async function addRef(tx: Tx, meter: Meter, workspaceId: string, sha: string, bytes: Uint8Array | null, size: number, contentType: string): Promise<void> {
   const [row] = await tx
     .select()
     .from(schema.workspaceBlob)
@@ -315,12 +319,12 @@ async function addRef(tx: Tx, meter: Meter, workspaceId: string, sha: string, by
     await tx.update(schema.workspaceBlob).set({ refs: row.refs + 1 }).where(and(eq(schema.workspaceBlob.workspaceId, workspaceId), eq(schema.workspaceBlob.sha256, sha)));
     return;
   }
-  checkRoom(meter, bytes.length);
+  checkRoom(meter, size);
   /* Put again even for a released row: the purge may have deleted the object before its transaction failed. */
-  await putWorkspaceObject(workspaceObjectPath(workspaceId, sha), bytes, `${mediaType}; charset=utf-8`);
+  if (bytes) await putWorkspaceObject(workspaceObjectPath(workspaceId, sha), bytes, contentType);
   if (row) await tx.update(schema.workspaceBlob).set({ refs: 1, releasedAt: null }).where(and(eq(schema.workspaceBlob.workspaceId, workspaceId), eq(schema.workspaceBlob.sha256, sha)));
-  else await tx.insert(schema.workspaceBlob).values({ workspaceId, sha256: sha, size: bytes.length, refs: 1 });
-  meter.blob += bytes.length;
+  else await tx.insert(schema.workspaceBlob).values({ workspaceId, sha256: sha, size, refs: 1 });
+  meter.blob += size;
 }
 
 /** One version fewer names `sha`; at none it is released for the purge, and stops counting. */
@@ -381,12 +385,45 @@ async function putText(
   now: Date,
   extra: Partial<typeof schema.workspaceEntry.$inferInsert> = {},
 ): Promise<Written> {
-  if (!isStorableText(text)) throw new WorkspaceError('invalid_input', 'The content holds a NUL character; the workspace keeps text files only for now.', { reason: 'binary_content' });
+  if (!isStorableText(text)) throw new WorkspaceError('invalid_input', 'The content holds a NUL character; ws_write keeps text only. Upload bytes with ws_upload_url.', { reason: 'binary_content' });
   const bytes = new TextEncoder().encode(text);
   if (bytes.length > WORKSPACE_TEXT_MAX) {
-    throw new WorkspaceError('too_large', `The file would be ${bytes.length} bytes; a workspace file holds at most ${WORKSPACE_TEXT_MAX} bytes for now. Split it into several files.`, { size: bytes.length, max: WORKSPACE_TEXT_MAX });
+    throw new WorkspaceError('too_large', `The file would be ${bytes.length} bytes; text written through MCP holds at most ${WORKSPACE_TEXT_MAX} bytes. Split it into several files, or upload it with ws_upload_url.`, { size: bytes.length, max: WORKSPACE_TEXT_MAX });
   }
-  const sha = sha256Of(bytes);
+  return putContent(tx, meter, scope, path, current, { sha: sha256Of(bytes), size: bytes.length, text, bytes, mediaType: mediaTypeOf(path) }, op, now, extra);
+}
+
+/**
+ * What a version holds: its object (`bytes` to put, or null when it is
+ * already in the store) and, for text up to WORKSPACE_TEXT_MAX, the text
+ * kept inline for reading by lines, grep and the index. Anything else --
+ * binary, or text too large -- is kept only as bytes, read by download.
+ */
+interface Content {
+  sha: string;
+  size: number;
+  text: string | null;
+  bytes: Uint8Array | null;
+  mediaType: string;
+}
+
+/**
+ * The file at `path` now holds `content` (its folder exists): a new
+ * version, or the latest one updated in place when it coalesces; nothing at
+ * all when the content is what the file already holds.
+ */
+async function putContent(
+  tx: Tx,
+  meter: Meter,
+  scope: WorkspaceScope,
+  path: string,
+  current: Entry,
+  content: Content,
+  op: Revision['op'],
+  now: Date,
+  extra: Partial<typeof schema.workspaceEntry.$inferInsert> = {},
+): Promise<Written> {
+  const { sha, text } = content;
   if (current.sha256 === sha) {
     if (Object.keys(extra).length) {
       const [entry] = await tx.update(schema.workspaceEntry).set(extra).where(eq(schema.workspaceEntry.id, current.id)).returning();
@@ -394,9 +431,10 @@ async function putText(
     }
     return { entry: current, changed: false, created: false };
   }
-  const mediaType = mediaTypeOf(path);
-  checkRoom(meter, bytes.length - byteLength(current.text ?? ''));
-  await addRef(tx, meter, scope.workspaceId, sha, bytes, mediaType);
+  const mediaType = content.mediaType;
+  const inline = text === null ? 0 : byteLength(text);
+  checkRoom(meter, inline - byteLength(current.text ?? ''));
+  await addRef(tx, meter, scope.workspaceId, sha, content.bytes, content.size, text === null ? mediaType : `${mediaType}; charset=utf-8`);
   /*
    * Every save is a version of its own, so an id once returned always names
    * the same content. A save by the same key within WORKSPACE_COALESCE_MS of
@@ -418,7 +456,7 @@ async function putText(
       entryId: current.id,
       workspaceId: scope.workspaceId,
       sha256: sha,
-      size: bytes.length,
+      size: content.size,
       op: merges && latest!.op !== op ? 'write' : op,
       userId: scope.userId,
       apiKeyId: scope.apiKeyId,
@@ -432,11 +470,11 @@ async function putText(
   const revisionId = made!.id;
   if (merges) await tx.update(schema.workspaceRevision).set({ squashedInto: revisionId }).where(eq(schema.workspaceRevision.id, latest!.id));
   const values = {
-    size: bytes.length,
+    size: content.size,
     sha256: sha,
     etag: newEtag(),
     text,
-    lineCount: lineCount(text),
+    lineCount: text === null ? null : lineCount(text),
     mediaType,
     currentRevisionId: revisionId,
     updatedByKeyId: scope.apiKeyId,
@@ -446,7 +484,7 @@ async function putText(
     ...((current.indexedRevisionId !== null || (await ask(tx, mayNeedIndex(scope.workspaceId, sql`${path}::text`)))) ? { indexDueAt: new Date(now.getTime() + WORKSPACE_INDEX_DELAY_MS) } : {}),
     ...extra,
   };
-  meter.database += bytes.length - byteLength(current.text ?? '');
+  meter.database += inline - byteLength(current.text ?? '');
   const [entry] = await tx.update(schema.workspaceEntry).set(values).where(eq(schema.workspaceEntry.id, current.id)).returning();
   return { entry: entry!, changed: true, created: false };
 }

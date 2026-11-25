@@ -891,3 +891,26 @@ export const WORKSPACE_INDEX_CLAIM_MS = 10 * 60_000;
 export const WORKSPACE_INDEX_BUDGET = 50;
 /** One `ws_search`: at most this many passages. */
 export const WORKSPACE_SEARCH_MAX = 20;
+/*
+ * Uploads and downloads of bytes (docs/design/agent-workspace.md §3.1, third
+ * phase): one PUT through re0 carries at most WORKSPACE_UPLOAD_PART (under
+ * Vercel's 4.5 MB request body); a larger file comes in parts of exactly that
+ * size (the last one smaller), up to WORKSPACE_UPLOAD_MAX. An upload URL lives
+ * WORKSPACE_UPLOAD_TTL_MS; one not finished by then is cleaned up (its parts
+ * deleted, never billed) and its record forgotten after WORKSPACE_UPLOAD_KEEP_MS.
+ * An account holds at most WORKSPACE_UPLOADS_OPEN unfinished uploads of
+ * WORKSPACE_UPLOAD_PENDING_MAX bytes together. A download URL lives
+ * WORKSPACE_DOWNLOAD_TTL_MS. Files kept only as bytes are indexed up to
+ * WORKSPACE_INDEX_FILE_MAX (PDF and Word text, or text too large to keep
+ * inline).
+ */
+export const WORKSPACE_UPLOAD_PART = 4 * 1024 * 1024;
+export const WORKSPACE_UPLOAD_MAX = 100 * 1024 * 1024;
+export const WORKSPACE_UPLOAD_TTL_MS = 60 * 60_000;
+export const WORKSPACE_UPLOAD_KEEP_MS = 24 * 60 * 60_000;
+export const WORKSPACE_UPLOADS_OPEN = 10;
+export const WORKSPACE_UPLOAD_PENDING_MAX = 500 * 1024 * 1024;
+export const WORKSPACE_DOWNLOAD_TTL_MS = 10 * 60_000;
+export const WORKSPACE_INDEX_FILE_MAX = 20 * 1024 * 1024;
+/** A PDF or Word file's text is read within this long when it is indexed (no paid fallback: a scan is simply not indexed). */
+export const WORKSPACE_PARSE_MS = 60_000;
