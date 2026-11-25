@@ -610,6 +610,20 @@
       "when": 1795519862226,
       "tag": "0088_post_channels",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1795522161357,
+      "tag": "0089_competitions",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1795572894790,
+      "tag": "0090_drop_competitions",
+      "breakpoints": true
     }
   ]
 }
