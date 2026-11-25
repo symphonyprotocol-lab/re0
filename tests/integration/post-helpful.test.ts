@@ -109,8 +109,21 @@ describeWithDb('有帮助 on a post itself', () => {
     await db().update(schema.post).set({ publishedAt: new Date(Date.now() - 3_600_000) }).where(eq(schema.post.id, plain));
     await db().update(schema.post).set({ publishedAt: new Date(Date.now() - 3_600_000) }).where(eq(schema.post.id, liked));
     for (let index = 0; index < 3; index += 1) await posts.setPostHelpful(await user('ph-fan', 0), liked, true);
-    const ids = (await posts.listFeed('for_you', { size: 100 })).items.map((entry) => entry.id);
+    /*
+     * The whole feed, page by page: other files' recent answered posts share
+     * the database and outrank these hour-old ones, so how many come first
+     * depends on what ran before -- only the order between the two is this
+     * test's.
+     */
+    const ids: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const page = await posts.listFeed('for_you', { size: 100, cursor });
+      ids.push(...page.items.map((entry) => entry.id));
+      cursor = page.next;
+    } while (cursor && !(ids.includes(liked) && ids.includes(plain)));
     expect(ids.indexOf(liked)).toBeGreaterThanOrEqual(0);
+    expect(ids.indexOf(plain)).toBeGreaterThanOrEqual(0);
     expect(ids.indexOf(liked)).toBeLessThan(ids.indexOf(plain));
   });
 
