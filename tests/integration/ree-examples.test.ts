@@ -86,7 +86,7 @@ describeWithDb('a Ree page\'s answered questions', () => {
     expect(await reeAnsweredExamples(reeId)).toEqual([]);
     await answered(reeId, owner, 'An answer [1].', { helpful: 1 });
     expect(await reeAnsweredExamples(reeId)).toHaveLength(1);
-    await db().update(schema.ree).set({ isPublic: false }).where(eq(schema.ree.id, reeId));
+    await db().update(schema.ree).set({ isPublic: false, isPublished: false }).where(eq(schema.ree.id, reeId));
     expect(await reeAnsweredExamples(reeId)).toEqual([]);
     expect(await reeAnsweredExamples('not-a-uuid')).toEqual([]);
   });
