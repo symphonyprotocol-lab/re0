@@ -1,5 +1,5 @@
 {
-  "id": "7cfc4860-c96e-4005-9458-5b7ab84399b4",
+  "id": "c221dc3e-8279-4396-a7e9-a5a0a2019a87",
   "prevId": "21274674-4d79-4f02-8af7-01c096fbae61",
   "version": "7",
   "dialect": "postgresql",
@@ -797,10 +797,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "api_key_workspace_id_workspace_id_fk": {
-          "name": "api_key_workspace_id_workspace_id_fk",
+        "api_key_workspace_id_agent_workspace_id_fk": {
+          "name": "api_key_workspace_id_agent_workspace_id_fk",
           "tableFrom": "api_key",
-          "tableTo": "workspace",
+          "tableTo": "agent_workspace",
           "columnsFrom": [
             "workspace_id"
           ],
@@ -12188,8 +12188,8 @@
       },
       "isRLSEnabled": false
     },
-    "public.workspace": {
-      "name": "workspace",
+    "public.agent_workspace": {
+      "name": "agent_workspace",
       "schema": "",
       "columns": {
         "id": {
@@ -12227,8 +12227,8 @@
         }
       },
       "indexes": {
-        "workspace_owner_name_key": {
-          "name": "workspace_owner_name_key",
+        "agent_workspace_owner_name_key": {
+          "name": "agent_workspace_owner_name_key",
           "columns": [
             {
               "expression": "owner_id",
@@ -12251,9 +12251,9 @@
         }
       },
       "foreignKeys": {
-        "workspace_owner_id_user_id_fk": {
-          "name": "workspace_owner_id_user_id_fk",
-          "tableFrom": "workspace",
+        "agent_workspace_owner_id_user_id_fk": {
+          "name": "agent_workspace_owner_id_user_id_fk",
+          "tableFrom": "agent_workspace",
           "tableTo": "user",
           "columnsFrom": [
             "owner_id"
@@ -12269,15 +12269,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "workspace_name_check": {
-          "name": "workspace_name_check",
+        "agent_workspace_name_check": {
+          "name": "agent_workspace_name_check",
           "value": "char_length(name) between 1 and 60"
         }
       },
       "isRLSEnabled": false
     },
-    "public.workspace_blob": {
-      "name": "workspace_blob",
+    "public.agent_workspace_blob": {
+      "name": "agent_workspace_blob",
       "schema": "",
       "columns": {
         "workspace_id": {
@@ -12313,8 +12313,8 @@
         }
       },
       "indexes": {
-        "workspace_blob_released_idx": {
-          "name": "workspace_blob_released_idx",
+        "agent_workspace_blob_released_idx": {
+          "name": "agent_workspace_blob_released_idx",
           "columns": [
             {
               "expression": "released_at",
@@ -12331,10 +12331,10 @@
         }
       },
       "foreignKeys": {
-        "workspace_blob_workspace_id_workspace_id_fk": {
-          "name": "workspace_blob_workspace_id_workspace_id_fk",
-          "tableFrom": "workspace_blob",
-          "tableTo": "workspace",
+        "agent_workspace_blob_workspace_id_agent_workspace_id_fk": {
+          "name": "agent_workspace_blob_workspace_id_agent_workspace_id_fk",
+          "tableFrom": "agent_workspace_blob",
+          "tableTo": "agent_workspace",
           "columnsFrom": [
             "workspace_id"
           ],
@@ -12346,8 +12346,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "workspace_blob_workspace_id_sha256_pk": {
-          "name": "workspace_blob_workspace_id_sha256_pk",
+        "agent_workspace_blob_workspace_id_sha256_pk": {
+          "name": "agent_workspace_blob_workspace_id_sha256_pk",
           "columns": [
             "workspace_id",
             "sha256"
@@ -12357,15 +12357,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "workspace_blob_refs_check": {
-          "name": "workspace_blob_refs_check",
+        "agent_workspace_blob_refs_check": {
+          "name": "agent_workspace_blob_refs_check",
           "value": "refs >= 0"
         }
       },
       "isRLSEnabled": false
     },
-    "public.workspace_entry": {
-      "name": "workspace_entry",
+    "public.agent_workspace_entry": {
+      "name": "agent_workspace_entry",
       "schema": "",
       "columns": {
         "id": {
@@ -12476,8 +12476,8 @@
         }
       },
       "indexes": {
-        "workspace_entry_path_key": {
-          "name": "workspace_entry_path_key",
+        "agent_workspace_entry_path_key": {
+          "name": "agent_workspace_entry_path_key",
           "columns": [
             {
               "expression": "workspace_id",
@@ -12498,8 +12498,8 @@
           "method": "btree",
           "with": {}
         },
-        "workspace_entry_prefix_idx": {
-          "name": "workspace_entry_prefix_idx",
+        "agent_workspace_entry_prefix_idx": {
+          "name": "agent_workspace_entry_prefix_idx",
           "columns": [
             {
               "expression": "workspace_id",
@@ -12519,8 +12519,8 @@
           "method": "btree",
           "with": {}
         },
-        "workspace_entry_trash_idx": {
-          "name": "workspace_entry_trash_idx",
+        "agent_workspace_entry_trash_idx": {
+          "name": "agent_workspace_entry_trash_idx",
           "columns": [
             {
               "expression": "workspace_id",
@@ -12543,10 +12543,10 @@
         }
       },
       "foreignKeys": {
-        "workspace_entry_workspace_id_workspace_id_fk": {
-          "name": "workspace_entry_workspace_id_workspace_id_fk",
-          "tableFrom": "workspace_entry",
-          "tableTo": "workspace",
+        "agent_workspace_entry_workspace_id_agent_workspace_id_fk": {
+          "name": "agent_workspace_entry_workspace_id_agent_workspace_id_fk",
+          "tableFrom": "agent_workspace_entry",
+          "tableTo": "agent_workspace",
           "columnsFrom": [
             "workspace_id"
           ],
@@ -12561,19 +12561,19 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "workspace_entry_kind_check": {
-          "name": "workspace_entry_kind_check",
+        "agent_workspace_entry_kind_check": {
+          "name": "agent_workspace_entry_kind_check",
           "value": "kind in ('file', 'folder')"
         },
-        "workspace_entry_path_check": {
-          "name": "workspace_entry_path_check",
+        "agent_workspace_entry_path_check": {
+          "name": "agent_workspace_entry_path_check",
           "value": "left(path, 1) = '/' and octet_length(path) <= 1024"
         }
       },
       "isRLSEnabled": false
     },
-    "public.workspace_revision": {
-      "name": "workspace_revision",
+    "public.agent_workspace_revision": {
+      "name": "agent_workspace_revision",
       "schema": "",
       "columns": {
         "id": {
@@ -12654,8 +12654,8 @@
         }
       },
       "indexes": {
-        "workspace_revision_entry_idx": {
-          "name": "workspace_revision_entry_idx",
+        "agent_workspace_revision_entry_idx": {
+          "name": "agent_workspace_revision_entry_idx",
           "columns": [
             {
               "expression": "entry_id",
@@ -12675,8 +12675,8 @@
           "method": "btree",
           "with": {}
         },
-        "workspace_revision_age_idx": {
-          "name": "workspace_revision_age_idx",
+        "agent_workspace_revision_age_idx": {
+          "name": "agent_workspace_revision_age_idx",
           "columns": [
             {
               "expression": "updated_at",
@@ -12692,10 +12692,10 @@
         }
       },
       "foreignKeys": {
-        "workspace_revision_entry_id_workspace_entry_id_fk": {
-          "name": "workspace_revision_entry_id_workspace_entry_id_fk",
-          "tableFrom": "workspace_revision",
-          "tableTo": "workspace_entry",
+        "agent_workspace_revision_entry_id_agent_workspace_entry_id_fk": {
+          "name": "agent_workspace_revision_entry_id_agent_workspace_entry_id_fk",
+          "tableFrom": "agent_workspace_revision",
+          "tableTo": "agent_workspace_entry",
           "columnsFrom": [
             "entry_id"
           ],
@@ -12710,15 +12710,15 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "workspace_revision_op_check": {
-          "name": "workspace_revision_op_check",
+        "agent_workspace_revision_op_check": {
+          "name": "agent_workspace_revision_op_check",
           "value": "op in ('write', 'append', 'edit', 'restore', 'copy')"
         }
       },
       "isRLSEnabled": false
     },
-    "public.workspace_usage": {
-      "name": "workspace_usage",
+    "public.agent_workspace_usage": {
+      "name": "agent_workspace_usage",
       "schema": "",
       "columns": {
         "user_id": {
@@ -12785,9 +12785,9 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "workspace_usage_user_id_user_id_fk": {
-          "name": "workspace_usage_user_id_user_id_fk",
-          "tableFrom": "workspace_usage",
+        "agent_workspace_usage_user_id_user_id_fk": {
+          "name": "agent_workspace_usage_user_id_user_id_fk",
+          "tableFrom": "agent_workspace_usage",
           "tableTo": "user",
           "columnsFrom": [
             "user_id"

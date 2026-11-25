@@ -86,7 +86,7 @@ const PREFIXES: Prefix[] = [
     /*
      * An agent workspace object whose write rolled back after the put
      * (workspace.ts puts under the owner's usage lock, inside the write's
-     * transaction): no `workspace_blob` row names it. A later write of the
+     * transaction): no `agent_workspace_blob` row names it. A later write of the
      * same content puts it again, so only the instant between this check and
      * the delete could lose one, a day after the failed write.
      */

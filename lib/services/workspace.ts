@@ -5,9 +5,9 @@
  * `/files`. Text only in this phase, at most WORKSPACE_TEXT_MAX bytes a file.
  *
  * Every change runs in one transaction that first locks the owner's
- * `workspace_usage` row, so one account's writes are serialised: the usage
+ * `agent_workspace_usage` row, so one account's writes are serialised: the usage
  * counters stay exact, the quota checks cannot race, and a Blob object is put
- * or deleted only under that lock (see `workspace_blob`). A write:
+ * or deleted only under that lock (see `agent_workspace_blob`). A write:
  *   1. refuses above the console's debt limit and past the day's writes
  *      (counted on the usage row);
  *   2. checks `if_match` / `if_none_match` against the entry's `etag`;

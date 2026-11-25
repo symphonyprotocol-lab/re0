@@ -2760,7 +2760,7 @@ export const apiKey = pgTable(
  * made on first use (lib/services/workspace.ts `defaultWorkspace`).
  */
 export const workspace = pgTable(
-  'workspace',
+  'agent_workspace',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     ownerId: uuid('owner_id')
@@ -2771,8 +2771,8 @@ export const workspace = pgTable(
     deletedAt: timestampTz('deleted_at'),
   },
   (t) => [
-    uniqueIndex('workspace_owner_name_key').on(t.ownerId, sql`lower(${t.name})`).where(sql`deleted_at is null`),
-    check('workspace_name_check', sql`char_length(name) between 1 and 60`),
+    uniqueIndex('agent_workspace_owner_name_key').on(t.ownerId, sql`lower(${t.name})`).where(sql`deleted_at is null`),
+    check('agent_workspace_name_check', sql`char_length(name) between 1 and 60`),
   ],
 );
 
@@ -2780,13 +2780,13 @@ export const workspace = pgTable(
  * A file or folder, addressed by path (lib/domain/workspace.ts). Folders
  * have rows so an empty one exists. A file's current text is here when it is
  * text of at most WORKSPACE_TEXT_MAX bytes (all of phase 1's), for line reads
- * and grep; every version's bytes are in Blob (`workspace_revision`). `etag`
+ * and grep; every version's bytes are in Blob (`agent_workspace_revision`). `etag`
  * is new on every change of content, so `if_match` notices A→B→A. Deleting
  * sets `deleted_at` on the entry and everything under it, keeping their
  * paths; two live entries may not share a path, ignoring case.
  */
 export const workspaceEntry = pgTable(
-  'workspace_entry',
+  'agent_workspace_entry',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     workspaceId: uuid('workspace_id')
@@ -2810,23 +2810,23 @@ export const workspaceEntry = pgTable(
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('workspace_entry_path_key').on(t.workspaceId, sql`lower(${t.path})`).where(sql`deleted_at is null`),
-    index('workspace_entry_prefix_idx').on(t.workspaceId, sql`lower(${t.path}) text_pattern_ops`),
-    index('workspace_entry_trash_idx').on(t.workspaceId, t.deletedAt).where(sql`deleted_at is not null`),
-    check('workspace_entry_kind_check', oneOf('kind', ['file', 'folder'])),
-    check('workspace_entry_path_check', sql`left(path, 1) = '/' and octet_length(path) <= 1024`),
+    uniqueIndex('agent_workspace_entry_path_key').on(t.workspaceId, sql`lower(${t.path})`).where(sql`deleted_at is null`),
+    index('agent_workspace_entry_prefix_idx').on(t.workspaceId, sql`lower(${t.path}) text_pattern_ops`),
+    index('agent_workspace_entry_trash_idx').on(t.workspaceId, t.deletedAt).where(sql`deleted_at is not null`),
+    check('agent_workspace_entry_kind_check', oneOf('kind', ['file', 'folder'])),
+    check('agent_workspace_entry_path_check', sql`left(path, 1) = '/' and octet_length(path) <= 1024`),
   ],
 );
 
 /**
  * One version of a file: its bytes in Blob at `workspace/<workspace>/<sha256>`
- * (one object per distinct content, counted in `workspace_blob`), who wrote it
+ * (one object per distinct content, counted in `agent_workspace_blob`), who wrote it
  * and through which key and client. Writes by the same key within
  * WORKSPACE_COALESCE_MS of the last one update that version in place
  * (`saves` counts them) instead of adding one.
  */
 export const workspaceRevision = pgTable(
-  'workspace_revision',
+  'agent_workspace_revision',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     entryId: uuid('entry_id')
@@ -2844,9 +2844,9 @@ export const workspaceRevision = pgTable(
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
   },
   (t) => [
-    index('workspace_revision_entry_idx').on(t.entryId, t.updatedAt),
-    index('workspace_revision_age_idx').on(t.updatedAt),
-    check('workspace_revision_op_check', oneOf('op', ['write', 'append', 'edit', 'restore', 'copy'])),
+    index('agent_workspace_revision_entry_idx').on(t.entryId, t.updatedAt),
+    index('agent_workspace_revision_age_idx').on(t.updatedAt),
+    check('agent_workspace_revision_op_check', oneOf('op', ['write', 'append', 'edit', 'restore', 'copy'])),
   ],
 );
 
@@ -2857,7 +2857,7 @@ export const workspaceRevision = pgTable(
  * before it puts an object, so a write never loses the object it just named.
  */
 export const workspaceBlob = pgTable(
-  'workspace_blob',
+  'agent_workspace_blob',
   {
     workspaceId: uuid('workspace_id')
       .notNull()
@@ -2869,8 +2869,8 @@ export const workspaceBlob = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.workspaceId, t.sha256] }),
-    index('workspace_blob_released_idx').on(t.releasedAt).where(sql`refs = 0`),
-    check('workspace_blob_refs_check', sql`refs >= 0`),
+    index('agent_workspace_blob_released_idx').on(t.releasedAt).where(sql`refs = 0`),
+    check('agent_workspace_blob_refs_check', sql`refs >= 0`),
   ],
 );
 
@@ -2881,7 +2881,7 @@ export const workspaceBlob = pgTable(
  * the byte-milliseconds of each above the free allowance since the last
  * charge. The daily storage charge prices those and starts them again from 0.
  */
-export const workspaceUsage = pgTable('workspace_usage', {
+export const workspaceUsage = pgTable('agent_workspace_usage', {
   userId: uuid('user_id')
     .primaryKey()
     .references(() => user.id, { onDelete: 'cascade' }),
