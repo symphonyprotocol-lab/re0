@@ -14,7 +14,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { pointModelsAt, TEST_DATABASE_URL, uniqueName, uniqueWord } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import type { ProcessDeps } from '@/lib/services/posts';
 import { VISITOR_ASK_PLATFORM_DAILY } from '@/lib/domain/visitor-ask';
@@ -186,7 +186,7 @@ describeWithDb('console public posts', () => {
   it('lists a post when its question, a Ree answer or a follow-up was reported, leaves trashed posts out, and counts each view', async () => {
     const { reeId } = await publicRee();
     const author = await user('ov-posts', 1_000);
-    const tag = uniqueName('adminposts').replace(/[^a-z0-9]/gi, '');
+    const tag = uniqueWord('adminposts');
     const quiet = await answeredPost(author, reeId, `${tag} quiet post about refunds`);
     const answerReported = await answeredPost(author, reeId, `${tag} answer reported about refunds`);
     const followupReported = await answeredPost(author, reeId, `${tag} follow-up reported about refunds`);

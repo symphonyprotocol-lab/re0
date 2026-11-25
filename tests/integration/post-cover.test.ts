@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { pointModelsAt, TEST_DATABASE_URL, uniqueName, uniqueWord } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import { offlineOgAssets } from '../fixtures/og-offline';
 import type { ProcessDeps } from '@/lib/services/posts';
@@ -76,7 +76,7 @@ function stub(reeIds: string[], text = 'Within 14 days [1].'): ProcessDeps {
 
 async function answeredPost(reeIds: string[], text?: string) {
   const author = await user('cover-author', 1_000);
-  const result = await posts.publishPost(author, { question: `When are refunds issued? ${crypto.randomUUID()}`, lang: 'en' });
+  const result = await posts.publishPost(author, { question: `When are refunds issued? ${uniqueWord('ask')}`, lang: 'en' });
   if (!result.ok) throw new Error(result.error);
   await posts.processPost(result.id, stub(reeIds, text));
   return result.id;

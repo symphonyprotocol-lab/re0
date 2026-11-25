@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-import { pointModelsAt, resetRewardSettings, TEST_DATABASE_URL, uniqueName } from './setup';
+import { pointModelsAt, resetRewardSettings, TEST_DATABASE_URL, uniqueName, uniqueWord } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
@@ -63,7 +63,7 @@ const approve = async () => ({ publish: true });
 
 /** A post by `author` answered in its first round by these Rees. */
 async function answeredPost(author: string, reeIds: string[]) {
-  const posted = await posts.publishPost(author, { question: `When are refunds issued? ${crypto.randomUUID()}`, lang: 'en' });
+  const posted = await posts.publishPost(author, { question: `When are refunds issued? ${uniqueWord('ask')}`, lang: 'en' });
   if (!posted.ok) throw new Error(posted.error);
   await posts.processPost(posted.id, {
     judge: approve,
@@ -149,7 +149,7 @@ describeWithDb('starter tasks: the first post and the first 有帮助', () => {
 
   it('pays a first public post once it passes review, never for a refused one, and once only', async () => {
     const refused = await user('st-refused', 1_000);
-    const posted = await posts.publishPost(refused, { question: `Refused question ${crypto.randomUUID()}`, lang: 'en' });
+    const posted = await posts.publishPost(refused, { question: `Refused question ${uniqueWord('ask')}`, lang: 'en' });
     if (!posted.ok) throw new Error(posted.error);
     /* Pending: nothing yet. Refused: nothing ever. */
     expect(await entries(refused, 'task_first_post')).toHaveLength(0);
@@ -170,7 +170,7 @@ describeWithDb('starter tasks: the first post and the first 有帮助', () => {
 
   it('does not review, publish or pay a public post trashed before its review; restored, it is reviewed and pays', async () => {
     const author = await user('st-trash', 1_000);
-    const posted = await posts.publishPost(author, { question: `Trashed while pending ${crypto.randomUUID()}`, lang: 'en' });
+    const posted = await posts.publishPost(author, { question: `Trashed while pending ${uniqueWord('ask')}`, lang: 'en' });
     if (!posted.ok) throw new Error(posted.error);
     expect(await posts.setPostTrashed(author, posted.id, true)).toBe(true);
     let judged = 0;

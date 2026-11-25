@@ -13,7 +13,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { pointModelsAt, TEST_DATABASE_URL, uniqueName, uniqueWord } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import type { AiAnswerer } from '@/lib/services/ai-answers';
 import type { Matcher } from '@/lib/services/posts';
@@ -70,7 +70,7 @@ const aiStub: AiAnswerer = async () => ({ text: 'Water less often and check the 
 
 /** A public post nothing matched: done, unanswered, with an AI answer that passed review. */
 async function unansweredPost(author: string) {
-  const posted = await posts.publishPost(author, { question: `Why are my monstera leaves yellow? ${crypto.randomUUID()}`, lang: 'en' });
+  const posted = await posts.publishPost(author, { question: `Why are my monstera leaves yellow? ${uniqueWord('ask')}`, lang: 'en' });
   if (!posted.ok) throw new Error(posted.error);
   await posts.processPost(posted.id, { judge: approve, match: noMatch, aiAnswer: aiStub });
   return posted.id;
@@ -153,7 +153,7 @@ describeWithDb('release review fixes', () => {
 
   it('reviews no AI answer once the sweep\'s budget is spent (S2)', async () => {
     const author = await user('rr-review', 200);
-    const posted = await posts.publishPost(author, { question: `Why do my orchid roots rot? ${crypto.randomUUID()}`, lang: 'en' });
+    const posted = await posts.publishPost(author, { question: `Why do my orchid roots rot? ${uniqueWord('ask')}`, lang: 'en' });
     if (!posted.ok) throw new Error(posted.error);
     /* The answer's review cannot run now: it waits, pending, for the sweep. */
     await posts.processPost(posted.id, { judge: async (_question, answer) => {

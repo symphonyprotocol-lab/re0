@@ -13,7 +13,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq, inArray } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { pointModelsAt, TEST_DATABASE_URL, uniqueName, uniqueWord } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import type { AiAnswerer, AiAnswerInput } from '@/lib/services/ai-answers';
 import type { AnswerOne, Matcher } from '@/lib/services/posts';
@@ -97,7 +97,7 @@ function aiStub(text: string | Error, seen: AiAnswerInput[] = []): AiAnswerer {
 
 /** A public post nothing matched, its author's AI answer written (and, with `approve`, passed review). */
 async function aiOnlyPost(author: string, first = 'Water less often.', judge: Judge = approve) {
-  const posted = await posts.publishPost(author, { question: `Why are my monstera leaves yellow? ${crypto.randomUUID()}`, detail: 'It sits by a north window.', lang: 'en' });
+  const posted = await posts.publishPost(author, { question: `Why are my monstera leaves yellow? ${uniqueWord('ask')}`, detail: 'It sits by a north window.', lang: 'en' });
   if (!posted.ok) throw new Error(posted.error);
   await posts.processPost(posted.id, { judge, match: noMatch, aiAnswer: aiStub(first) });
   return posted.id;

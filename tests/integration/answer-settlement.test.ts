@@ -6,7 +6,7 @@
  * charged; a stream cut off by a provider error is not.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { pointModelsAt, resetRewardSettings, TEST_DATABASE_URL, uniqueName } from './setup';
+import { pointModelsAt, resetRewardSettings, TEST_DATABASE_URL, uniqueName, uniqueWord } from './setup';
 import { and, eq, inArray } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
@@ -117,7 +117,7 @@ async function earnedGrants(userId: string) {
  * random tag), so the duplicate window never folds two into one.
  */
 async function ask(userId: string, ree: { id: string; queryFee: number }, question: string, seen = ree.queryFee) {
-  const made = await privatePosts.publishPrivatePost(userId, { question: `${question} (${randomUUID().slice(0, 8)})`, reeIds: [ree.id], fees: { [ree.id]: QUERY_BASE_FEE + seen }, lang: 'en' });
+  const made = await privatePosts.publishPrivatePost(userId, { question: `${question} (${uniqueWord('ask')})`, reeIds: [ree.id], fees: { [ree.id]: QUERY_BASE_FEE + seen }, lang: 'en' });
   if (!made.ok) return { refused: made, text: '', outcome: undefined };
   await privatePosts.processPrivatePost(made.id, noAi);
   const [row] = await db().select().from(schema.postAnswer).where(eq(schema.postAnswer.postId, made.id));

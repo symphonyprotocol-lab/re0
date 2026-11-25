@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
-import { pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
+import { pointModelsAt, TEST_DATABASE_URL, uniqueName, uniqueWord } from './setup';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 import type { AnswerOne } from '@/lib/services/posts';
 import type { FollowupDeps } from '@/lib/services/post-followups';
@@ -70,7 +70,7 @@ const approve = async () => ({ publish: true });
 
 /** A post by `author` answered in its first round by these Rees. */
 async function answeredPost(author: string, reeIds: string[]) {
-  const posted = await posts.publishPost(author, { question: `When are refunds issued? ${crypto.randomUUID()}`, lang: 'en' });
+  const posted = await posts.publishPost(author, { question: `When are refunds issued? ${uniqueWord('ask')}`, lang: 'en' });
   if (!posted.ok) throw new Error(posted.error);
   await posts.processPost(posted.id, {
     judge: approve,
