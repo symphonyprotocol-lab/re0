@@ -371,18 +371,6 @@
   border-top: 1px dashed #eef0f6;
   font-size: 13px;
 }
-.post-mention {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: flex-start;
-  margin-bottom: 6px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--color-soft);
-  color: var(--color-blue);
-  font-size: 12px;
-}
 .post-hint {
   margin-top: 6px;
   color: #8a94ae;
@@ -1383,6 +1371,57 @@ a.post-quote:hover {
 }
 .ask-chip {
   padding: 3px 10px 3px 8px;
+}
+/*
+ * The @Ree chip of a public question (composer.tsx MentionChip): a small ×
+ * on its top-right corner takes the mention off. It shows on hover and on
+ * keyboard focus; a touch screen has no hover, so there it always shows,
+ * and its target reaches 40px around the 18px dot.
+ */
+.mention-chip {
+  position: relative;
+}
+.fu-chip .mention-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #d6e6fb;
+  background: #ffffff;
+  color: #5d6b88;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.12);
+  opacity: 0;
+  scale: 0.8;
+}
+.fu-chip .mention-remove svg {
+  width: 10px;
+  height: 10px;
+}
+.mention-remove::before {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  content: '';
+}
+.mention-chip:hover .mention-remove,
+.mention-remove:focus-visible {
+  opacity: 1;
+  scale: 1;
+}
+.fu-chip .mention-remove:hover {
+  border-color: var(--color-blue);
+  background: var(--color-blue);
+  color: #ffffff;
+}
+@media (hover: none), (pointer: coarse) {
+  .fu-chip .mention-remove {
+    opacity: 1;
+    scale: 1;
+  }
+  .mention-remove::before {
+    inset: -11px;
+  }
 }
 /* 免登录提问 (visitor-ask.tsx): a signed-out visitor's question on a share page, and what became of the ones they asked. */
 .visitor-ask-badge {
