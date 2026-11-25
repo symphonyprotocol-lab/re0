@@ -18,6 +18,8 @@ import { IdentityFields, PersonalityFields, PublishingFields, ReeAvatarColors, t
 import { ReeCoverEditor } from '@/components/rees/ree-cover-editor';
 import { VisitorAskFields } from '@/components/rees/visitor-ask-fields';
 import { parseVisitorAskSettings } from '@/lib/domain/visitor-ask';
+import { isShareStyle, parseProductSheet, productSheetOf } from '@/lib/domain/share-style';
+import { ShareStyleFields } from '@/components/rees/share-style-fields';
 import { ReeAvatarEditor } from '@/components/rees/ree-avatar-editor';
 import { ReeSettingsPreview } from '@/components/rees/ree-settings-preview-button';
 import { PIcon } from '@/components/rees/proto-icon';
@@ -42,6 +44,8 @@ function formOf(ree: Ree): ReeFormState {
     publicQaEnabled: ree.publicQaEnabled,
     answersPosts: ree.answersPosts,
     visitorAskSettings: { enabled: ree.visitorAsks, perVisitor: ree.visitorAsksPerVisitor, perDay: ree.visitorAsksPerDay },
+    shareStyle: isShareStyle(ree.shareStyle) ? ree.shareStyle : 'default',
+    productSheet: productSheetOf(ree.productSheet),
   };
 }
 
@@ -110,6 +114,12 @@ export function ReeSettings({ ree, sources, video, topbar, visitorAsksToday = 0 
       setError(t.reeSetup.messages[visitorAskSettings]);
       return;
     }
+    /* The product sheet is checked as the server checks it; rows left wholly empty are dropped. */
+    const productSheet = form.productSheet ? parseProductSheet(form.productSheet) : undefined;
+    if (typeof productSheet === 'string') {
+      setError(t.reeSetup.messages[productSheet]);
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -126,7 +136,7 @@ export function ReeSettings({ ree, sources, video, topbar, visitorAsksToday = 0 
       }
       const result = await api<{ error?: ReeFieldError | 'invalid_cover' }>(`/api/rees/${ree.id}`, {
         method: 'PATCH',
-        json: { ...form, coverBlob, visitorAskSettings },
+        json: { ...form, coverBlob, visitorAskSettings, productSheet },
       });
       if (!result.ok) {
         const code = result.data.error;
@@ -134,8 +144,8 @@ export function ReeSettings({ ree, sources, video, topbar, visitorAsksToday = 0 
         return;
       }
       /* What was saved: hidden visitor-ask numbers left invalid went back to the stored ones, and the form shows them. */
-      const sent = visitorAskSettings ? { ...form, visitorAskSettings } : form;
-      if (visitorAskSettings && JSON.stringify(visitorAskSettings) !== JSON.stringify(form.visitorAskSettings)) setForm((current) => ({ ...current, visitorAskSettings }));
+      const sent = { ...form, ...(visitorAskSettings ? { visitorAskSettings } : {}), ...(productSheet ? { productSheet } : {}) };
+      if (JSON.stringify(sent) !== JSON.stringify(form)) setForm(sent);
       setBaseline(sent);
       toast(s.saved);
       router.refresh();
@@ -235,6 +245,17 @@ export function ReeSettings({ ree, sources, video, topbar, visitorAsksToday = 0 
                 <h2>{s.publishing}</h2>
                 <PublishingFields value={form} onChange={update} moderated={moderated} />
               </section>
+              {form.shareStyle && form.productSheet && (
+                <section id="share-style" className="card setup-section scroll-mt-24" aria-labelledby="ree-share-style-heading">
+                  <h2 id="ree-share-style-heading">{t.reeSetup.shareStyle.title}</h2>
+                  <ShareStyleFields
+                    style={form.shareStyle}
+                    sheet={form.productSheet}
+                    onChange={update}
+                    shareHref={ree.isPublic && ree.isPublished && !moderated ? `/s/${ree.slug}` : null}
+                  />
+                </section>
+              )}
               {form.visitorAskSettings && (
                 <section id="visitor-asks" className="card setup-section scroll-mt-24" aria-labelledby="ree-visitor-asks-heading">
                   <h2 id="ree-visitor-asks-heading">{t.reeSetup.visitorAsks.title}</h2>
