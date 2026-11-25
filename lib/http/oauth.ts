@@ -11,6 +11,7 @@
  */
 import { generateProtectedResourceMetadata } from 'mcp-handler';
 import { NextResponse } from 'next/server';
+import { OAUTH_LIMITS } from '@/lib/constants';
 import { basicCredentials, OAUTH_DEFAULT_SCOPE, OAUTH_SCOPES, OAuthError } from '@/lib/domain/oauth';
 import { isSecureDeployment } from '@/lib/http/cookies';
 import { mcpResource, oauthIssuer } from '@/lib/services/oauth';
@@ -59,13 +60,17 @@ export function oauthError(error: OAuthError | { error: string; description: str
 export async function oauthParams(request: Request): Promise<{ params: Record<string, string>; basic: { clientId: string; secret: string } | null }> {
   const type = (request.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
   const params: Record<string, string> = {};
+  const text = await limitedBody(request);
   if (type === 'application/json') {
-    const raw = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    let raw: unknown = null;
+    try {
+      raw = JSON.parse(text);
+    } catch {
+      /* refused below */
+    }
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new OAuthError('invalid_request', 'The body must be form-encoded or a JSON object.');
     for (const [name, value] of Object.entries(raw)) if (typeof value === 'string') params[name] = value;
   } else {
-    const text = await request.text();
-    if (text.length > 16_384) throw new OAuthError('invalid_request', 'The request is too large.');
     const form = new URLSearchParams(text);
     for (const name of new Set(form.keys())) {
       const values = form.getAll(name);
@@ -74,6 +79,37 @@ export async function oauthParams(request: Request): Promise<{ params: Record<st
     }
   }
   return { params, basic: basicCredentials(request.headers.get('authorization')) };
+}
+
+/**
+ * The request body as text, read no further than `OAUTH_LIMITS.requestMaxBytes`
+ * (a declared or actual larger body is `invalid_request`, 413).
+ */
+export async function limitedBody(request: Request): Promise<string> {
+  const max = OAUTH_LIMITS.requestMaxBytes;
+  const tooLarge = () => new OAuthError('invalid_request', 'The request body is too large.', 413);
+  if (Number(request.headers.get('content-length') ?? '0') > max) throw tooLarge();
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      throw tooLarge();
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 /** RFC 8414 metadata of the authorization server. */

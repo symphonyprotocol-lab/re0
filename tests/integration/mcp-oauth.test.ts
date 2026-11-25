@@ -217,24 +217,61 @@ describeWithDb('MCP OAuth: client registration', () => {
     expect((await register({ redirect_uris: [] })).status).toBe(400);
   });
 
-  it('limits registrations per address', async () => {
+  it('limits registrations per address generously (platforms register from shared servers), and overall', async () => {
     const ip = `10.250.${Math.floor(Math.random() * 250)}.1`;
     const statuses: number[] = [];
-    for (let i = 0; i < 21; i += 1) statuses.push((await register({ redirect_uris: [REDIRECT], token_endpoint_auth_method: 'none' }, ip)).status);
-    expect(statuses.slice(0, 20).every((status) => status === 201)).toBe(true);
-    expect(statuses[20]).toBe(429);
+    for (let i = 0; i < 301; i += 1) statuses.push((await register({ redirect_uris: [REDIRECT], token_endpoint_auth_method: 'none' }, ip)).status);
+    expect(statuses.slice(0, 300).every((status) => status === 201)).toBe(true);
+    expect(statuses[300]).toBe(429);
+    /* The overall ceiling: once its bucket is full, every address is refused. */
+    await db().update(schema.rateBucket).set({ hits: 5_000 }).where(eq(schema.rateBucket.key, 'oauth:register:all'));
+    const elsewhere = await register({ redirect_uris: [REDIRECT], token_endpoint_auth_method: 'none' }, '10.251.0.1');
+    expect(elsewhere.status).toBe(429);
+    expect(elsewhere.headers.get('retry-after')).toBe('3600');
+    await db().delete(schema.rateBucket).where(eq(schema.rateBucket.key, 'oauth:register:all'));
+  });
+
+  it('refuses bodies over 16 KB at the registration and token endpoints', async () => {
+    const big = await register({ client_name: 'x'.repeat(20_000), redirect_uris: [REDIRECT] });
+    expect(big.status).toBe(413);
+    const bigToken = await token({ grant_type: 'refresh_token', refresh_token: 'x'.repeat(20_000), client_id: 'c' });
+    expect(bigToken.status).toBe(413);
+    expect(await bigToken.json()).toMatchObject({ error: 'invalid_request' });
+  });
+
+  it('deletes unused clients by when they were last seen, never one with a request waiting on its consent page', async () => {
+    const old = new Date(Date.now() - 8 * 86_400_000);
+    const idle = await publicClient();
+    const waiting = await publicClient();
+    const recent = await publicClient();
+    await startFlow(waiting.client_id);
+    await db().update(schema.oauthClient).set({ createdAt: old, lastSeenAt: old }).where(eq(schema.oauthClient.id, idle.client_id));
+    await db().update(schema.oauthClient).set({ createdAt: old, lastSeenAt: old }).where(eq(schema.oauthClient.id, waiting.client_id));
+    /* Old, but seen yesterday (an authorization request names it). */
+    await db().update(schema.oauthClient).set({ createdAt: old }).where(eq(schema.oauthClient.id, recent.client_id));
+    await publicClient(); /* registration runs the clean-up */
+    const left = new Set((await db().select({ id: schema.oauthClient.id }).from(schema.oauthClient)).map((row) => row.id));
+    expect(left.has(idle.client_id)).toBe(false);
+    expect(left.has(waiting.client_id)).toBe(true);
+    expect(left.has(recent.client_id)).toBe(true);
+    /* Naming a client in an authorization request moves its last-seen time. */
+    await db().update(schema.oauthClient).set({ lastSeenAt: old }).where(eq(schema.oauthClient.id, recent.client_id));
+    await startFlow(recent.client_id);
+    const [seen] = await db().select().from(schema.oauthClient).where(eq(schema.oauthClient.id, recent.client_id));
+    expect(seen!.lastSeenAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
   });
 
   it('accepts a client by its metadata document URL, checked against the document', async () => {
     const documentUrl = `https://app.example.test/oauth/${uniqueName('doc')}.json`;
-    const serve = (document: unknown, url = documentUrl) =>
-      oauth.setClientDocumentFetcherForTests(async () => ({ url, status: 200, headers: new Headers({ 'cache-control': 'max-age=600' }), contentType: 'application/json', body: JSON.stringify(document), bytes: new Uint8Array() }));
+    const serve = (document: unknown, status = 200) =>
+      oauth.setClientDocumentFetcherForTests(async () => ({ status, headers: new Headers({ 'cache-control': 'max-age=600' }), body: JSON.stringify(document) }));
 
     serve({ client_id: 'https://other.example.test/client.json', client_name: 'Liar', redirect_uris: [REDIRECT] });
     const mismatched = await authorize({ response_type: 'code', client_id: documentUrl, redirect_uri: REDIRECT, code_challenge: 'x'.repeat(43), code_challenge_method: 'S256' });
     expect(mismatched.headers.get('location')).toBe(`${BASE}/oauth/error?reason=invalid_client`);
 
-    serve({ client_id: documentUrl, client_name: 'Doc Client', redirect_uris: [REDIRECT] }, `${documentUrl}?redirected`);
+    /* A redirect is never followed. */
+    serve({ client_id: documentUrl, client_name: 'Doc Client', redirect_uris: [REDIRECT] }, 302);
     expect((await authorize({ client_id: documentUrl, redirect_uri: REDIRECT })).headers.get('location')).toContain('reason=invalid_client');
 
     serve({ client_id: documentUrl, client_name: 'Doc Client', redirect_uris: [REDIRECT], token_endpoint_auth_method: 'private_key_jwt' });
@@ -249,6 +286,27 @@ describeWithDb('MCP OAuth: client registration', () => {
     expect(row!.refreshAfter!.getTime() - row!.fetchedAt!.getTime()).toBe(600_000);
     const [app] = (await apiKeys.listApiKeys(userId)).filter((item) => item.oauthClient);
     expect(app!.oauthClient).toMatchObject({ id: documentUrl, name: 'Doc Client', documentHost: 'app.example.test', redirectHosts: ['client.example.test'] });
+
+    /* Its site goes down: a copy less than a day past its refresh time is still used; an older one is not. */
+    oauth.setClientDocumentFetcherForTests(async () => {
+      throw new Error('ECONNRESET');
+    });
+    await db().update(schema.oauthClient).set({ refreshAfter: new Date(Date.now() - 3_600_000) }).where(eq(schema.oauthClient.id, documentUrl));
+    expect((await authorize({ response_type: 'code', client_id: documentUrl, redirect_uri: REDIRECT, code_challenge: 'x'.repeat(43), code_challenge_method: 'S256' })).headers.get('location')).toMatch(/\/oauth\/consent\//);
+    serve({}, 503);
+    expect((await authorize({ response_type: 'code', client_id: documentUrl, redirect_uri: REDIRECT, code_challenge: 'x'.repeat(43), code_challenge_method: 'S256' })).headers.get('location')).toMatch(/\/oauth\/consent\//);
+    await db().update(schema.oauthClient).set({ refreshAfter: new Date(Date.now() - 25 * 3_600_000) }).where(eq(schema.oauthClient.id, documentUrl));
+    expect((await authorize({ client_id: documentUrl, redirect_uri: REDIRECT })).headers.get('location')).toContain('reason=invalid_client');
+    /* A site that answers with a document that no longer checks out is refused even with a fresh-enough copy. */
+    await db().update(schema.oauthClient).set({ refreshAfter: new Date(Date.now() - 1000) }).where(eq(schema.oauthClient.id, documentUrl));
+    serve({ client_id: 'https://other.example.test/c.json', redirect_uris: [REDIRECT] });
+    expect((await authorize({ client_id: documentUrl, redirect_uri: REDIRECT })).headers.get('location')).toContain('reason=invalid_client');
+
+    /* The real fetcher refuses private and loopback hosts before sending anything. */
+    oauth.setClientDocumentFetcherForTests(null);
+    for (const local of ['https://127.0.0.1/client.json', 'https://localhost/client.json', 'https://10.0.0.8/client.json', 'https://[::1]/client.json']) {
+      expect((await authorize({ client_id: local, redirect_uri: REDIRECT })).headers.get('location'), local).toContain('reason=invalid_client');
+    }
 
     /* Not a valid document URL: plain http, no path. */
     for (const bad of ['http://app.example.test/client.json', 'https://app.example.test/', 'https://app.example.test:8443/c.json']) {
@@ -322,20 +380,22 @@ describeWithDb('MCP OAuth: the flow', () => {
     expect(wsWrite.isError).toBe(true);
     expect(wsWrite.structuredContent?.error).toBe('workspace_not_allowed');
 
-    /* Approving the same client again replaces its grant. */
+    /* Approving the same client again adds a second grant (say, a personal and a team claude.ai organisation); the first keeps working. */
     const files = await tokensFor(client.client_id, session, { workspaceOnly: true, workspaceAccess: 'write', workspaceRoot: '/notes', canWrite: true });
     expect(files.scope).toBe('workspace:write');
-    expect((await rawMcp(writer.access_token)).status).toBe(401);
+    expect((await rawMcp(writer.access_token)).status).toBe(200);
     const fileTools = (await (await connect(files.access_token)).listTools()).tools.map((tool) => tool.name);
     expect(fileTools.every((name) => name.startsWith('ws_'))).toBe(true);
     expect(fileTools).toContain('ws_write');
     const live = (await apiKeys.listApiKeys(userId)).filter((item) => item.oauthClient && !item.revokedAt);
-    expect(live).toHaveLength(1);
-    expect(live[0]).toMatchObject({ kind: 'workspace', workspaceRoot: '/notes', canWrite: false });
+    expect(live).toHaveLength(2);
+    const workspaceGrant = live.find((item) => item.kind === 'workspace')!;
+    expect(workspaceGrant).toMatchObject({ workspaceRoot: '/notes', canWrite: false });
 
-    /* Revoking from settings (the keys route) ends it at once. */
-    expect(await apiKeys.revokeApiKey(userId, live[0]!.id)).toBe(true);
+    /* Revoking one from settings (the keys route) ends that one at once, and only that one. */
+    expect(await apiKeys.revokeApiKey(userId, workspaceGrant.id)).toBe(true);
     expect((await rawMcp(files.access_token)).status).toBe(401);
+    expect((await rawMcp(writer.access_token)).status).toBe(200);
   });
 
   it('suggests permissions from the requested scope and shows a pending request only to its browser', async () => {
@@ -364,6 +424,34 @@ describeWithDb('MCP OAuth: the flow', () => {
 });
 
 describeWithDb('MCP OAuth: refusals', () => {
+  it('matches a loopback redirect on any port, everything else of it exactly', async () => {
+    const { token: session } = await person();
+    const client = await publicClient(['http://127.0.0.1:4567/callback', 'http://localhost:8000/cb', 'https://client.example.test:8443/callback']);
+    const flow = await startFlow(client.client_id, { redirectUri: 'http://127.0.0.1:51234/callback' });
+    state.session = session;
+    const decided = await decide(flow.id, flow.cookie, { approve: true });
+    state.session = null;
+    const redirect = new URL(((await decided.json()) as { redirect: string }).redirect);
+    expect(redirect.host).toBe('127.0.0.1:51234');
+    const exchanged = await token({ grant_type: 'authorization_code', code: redirect.searchParams.get('code')!, redirect_uri: 'http://127.0.0.1:51234/callback', code_verifier: flow.verifier, client_id: client.client_id });
+    expect(exchanged.status).toBe(200);
+    await startFlow(client.client_id, { redirectUri: 'http://localhost:9/cb' });
+    for (const redirectUri of ['http://127.0.0.1:51234/other', 'http://127.0.0.1:51234/callback?x=1', 'http://[::1]:4567/callback', 'http://localhost:8000/callback', 'https://client.example.test:9443/callback', 'https://client.example.test/callback']) {
+      const response = await authorize({ response_type: 'code', client_id: client.client_id, redirect_uri: redirectUri });
+      expect(response.headers.get('location'), redirectUri).toBe(`${BASE}/oauth/error?reason=invalid_redirect_uri`);
+    }
+  });
+
+  it('answers a wrong API key with the key challenge and no OAuth pointer', async () => {
+    const wrongKey = await rawMcp(`re0_sk_${'0'.repeat(64)}`);
+    expect(wrongKey.status).toBe(401);
+    expect(wrongKey.headers.get('www-authenticate')).toBe('Bearer realm="re0", error="invalid_token"');
+    expect(await wrongKey.json()).toMatchObject({ error: 'invalid_api_key' });
+    const stranger = await rawMcp('some-other-token');
+    expect(stranger.headers.get('www-authenticate')).toContain('resource_metadata=');
+    expect(await stranger.json()).toMatchObject({ error: 'invalid_token' });
+  });
+
   it('never redirects to an unknown client or an unregistered redirect URI', async () => {
     const client = await publicClient();
     const unknown = await authorize({ response_type: 'code', client_id: 're0_client_ffffffffffffffffffffffffffffffff', redirect_uri: REDIRECT });
@@ -451,16 +539,32 @@ describeWithDb('MCP OAuth: refusals', () => {
     expect(accepted.status).toBe(200);
   });
 
-  it('revokes the grant when a spent refresh token comes back', async () => {
+  it('lets a spent refresh token be retried within a minute, and revokes the grant when it comes back later', async () => {
     const { token: session } = await person();
     const client = await publicClient();
     const tokens = await tokensFor(client.client_id, session);
-    const rotated = (await (await token({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: client.client_id })).json()) as { access_token: string; refresh_token: string };
-    const reused = await token({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: client.client_id });
-    expect(reused.status).toBe(400);
-    expect(await reused.json()).toMatchObject({ error: 'invalid_grant' });
-    expect((await rawMcp(rotated.access_token)).status).toBe(401);
-    expect((await token({ grant_type: 'refresh_token', refresh_token: rotated.refresh_token, client_id: client.client_id })).status).toBe(400);
+    const refresh = (value: string) => token({ grant_type: 'refresh_token', refresh_token: value, client_id: client.client_id });
+    const rotated = (await (await refresh(tokens.refresh_token)).json()) as { access_token: string; refresh_token: string };
+
+    /* A retry after a lost response, or a racing refresh: another pair, and nothing revoked. */
+    const retried = await refresh(tokens.refresh_token);
+    expect(retried.status).toBe(200);
+    const second = (await retried.json()) as { access_token: string; refresh_token: string };
+    expect(second.refresh_token).not.toBe(rotated.refresh_token);
+    expect((await rawMcp(rotated.access_token)).status).toBe(200);
+    expect((await rawMcp(second.access_token)).status).toBe(200);
+    const [racing1, racing2] = await Promise.all([refresh(second.refresh_token), refresh(second.refresh_token)]);
+    expect([racing1.status, racing2.status]).toEqual([200, 200]);
+    const latest = (await racing1.json()) as { access_token: string; refresh_token: string };
+
+    /* The window does not slide: a minute after the first use, the same token is a replay. */
+    const { sha256 } = await import('@/lib/infra/crypto/tokens');
+    await db().update(schema.oauthToken).set({ rotatedAt: new Date(Date.now() - 61_000) }).where(eq(schema.oauthToken.digest, await sha256(tokens.refresh_token)));
+    const replayed = await refresh(tokens.refresh_token);
+    expect(replayed.status).toBe(400);
+    expect(await replayed.json()).toMatchObject({ error: 'invalid_grant' });
+    expect((await rawMcp(latest.access_token)).status).toBe(401);
+    expect((await refresh(latest.refresh_token)).status).toBe(400);
   });
 
   it('refuses a refresh token for another client and expired access tokens', async () => {

@@ -2785,6 +2785,8 @@ export const oauthClient = pgTable(
     secretDigest: text('secret_digest'),
     fetchedAt: timestampTz('fetched_at'),
     refreshAfter: timestampTz('refresh_after'),
+    /** Registered, fetched or named by an authorization request: a client unseen for a week with no grant is deleted. */
+    lastSeenAt: timestampTz('last_seen_at').notNull().defaultNow(),
     createdAt: createdAt(),
   },
   (t) => [
@@ -2792,7 +2794,7 @@ export const oauthClient = pgTable(
     check('oauth_client_auth_method_check', oneOf('token_endpoint_auth_method', ['none', 'client_secret_post', 'client_secret_basic'])),
     check('oauth_client_secret_check', sql`(token_endpoint_auth_method = 'none') = (secret_digest is null)`),
     check('oauth_client_name_check', sql`char_length(client_name) between 1 and 100`),
-    index('oauth_client_created_idx').on(t.createdAt),
+    index('oauth_client_last_seen_idx').on(t.lastSeenAt),
   ],
 );
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   basicCredentials,
   canonicalResource,
+  cleanClientDisplayName,
   documentLifetimeSeconds,
   isAllowedRedirectUri,
   isCodeChallenge,
@@ -11,6 +12,7 @@ import {
   parseClientMetadata,
   parsePermissions,
   redirectLabel,
+  redirectUriMatches,
   scopeOf,
   suggestedPermissions,
 } from '@/lib/domain/oauth';
@@ -75,5 +77,29 @@ describe('OAuth rules (lib/domain/oauth.ts)', () => {
     expect(documentLifetimeSeconds('public, max-age=600')).toBe(600);
     expect(documentLifetimeSeconds('max-age=999999')).toBe(86400);
     expect(documentLifetimeSeconds('no-store')).toBe(300);
+  });
+
+  it('matches loopback redirects on any port and everything else exactly', () => {
+    expect(redirectUriMatches('https://a.test/cb', 'https://a.test/cb')).toBe(true);
+    expect(redirectUriMatches('https://a.test:8443/cb', 'https://a.test:9443/cb')).toBe(false);
+    expect(redirectUriMatches('http://127.0.0.1:3000/cb', 'http://127.0.0.1:54321/cb')).toBe(true);
+    expect(redirectUriMatches('http://127.0.0.1/cb', 'http://127.0.0.1:54321/cb')).toBe(true);
+    expect(redirectUriMatches('http://[::1]:3000/cb', 'http://[::1]:1/cb')).toBe(true);
+    expect(redirectUriMatches('http://localhost:3000/cb', 'http://localhost:4000/cb')).toBe(true);
+    expect(redirectUriMatches('http://127.0.0.1:3000/cb', 'http://127.0.0.1:3000/cb2')).toBe(false);
+    expect(redirectUriMatches('http://127.0.0.1:3000/cb?a=1', 'http://127.0.0.1:4000/cb?a=2')).toBe(false);
+    expect(redirectUriMatches('http://127.0.0.1:3000/cb', 'http://localhost:3000/cb')).toBe(false);
+    expect(redirectUriMatches('http://127.0.0.1:3000/cb', 'https://127.0.0.1:3000/cb')).toBe(false);
+  });
+
+  it('cleans client names of controls, bidi overrides and zero-width characters', () => {
+    expect(cleanClientDisplayName('Claude\u202e')).toBe('Claude');
+    expect(cleanClientDisplayName('\u202eedualC')).toBe('edualC');
+    expect(cleanClientDisplayName('Cl\u200bau\u200dde\ufeff')).toBe('Claude');
+    expect(cleanClientDisplayName('\u2066Chat\u2069GPT')).toBe('ChatGPT');
+    expect(cleanClientDisplayName('Ｃｌａｕｄｅ')).toBe('Claude');
+    expect(cleanClientDisplayName('a\u0000b\u0085c  d')).toBe('a b c d');
+    expect(cleanClientDisplayName(42)).toBe('');
+    expect(parseClientMetadata({ redirect_uris: ['https://a.test/cb'], client_name: '\u200b\u202e' }, 'registration').clientName).toBe('a.test');
   });
 });

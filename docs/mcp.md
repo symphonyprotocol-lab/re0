@@ -112,8 +112,9 @@ each one with its permissions, where it returns to, when it was connected and
 last used, and what it asked and spent. A connected app is used and limited
 exactly like a key — the same tools, permission checks, per-connection and
 per-account rate limits (`MCP_RATE_LIMIT`), credits, and the same usage
-figures — and an account can keep 50. Connecting the same app again replaces
-its earlier grant. **Disconnect** ends it at once.
+figures — and an account can keep 50. Connecting the same app again adds
+another connection (each claude.ai organisation you connect from is its own),
+listed and disconnected separately. **Disconnect** ends one at once.
 
 ### How it works (for client developers)
 
@@ -127,26 +128,41 @@ re0 is its own authorization server (MCP authorization spec 2026-07-28, OAuth
 | Authorization server metadata (RFC 8414) | `/.well-known/oauth-authorization-server`; issuer is the site's origin |
 | Authorization endpoint | `/oauth/authorize` — `response_type=code`, PKCE `S256` required, `resource` must be the MCP URL (or omitted) |
 | Token endpoint | `/api/oauth/token` — `authorization_code` and `refresh_token` |
-| Client registration | Client ID Metadata Documents (`client_id` is an HTTPS URL; re0 fetches it, checks its `client_id` and `redirect_uris`, caches it per `Cache-Control` between 5 minutes and a day) or dynamic registration at `/api/oauth/register` (RFC 7591, 20 per address per hour) |
+| Client registration | Client ID Metadata Documents (`client_id` is an HTTPS URL on port 443; re0 fetches it from a public address only, without following redirects, 16 KB within 5 s in all, checks its `client_id` and `redirect_uris`, caches it per `Cache-Control` between 5 minutes and a day, and uses a copy up to a day past that when the client's site does not answer) or dynamic registration at `/api/oauth/register` (RFC 7591; 300 per address and 5,000 in all per hour, since claude.ai and ChatGPT register from shared servers; bodies up to 16 KB) |
 | Revocation (RFC 7009) | `/api/oauth/revoke` — a refresh token ends the whole grant |
 | Scopes | `read`, `write`, `workspace:read`, `workspace:write` — what the user approved, reported in the token response; the user decides on the consent page |
 
-Redirect URIs are matched exactly. A client may register HTTPS URIs, plain
-HTTP to a loopback address (`localhost`, `127.0.0.1`, `[::1]`), or a
-reverse-domain app scheme (`com.example.app:/cb`, RFC 8252); never a fragment.
+Redirect URIs are matched exactly, except that a loopback redirect
+(`http://127.0.0.1`, `http://[::1]`, `http://localhost`) may use any port
+(RFC 8252 §7.3), with its path and query still exact. A client may register
+HTTPS URIs, plain HTTP to a loopback address, or a reverse-domain app scheme
+(`com.example.app:/cb`, RFC 8252); never a fragment.
 An unknown client or an unregistered redirect URI stays on re0
 (`/oauth/error`) and is never redirected to; other faults go back to the
 registered URI as `error=…` with `state` and `iss` (RFC 9207). Codes last five
 minutes and are used once: a replayed code revokes the grant it made. Access
 tokens (`re0_at_…`) last an hour and are bound to `<host>/api/mcp`; refresh
-tokens (`re0_rt_…`) rotate on every use, and a spent one presented again
-revokes the grant. A grant nobody uses for 90 days lapses. Every token, code
+tokens (`re0_rt_…`) rotate on every use; a spent one presented again within
+60 seconds of its first use (a retry after a lost response, or two refreshes
+racing) gets another pair, and later than that revokes the grant. A grant nobody uses for 90 days lapses. Every token, code
 and client secret is stored as a SHA-256 digest only. Clients registered with
 `client_secret_basic` / `client_secret_post` (the RFC 7591 default when no
 method is named) must authenticate at the token and revocation endpoints;
 public clients (`none`) use PKCE alone. The discovery, registration, token and
 revocation endpoints send `Access-Control-Allow-Origin: *` and read no cookie;
 `/api/mcp` itself still refuses browser pages on other origins.
+
+### API keys and the 401
+
+A request with no `Authorization` header, or with an OAuth access token that
+no longer works, gets a `401` whose `WWW-Authenticate` points at the
+protected resource metadata — that is how an OAuth client finds re0's
+authorization server. A request that sent an API key (`re0_sk_…`) that is
+unknown, revoked or expired gets the plain key challenge
+(`Bearer realm="re0", error="invalid_token"`, body `invalid_api_key`) with no
+`resource_metadata`, so a client configured with a key reports a wrong key
+instead of opening a browser sign-in. A client that sends neither (a key
+header it forgot) may start an OAuth sign-in; that is expected.
 
 ## 3. Tools
 

@@ -803,17 +803,30 @@ export const OAUTH_LIMITS = {
   refreshDays: 90,
   /** From `/oauth/authorize` to the decision on the consent page, sign-in included. */
   requestMinutes: 30,
+  /** A spent refresh token presented again this soon is a retry and gets another pair; later, the grant is revoked. */
+  refreshReuseGraceSeconds: 60,
   /** From the decision to the code's exchange at the token endpoint. */
   codeSeconds: 300,
-  /** Live connected apps per account (one per client; re-approving a client replaces its grant). */
+  /** Live connected apps per account (a client may hold several, e.g. one per claude.ai organisation). */
   maxGrants: 50,
-  /** Client registrations per address per hour. */
-  registrationsPerHour: 20,
+  /**
+   * Client registrations per address per hour, and in all per hour.
+   * claude.ai and ChatGPT register from their own servers, so one address
+   * stands for many of their users: the per-address limit is generous and
+   * the overall ceiling bounds what an abuser can store (unused clients go
+   * after a week).
+   */
+  registrationsPerAddressPerHour: 300,
+  registrationsPerHour: 5_000,
+  /** The largest body the registration, token and revocation endpoints read. */
+  requestMaxBytes: 16 * 1024,
   /** Authorization requests per address per hour (each may fetch a client's metadata document). */
   authorizationsPerHour: 120,
   /** A client metadata document: the longest wait and the largest body. */
   documentTimeoutMs: 5_000,
   documentMaxBytes: 16 * 1024,
+  /** When a client's site does not answer, its document may be used this long past its refresh time. */
+  documentStaleHours: 24,
   /** A client nobody has a grant for is deleted after this many days (a metadata document is fetched again when next used). */
   unusedClientDays: 7,
 } as const;

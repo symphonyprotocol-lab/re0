@@ -16,15 +16,16 @@
  * filter, rate limit, credit rule and usage figure of a key applies to it
  * unchanged -- and an access + refresh token pair, kept by digest only and
  * bound to the MCP server's URL. Refresh tokens rotate; a used one presented
- * again revokes the grant. Revoking the grant (settings, console, the
+ * again more than a minute later revokes the grant. Revoking the grant (settings, console, the
  * revocation endpoint) ends every token at once.
  */
-import { and, eq, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { API_KEY_LAST_USED_RESOLUTION_MS, API_KEY_NAME_MAX, OAUTH_LIMITS } from '@/lib/constants';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { db, schema, type Executor } from '@/lib/infra/db';
 import { base64UrlEncode, randomHex, randomToken, sha256, timingSafeEqual } from '@/lib/infra/crypto/tokens';
-import { fetchBytes } from '@/lib/infra/connectors/http';
+import { assertFetchable } from '@/lib/infra/connectors/http';
+import { publicOnlyDispatcher } from '@/lib/infra/connectors/address';
 import {
   canonicalResource,
   documentLifetimeSeconds,
@@ -32,6 +33,7 @@ import {
   isCodeChallenge,
   isCodeVerifier,
   isLoopbackRedirect,
+  redirectUriMatches,
   isMetadataDocumentUrl,
   OAUTH_ACCESS_TOKEN_PREFIX,
   OAUTH_CLIENT_ID_PREFIX,
@@ -85,6 +87,7 @@ export async function registerClient(raw: unknown, now = new Date()): Promise<Re
       redirectUris: metadata.redirectUris,
       tokenEndpointAuthMethod: metadata.tokenEndpointAuthMethod,
       secretDigest: secret ? await sha256(secret) : null,
+      lastSeenAt: now,
       createdAt: now,
     });
   await forgetUnused(now);
@@ -101,30 +104,92 @@ export async function registerClient(raw: unknown, now = new Date()): Promise<Re
   };
 }
 
-/** Clients nobody holds a grant for after a week, and authorization requests a day past their expiry (a replayed code is still caught until then). */
+/**
+ * Clients unseen for a week (`last_seen_at`: registered, fetched, or named
+ * by an authorization request) that nobody holds a grant for and that have
+ * no request still waiting on its consent page; and authorization requests
+ * a day past their expiry (a replayed code is still caught until then).
+ */
 async function forgetUnused(now: Date): Promise<void> {
   const cutoff = new Date(now.getTime() - OAUTH_LIMITS.unusedClientDays * 86_400_000);
   await db().execute(sql`
     delete from ${schema.oauthClient} c
-    where c.created_at < ${cutoff}
-      and not exists (select 1 from ${schema.apiKey} k where k.oauth_client_id = c.id)`);
+    where c.last_seen_at < ${cutoff}
+      and not exists (select 1 from ${schema.apiKey} k where k.oauth_client_id = c.id)
+      and not exists (select 1 from ${schema.oauthAuthorization} a where a.client_id = c.id and a.expires_at > ${now})`);
   await db()
     .delete(schema.oauthAuthorization)
     .where(lt(schema.oauthAuthorization.expiresAt, new Date(now.getTime() - 86_400_000)));
 }
 
+export interface ClientDocumentResponse {
+  status: number;
+  headers: Headers;
+  body: string;
+}
+
+/**
+ * A client metadata document, fetched once: the URL's host must be public
+ * before anything is sent (and its address is checked again as the socket
+ * connects), redirects are never followed, and the whole exchange -- connect,
+ * headers and body -- has one 5-second budget and a 16 KB cap.
+ */
+async function fetchClientDocument(url: string): Promise<ClientDocumentResponse> {
+  const target = new URL(url);
+  assertFetchable(target);
+  const response = await fetch(target, {
+    headers: { accept: 'application/json', 'user-agent': 're0-oauth/1.0 (client metadata document)' },
+    redirect: 'manual',
+    signal: AbortSignal.timeout(OAUTH_LIMITS.documentTimeoutMs),
+    cache: 'no-store',
+    // Node's fetch is undici; the dispatcher option is not in the DOM RequestInit type.
+    ...({ dispatcher: publicOnlyDispatcher() } as RequestInit),
+  });
+  if (response.status !== 200 || !response.body) {
+    await response.body?.cancel().catch(() => undefined);
+    return { status: response.status, headers: response.headers, body: '' };
+  }
+  if (Number(response.headers.get('content-length') ?? '0') > OAUTH_LIMITS.documentMaxBytes) {
+    await response.body.cancel().catch(() => undefined);
+    throw new Error('client metadata document too large');
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > OAUTH_LIMITS.documentMaxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error('client metadata document too large');
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return { status: 200, headers: response.headers, body: new TextDecoder().decode(bytes) };
+}
+
 /** Test hook: the metadata document fetcher (the real one refuses every private address, so tests serve documents through this). */
-let fetchDocumentBytes: typeof fetchBytes = fetchBytes;
-export function setClientDocumentFetcherForTests(fetcher: typeof fetchBytes | null): void {
-  fetchDocumentBytes = fetcher ?? fetchBytes;
+let fetchDocument: (url: string) => Promise<ClientDocumentResponse> = fetchClientDocument;
+export function setClientDocumentFetcherForTests(fetcher: ((url: string) => Promise<ClientDocumentResponse>) | null): void {
+  fetchDocument = fetcher ?? fetchClientDocument;
 }
 
 /**
  * A client by id: a registered one from the table; a metadata document URL
- * from the cached copy while it is fresh, else fetched again (public
- * addresses only, no redirects, 16 KB, 5 s) and checked: its `client_id`
- * must be its own URL exactly. `refetch: false` (the token and revocation
- * endpoints) never fetches: the client had to pass `/oauth/authorize` first.
+ * from the cached copy while it is fresh, else fetched again and checked:
+ * its `client_id` must be its own URL exactly. When the client's site does
+ * not answer (an error, a timeout, a status other than 200), a copy that
+ * went stale less than a day ago is used instead, so a blip there does not
+ * lock its users out; a document that answers but no longer checks out is
+ * refused. `refetch: false` (the token and revocation endpoints) never
+ * fetches: the client had to pass `/oauth/authorize` first.
  */
 export async function findClient(clientId: unknown, options: { refetch?: boolean; now?: Date } = {}): Promise<OAuthClientRow | null> {
   if (typeof clientId !== 'string' || clientId.length === 0 || clientId.length > 2000) return null;
@@ -133,13 +198,15 @@ export async function findClient(clientId: unknown, options: { refetch?: boolean
   if (!isMetadataDocumentUrl(clientId)) return cached?.kind === 'registered' ? cached : null;
   if (cached && (options.refetch === false || (cached.refreshAfter && cached.refreshAfter.getTime() > now.getTime()))) return cached;
   if (options.refetch === false) return null;
-  let fetched: Awaited<ReturnType<typeof fetchBytes>>;
+  const staleOrNull = () =>
+    cached?.refreshAfter && now.getTime() - cached.refreshAfter.getTime() <= OAUTH_LIMITS.documentStaleHours * 3_600_000 ? cached : null;
+  let fetched: ClientDocumentResponse;
   try {
-    fetched = await fetchDocumentBytes(clientId, { accept: 'application/json', maxBytes: OAUTH_LIMITS.documentMaxBytes, timeoutMs: OAUTH_LIMITS.documentTimeoutMs });
+    fetched = await fetchDocument(clientId);
   } catch {
-    return null;
+    return staleOrNull();
   }
-  if (fetched.url !== clientId) return null;
+  if (fetched.status !== 200) return staleOrNull();
   let document: unknown;
   try {
     document = JSON.parse(fetched.body);
@@ -154,7 +221,7 @@ export async function findClient(clientId: unknown, options: { refetch?: boolean
     return null;
   }
   const refreshAfter = new Date(now.getTime() + documentLifetimeSeconds(fetched.headers.get('cache-control')) * 1000);
-  const values = { clientName: metadata.clientName, clientUri: metadata.clientUri, redirectUris: metadata.redirectUris, fetchedAt: now, refreshAfter };
+  const values = { clientName: metadata.clientName, clientUri: metadata.clientUri, redirectUris: metadata.redirectUris, fetchedAt: now, refreshAfter, lastSeenAt: now };
   const [row] = await db()
     .insert(schema.oauthClient)
     .values({ id: clientId, kind: 'metadata_document', tokenEndpointAuthMethod: 'none', secretDigest: null, createdAt: now, ...values })
@@ -211,7 +278,8 @@ export async function startAuthorization(query: URLSearchParams, now = new Date(
   const client = await findClient(one('client_id'), { now });
   if (!client) return { kind: 'error_page', error: 'invalid_client' };
   const redirectUri = one('redirect_uri');
-  if (!redirectUri || !isAllowedRedirectUri(redirectUri) || !client.redirectUris.includes(redirectUri)) return { kind: 'error_page', error: 'invalid_redirect_uri' };
+  if (!redirectUri || !isAllowedRedirectUri(redirectUri) || !client.redirectUris.some((registered) => redirectUriMatches(registered, redirectUri))) return { kind: 'error_page', error: 'invalid_redirect_uri' };
+  await db().update(schema.oauthClient).set({ lastSeenAt: now }).where(eq(schema.oauthClient.id, client.id));
   const state = one('state');
   const back = (error: string, description: string): AuthorizeOutcome => ({
     kind: 'redirect',
@@ -322,7 +390,7 @@ export async function decideAuthorization(
   const [{ live } = { live: 0 }] = await db()
     .select({ live: sql<number>`count(*)::int` })
     .from(schema.apiKey)
-    .where(and(eq(schema.apiKey.userId, userId), isNotNull(schema.apiKey.oauthClientId), ne(schema.apiKey.oauthClientId, authorization.clientId), isNull(schema.apiKey.revokedAt), sql`(${schema.apiKey.expiresAt} is null or ${schema.apiKey.expiresAt} > ${now})`));
+    .where(and(eq(schema.apiKey.userId, userId), isNotNull(schema.apiKey.oauthClientId), isNull(schema.apiKey.revokedAt), sql`(${schema.apiKey.expiresAt} is null or ${schema.apiKey.expiresAt} > ${now})`));
   if (live >= OAUTH_LIMITS.maxGrants) throw new ConsentError('too_many_apps');
   const code = randomToken();
   const updated = await db()
@@ -388,8 +456,10 @@ function checkResource(raw: unknown, bound: string): void {
  * `grant_type=authorization_code`: the code (once, within five minutes),
  * for the client it was issued to, with the same redirect URI and a
  * verifier matching the PKCE challenge → a grant and its first tokens. A
- * code presented a second time revokes the grant the first use made. The
- * user's earlier grant to the same client, if any, is replaced.
+ * code presented a second time revokes the grant the first use made. A user
+ * may hold several grants for one client at once -- every claude.ai user
+ * shares one metadata-document client id, and one person may connect from a
+ * personal and a team organisation -- each listed and revoked on its own.
  */
 export async function exchangeCode(client: OAuthClientRow, input: { code?: unknown; redirectUri?: unknown; codeVerifier?: unknown; resource?: unknown }, now = new Date()): Promise<TokenResponse> {
   if (typeof input.code !== 'string' || input.code.length === 0 || input.code.length > 200) throw new OAuthError('invalid_request', 'code is required.');
@@ -414,11 +484,6 @@ export async function exchangeCode(client: OAuthClientRow, input: { code?: unkno
   return db().transaction(async (tx) => {
     const [owner] = await tx.select({ disabledAt: schema.user.disabledAt }).from(schema.user).where(eq(schema.user.id, userId)).for('update');
     if (!owner || owner.disabledAt) throw new OAuthError('invalid_grant', 'The account is not available.');
-    const earlier = await tx
-      .select({ id: schema.apiKey.id })
-      .from(schema.apiKey)
-      .where(and(eq(schema.apiKey.userId, userId), eq(schema.apiKey.oauthClientId, client.id), isNull(schema.apiKey.revokedAt)));
-    for (const grant of earlier) await revokeGrant(tx, grant.id, now);
     const permissions: GrantPermissions = { canWrite: claimed.canWrite, workspaceAccess: claimed.workspaceAccess, workspaceOnly: claimed.workspaceOnly, workspaceRoot: claimed.workspaceRoot };
     const [grant] = await tx
       .insert(schema.apiKey)
@@ -446,7 +511,10 @@ export async function exchangeCode(client: OAuthClientRow, input: { code?: unkno
  * `grant_type=refresh_token`: a live refresh token of a live grant, from the
  * client the grant belongs to → a new pair, the old refresh token spent and
  * the grant's life moved out again. A spent refresh token presented again
- * means it leaked or a client lost track: the grant is revoked.
+ * within a minute of its first use is a client retrying after a lost
+ * response or two refreshes racing: it gets another pair (the earlier
+ * successor stays valid too), as Auth0's and Okta's reuse intervals do.
+ * Later than that it was leaked or replayed: the grant is revoked.
  */
 export async function refreshTokens(client: OAuthClientRow, input: { refreshToken?: unknown; resource?: unknown }, now = new Date()): Promise<TokenResponse> {
   const invalid = () => new OAuthError('invalid_grant', 'The refresh token is invalid, expired or revoked.');
@@ -460,7 +528,8 @@ export async function refreshTokens(client: OAuthClientRow, input: { refreshToke
     .where(and(eq(schema.oauthToken.digest, digest), eq(schema.oauthToken.kind, 'refresh')))
     .limit(1);
   if (!row || row.key.oauthClientId !== client.id) throw invalid();
-  if (row.token.rotatedAt) {
+  const graceMs = OAUTH_LIMITS.refreshReuseGraceSeconds * 1000;
+  if (row.token.rotatedAt && now.getTime() - row.token.rotatedAt.getTime() > graceMs) {
     await db().transaction((tx) => revokeGrant(tx, row.key.id, now));
     throw invalid();
   }
@@ -468,10 +537,11 @@ export async function refreshTokens(client: OAuthClientRow, input: { refreshToke
   checkResource(input.resource, row.token.resource);
   const grantExpiresAt = new Date(now.getTime() + OAUTH_LIMITS.refreshDays * 86_400_000);
   return db().transaction(async (tx) => {
+    /* The first use stamps `rotated_at`; a retry within the grace keeps that stamp, so the window never slides. */
     const spent = await tx
       .update(schema.oauthToken)
-      .set({ rotatedAt: now })
-      .where(and(eq(schema.oauthToken.id, row.token.id), isNull(schema.oauthToken.rotatedAt), isNull(schema.oauthToken.revokedAt)))
+      .set({ rotatedAt: sql`coalesce(${schema.oauthToken.rotatedAt}, ${now})` })
+      .where(and(eq(schema.oauthToken.id, row.token.id), isNull(schema.oauthToken.revokedAt), sql`(${schema.oauthToken.rotatedAt} is null or ${schema.oauthToken.rotatedAt} >= ${new Date(now.getTime() - graceMs)})`))
       .returning({ id: schema.oauthToken.id });
     if (spent.length === 0) throw invalid();
     await tx.update(schema.apiKey).set({ expiresAt: grantExpiresAt }).where(eq(schema.apiKey.id, row.key.id));

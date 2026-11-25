@@ -7,7 +7,8 @@
  */
 import { NextResponse } from 'next/server';
 import { resolveApiKey, type ApiKeyCaller } from '@/lib/services/api-keys';
-import { looksLikeAccessToken, mcpResource, resolveAccessToken } from '@/lib/services/oauth';
+import { mcpResource, resolveAccessToken } from '@/lib/services/oauth';
+import { API_KEY_PREFIX } from '@/lib/constants';
 import { mcpChallenge } from '@/lib/http/oauth';
 
 /** The bearer token, if the header is one. */
@@ -25,21 +26,23 @@ const MESSAGES = {
 } as const;
 
 /**
- * A 401 the MCP clients understand: the challenge names the protected
- * resource metadata (RFC 9728), which names re0's authorization server, so
- * an OAuth client can start its flow from here; a key client reads the body.
+ * A 401 the MCP clients understand. Without a token, or with an access
+ * token that no longer works, the challenge names the protected resource
+ * metadata (RFC 9728), which names re0's authorization server, so an OAuth
+ * client can start (or restart) its flow from here. A request that sent an
+ * API key (`re0_sk_…`) gets the plain key challenge instead: its client was
+ * configured with a key, and a wrong key should read as a wrong key, not
+ * open a browser sign-in.
  */
 export function unauthorized(error: keyof typeof MESSAGES): NextResponse {
-  return NextResponse.json(
-    { error, message: MESSAGES[error] },
-    { status: 401, headers: { 'www-authenticate': mcpChallenge(error === 'missing_api_key' ? undefined : 'invalid_token'), 'cache-control': 'no-store' } },
-  );
+  const challenge = error === 'invalid_api_key' ? 'Bearer realm="re0", error="invalid_token"' : mcpChallenge(error === 'missing_api_key' ? undefined : 'invalid_token');
+  return NextResponse.json({ error, message: MESSAGES[error] }, { status: 401, headers: { 'www-authenticate': challenge, 'cache-control': 'no-store' } });
 }
 
 /** The caller behind the request's key or access token, or the 401 to answer with. */
 export async function apiKeyCaller(request: Request): Promise<ApiKeyCaller | NextResponse> {
   const token = bearerToken(request.headers);
   if (!token) return unauthorized('missing_api_key');
-  if (looksLikeAccessToken(token)) return (await resolveAccessToken(token, mcpResource())) ?? unauthorized('invalid_token');
-  return (await resolveApiKey(token)) ?? unauthorized('invalid_api_key');
+  if (token.startsWith(API_KEY_PREFIX)) return (await resolveApiKey(token)) ?? unauthorized('invalid_api_key');
+  return (await resolveAccessToken(token, mcpResource())) ?? unauthorized('invalid_token');
 }

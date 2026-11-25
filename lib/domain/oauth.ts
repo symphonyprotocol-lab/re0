@@ -82,6 +82,29 @@ export function isAllowedRedirectUri(raw: unknown): raw is string {
   return /^[a-z][a-z0-9+-]*(\.[a-z0-9+-]+)+$/.test(scheme);
 }
 
+/**
+ * Whether a requested redirect URI is one the client registered: exactly,
+ * character for character -- except that a loopback redirect's port may
+ * differ (RFC 8252 §7.3: a native app picks a free port each time), with
+ * scheme, host, path and query still exact. `localhost` is treated like the
+ * loopback literals, as native MCP clients (Claude Code among them) use it.
+ */
+export function redirectUriMatches(registered: string, requested: string): boolean {
+  if (registered === requested) return true;
+  let a: URL;
+  let b: URL;
+  try {
+    a = new URL(registered);
+    b = new URL(requested);
+  } catch {
+    return false;
+  }
+  const loopback = (url: URL) => url.protocol === 'http:' && isLoopbackHost(url.hostname);
+  if (!loopback(a) || !loopback(b)) return false;
+  const withoutPort = (raw: string, url: URL) => raw.replace(`${url.protocol}//${url.host}`, `${url.protocol}//${url.hostname}`);
+  return withoutPort(registered, a) === withoutPort(requested, b) && !b.username && !b.password;
+}
+
 /** Only to the loopback address: the consent page warns that any app on that device could be listening. */
 export function isLoopbackRedirect(uri: string): boolean {
   try {
@@ -187,9 +210,25 @@ export interface ClientMetadata {
   tokenEndpointAuthMethod: TokenEndpointAuthMethod;
 }
 
+/**
+ * A client's name as the consent page shows it: NFKC-normalised (so
+ * full-width or stylised letters read as what they look like), with control
+ * characters, bidirectional overrides and isolates (which could reorder
+ * "evil" into something trusted) and zero-width characters removed, spaces
+ * collapsed, at most 100 characters.
+ */
+export function cleanClientDisplayName(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw
+    .normalize('NFKC')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+    .replace(/[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function cleanName(raw: unknown, fallback: string): string {
-  const name = typeof raw === 'string' ? raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim() : '';
-  return Array.from(name || fallback).slice(0, OAUTH_CLIENT_NAME_MAX).join('');
+  return Array.from(cleanClientDisplayName(raw) || fallback).slice(0, OAUTH_CLIENT_NAME_MAX).join('');
 }
 
 function cleanUri(raw: unknown): string | null {

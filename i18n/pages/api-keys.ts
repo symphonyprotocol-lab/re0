@@ -60,7 +60,7 @@ export const zh = {
   },
   apps: {
     title: '已连接的应用',
-    lede: '通过 OAuth 连接的应用（claude.ai、ChatGPT 等）。每个应用的权限是你批准时选择的，用法和限额与 API Key 相同；重新连接同一个应用会替换之前的授权。断开后它立即失去访问权限。',
+    lede: '通过 OAuth 连接的应用（claude.ai、ChatGPT 等）。每个应用的权限是你批准时选择的，用法和限额与 API Key 相同。同一个应用可以连接多次（例如从个人和团队的 claude.ai 各连一次），每个连接单独列出、单独断开；断开后立即失去访问权限。',
     empty: '还没有通过 OAuth 连接的应用。',
     connected: '连接于',
     redirect: '返回地址',
@@ -147,7 +147,7 @@ export const en: Shape<typeof zh> = {
   },
   apps: {
     title: 'Connected apps',
-    lede: 'Apps connected through OAuth (claude.ai, ChatGPT and others). Each has the permissions you chose when you approved it, and is used and limited exactly like an API key; connecting the same app again replaces its earlier grant. Disconnecting one ends its access at once.',
+    lede: 'Apps connected through OAuth (claude.ai, ChatGPT and others). Each has the permissions you chose when you approved it, and is used and limited exactly like an API key. The same app can be connected more than once (say, from a personal and a team claude.ai), each listed and disconnected on its own; disconnecting one ends its access at once.',
     empty: 'No apps connected through OAuth yet.',
     connected: 'Connected',
     redirect: 'Returns to',
