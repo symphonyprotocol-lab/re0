@@ -56,7 +56,19 @@ export const zh = {
     json: '其他客户端（JSON 配置）',
     tools: '所有 Key 可用：search_rees、get_ree、list_my_rees、list_favorite_rees、list_posts、get_post、list_knowledge、list_ree_comments、get_share_link、ree_statistics，以及 ask_ree（提问，会扣 credits）。「允许修改」的 Key 还可以：create_post、add_followup（会扣 credits）、publish_post、update_post、trash_post、delete_followup、save_post、mark_helpful、respond_paid_request、create_ree、update_ree、publish_ree、delete_ree、add_knowledge（会扣 credits）、delete_knowledge、add_ree_comment、delete_ree_comment、favorite_ree。能访问工作区的 Key 还有 ws_list、ws_stat、ws_read、ws_grep、ws_history，读写权限另有 ws_write、ws_append、ws_edit、ws_mkdir、ws_move、ws_copy、ws_delete、ws_restore（不消耗 credits）。',
     copy: '复制',
-    docs: '暂不支持 claude.ai / ChatGPT 网页版的 OAuth 连接器，后续版本会提供。',
+    docs: 'claude.ai、ChatGPT 等只支持 OAuth 的客户端不需要 Key：添加自定义连接器时只填上面的服务器地址，按提示登录 re0 并批准即可，连接会出现在上方「已连接的应用」里。',
+  },
+  apps: {
+    title: '已连接的应用',
+    lede: '通过 OAuth 连接的应用（claude.ai、ChatGPT 等）。每个应用的权限是你批准时选择的，用法和限额与 API Key 相同；重新连接同一个应用会替换之前的授权。断开后它立即失去访问权限。',
+    empty: '还没有通过 OAuth 连接的应用。',
+    connected: '连接于',
+    redirect: '返回地址',
+    verified: '已由 {host} 确认',
+    disconnect: '断开',
+    disconnectTitle: '断开这个应用？',
+    disconnectBody: '「{name}」将立即无法访问你的 re0 账户。需要时可以在应用里重新连接。',
+    disconnected: '已断开',
   },
   errors: {
     invalid_name: '请填写 1–60 个字符的名称。',
@@ -72,6 +84,7 @@ export const zh = {
     revokeTitle: '强制吊销这个 Key？',
     revokeBody: '用户「{name}」的 Key「{key}」会立即失效，操作写入审计日志。',
     revoked: 'Key 已吊销',
+    oauth: 'OAuth 应用',
   },
 };
 
@@ -130,7 +143,19 @@ export const en: Shape<typeof zh> = {
     json: 'Other clients (JSON config)',
     tools: 'Every key: search_rees, get_ree, list_my_rees, list_favorite_rees, list_posts, get_post, list_knowledge, list_ree_comments, get_share_link, ree_statistics, and ask_ree (spends credits). Keys that may make changes also: create_post, add_followup (spend credits), publish_post, update_post, trash_post, delete_followup, save_post, mark_helpful, respond_paid_request, create_ree, update_ree, publish_ree, delete_ree, add_knowledge (spends credits), delete_knowledge, add_ree_comment, delete_ree_comment, favorite_ree. A key with workspace access also has ws_list, ws_stat, ws_read, ws_grep and ws_history, and with write access ws_write, ws_append, ws_edit, ws_mkdir, ws_move, ws_copy, ws_delete and ws_restore (no credits).',
     copy: 'Copy',
-    docs: 'OAuth connectors for claude.ai and ChatGPT on the web are not supported yet; they come in a later release.',
+    docs: 'Clients that connect only with OAuth, such as claude.ai and ChatGPT, need no key: add a custom connector with just the server URL above, sign in to re0 and approve. The connection then appears under Connected apps above.',
+  },
+  apps: {
+    title: 'Connected apps',
+    lede: 'Apps connected through OAuth (claude.ai, ChatGPT and others). Each has the permissions you chose when you approved it, and is used and limited exactly like an API key; connecting the same app again replaces its earlier grant. Disconnecting one ends its access at once.',
+    empty: 'No apps connected through OAuth yet.',
+    connected: 'Connected',
+    redirect: 'Returns to',
+    verified: 'Confirmed by {host}',
+    disconnect: 'Disconnect',
+    disconnectTitle: 'Disconnect this app?',
+    disconnectBody: '“{name}” loses access to your re0 account at once. You can connect it again from the app when you need it.',
+    disconnected: 'Disconnected',
   },
   errors: {
     invalid_name: 'Enter a name of 1–60 characters.',
@@ -146,5 +171,6 @@ export const en: Shape<typeof zh> = {
     revokeTitle: 'Force-revoke this key?',
     revokeBody: '“{key}” of {name} stops working at once. The action is written to the audit log.',
     revoked: 'Key revoked',
+    oauth: 'OAuth app',
   },
 };

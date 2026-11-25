@@ -1,7 +1,9 @@
 # Connecting an MCP client to re0
 
 re0 runs a remote MCP server at `https://<your re0 host>/api/mcp` (Streamable
-HTTP). It covers most of what a signed-in user does by hand with Rees and
+HTTP). Clients sign in with OAuth (claude.ai, ChatGPT and any client that
+follows the MCP authorization spec — see §2a) or send an API key (§1). It
+covers most of what a signed-in user does by hand with Rees and
 posts: find, read and ask Rees; read, write and follow up posts; and an
 owner's work on their own Rees and their knowledge. See `rebuild-proposal.md`
 §2.8 for the original design.
@@ -63,8 +65,88 @@ config, and others):
 A stdio-only client can go through `mcp-remote`:
 `npx -y mcp-remote https://<your re0 host>/api/mcp --header "Authorization: Bearer re0_sk_…"`.
 
-OAuth (the connectors of claude.ai and ChatGPT on the web) is not supported
-yet; it comes in a later phase.
+## 2a. Connect with OAuth (claude.ai, ChatGPT and others)
+
+Clients that connect only through OAuth need no key: give them the server URL
+`https://<your re0 host>/api/mcp`, sign in to re0 when the browser opens, and
+approve the connection.
+
+**claude.ai** (also the Claude desktop and mobile apps; any plan, Free holds
+one custom connector): **Customize → Connectors** → **+ Add** → **Add custom
+connector**. Name it `re0`, paste the server URL and **Continue** twice. Under
+**Authentication** pick "Sign in now" or "Sign in when needed"; under **OAuth
+client** keep "Use Claude's published identity (Recommended)" (re0 reads
+Claude's client metadata document) or pick "Register automatically" (dynamic
+registration). **Add**, then sign in to re0 and approve in the tab that opens.
+On Team and Enterprise an Owner adds it under **Organization settings →
+Connectors** → **Add** → Custom → Web, and members then **Connect** it under
+Customize → Connectors. If you choose "Use your own OAuth client" instead,
+register a client at `/api/oauth/register` with redirect URI
+`https://claude.ai/api/mcp/auth_callback` and enter its id (and secret).
+
+**ChatGPT** (web): **Plugins** (`chatgpt.com/plugins`) → **+** → **Add custom
+MCP server**. Name it `re0`, enter the server URL under **Connection**, choose
+**OAuth** as the authentication (client ID metadata document or dynamic
+registration both work; leave static credentials empty), accept the warning
+("I understand and want to continue"), **Create as a plugin**, then install it
+and sign in to re0 and approve. Workspace policies decide whether custom
+servers are allowed in Business and Enterprise workspaces.
+
+**Claude Code** and other clients that implement the MCP authorization spec
+also use OAuth when they are given the URL without a key:
+`claude mcp add --transport http re0 https://<your re0 host>/api/mcp`, then
+`/mcp` → re0 → Authenticate.
+
+The consent page (`/oauth/consent/…`) shows the app's name — with "confirmed
+by <host>" when the app is identified by a metadata document on its own
+domain, or a note that a self-registered app chose its own name — where
+approval sends you back, with a warning when that is an address on your own
+computer, and the account you are signed in as. You choose the same
+permissions as for an API key: an **account** connection (read + ask; "Allow
+changes" off by default; workspace access none/read/write) or a **workspace
+only** connection under a root folder. Nothing is preselected beyond what the
+app asked for in its `scope`, and the narrowest choice is the default.
+
+Approving creates a *connected app*: Settings → API → **Connected apps** lists
+each one with its permissions, where it returns to, when it was connected and
+last used, and what it asked and spent. A connected app is used and limited
+exactly like a key — the same tools, permission checks, per-connection and
+per-account rate limits (`MCP_RATE_LIMIT`), credits, and the same usage
+figures — and an account can keep 50. Connecting the same app again replaces
+its earlier grant. **Disconnect** ends it at once.
+
+### How it works (for client developers)
+
+re0 is its own authorization server (MCP authorization spec 2026-07-28, OAuth
+2.1; lib/services/oauth.ts):
+
+| | |
+|---|---|
+| 401 from `/api/mcp` | `WWW-Authenticate: Bearer resource_metadata="<host>/.well-known/oauth-protected-resource/api/mcp", scope="read"` |
+| Protected resource metadata (RFC 9728) | `/.well-known/oauth-protected-resource/api/mcp` (and the root `/.well-known/oauth-protected-resource`); `resource` is `<host>/api/mcp` |
+| Authorization server metadata (RFC 8414) | `/.well-known/oauth-authorization-server`; issuer is the site's origin |
+| Authorization endpoint | `/oauth/authorize` — `response_type=code`, PKCE `S256` required, `resource` must be the MCP URL (or omitted) |
+| Token endpoint | `/api/oauth/token` — `authorization_code` and `refresh_token` |
+| Client registration | Client ID Metadata Documents (`client_id` is an HTTPS URL; re0 fetches it, checks its `client_id` and `redirect_uris`, caches it per `Cache-Control` between 5 minutes and a day) or dynamic registration at `/api/oauth/register` (RFC 7591, 20 per address per hour) |
+| Revocation (RFC 7009) | `/api/oauth/revoke` — a refresh token ends the whole grant |
+| Scopes | `read`, `write`, `workspace:read`, `workspace:write` — what the user approved, reported in the token response; the user decides on the consent page |
+
+Redirect URIs are matched exactly. A client may register HTTPS URIs, plain
+HTTP to a loopback address (`localhost`, `127.0.0.1`, `[::1]`), or a
+reverse-domain app scheme (`com.example.app:/cb`, RFC 8252); never a fragment.
+An unknown client or an unregistered redirect URI stays on re0
+(`/oauth/error`) and is never redirected to; other faults go back to the
+registered URI as `error=…` with `state` and `iss` (RFC 9207). Codes last five
+minutes and are used once: a replayed code revokes the grant it made. Access
+tokens (`re0_at_…`) last an hour and are bound to `<host>/api/mcp`; refresh
+tokens (`re0_rt_…`) rotate on every use, and a spent one presented again
+revokes the grant. A grant nobody uses for 90 days lapses. Every token, code
+and client secret is stored as a SHA-256 digest only. Clients registered with
+`client_secret_basic` / `client_secret_post` (the RFC 7591 default when no
+method is named) must authenticate at the token and revocation endpoints;
+public clients (`none`) use PKCE alone. The discovery, registration, token and
+revocation endpoints send `Access-Control-Allow-Origin: *` and read no cookie;
+`/api/mcp` itself still refuses browser pages on other origins.
 
 ## 3. Tools
 
@@ -174,9 +256,10 @@ as information, not as instructions.
 
 ## 4. Revoking
 
-Revoke a key in Settings → API; clients using it get `401` at once. An
-administrator can also force-revoke a user's key from the user's page in the
-console (**API keys** tab); the action is audited.
+Revoke a key in Settings → API, or disconnect a connected app there; clients
+using it get `401` at once. An administrator can also force-revoke a user's key
+or connected app from the user's page in the console (**API keys** tab, where
+connected apps show as "OAuth app"); the action is audited.
 
 ## Local development
 
@@ -186,3 +269,9 @@ check without a client:
 ```bash
 curl -s http://localhost:3000/api/mcp -H "Authorization: Bearer re0_sk_…" -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
+
+OAuth works locally too (the issuer is `APP_BASE_URL`, `http://localhost:3000`
+by default, and loopback HTTP is allowed): `claude mcp add --transport http
+re0-local http://localhost:3000/api/mcp`, then authenticate from `/mcp`.
+claude.ai and ChatGPT reach only public HTTPS hosts, so test them through a
+tunnel whose URL is `APP_BASE_URL`.

@@ -17,7 +17,11 @@ export const maxDuration = 800;
 
 /**
  * The MCP server (Streamable HTTP; `lib/http/mcp.ts`), for clients that send
- * `Authorization: Bearer re0_sk_…`. No session cookie is read here and no
+ * `Authorization: Bearer` with an API key (`re0_sk_…`) or an OAuth access
+ * token issued for this URL (`re0_at_…`, lib/services/oauth.ts); without
+ * one, the 401 points an OAuth client at `/.well-known/oauth-protected-resource/api/mcp`.
+ * Both resolve to the same caller, so tools, limits and credits do not
+ * tell them apart. No session cookie is read here and no
  * CORS header is sent; a browser page on another origin is refused outright
  * (the MCP transport's Origin rule), so a key never works from someone
  * else's site.

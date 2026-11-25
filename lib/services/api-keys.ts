@@ -51,6 +51,12 @@ export interface ApiKeyItem {
   /** Questions asked with this key, and the credits they cost. */
   questions: number;
   spent: number;
+  /**
+   * Set for an OAuth grant (lib/services/oauth.ts) rather than a key: the
+   * app the user approved, as it named itself, and where it sends them
+   * back. Settings shows these under 已连接的应用, the console with the keys.
+   */
+  oauthClient: { id: string; name: string; uri: string | null; redirectHosts: string[]; documentHost: string | null } | null;
 }
 
 const KEY_PATTERN = new RegExp(`^${API_KEY_PREFIX}[0-9a-f]{64}$`);
@@ -98,7 +104,7 @@ export async function createApiKey(
     const [{ live } = { live: 0 }] = await tx
       .select({ live: sql<number>`count(*)::int` })
       .from(schema.apiKey)
-      .where(and(eq(schema.apiKey.userId, userId), isNull(schema.apiKey.revokedAt), sql`(${schema.apiKey.expiresAt} is null or ${schema.apiKey.expiresAt} > ${now})`));
+      .where(and(eq(schema.apiKey.userId, userId), isNull(schema.apiKey.oauthClientId), isNull(schema.apiKey.revokedAt), sql`(${schema.apiKey.expiresAt} is null or ${schema.apiKey.expiresAt} > ${now})`));
     if (live >= API_KEY_MAX_ACTIVE) throw new ApiKeyError('too_many_keys');
     const workspaceId = kind === 'workspace' ? await defaultWorkspace(userId, tx) : null;
     const [created] = await tx
@@ -118,10 +124,19 @@ export async function createApiKey(
       .returning();
     return created!;
   });
-  return { key: { ...item(row), questions: 0, spent: 0 }, secret };
+  return { key: { ...item(row, null), questions: 0, spent: 0 }, secret };
 }
 
-function item(row: ApiKeyRow): Omit<ApiKeyItem, 'questions' | 'spent'> {
+function hostOf(uri: string): string {
+  try {
+    const url = new URL(uri);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.host : `${url.protocol}//`;
+  } catch {
+    return uri;
+  }
+}
+
+function item(row: ApiKeyRow, client: typeof schema.oauthClient.$inferSelect | null): Omit<ApiKeyItem, 'questions' | 'spent'> {
   return {
     id: row.id,
     name: row.name,
@@ -135,14 +150,31 @@ function item(row: ApiKeyRow): Omit<ApiKeyItem, 'questions' | 'spent'> {
     workspaceAccess: row.workspaceAccess,
     workspaceRoot: row.workspaceRoot,
     client: clientLabel(row.clientName),
+    oauthClient: client
+      ? {
+          id: client.id,
+          name: client.clientName,
+          uri: client.clientUri,
+          redirectHosts: Array.from(new Set(client.redirectUris.map(hostOf))),
+          documentHost: client.kind === 'metadata_document' ? hostOf(client.id) : null,
+        }
+      : null,
   };
 }
 
-/** Every key of the user, newest first, with what each one asked and spent. */
+/**
+ * Every key of the user, newest first, with what each one asked and spent;
+ * OAuth grants (connected apps) are among them, marked by `oauthClient`.
+ */
 export async function listApiKeys(userId: string): Promise<ApiKeyItem[]> {
-  const rows = await db().select().from(schema.apiKey).where(eq(schema.apiKey.userId, userId)).orderBy(desc(schema.apiKey.createdAt));
-  const usage = await usageOf(rows.map((row) => row.id));
-  return rows.map((row) => ({ ...item(row), questions: usage.get(row.id)?.questions ?? 0, spent: usage.get(row.id)?.spent ?? 0 }));
+  const rows = await db()
+    .select({ key: schema.apiKey, client: schema.oauthClient })
+    .from(schema.apiKey)
+    .leftJoin(schema.oauthClient, eq(schema.oauthClient.id, schema.apiKey.oauthClientId))
+    .where(eq(schema.apiKey.userId, userId))
+    .orderBy(desc(schema.apiKey.createdAt));
+  const usage = await usageOf(rows.map((row) => row.key.id));
+  return rows.map(({ key, client }) => ({ ...item(key, client), questions: usage.get(key.id)?.questions ?? 0, spent: usage.get(key.id)?.spent ?? 0 }));
 }
 
 /**
@@ -179,7 +211,7 @@ export async function usageOf(keyIds: readonly string[]): Promise<Map<string, { 
   return new Map(result.rows.map((row) => [row.key_id, { questions: Number(row.questions), spent: Number(row.spent) }]));
 }
 
-/** The owner revokes one of their keys; false for someone else's, an unknown id, or one already revoked. */
+/** The owner revokes one of their keys or connected apps; false for someone else's, an unknown id, or one already revoked. An app's tokens stop working with it. */
 export async function revokeApiKey(userId: string, id: string, now = new Date()): Promise<boolean> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
   const rows = await db()
@@ -235,18 +267,23 @@ export async function resolveApiKey(secret: string, now = new Date()): Promise<A
     .innerJoin(schema.user, eq(schema.user.id, schema.apiKey.userId))
     .where(eq(schema.apiKey.keyDigest, digest))
     .limit(1);
-  if (!row || !keyIsLive(row.key, now) || row.user.disabledAt) return null;
+  if (!row || row.key.oauthClientId || !keyIsLive(row.key, now) || row.user.disabledAt) return null;
   if (!row.key.lastUsedAt || now.getTime() - row.key.lastUsedAt.getTime() >= API_KEY_LAST_USED_RESOLUTION_MS) {
     await db().update(schema.apiKey).set({ lastUsedAt: now }).where(eq(schema.apiKey.id, row.key.id));
   }
+  return keyCaller(row.key, row.user);
+}
+
+/** The caller a key row stands for -- an API key's, or an OAuth grant's (lib/services/oauth.ts `resolveAccessToken`). */
+export function keyCaller(key: ApiKeyRow, user: SessionUser): ApiKeyCaller {
   return {
-    user: row.user,
-    keyId: row.key.id,
-    canWrite: row.key.canWrite,
-    workspaceAccess: row.key.workspaceAccess,
-    workspaceId: row.key.workspaceId,
-    workspaceRoot: row.key.workspaceRoot,
-    clientName: row.key.clientName,
+    user,
+    keyId: key.id,
+    canWrite: key.canWrite,
+    workspaceAccess: key.workspaceAccess,
+    workspaceId: key.workspaceId,
+    workspaceRoot: key.workspaceRoot,
+    clientName: key.clientName,
   };
 }
 

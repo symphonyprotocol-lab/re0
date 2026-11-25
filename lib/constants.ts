@@ -790,6 +790,31 @@ export const API_KEY_MAX_ACTIVE = 10;
 export const API_KEY_MAX_DAYS = 365;
 /** `last_used_at` is written at most this often per key. */
 export const API_KEY_LAST_USED_RESOLUTION_MS = 60_000;
+/**
+ * OAuth for `/api/mcp` (lib/services/oauth.ts). Access tokens are short and
+ * opaque, so revoking a grant takes effect at once; a refresh token is used
+ * once and the grant's life slides with each use, so a connection nobody
+ * uses ends by itself after `refreshDays`.
+ */
+export const OAUTH_LIMITS = {
+  accessTokenSeconds: 3_600,
+  refreshDays: 90,
+  /** From `/oauth/authorize` to the decision on the consent page, sign-in included. */
+  requestMinutes: 30,
+  /** From the decision to the code's exchange at the token endpoint. */
+  codeSeconds: 300,
+  /** Live connected apps per account (one per client; re-approving a client replaces its grant). */
+  maxGrants: 50,
+  /** Client registrations per address per hour. */
+  registrationsPerHour: 20,
+  /** Authorization requests per address per hour (each may fetch a client's metadata document). */
+  authorizationsPerHour: 120,
+  /** A client metadata document: the longest wait and the largest body. */
+  documentTimeoutMs: 5_000,
+  documentMaxBytes: 16 * 1024,
+  /** A client nobody has a grant for is deleted after this many days (a metadata document is fetched again when next used). */
+  unusedClientDays: 7,
+} as const;
 /** MCP tool calls per minute, per key and per account (every key of it together). */
 export const MCP_RATE_LIMIT = { windowSeconds: 60, perKey: 30, perUser: 60 } as const;
 /**
