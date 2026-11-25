@@ -53,6 +53,8 @@ import {
   byteWindow,
   clientLabel,
   coalesces,
+  decodeText,
+  diffLines,
   escapeRegex,
   globToRegex,
   isStorableText,
@@ -66,6 +68,7 @@ import {
   underRoot,
 } from '@/lib/domain/workspace';
 import { storageCostPico } from '@/lib/domain/infra-cost';
+import { appBaseUrl } from '@/lib/http/cookies';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { mayNeedIndex, queueIndexWithin } from '@/lib/services/ree-file-guard';
 import { deleteWorkspaceObjects, putWorkspaceObject, readWorkspaceObject, workspaceObjectPath } from '@/lib/infra/workspace-store';
@@ -86,6 +89,7 @@ export type WorkspaceErrorCode =
   | 'insufficient_credits'
   | 'limit_reached'
   | 'max_cost_exceeded'
+  | 'binary_file'
   | 'workspace_not_allowed';
 
 export class WorkspaceError extends Error {
@@ -491,13 +495,44 @@ async function putContent(
 
 /** A new file at `path` holding `text`, its version first. */
 async function createFile(tx: Tx, meter: Meter, scope: WorkspaceScope, path: string, text: string, op: Revision['op'], now: Date, extra: Partial<typeof schema.workspaceEntry.$inferInsert> = {}): Promise<Written> {
+  const entry = await newFileRow(tx, meter, scope, path, now);
+  const written = await putText(tx, meter, scope, path, entry, text, op, now, extra);
+  return { ...written, created: true, changed: true };
+}
+
+/** A new file holding `content` (an upload, or a copy of a file kept as bytes). */
+async function createContent(tx: Tx, meter: Meter, scope: WorkspaceScope, path: string, content: Content, op: Revision['op'], now: Date): Promise<Written> {
+  const entry = await newFileRow(tx, meter, scope, path, now);
+  const written = await putContent(tx, meter, scope, path, entry, content, op, now);
+  return { ...written, created: true, changed: true };
+}
+
+async function newFileRow(tx: Tx, meter: Meter, scope: WorkspaceScope, path: string, now: Date): Promise<Entry> {
   await bumpEntries(meter, 1);
   const [entry] = await tx
     .insert(schema.workspaceEntry)
     .values({ workspaceId: scope.workspaceId, path, kind: 'file', text: '', size: 0, lineCount: 0, createdAt: now, updatedAt: now, updatedByKeyId: scope.apiKeyId, updatedClient: scope.client })
     .returning();
-  const written = await putText(tx, meter, scope, path, { ...entry!, sha256: null }, text, op, now, extra);
-  return { ...written, created: true, changed: true };
+  return { ...entry!, sha256: null };
+}
+
+/**
+ * A file kept only as bytes (binary, or text past WORKSPACE_TEXT_MAX) cannot
+ * be read or edited as text: the error says what it is and how to get it --
+ * a download URL fetched with curl in a client with a shell, or the web page.
+ * Clients without a shell (claude.ai, ChatGPT) are told plainly they cannot.
+ */
+export function bytesOnly(scope: WorkspaceScope, entry: Pick<Entry, 'path' | 'mediaType' | 'size'>): WorkspaceError {
+  const path = shown(scope, entry.path);
+  const textual = entry.mediaType?.startsWith('text/') || mediaTypeOf(entry.path) !== 'text/plain' || (entry.mediaType ?? '').startsWith('application/json');
+  const what = textual
+    ? `${path} is ${entry.size} bytes of text, more than the ${WORKSPACE_TEXT_MAX} a file can be read or edited by lines`
+    : `${path} is a binary file (${entry.mediaType ?? 'application/octet-stream'}, ${entry.size} bytes) and cannot be read as text`;
+  return new WorkspaceError(
+    'binary_file',
+    `${what}. In a client with a shell, get a download URL with ws_download_url and fetch it with curl -o; ws_search finds its text once it is indexed (PDF, Word, text). Clients without a shell (claude.ai, ChatGPT on the web) cannot download it: open ${appBaseUrl()}/files?path=${encodeURIComponent(entry.path)} instead.`,
+    { path, media_type: entry.mediaType, size: entry.size, download: 'ws_download_url' },
+  );
 }
 
 /* ------------------------------------------------------------------ shapes */
@@ -512,6 +547,8 @@ export interface EntryView {
   lines: number | null;
   updated_at: Date;
   updated_by: string | null;
+  /** True for a file kept only as bytes (binary, or text past WORKSPACE_TEXT_MAX): download it, it cannot be read by lines. */
+  binary: boolean;
   /** A file's index: `indexed` (current version), `queued` (waiting for its quiet minutes or a run), `stale`, `budget` / `insufficient_credits` / `failed` (stopped), or null (not indexed). */
   index: string | null;
 }
@@ -526,6 +563,7 @@ function view(scope: WorkspaceScope, entry: Entry): EntryView {
     etag: entry.kind === 'file' ? entry.etag : null,
     media_type: entry.kind === 'file' ? entry.mediaType : null,
     lines: entry.kind === 'file' ? entry.lineCount : null,
+    binary: entry.kind === 'file' && entry.text === null,
     updated_at: entry.updatedAt,
     updated_by: clientLabel(entry.updatedClient),
     index: entry.kind !== 'file' ? null : entry.indexError ?? (entry.indexedRevisionId && entry.indexedRevisionId === entry.currentRevisionId ? 'indexed' : entry.indexDueAt && entry.indexedRevisionId ? 'queued' : entry.indexedRevisionId ? 'stale' : null),
@@ -615,13 +653,14 @@ export async function readFile(scope: WorkspaceScope, input: ReadInput) {
   const path = resolvePath(scope, input.path);
   const entry = await existing(db(), scope, path);
   if (entry.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder; list it with ws_list.`, { path: shown(scope, path) });
-  let text = entry.text ?? '';
+  let text = entry.text;
   let revision = entry.currentRevisionId;
   if (input.revision && input.revision !== entry.currentRevisionId) {
     const found = await revisionOf(entry, input.revision);
     text = await revisionText(scope, found);
+    if (text === null) throw bytesOnly(scope, { path: entry.path, mediaType: mediaTypeOf(entry.path, { binary: true }), size: found.size });
     revision = found.id;
-  }
+  } else if (text === null) throw bytesOnly(scope, entry);
   const head = { path: shown(scope, path), etag: entry.etag, revision, media_type: entry.mediaType, size: byteLength(text), updated_at: entry.updatedAt, updated_by: clientLabel(entry.updatedClient) };
   if (input.byteOffset !== undefined || input.byteLength !== undefined) {
     const window = byteWindow(text, input.byteOffset ?? 0, Math.min(input.byteLength ?? WORKSPACE_READ_MAX, WORKSPACE_READ_MAX));
@@ -639,10 +678,12 @@ async function revisionOf(entry: Entry, id: string): Promise<Revision> {
   return row;
 }
 
-async function revisionText(scope: WorkspaceScope, revision: Revision): Promise<string> {
+/** A version's text, or null when that version is kept only as bytes (binary, or text too large to read by lines). */
+async function revisionText(scope: WorkspaceScope, revision: Revision): Promise<string | null> {
+  if (revision.size > WORKSPACE_TEXT_MAX) return null;
   const bytes = await readWorkspaceObject(workspaceObjectPath(scope.workspaceId, revision.sha256));
   if (!bytes) throw new Error(`workspace object missing: ${revision.sha256}`);
-  return new TextDecoder().decode(bytes);
+  return decodeText(bytes);
 }
 
 /** A file's whole text, or one version's: the web's download and file page (a file holds at most WORKSPACE_TEXT_MAX bytes). */
@@ -650,8 +691,19 @@ export async function fileText(scope: WorkspaceScope, rawPath: unknown, revision
   const path = resolvePath(scope, rawPath);
   const entry = await existing(db(), scope, path);
   if (entry.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder.`, { path: shown(scope, path) });
-  const text = revision && revision !== entry.currentRevisionId ? await revisionText(scope, await revisionOf(entry, revision)) : (entry.text ?? '');
+  const text = revision && revision !== entry.currentRevisionId ? await revisionText(scope, await revisionOf(entry, revision)) : entry.text;
   return { ...view(scope, entry), revision: revision ?? entry.currentRevisionId, text };
+}
+
+/** Two versions of a text file compared by lines (the web's version page); null when either is kept only as bytes or they differ too much to show. */
+export async function compareVersions(scope: WorkspaceScope, rawPath: unknown, revision: string) {
+  const path = resolvePath(scope, rawPath);
+  const entry = await existing(db(), scope, path);
+  if (entry.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder.`, { path: shown(scope, path) });
+  const older = await revisionOf(entry, revision);
+  const before = await revisionText(scope, older);
+  const after = entry.text;
+  return { path: shown(scope, path), revision: older.id, current: entry.currentRevisionId, lines: before === null || after === null ? null : diffLines(before, after) };
 }
 
 /** Every live folder's path (at most `limit`), for the web's folder tree. */
@@ -825,6 +877,53 @@ export async function writeFile(scope: WorkspaceScope, input: { path: string; co
   });
 }
 
+/**
+ * An upload saved at its path (workspace-upload.ts): its object is already
+ * in the store under its sha256, so this is a write like any other --
+ * debt, daily writes, quota and `if_match` / `if_none_match` checked again,
+ * under the owner's lock -- whose version names that object. Valid UTF-8
+ * text up to WORKSPACE_TEXT_MAX is kept inline as text, so an uploaded
+ * Markdown file reads by lines like a written one.
+ */
+export async function saveUploaded(scope: WorkspaceScope, input: { path: string; sha: string; size: number; text: string | null; ifMatch?: string | null; ifNoneMatch?: boolean }) {
+  const path = input.path;
+  noRootWrite(scope, path);
+  return mutate(scope, async (tx, meter, now) => {
+    const entry = await liveEntry(tx, scope, path, true);
+    if (entry?.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder.`, { path: shown(scope, path) });
+    if (input.ifNoneMatch && entry) throw new WorkspaceError('exists', `${shown(scope, path)} already exists (if_none_match "*").`, { path: shown(scope, path), current_etag: entry.etag });
+    checkMatch(scope, path, entry, input.ifMatch ?? undefined);
+    await ensureFolder(tx, meter, scope, parentOf(path), now);
+    const content: Content = { sha: input.sha, size: input.size, text: input.text, bytes: null, mediaType: mediaTypeOf(path, { binary: input.text === null }) };
+    const written = entry ? await putContent(tx, meter, scope, path, entry, content, 'upload', now) : await createContent(tx, meter, scope, path, content, 'upload', now);
+    return { ...result(scope, written), sha256: input.sha, binary: input.text === null };
+  });
+}
+
+/**
+ * Before an upload takes any bytes: the checks its save will make, made
+ * early -- write access, a file (not a folder) at the path, `if_none_match`,
+ * the debt, and room in the quota for `size` more bytes -- so a doomed
+ * upload is refused at once rather than after 100 MB.
+ */
+export async function checkUpload(scope: WorkspaceScope, path: string, size: number, input: { ifMatch?: string; ifNoneMatch?: boolean }): Promise<void> {
+  requireWriteAccess(scope);
+  noRootWrite(scope, path);
+  const limit = await effectiveCeiling('workspaceDebtLimit');
+  const owed = await debtOf(scope.userId);
+  if (owed > limit) {
+    throw new WorkspaceError('insufficient_credits', `Writing is paused while the account owes ${owed} credits (more than ${limit}). Top up to pay the debt; reading and deleting files still work.`, { debt: owed, limit });
+  }
+  const entry = await liveEntry(db(), scope, path);
+  if (entry?.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder; name a file inside it.`, { path: shown(scope, path) });
+  if (input.ifNoneMatch && entry) throw new WorkspaceError('exists', `${shown(scope, path)} already exists (if_none_match "*").`, { path: shown(scope, path), current_etag: entry.etag });
+  checkMatch(scope, path, entry, input.ifMatch);
+  const [usage] = await db().select().from(schema.workspaceUsage).where(eq(schema.workspaceUsage.userId, scope.userId));
+  if ((usage?.blobBytes ?? 0) + (usage?.databaseBytes ?? 0) + size > WORKSPACE_BYTES_MAX) {
+    throw new WorkspaceError('quota_exceeded', `The account's workspace storage is full (${Math.round(WORKSPACE_BYTES_MAX / MB)} MB, every kept version and every file's text counted); ${size} more bytes do not fit. Delete files or empty the trash first.`);
+  }
+}
+
 /** Adds text to the end of a file (made when missing), atomically; `clientToken` makes a retry a no-op. */
 export async function appendFile(scope: WorkspaceScope, input: { path: string; content: string; clientToken?: string }) {
   const path = resolvePath(scope, input.path);
@@ -834,6 +933,7 @@ export async function appendFile(scope: WorkspaceScope, input: { path: string; c
     if (entry?.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder.`, { path: shown(scope, path) });
     /* A token among the file's recent ones is a retry of an append that landed, whoever appended since. */
     if (entry && input.clientToken && entry.appendTokens.includes(input.clientToken)) return { ...result(scope, { entry, changed: false, created: false }), repeated: true };
+    if (entry && entry.text === null) throw bytesOnly(scope, entry);
     await ensureFolder(tx, meter, scope, parentOf(path), now);
     const extra = input.clientToken ? { appendTokens: [...(entry?.appendTokens ?? []), input.clientToken].slice(-WORKSPACE_APPEND_TOKENS) } : {};
     const written = entry
@@ -851,7 +951,8 @@ export async function editFile(scope: WorkspaceScope, input: { path: string; old
     const entry = await existing(tx, scope, path, true);
     if (entry.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder.`, { path: shown(scope, path) });
     checkMatch(scope, path, entry, input.ifMatch);
-    const text = entry.text ?? '';
+    if (entry.text === null) throw bytesOnly(scope, entry);
+    const text = entry.text;
     const count = text.split(input.oldString).length - 1;
     if (count === 0) throw new WorkspaceError('invalid_input', `old_string does not occur in ${shown(scope, path)}. Read the file again; it may have changed.`, { reason: 'no_match', etag: entry.etag });
     if (count > 1 && !input.replaceAll) {
@@ -947,7 +1048,11 @@ export async function copyFile(scope: WorkspaceScope, input: { from: string; to:
     if (source.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, from)} is a folder; ws_copy copies one file at a time.`, { path: shown(scope, from) });
     if (await liveEntry(tx, scope, to, true)) throw new WorkspaceError('exists', `${shown(scope, to)} already exists.`, { path: shown(scope, to) });
     await ensureFolder(tx, meter, scope, parentOf(to), now);
-    const written = await createFile(tx, meter, scope, to, source.text ?? '', 'copy', now);
+    /* A file kept as bytes is copied by naming the same object again: nothing is read or stored twice. */
+    const written =
+      source.text === null
+        ? await createContent(tx, meter, scope, to, { sha: source.sha256!, size: source.size, text: null, bytes: null, mediaType: source.mediaType ?? mediaTypeOf(to, { binary: true }) }, 'copy', now)
+        : await createFile(tx, meter, scope, to, source.text, 'copy', now);
     return result(scope, written);
   });
 }
@@ -989,7 +1094,11 @@ export async function restoreEntry(scope: WorkspaceScope, input: { path?: string
       if (entry.kind === 'folder') throw new WorkspaceError('is_a_directory', `${shown(scope, path)} is a folder.`, { path: shown(scope, path) });
       const version = await revisionOf(entry, input.revision!);
       const text = await revisionText(scope, version);
-      const written = await putText(tx, meter, scope, path, entry, text, 'restore', now);
+      /* A version kept as bytes comes back by naming its object again: it is still stored, since that version names it. */
+      const written =
+        text === null
+          ? await putContent(tx, meter, scope, path, entry, { sha: version.sha256, size: version.size, text: null, bytes: null, mediaType: mediaTypeOf(path, { binary: true }) }, 'restore', now)
+          : await putText(tx, meter, scope, path, entry, text, 'restore', now);
       return { ...result(scope, written), restored_revision: version.id };
     });
   }
