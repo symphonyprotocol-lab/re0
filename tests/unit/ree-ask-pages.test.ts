@@ -117,7 +117,8 @@ describe('the share page', () => {
     expect(html).toContain('4 个公开帖子中的精选');
     expect(html).toContain('查看全部 4 个帖子');
     expectBox(html);
-    expect(html).toContain(`href="/login?returnTo=${encodeURIComponent('/s/tax#ask')}"`);
+    /* The anchor is a string from lib/domain/post.ts, not a client reference (#215; tests/unit/client-boundary.test.ts). */
+    expect(html).toContain('href="/login?returnTo=%2Fs%2Ftax%23ask"');
     expect(html).toContain('>登录后提问<span class="workspace-link-progress"');
     expect(html).not.toContain('开始对话');
     expect(html).not.toContain('免登录试聊');

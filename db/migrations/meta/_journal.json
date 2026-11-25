@@ -617,6 +617,13 @@
       "when": 1795522161357,
       "tag": "0089_competitions",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1795572894790,
+      "tag": "0090_drop_competitions",
+      "breakpoints": true
     }
   ]
 }

@@ -35,22 +35,30 @@ export async function fileUnderChannels(tx: Executor, postId: string, createdBy:
     .insert(channel)
     .values(names.map((name) => ({ name, createdBy })))
     .onConflictDoNothing({ target: channel.name });
-  const rows = await tx.select({ id: channel.id }).from(channel).where(inArray(channel.name, names));
+  return fileUnder(tx, postId, names);
+}
+
+/**
+ * Files a share-page visitor's question (visitor-asks.ts) under the channels
+ * its text tags that already exist, in the transaction that writes the
+ * post: a visitor never makes a channel -- only signed-in users do (the
+ * user's decision, 2026-11-25). Answers the names it was filed under.
+ */
+export async function fileUnderExistingChannels(tx: Executor, postId: string, ...texts: (string | null | undefined)[]): Promise<string[]> {
+  const names = extractHashtags(...texts);
+  if (names.length === 0) return names;
+  return fileUnder(tx, postId, names);
+}
+
+/** The post under each of these channels that exists; the names it was filed under. */
+async function fileUnder(tx: Executor, postId: string, names: string[]): Promise<string[]> {
+  const rows = await tx.select({ id: channel.id, name: channel.name }).from(channel).where(inArray(channel.name, names));
+  if (rows.length === 0) return [];
   await tx
     .insert(postChannel)
     .values(rows.map((row) => ({ postId, channelId: row.id })))
     .onConflictDoNothing();
-  return names;
-}
-
-/**
- * Files one post under one channel by id, in the caller's transaction,
- * whatever its text says: a competition's question posts go into the
- * competition's channel without a `#name` written in them
- * (docs/design/competitions.md C3).
- */
-export async function fileUnderChannel(tx: Executor, postId: string, channelId: string): Promise<void> {
-  await tx.insert(postChannel).values({ postId, channelId }).onConflictDoNothing();
+  return rows.map((row) => row.name);
 }
 
 /** A visible post in the channel: what every count and list here is about. */

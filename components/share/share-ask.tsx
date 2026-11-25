@@ -1,7 +1,8 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { focusAsk, REE_ASK_ANCHOR } from '@/components/posts/ree-ask';
+import { focusAsk } from '@/components/posts/ree-ask';
+import { REE_ASK_ANCHOR } from '@/lib/domain/post';
 import { Icon } from '@/components/ui/icons';
 
 /**

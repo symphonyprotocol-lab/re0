@@ -46,11 +46,11 @@ function usable(grant: SpendableGrant, now: Date): boolean {
  * take-back); within a source, soonest to expire, then oldest. Earned
  * credits are never in the default: using the product does not spend them.
  */
-export function spendOrder(grants: readonly SpendableGrant[], now: Date, sources: readonly GrantSource[] = SPENDABLE_SOURCES, order: readonly GrantSource[] = GRANT_SOURCES): SpendableGrant[] {
+export function spendOrder(grants: readonly SpendableGrant[], now: Date, sources: readonly GrantSource[] = SPENDABLE_SOURCES): SpendableGrant[] {
   return grants
     .filter((grant) => usable(grant, now) && sources.includes(grant.source))
     .sort((a, b) => {
-      const bySource = order.indexOf(a.source) - order.indexOf(b.source);
+      const bySource = GRANT_SOURCES.indexOf(a.source) - GRANT_SOURCES.indexOf(b.source);
       if (bySource !== 0) return bySource;
       /* Earned: what can never be withdrawn goes first, then what matures last, so withdrawable credits stay. */
       if (a.source === 'earned') {
@@ -86,18 +86,14 @@ export function isWithdrawable(grant: Pick<SpendableGrant, 'source' | 'remaining
   return grant.source === 'earned' && grant.remaining > 0 && grant.withdrawableAt != null && grant.withdrawableAt.getTime() <= now.getTime();
 }
 
-/**
- * Which grants of `sources` (by default the spendable ones) `amount` comes
- * out of, in `order` of source (by default `spendOrder`'s). Throws when they
- * cannot cover it.
- */
-export function allocate(grants: readonly SpendableGrant[], amount: number, now: Date, sources: readonly GrantSource[] = SPENDABLE_SOURCES, order: readonly GrantSource[] = GRANT_SOURCES): Allocation[] {
+/** Which grants of `sources` (by default the spendable ones) `amount` comes out of. Throws when they cannot cover it. */
+export function allocate(grants: readonly SpendableGrant[], amount: number, now: Date, sources: readonly GrantSource[] = SPENDABLE_SOURCES): Allocation[] {
   if (!Number.isInteger(amount) || amount < 0) throw new Error(`invalid amount ${amount}`);
   const available = availableOf(grants, now, sources);
   if (available < amount) throw new InsufficientCredits(amount, available);
   const allocations: Allocation[] = [];
   let left = amount;
-  for (const grant of spendOrder(grants, now, sources, order)) {
+  for (const grant of spendOrder(grants, now, sources)) {
     if (left === 0) break;
     const take = Math.min(grant.remaining, left);
     allocations.push({ grantId: grant.id, source: grant.source, amount: take });

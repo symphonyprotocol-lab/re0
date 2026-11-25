@@ -298,9 +298,7 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
 /** A post (and answer) that may be quoted now: visible, published, the answer shown. */
 async function quotable(postId: string, answerId: string | null): Promise<{ kind: 'post' | 'answer'; postId: string; answerId: string | null; reeId: string | null } | null> {
   if (!isUuid(postId) || (answerId !== null && !isUuid(answerId))) return null;
-  /* A competition's question is quoted once its results are out, never before (docs/design/competitions.md 10). */
-  const resultsOut = sql`(${post.source} <> 'competition' or exists (select 1 from ${schema.competitionQuestion} cq join ${schema.competition} c on c.id = cq.competition_id where cq.post_id = ${post.id} and c.status = 'published'))`;
-  const [target] = await db().select({ id: post.id }).from(post).where(and(eq(post.id, postId), visiblePost(), resultsOut)).limit(1);
+  const [target] = await db().select({ id: post.id }).from(post).where(and(eq(post.id, postId), visiblePost())).limit(1);
   if (!target) return null;
   if (!answerId) return { kind: 'post', postId, answerId: null, reeId: null };
   const [quoted] = await db()
