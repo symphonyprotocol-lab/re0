@@ -467,8 +467,8 @@ export function SiteRail({ search, popular, saved, share, signedIn }: { search?:
 /**
  * 首页's 分享 card (right column, under 热门 Ree). Signed out: every public
  * Ree has a share page, with a live one as the example. Signed in: share
- * your own public Ree through the share dialog (link, QR code), or create
- * one first; and, while invitations pay, the way to invite friends. Sharing
+ * your own public Ree through the share dialog (link, QR code), or a text
+ * link to create one first (the card under it keeps the create button); and, while invitations pay, the way to invite friends. Sharing
  * itself pays nothing (lib/services/share.ts counts visits and questions);
  * only an invitation does (lib/services/invites.ts).
  */
@@ -491,9 +491,8 @@ function ShareCard({ share, signedIn }: { share: RailShare; signedIn: boolean })
             {own ? (
               <ShareButton ree={own} state="public" named className="btn-secondary btn-sm" labelClassName="" label={s.shareButton} />
             ) : (
-              <Link href="/rees/new" className="btn-secondary btn-sm">
-                <Icon name="plus" className="size-4" />
-                {t.discover.explore.create}
+              <Link href="/rees/new" className="text-link">
+                {s.create} →
               </Link>
             )}
             {example && (
