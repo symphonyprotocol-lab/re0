@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { appBaseUrl } from '@/lib/http/cookies';
+import { reeExampleDescription, type ReeExample } from '@/lib/domain/ree-examples';
 import type { PublicRee } from '@/lib/services/public-rees';
 import { HTML_LANG, LOCALES, type Locale } from '@/i18n/locale';
 import { localeAlternates, localePath } from '@/i18n/paths';
@@ -100,6 +101,25 @@ export function reeTitle(ree: Pick<PublicRee, 'name' | 'role'>, locale: Locale):
 /** `/r/<slug>`'s metadata: `publicPage` in the Ree's content language, with the Ree's own preview image. */
 export function reePage(ree: Pick<PublicRee, 'slug' | 'name' | 'role'>, locale: Locale, description: string): Metadata {
   return publicPage({ path: `/r/${ree.slug}`, title: reeTitle(ree, locale), description, locale, ownImage: true, contentLocale: reeContentLocale(ree) });
+}
+
+/** A Ree's own description as one line, or the site's sentence about a Ree (`fallback`) when it has none. */
+export function reeDescription(ree: Pick<PublicRee, 'description'>, fallback: string): string {
+  return oneLine(ree.description, 200) || fallback;
+}
+
+/**
+ * A Ree page's meta description: with an answered question
+ * (`reeAnsweredExamples`), that question and the opening of its answer,
+ * then what the Ree covers, about 155 characters
+ * (lib/domain/ree-examples.ts) -- so a search result shows an answer, not
+ * "Answers questions on …" (GSC review 2026-11, 6.8 #2). Without one, the
+ * Ree's own description as before. The JSON-LD keeps the Ree's own
+ * description: it describes the Ree, not the page's snippet.
+ */
+export function reeMetaDescription(ree: Pick<PublicRee, 'description'>, examples: readonly Pick<ReeExample, 'question' | 'summary'>[], fallback: string): string {
+  const [first] = examples;
+  return first ? reeExampleDescription(first, oneLine(ree.description, 200)) : reeDescription(ree, fallback);
 }
 
 /**

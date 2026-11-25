@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { notFound } from 'next/navigation';
 import { listReeComments } from '@/lib/services/ree-comments';
 import { reeAnsweredPosts } from '@/lib/services/posts';
@@ -12,13 +13,14 @@ function one(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? '';
 }
 
-/** The public Ree layout is also used for the owner's read-only preview. */
-export async function ReeDetail({ ree, query = {}, viewerId, preview = false, draftId }: {
+/** The public Ree layout is also used for the owner's read-only preview. `examples` is the public page's 已回答的问题 (components/discover/ree-examples.tsx), rendered on the server. */
+export async function ReeDetail({ ree, query = {}, viewerId, preview = false, draftId, examples }: {
   ree: PublicRee;
   query?: Search;
   viewerId?: string;
   preview?: boolean;
   draftId?: string;
+  examples?: ReactNode;
 }) {
   const authorPage = Number(one(query.ap)) || 1;
   const [related, author, intros, comments, posts] = await Promise.all([
@@ -46,6 +48,7 @@ export async function ReeDetail({ ree, query = {}, viewerId, preview = false, dr
       video={video}
       comments={comments}
       posts={posts}
+      examples={preview ? null : examples}
       favoriteIds={favoriteIds}
       renderedAt={Date.now()}
     />

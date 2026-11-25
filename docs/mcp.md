@@ -16,7 +16,7 @@ it and create another. An account can hold up to 10 live keys.
 **Allow changes** (off by default) decides what the key may do:
 
 - off — *read + ask*: every read tool and `ask_ree`. This is what every key
-  made before migration 0093 keeps.
+  made before migration 0094 keeps.
 - on — also every write tool (posting, following up, managing Rees, their
   knowledge, comments and favorites). A write tool called with a read-only
   key fails with `write_not_allowed` and changes nothing.

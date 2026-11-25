@@ -1,5 +1,5 @@
 {
-  "id": "dce12b43-aab4-4155-b4aa-28454a8b3f15",
+  "id": "403a099d-8b74-4df1-aecf-d492aee03ed7",
   "prevId": "44ae1461-1fbd-4305-8cf1-9e1a51f03c94",
   "version": "7",
   "dialect": "postgresql",
@@ -703,13 +703,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
-        },
-        "can_write": {
-          "name": "can_write",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         },
         "created_at": {
           "name": "created_at",
@@ -6635,6 +6628,40 @@
           ],
           "isUnique": false,
           "where": "state = 'answered' and hidden_by is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "post_answer_ree_pick_idx": {
+          "name": "post_answer_ree_pick_idx",
+          "columns": [
+            {
+              "expression": "ree_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "helpful_count",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            },
+            {
+              "expression": "answered_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "state = 'answered' and hidden_by is null and followup_id is null and uncovered = false and pinned_at is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
