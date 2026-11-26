@@ -132,12 +132,162 @@ const MEDIA_TYPES: Record<string, string> = {
   sh: 'text/x-shellscript',
 };
 
-/** From the extension, never from what a client claims; plain text otherwise. */
-export function mediaTypeOf(path: string): string {
+/** Binary formats an upload may hold (third phase), by extension. */
+const BINARY_TYPES: Record<string, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  zip: 'application/zip',
+  gz: 'application/gzip',
+  tar: 'application/x-tar',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  m4a: 'audio/mp4',
+  mp4: 'video/mp4',
+  mov: 'video/quicktime',
+};
+
+const extensionOf = (path: string): string => {
   const name = nameOf(path);
   const dot = name.lastIndexOf('.');
-  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+};
+
+/**
+ * From the extension, never from what a client claims: a text type for a
+ * file kept as text (plain text otherwise), and for bytes that are not text
+ * the binary type, or `application/octet-stream`.
+ */
+export function mediaTypeOf(path: string, options: { binary?: boolean } = {}): string {
+  const ext = extensionOf(path);
+  if (options.binary) return BINARY_TYPES[ext] ?? MEDIA_TYPES[ext] ?? 'application/octet-stream';
   return MEDIA_TYPES[ext] ?? 'text/plain';
+}
+
+/** Whether a name says binary format (PDF, Word, images, archives...): such a file is kept as bytes even when its bytes happen to be ASCII. */
+export function binaryByName(path: string): boolean {
+  return extensionOf(path) in BINARY_TYPES && !(extensionOf(path) in MEDIA_TYPES);
+}
+
+/**
+ * Bytes as workspace text: valid UTF-8 without NUL, or null (binary).
+ * Nothing is changed -- no BOM stripped, no newline rewritten -- so the text
+ * encodes back to the same bytes.
+ */
+export function decodeText(bytes: Uint8Array): string | null {
+  if (bytes.includes(0)) return null;
+  try {
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+/** What the index can read from a file the workspace keeps only as bytes: a PDF's or Word file's text, or text too large to keep inline. */
+export function indexableFormat(path: string, mediaType: string | null): 'pdf' | 'docx' | 'text' | null {
+  const ext = extensionOf(path);
+  if (ext === 'pdf') return 'pdf';
+  if (ext === 'docx') return 'docx';
+  return MEDIA_TYPES[ext] || mediaType?.startsWith('text/') ? 'text' : null;
+}
+
+/** How many parts an upload of `size` bytes takes, `partSize` each but the last. */
+export function partCount(size: number, partSize: number): number {
+  return Math.max(1, Math.ceil(size / partSize));
+}
+
+/** The exact length part `n` (from 1) of an upload must have. */
+export function partLength(size: number, partSize: number, n: number): number {
+  const parts = partCount(size, partSize);
+  if (n < 1 || n > parts) return -1;
+  return n < parts ? partSize : size - partSize * (parts - 1);
+}
+
+/* ------------------------------------------------------------------ comparing versions */
+
+export type DiffLine = { kind: 'same' | 'added' | 'removed'; text: string; old: number | null; new: number | null };
+
+/**
+ * Lines of `before` and `after` compared (Myers' shortest edit script, with
+ * the common head and tail cut first): every line in order, marked same,
+ * added or removed, with its line numbers. Null when the versions hold more
+ * than `maxLines` lines together or differ in more than `maxEdits` lines --
+ * a page could not show that usefully, and the search would cost memory:
+ * each step keeps only the diagonals it reached (2d + 1 of them), so the
+ * whole search holds at most about `maxEdits`² numbers (16 MB at 2 000).
+ */
+export function diffLines(before: string, after: string, maxEdits = 2_000, maxLines = 40_000): DiffLine[] | null {
+  const a = before === '' ? [] : before.split('\n');
+  const b = after === '' ? [] : after.split('\n');
+  if (a.length + b.length > maxLines) return null;
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) head += 1;
+  let tail = 0;
+  while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail += 1;
+  const x = a.slice(head, a.length - tail);
+  const y = b.slice(head, b.length - tail);
+  const n = x.length;
+  const m = y.length;
+  const max = Math.min(n + m, maxEdits);
+  if (Math.abs(n - m) > max) return null;
+  const offset = max + 1;
+  const v = new Int32Array(2 * max + 3);
+  /* trace[d] holds v as it was before step d, diagonals -d..d only. */
+  const trace: Int32Array[] = [];
+  let found = n + m === 0;
+  for (let d = 0; d <= max && !found; d += 1) {
+    trace.push(v.slice(offset - d, offset + d + 1));
+    for (let k = -d; k <= d; k += 2) {
+      let i = k === -d || (k !== d && v[offset + k - 1]! < v[offset + k + 1]!) ? v[offset + k + 1]! : v[offset + k - 1]! + 1;
+      let j = i - k;
+      while (i < n && j < m && x[i] === y[j]) {
+        i += 1;
+        j += 1;
+      }
+      v[offset + k] = i;
+      if (i >= n && j >= m) {
+        found = true;
+        break;
+      }
+    }
+  }
+  if (!found) return null;
+  const at = (d: number, k: number) => trace[d]![k + d]!;
+  /* Walk the trace back from the end to recover the edits. */
+  const middle: DiffLine[] = [];
+  let i = n;
+  let j = m;
+  for (let d = trace.length - 1; d >= 0 && (i > 0 || j > 0); d -= 1) {
+    const k = i - j;
+    const prevK = k === -d || (k !== d && at(d, k - 1) < at(d, k + 1)) ? k + 1 : k - 1;
+    const prevI = d === 0 ? 0 : at(d, prevK);
+    const prevJ = prevI - prevK;
+    while (i > prevI && j > prevJ) {
+      i -= 1;
+      j -= 1;
+      middle.push({ kind: 'same', text: x[i]!, old: head + i + 1, new: head + j + 1 });
+    }
+    if (d === 0) break;
+    if (i === prevI) {
+      j -= 1;
+      middle.push({ kind: 'added', text: y[j]!, old: null, new: head + j + 1 });
+    } else {
+      i -= 1;
+      middle.push({ kind: 'removed', text: x[i]!, old: head + i + 1, new: null });
+    }
+  }
+  middle.reverse();
+  const lines: DiffLine[] = a.slice(0, head).map((text, index) => ({ kind: 'same', text, old: index + 1, new: index + 1 }));
+  lines.push(...middle);
+  for (let index = 0; index < tail; index += 1) lines.push({ kind: 'same', text: a[a.length - tail + index]!, old: a.length - tail + index + 1, new: b.length - tail + index + 1 });
+  return lines;
 }
 
 /** Text the workspace can keep: no NUL (Postgres text cannot hold it). JS strings are always valid UTF-8 once encoded. */

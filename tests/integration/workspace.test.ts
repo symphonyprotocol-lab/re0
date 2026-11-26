@@ -76,7 +76,7 @@ async function refused(client: Client, name: string, args: Record<string, unknow
   return result.structuredContent as { error: string; reason?: string; [key: string]: unknown };
 }
 
-const WS_TOOLS = ['ws_list', 'ws_stat', 'ws_read', 'ws_write', 'ws_append', 'ws_edit', 'ws_mkdir', 'ws_move', 'ws_copy', 'ws_delete', 'ws_restore', 'ws_history', 'ws_grep', 'ws_search', 'ws_index'];
+const WS_TOOLS = ['ws_list', 'ws_stat', 'ws_read', 'ws_write', 'ws_append', 'ws_edit', 'ws_mkdir', 'ws_move', 'ws_copy', 'ws_delete', 'ws_restore', 'ws_history', 'ws_grep', 'ws_search', 'ws_index', 'ws_upload_url', 'ws_download_url'];
 
 async function setCeiling(key: string, value: number | null) {
   if (value === null) await db().delete(schema.limitCeilingSetting).where(eq(schema.limitCeilingSetting.key, key));

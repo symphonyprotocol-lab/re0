@@ -2942,6 +2942,8 @@ export const workspaceEntry = pgTable(
     indexedRevisionId: uuid('indexed_revision_id'),
     /** Why the last attempt stopped: `budget` (today's index budget is spent), `insufficient_credits`, `failed`. */
     indexError: text('index_error'),
+    /** Index runs that took this version and did not finish it (a crash, a timeout): after WORKSPACE_INDEX_ATTEMPTS it is `unreadable` until a new version. */
+    indexAttempts: integer('index_attempts').notNull().default(0),
     deletedAt: timestampTz('deleted_at'),
     createdAt: createdAt(),
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
@@ -2974,7 +2976,7 @@ export const workspaceRevision = pgTable(
     workspaceId: uuid('workspace_id').notNull(),
     sha256: text('sha256').notNull(),
     size: bigint('size', { mode: 'number' }).notNull(),
-    op: text('op').$type<'write' | 'append' | 'edit' | 'restore' | 'copy'>().notNull(),
+    op: text('op').$type<'write' | 'append' | 'edit' | 'restore' | 'copy' | 'upload'>().notNull(),
     userId: uuid('user_id').notNull(),
     apiKeyId: uuid('api_key_id'),
     clientName: text('client_name'),
@@ -2990,7 +2992,7 @@ export const workspaceRevision = pgTable(
     index('agent_workspace_revision_entry_idx').on(t.entryId, t.updatedAt),
     index('agent_workspace_revision_workspace_idx').on(t.workspaceId, t.updatedAt),
     index('agent_workspace_revision_squashed_idx').on(t.workspaceId).where(sql`squashed_into is not null`),
-    check('agent_workspace_revision_op_check', oneOf('op', ['write', 'append', 'edit', 'restore', 'copy'])),
+    check('agent_workspace_revision_op_check', oneOf('op', ['write', 'append', 'edit', 'restore', 'copy', 'upload'])),
   ],
 );
 
@@ -3122,6 +3124,66 @@ export const reeBinding = pgTable(
     uniqueIndex('agent_ree_binding_key').on(t.reeId, t.entryId),
     index('agent_ree_binding_workspace_idx').on(t.workspaceId),
     check('agent_ree_binding_exclude_check', sql`cardinality(exclude) <= 20`),
+  ],
+);
+
+/**
+ * An upload of bytes into the workspace (third phase): `ws_upload_url` or the
+ * web makes one, and its URL (`/api/files/upload/<token>`, the token kept
+ * here only as a digest) takes the file in one PUT, or in `parts` PUTs of
+ * WORKSPACE_UPLOAD_PART bytes each, kept as objects under
+ * `workspace/<workspace>/upload/<id>/` until the last one arrives and the
+ * file is put together, checked against the quota and the debt again, and
+ * saved as a new version at `path`. One not finished by `expires_at` has its
+ * parts deleted and is never billed (workspace-upload.ts `reapUploads`).
+ */
+export const workspaceUpload = pgTable(
+  'agent_workspace_upload',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tokenHash: text('token_hash').notNull(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    apiKeyId: uuid('api_key_id'),
+    client: text('client'),
+    /** Resolved from the workspace root, inside the key's root when it was made. */
+    path: text('path').notNull(),
+    size: bigint('size', { mode: 'number' }).notNull(),
+    parts: integer('parts').notNull(),
+    received: integer('received').array().notNull().default(sql`'{}'::integer[]`),
+    /** PUTs of parts so far, a part sent again included: capped (WORKSPACE_UPLOAD_REWRITES) so one URL cannot rewrite storage without end. */
+    writes: integer('writes').notNull().default(0),
+    /**
+     * Stitching, a step at a time across requests and the cron: how many parts
+     * are in the assembled object so far, the SHA-256 state over them (resumable),
+     * and the store's multipart upload with the parts it has taken.
+     */
+    stitched: integer('stitched').notNull().default(0),
+    hashState: text('hash_state'),
+    assembly: jsonb('assembly').$type<{ uploadId: string; key: string; parts: { partNumber: number; etag: string }[] }>(),
+    /** While stitching: whoever holds this lease is working on it; a lease run out is taken over (a request or the cron). */
+    leaseUntil: timestampTz('lease_until'),
+    ifMatch: text('if_match'),
+    ifNoneMatch: boolean('if_none_match').notNull().default(false),
+    status: text('status').$type<'open' | 'assembling' | 'done' | 'failed'>().notNull().default('open'),
+    error: text('error'),
+    sha256: text('sha256'),
+    revisionId: uuid('revision_id'),
+    expiresAt: timestampTz('expires_at').notNull(),
+    createdAt: createdAt(),
+    completedAt: timestampTz('completed_at'),
+  },
+  (t) => [
+    uniqueIndex('agent_workspace_upload_token_key').on(t.tokenHash),
+    index('agent_workspace_upload_user_idx').on(t.userId, t.status),
+    index('agent_workspace_upload_workspace_idx').on(t.workspaceId),
+    index('agent_workspace_upload_expires_idx').on(t.expiresAt),
+    check('agent_workspace_upload_status_check', oneOf('status', ['open', 'assembling', 'done', 'failed'])),
+    check('agent_workspace_upload_size_check', sql`size >= 0 and parts >= 1`),
   ],
 );
 

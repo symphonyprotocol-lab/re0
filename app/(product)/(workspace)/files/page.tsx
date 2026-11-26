@@ -5,10 +5,10 @@ import { serverMessages } from '@/i18n/server';
 import type { Messages } from '@/i18n';
 import { fill, formatBytes, formatDateTime } from '@/i18n/format';
 import { nameOf, normalizePath, parentOf } from '@/lib/domain/workspace';
-import { fileHistory, fileText, folderPaths, kindAt, listEntries, webScope, type WorkspaceScope } from '@/lib/services/workspace';
+import { compareVersions, fileHistory, fileText, folderPaths, kindAt, listEntries, webScope, type WorkspaceScope } from '@/lib/services/workspace';
 import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
 import { Icon } from '@/components/ui/icons';
-import { CopyButton, RestoreVersionButton, TrashButton } from '@/components/files/file-actions';
+import { CopyButton, RestoreVersionButton, TrashButton, UploadButton } from '@/components/files/file-actions';
 import { CreateReeButton } from '@/components/files/workspace-ui';
 import { reesUsingEntry } from '@/lib/services/workspace-rees';
 import { liveEntry } from '@/lib/services/workspace';
@@ -26,11 +26,12 @@ export async function generateMetadata(): Promise<Metadata> {
  * a folder's files with the tree beside them, or one file's text with its
  * versions. The owner sees the whole default workspace.
  */
-export default async function FilesPage({ searchParams }: { searchParams: Promise<{ path?: string }> }) {
+export default async function FilesPage({ searchParams }: { searchParams: Promise<{ path?: string; diff?: string }> }) {
   const user = (await currentUser())!;
   const { t, locale } = await serverMessages();
   const scope = await webScope(user.id);
-  const path = normalizePath((await searchParams).path ?? '/') ?? '/';
+  const params = await searchParams;
+  const path = normalizePath(params.path ?? '/') ?? '/';
   const kind = await kindAt(scope, path);
   const crumbs = path === '/' ? [] : path.split('/').filter(Boolean).map((part, index, parts) => ({ label: part, href: index < parts.length - 1 ? filesHref(`/${parts.slice(0, index + 1).join('/')}`) : undefined }));
   return (
@@ -39,7 +40,7 @@ export default async function FilesPage({ searchParams }: { searchParams: Promis
       <main className="knowledge-ui files-ui">
         <div className="km-page">
           {kind === 'file' ? (
-            <FileView t={t} locale={locale} scope={scope} path={path} />
+            <FileView t={t} locale={locale} scope={scope} path={path} diff={params.diff} />
           ) : (
             <FolderView t={t} locale={locale} scope={scope} path={kind === 'folder' ? path : '/'} missing={kind === null} userId={user.id} />
           )}
@@ -68,11 +69,10 @@ async function FolderView({ t, locale, scope, path, missing, userId }: { t: Mess
           <h1>{f.title}</h1>
           <p>{f.lede}</p>
         </div>
-        {path !== '/' && (
-          <div className="flex">
-            <CreateReeButton path={path} />
-          </div>
-        )}
+        <div className="flex">
+          <UploadButton folder={path} />
+          {path !== '/' && <CreateReeButton path={path} />}
+        </div>
       </div>
       <StorageStrip t={t} userId={userId} locale={locale} />
       {missing && <p className="km-failure">{f.notFound}</p>}
@@ -129,7 +129,7 @@ async function FolderView({ t, locale, scope, path, missing, userId }: { t: Mess
                             </span>
                             <span>
                               <Link href={filesHref(at)}>{entry.name}</Link>
-                              <small>{entry.kind === 'folder' ? f.folder : `${entry.media_type ?? ''} · ${fill(f.lines, { n: entry.lines ?? 0 })}`}</small>
+                              <small>{entry.kind === 'folder' ? f.folder : entry.binary ? (entry.media_type ?? '') : `${entry.media_type ?? ''} · ${fill(f.lines, { n: entry.lines ?? 0 })}`}</small>
                             </span>
                           </div>
                         </td>
@@ -171,11 +171,16 @@ async function FolderView({ t, locale, scope, path, missing, userId }: { t: Mess
   );
 }
 
-async function FileView({ t, locale, scope, path }: { t: Messages; locale: 'zh' | 'en'; scope: WorkspaceScope; path: string }) {
+const rawHref = (path: string, revision?: string) => `/api/files/raw?path=${encodeURIComponent(path)}${revision ? `&revision=${encodeURIComponent(revision)}` : ''}`;
+
+async function FileView({ t, locale, scope, path, diff }: { t: Messages; locale: 'zh' | 'en'; scope: WorkspaceScope; path: string; diff?: string }) {
   const f = t.files.file;
   const [file, history] = await Promise.all([fileText(scope, path), fileHistory(scope, { path, limit: 50 })]);
-  const lines = file.text === '' ? [] : file.text.split('\n');
-  if (file.text.endsWith('\n')) lines.pop();
+  const text = file.text;
+  const lines = !text ? [] : text.split('\n');
+  if (text?.endsWith('\n')) lines.pop();
+  const compared = diff && text !== null ? await compareVersions(scope, path, diff).catch(() => null) : null;
+  const versionNumber = (revision: string) => history.versions.length - history.versions.findIndex((version) => version.revision === revision);
   const parent = parentOf(file.path);
   const entry = await liveEntry(db(), scope, file.path);
   const rees = entry ? await reesUsingEntry(scope.userId, entry.id) : [];
@@ -189,13 +194,13 @@ async function FileView({ t, locale, scope, path }: { t: Messages; locale: 'zh' 
           <span>
             <h1 className="ws-file-title">{file.name}</h1>
             <small>
-              {file.path} · {formatBytes(file.size)} · {fill(t.files.lines, { n: lines.length })} · {file.media_type} · etag <span className="mono">{file.etag}</span>
+              {file.path} · {formatBytes(file.size)} · {text === null ? '' : `${fill(t.files.lines, { n: lines.length })} · `}{file.media_type} · etag <span className="mono">{file.etag}</span>
             </small>
           </span>
         </div>
         <div className="flex">
           <CopyButton text={file.path} label={f.copyPath} />
-          <a className="btn secondary sm" href={`/api/files/raw?path=${encodeURIComponent(file.path)}`}>
+          <a className="btn secondary sm" href={rawHref(file.path)}>
             <Icon name="download" />
             {f.download}
           </a>
@@ -213,6 +218,50 @@ async function FileView({ t, locale, scope, path }: { t: Messages; locale: 'zh' 
         </div>
       )}
       <div className="ws-file-layout">
+        {text === null ? (
+          <section className="card ws-file-body">
+            <div className="km-empty">
+              <Icon name="file" />
+              <h3>{f.binaryTitle}</h3>
+              <p>{f.binaryBody}</p>
+              <a className="btn" href={rawHref(file.path)}>
+                <Icon name="download" />
+                {f.download}
+              </a>
+            </div>
+          </section>
+        ) : diff ? (
+          <section className="card ws-file-body">
+            <div className="ws-file-tabs">
+              <span className="is-active">{fill(f.compareTitle, { n: versionNumber(diff) })}</span>
+              <span className="ws-grow" />
+              <Link href={filesHref(file.path)}>{f.backToFile}</Link>
+            </div>
+            {!compared ? (
+              <p className="ws-empty-file">{f.diffBinary}</p>
+            ) : compared.lines === null ? (
+              <p className="ws-empty-file">{f.diffTooLarge}</p>
+            ) : compared.lines.every((line) => line.kind === 'same') ? (
+              <p className="ws-empty-file">{f.diffSame}</p>
+            ) : (
+              <>
+                <p className="ws-diff-summary">
+                  {fill(f.diffSummary, { added: compared.lines.filter((line) => line.kind === 'added').length, removed: compared.lines.filter((line) => line.kind === 'removed').length })}
+                </p>
+                <div className="ws-code ws-diff">
+                  {compared.lines.map((line, index) => [
+                    <span key={`n${index}`} className={`ws-ln ws-d-${line.kind}`}>
+                      {line.kind === 'removed' ? '−' : line.kind === 'added' ? '+' : ' '} {line.new ?? line.old}
+                    </span>,
+                    <span key={`l${index}`} className={`ws-lc ws-d-${line.kind}`}>
+                      {line.text || ' '}
+                    </span>,
+                  ])}
+                </div>
+              </>
+            )}
+          </section>
+        ) : (
         <section className="card ws-file-body">
           <div className="ws-file-tabs">
             <span className="is-active">{f.content}</span>
@@ -234,6 +283,7 @@ async function FileView({ t, locale, scope, path }: { t: Messages; locale: 'zh' 
             <p className="ws-empty-file">{f.empty}</p>
           )}
         </section>
+        )}
         <aside className="card ws-history">
           <div className="ws-history-head">
             <strong>
@@ -256,7 +306,21 @@ async function FileView({ t, locale, scope, path }: { t: Messages; locale: 'zh' 
                   </small>
                   {version.saves > 1 && <small className="ws-squash">{fill(f.merged, { n: version.saves })}</small>}
                 </div>
-                {version.current ? <span className="tag green">{f.current}</span> : <RestoreVersionButton path={file.path} revision={version.revision} />}
+                {version.current ? (
+                  <span className="tag green">{f.current}</span>
+                ) : (
+                  <span className="ws-ver-actions">
+                    {text !== null && version.size <= 1024 * 1024 && (
+                      <Link className={`ws-ver-link ${diff === version.revision ? 'is-active' : ''}`} href={`${filesHref(file.path)}&diff=${encodeURIComponent(version.revision)}`}>
+                        {f.compare}
+                      </Link>
+                    )}
+                    <a className="ws-ver-link" href={rawHref(file.path, version.revision)} title={f.downloadVersion} aria-label={f.downloadVersion}>
+                      <Icon name="download" />
+                    </a>
+                    <RestoreVersionButton path={file.path} revision={version.revision} />
+                  </span>
+                )}
               </li>
             ))}
           </ol>
