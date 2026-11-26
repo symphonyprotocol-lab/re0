@@ -664,7 +664,7 @@
           "name": "key_digest",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "key_tail": {
           "name": "key_tail",
