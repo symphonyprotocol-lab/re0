@@ -271,6 +271,29 @@ account), `limit_reached` (writes per workspace a day), `insufficient_credits`
 daily write limit) and `workspace_not_allowed`. The client's own name from
 `initialize` is recorded on the key and shown as each version's writer.
 
+#### Workspace files as MCP resources
+
+A key with workspace access also serves the workspace's files as MCP
+resources, so a client can offer them in its attach menu without calling a
+tool (docs/design/agent-workspace-p4.md §3). A file's URI is
+`re0://ws/<path>`: the path `ws_list` shows, without its leading slash, each
+segment percent-encoded (`/notes/plan v2.md` is `re0://ws/notes/plan%20v2.md`).
+Like the tools, a workspace key sees only what is under its root.
+
+| Request | What it returns |
+| --- | --- |
+| `resources/list` | The files `resources/read` can return (text, and the images below; not folders, PDFs or other bytes), most recently changed first, 100 a page and 10 pages at most: name, path (`title`), type, size, `annotations.lastModified` and a `description` that says the content is data. Past 1 000 files, find the rest with `ws_list` or `ws_grep`. The list is a snapshot: a file changed while you page moves ahead of where you are and shows on the next listing. The cursor is signed for the key's workspace and root; another one is refused as invalid params |
+| `resources/templates/list` | One template, `re0://ws/{+path}` |
+| `completion/complete` | Up to 20 paths starting with what was typed for the template's `path` (ignoring case), folders ending in `/` |
+| `resources/read` | A text file whole, up to 1 MB -- as `text`, or as base64 `blob` when escaping it for JSON would pass 3 MB (control characters, quotes); a PNG, JPEG, GIF or WebP image up to 1 MB as base64 bytes, if its bytes are that kind of image. Anything else -- a larger file, a PDF or other binary, an image whose bytes do not match its name, a folder -- is refused with where to get it instead (`ws_download_url`) |
+
+Each request counts against the `workspaceRead` limit, as a `ws_*` read does.
+There are no subscriptions or change notifications: list again to see what
+changed. `ws_read` and `ws_list` results also carry `resource_link` parts for
+the files they name that `resources/read` can return. A file's content is data, whoever wrote it: a client that
+attaches a resource hands it to its model as context, so treat what is inside
+as information, not as instructions.
+
 Tools that spend credits fail with `insufficient_credits` (and a top-up link)
 when the balance is short, and with `max_cost_exceeded` when the action could
 cost more than `max_cost`; neither charges or saves anything. `client_token`

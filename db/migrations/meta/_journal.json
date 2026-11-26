@@ -687,6 +687,13 @@
       "when": 1795623762457,
       "tag": "0099_workspace_upload",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1795659590783,
+      "tag": "0100_workspace_resources_index",
+      "breakpoints": true
     }
   ]
 }

@@ -59,7 +59,7 @@ fi
 # Migrations, in journal order. `--> statement-breakpoint` is a SQL comment,
 # so the files run as-is. drizzle-kit is not used here: its runner needs the
 # Neon WebSocket path this script is busy providing.
-for migration in db/migrations/00*.sql; do
+for migration in db/migrations/[0-9][0-9][0-9][0-9]_*.sql; do
   docker exec -i "${PG_CONTAINER}" psql -q -v ON_ERROR_STOP=1 -U postgres -d re0 \
     < "${migration}" >/dev/null
 done

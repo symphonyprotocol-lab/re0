@@ -2955,6 +2955,8 @@ export const workspaceEntry = pgTable(
     check('agent_workspace_entry_kind_check', oneOf('kind', ['file', 'folder'])),
     check('agent_workspace_entry_index_mode_check', oneOf('index_mode', ['inherit', 'on', 'off'])),
     index('agent_workspace_entry_index_due_idx').on(t.indexDueAt).where(sql`index_due_at is not null and deleted_at is null`),
+    /* MCP `resources/list` (lib/services/workspace-resources.ts): a workspace's live files, most recently changed first, walked by (updated_at, id) -- scanned backwards, which matches ORDER BY ... DESC (nulls first). */
+    index('agent_workspace_entry_recent_idx').on(t.workspaceId, t.updatedAt, t.id).where(sql`deleted_at is null and kind = 'file'`),
     check('agent_workspace_entry_path_check', sql`left(path, 1) = '/' and octet_length(path) <= 1024`),
   ],
 );

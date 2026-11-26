@@ -115,6 +115,11 @@ export default async function FilesConnectPage() {
               ))}
             </ul>
           </section>
+          <section className="card ws-try">
+            <strong>{c.attachTitle}</strong>
+            <p>{c.attachBody}</p>
+            <p className="ws-muted">{c.attachWarning}</p>
+          </section>
         </div>
       </main>
     </>
