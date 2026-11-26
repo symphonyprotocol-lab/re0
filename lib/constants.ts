@@ -562,11 +562,6 @@ export const USER_RATE_LIMITS = {
   domainVerify: [{ windowSeconds: 60, limit: 5 }, { windowSeconds: 3_600, limit: 30 }],
   /* `/api/explore` without a question; a question has its own EXPLORE_RATE_LIMIT. */
   browse: [{ windowSeconds: 60, limit: 120 }, { windowSeconds: 3_600, limit: 2_000 }],
-  /* The agent workspace's MCP tools (`ws_*`, per key, each account up to WORKSPACE_ACCOUNT_LIMIT_FACTOR times that) and its web pages: reading (list, read, grep, history) and changing files. */
-  workspaceRead: [{ windowSeconds: 60, limit: 300 }, { windowSeconds: 3_600, limit: 10_000 }],
-  workspaceWrite: [{ windowSeconds: 60, limit: 60 }, { windowSeconds: 3_600, limit: 1_000 }],
-  /* `ws_grep` on top of `workspaceRead`: each one scans up to WORKSPACE_GREP_SCAN_MAX of text in the database. */
-  workspaceGrep: [{ windowSeconds: 60, limit: 20 }, { windowSeconds: 3_600, limit: 300 }],
 } as const satisfies Record<string, readonly { windowSeconds: number; limit: number }[]>;
 /** What a console exemption from `USER_RATE_LIMITS` covers unless the administrator picks otherwise: no model-cost routes. */
 export const RATE_LIMIT_EXEMPT_DEFAULT = ['uploadToken', 'browse'] as const satisfies readonly (keyof typeof USER_RATE_LIMITS)[];
@@ -792,44 +787,6 @@ export const API_KEY_MAX_ACTIVE = 10;
 export const API_KEY_MAX_DAYS = 365;
 /** `last_used_at` is written at most this often per key. */
 export const API_KEY_LAST_USED_RESOLUTION_MS = 60_000;
-/**
- * OAuth for `/api/mcp` (lib/services/oauth.ts). Access tokens are short and
- * opaque, so revoking a grant takes effect at once; a refresh token is used
- * once and the grant's life slides with each use, so a connection nobody
- * uses ends by itself after `refreshDays`.
- */
-export const OAUTH_LIMITS = {
-  accessTokenSeconds: 3_600,
-  refreshDays: 90,
-  /** From `/oauth/authorize` to the decision on the consent page, sign-in included. */
-  requestMinutes: 30,
-  /** A spent refresh token presented again this soon is a retry and gets another pair; later, the grant is revoked. */
-  refreshReuseGraceSeconds: 60,
-  /** From the decision to the code's exchange at the token endpoint. */
-  codeSeconds: 300,
-  /** Live connected apps per account (a client may hold several, e.g. one per claude.ai organisation). */
-  maxGrants: 50,
-  /**
-   * Client registrations per address per hour, and in all per hour.
-   * claude.ai and ChatGPT register from their own servers, so one address
-   * stands for many of their users: the per-address limit is generous and
-   * the overall ceiling bounds what an abuser can store (unused clients go
-   * after a week).
-   */
-  registrationsPerAddressPerHour: 300,
-  registrationsPerHour: 5_000,
-  /** The largest body the registration, token and revocation endpoints read. */
-  requestMaxBytes: 16 * 1024,
-  /** Authorization requests per address per hour (each may fetch a client's metadata document). */
-  authorizationsPerHour: 120,
-  /** A client metadata document: the longest wait and the largest body. */
-  documentTimeoutMs: 5_000,
-  documentMaxBytes: 16 * 1024,
-  /** When a client's site does not answer, its document may be used this long past its refresh time. */
-  documentStaleHours: 24,
-  /** A client nobody has a grant for is deleted after this many days (a metadata document is fetched again when next used). */
-  unusedClientDays: 7,
-} as const;
 /** MCP tool calls per minute, per key and per account (every key of it together). */
 export const MCP_RATE_LIMIT = { windowSeconds: 60, perKey: 30, perUser: 60 } as const;
 /**
@@ -843,87 +800,3 @@ export const MCP_REE_CREATE_PER_DAY = 20;
 export const MCP_SEARCH_MAX = 10;
 /** Ready sources listed by title in `get_ree` for the caller's own Ree. */
 export const MCP_SOURCE_TITLES = 30;
-
-/* ------------------------------------------------ agent workspace (docs/design/agent-workspace.md) */
-
-/** A text file up to this size keeps its current version in Postgres too, for line reads and grep; phase 1 stores nothing larger. */
-export const WORKSPACE_TEXT_MAX = 1024 * 1024;
-/** One `ws_read` returns at most this much text; the rest is `truncated` with a `next_offset`. */
-export const WORKSPACE_READ_MAX = 256 * 1024;
-/** A workspace path: at most this many bytes in all, and per segment. */
-export const WORKSPACE_PATH_MAX = 1024;
-export const WORKSPACE_SEGMENT_MAX = 255;
-/** Per account: entries (files and folders, the trash included) and stored bytes (every kept version, deduplicated). */
-export const WORKSPACE_ENTRIES_MAX = 100_000;
-export const WORKSPACE_BYTES_MAX = 10 * 1024 * 1024 * 1024;
-/** One `ws_list` page. */
-export const WORKSPACE_LIST_MAX = 500;
-/** One `ws_grep`: text scanned, and matching lines returned. */
-export const WORKSPACE_GREP_SCAN_MAX = 20 * 1024 * 1024;
-export const WORKSPACE_GREP_HITS_MAX = 200;
-/** One `ws_move` of a folder moves at most this many entries. */
-export const WORKSPACE_MOVE_MAX = 10_000;
-/** Writes to one file through the same key (or the same web user) within this long of the last one are one version. */
-export const WORKSPACE_COALESCE_MS = 60_000;
-/** Older versions are kept this many days, and the latest this many always. */
-export const WORKSPACE_REVISION_DAYS = 30;
-export const WORKSPACE_REVISIONS_KEPT = 10;
-/** Deleted entries stay in the trash this many days. */
-export const WORKSPACE_TRASH_DAYS = 30;
-/** Defaults of the console's workspace ceilings (rate-limit-settings.ts): free storage per account, writes per workspace a day, and the debt above which writes are refused. */
-export const WORKSPACE_FREE_MB = 100;
-export const WORKSPACE_WRITES_PER_DAY = 5_000;
-export const WORKSPACE_DEBT_WRITE_LIMIT = 100;
-/** `ws_append` remembers this many recent `client_token`s per file. */
-export const WORKSPACE_APPEND_TOKENS = 20;
-/** Superseded (merged) versions are purged once this old; their ids stay readable until then. */
-export const WORKSPACE_SQUASHED_KEEP_MS = 24 * 60 * 60 * 1000;
-/** One `ws_grep`: at most this long in the database. */
-export const WORKSPACE_GREP_TIMEOUT_MS = 3_000;
-/** An account's MCP workspace calls, all keys together, may be this many times one key's limit. */
-export const WORKSPACE_ACCOUNT_LIMIT_FACTOR = 4;
-/** A file is indexed this long after its last change, so a burst of saves is indexed once. */
-export const WORKSPACE_INDEX_DELAY_MS = 2 * 60_000;
-/** Files one run of the index cron takes, and how long a claimed file stays claimed before another run may take it. */
-export const WORKSPACE_INDEX_BATCH = 20;
-export const WORKSPACE_INDEX_CLAIM_MS = 10 * 60_000;
-/** Default of the console's `workspaceIndexBudget`: credits indexing may cost an account a day. */
-export const WORKSPACE_INDEX_BUDGET = 50;
-/** One `ws_search`: at most this many passages. */
-export const WORKSPACE_SEARCH_MAX = 20;
-/*
- * Uploads and downloads of bytes (docs/design/agent-workspace.md §3.1, third
- * phase): one PUT through re0 carries at most WORKSPACE_UPLOAD_PART (under
- * Vercel's 4.5 MB request body); a larger file comes in parts of exactly that
- * size (the last one smaller), up to WORKSPACE_UPLOAD_MAX. An upload URL lives
- * WORKSPACE_UPLOAD_TTL_MS; one not finished by then is cleaned up (its parts
- * deleted, never billed) and its record forgotten after WORKSPACE_UPLOAD_KEEP_MS.
- * An account holds at most WORKSPACE_UPLOADS_OPEN unfinished uploads of
- * WORKSPACE_UPLOAD_PENDING_MAX bytes together. A download URL lives
- * WORKSPACE_DOWNLOAD_TTL_MS. Files kept only as bytes are indexed up to
- * WORKSPACE_INDEX_FILE_MAX (PDF and Word text, or text too large to keep
- * inline).
- */
-export const WORKSPACE_UPLOAD_PART = 4 * 1024 * 1024;
-export const WORKSPACE_UPLOAD_MAX = 100 * 1024 * 1024;
-export const WORKSPACE_UPLOAD_TTL_MS = 60 * 60_000;
-export const WORKSPACE_UPLOAD_KEEP_MS = 24 * 60 * 60_000;
-export const WORKSPACE_UPLOADS_OPEN = 10;
-export const WORKSPACE_UPLOAD_PENDING_MAX = 500 * 1024 * 1024;
-export const WORKSPACE_DOWNLOAD_TTL_MS = 10 * 60_000;
-export const WORKSPACE_INDEX_FILE_MAX = 20 * 1024 * 1024;
-/** A PDF or Word file's text is read within this long when it is indexed (no paid fallback: a scan is simply not indexed). */
-export const WORKSPACE_PARSE_MS = 60_000;
-/** A PDF or Word file is read in a worker thread with at most this much heap, killed past WORKSPACE_PARSE_MS. */
-export const WORKSPACE_PARSE_HEAP_MB = 512;
-/** A Word file whose parts would inflate past this is not read for the index (the knowledge reader allows more). */
-export const WORKSPACE_DOCX_INFLATE_MAX = 50 * 1024 * 1024;
-/** Index runs a version may take without finishing before it is marked unreadable. */
-export const WORKSPACE_INDEX_ATTEMPTS = 3;
-/** PUTs one upload takes in all: each part once, and as many again for retries. */
-export const WORKSPACE_UPLOAD_REWRITES = 2;
-/** One stitching step holds its lease this long; one request stitches for at most WORKSPACE_STITCH_BUDGET_MS, the cron carries on. */
-export const WORKSPACE_STITCH_LEASE_MS = 2 * 60_000;
-export const WORKSPACE_STITCH_BUDGET_MS = 120_000;
-/** Above this a download is a redirect to a short-lived signed store URL: a function's response holds at most 4.5 MB. */
-export const WORKSPACE_DOWNLOAD_INLINE_MAX = 4 * 1024 * 1024;

@@ -13,7 +13,6 @@ import { activity, cleanFolderName, cleanTitle } from '@/lib/domain/knowledge';
 import { deleteBlob } from '@/lib/infra/blob';
 import { db, schema, type Tx } from '@/lib/infra/db';
 import { appendActivity, checkReprocess, KnowledgeInputError, abandonPending, recoverStale, reprocessInTx } from '@/lib/services/knowledge';
-import { excludeTrashedFiles, includeRestoredFiles, quarantineFlaggedFiles } from '@/lib/services/ree-file-guard';
 import { accrueStorage, rowsIn } from '@/lib/services/storage-billing';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -150,8 +149,7 @@ export async function runBatch(ownerId: string, reeId: string, input: BatchInput
     return { changed: ids.length, process: ids };
   }
 
-  let restoredFiles = false;
-  const result = await db().transaction(async (tx) => {
+  return db().transaction(async (tx) => {
     const touch = async (changed: string[], set: Partial<typeof schema.knowledge.$inferInsert>, entry: ReturnType<typeof activity>) => {
       if (changed.length === 0) return;
       await tx
@@ -182,18 +180,8 @@ export async function runBatch(ownerId: string, reeId: string, input: BatchInput
       case 'resume': {
         const value = input.action === 'resume';
         const rows = await rowsOf(tx, reeId, ids, false);
-        if (value) {
-          /* A workspace file the secret scan flagged never answers in a public Ree (docs/design/agent-workspace.md §7.3). */
-          const [owner] = await tx.select({ isPublic: schema.ree.isPublic }).from(schema.ree).where(eq(schema.ree.id, reeId));
-          const flagged = await tx
-            .select({ id: schema.knowledge.id })
-            .from(schema.knowledge)
-            .where(and(inArray(schema.knowledge.id, ids), isNotNull(schema.knowledge.secretFound)));
-          if (owner?.isPublic && flagged.length) throw new KnowledgeInputError('secret_found');
-        }
         const changed = rows.filter((row) => row.enabled !== value).map((row) => row.id);
-        /* Enabling a file that waited for confirmation (待确认) is the confirmation. */
-        await touch(changed, value ? { enabled: true, awaitingConfirmation: false } : { enabled: false }, activity(value ? 'enabled' : 'paused', undefined, now));
+        await touch(changed, { enabled: value }, activity(value ? 'enabled' : 'paused', undefined, now));
         return { changed: changed.length, process: [] };
       }
       case 'trash': {
@@ -201,28 +189,16 @@ export async function runBatch(ownerId: string, reeId: string, input: BatchInput
         /* A source being processed holds credits; it finishes before it can go. */
         if (rows.some(busy)) throw new KnowledgeInputError('busy');
         await touch(ids, { deletedAt: now }, activity('trashed', undefined, now));
-        /* A workspace file trashed here leaves the Ree: its bindings stop bringing it back. */
-        await excludeTrashedFiles(tx, reeId, ids);
         return { changed: ids.length, process: [] };
       }
       case 'restore': {
         await rowsOf(tx, reeId, ids, true);
         await touch(ids, { deletedAt: null }, activity('restored', undefined, now));
-        restoredFiles = (await includeRestoredFiles(tx, reeId, ids)) > 0;
-        /* A flagged file never answers in a public Ree, restored or not. */
-        const [owner] = await tx.select({ isPublic: schema.ree.isPublic }).from(schema.ree).where(eq(schema.ree.id, reeId));
-        if (owner?.isPublic) await quarantineFlaggedFiles(tx, reeId, now);
         return { changed: ids.length, process: [] };
       }
     }
     throw new KnowledgeInputError('not_found');
   });
-  /* A restored workspace file catches up with its file (a newer index, or a file no longer bound goes back to the trash). */
-  if (restoredFiles) {
-    const { syncRee } = await import('@/lib/services/workspace-rees');
-    await syncRee(reeId, now);
-  }
-  return result;
 }
 
 /** The display name only; the original name and the source stay (prototype "修改名称"). */

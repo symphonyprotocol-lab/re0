@@ -68,8 +68,7 @@ export async function chargeLateReceipt(tx: Tx, runId: string): Promise<number> 
   return due;
 }
 
-/** `workspace_index`: one owner's embedding of agent workspace passages over a UTC day, settled once (lib/services/workspace-index.ts). */
-export type MeteredKind = 'profile' | 'suggestions' | 'reembed' | 'workspace_index';
+export type MeteredKind = 'profile' | 'suggestions' | 'reembed';
 
 export interface MeteredWork {
   userId: string;
@@ -219,26 +218,26 @@ export const METERED_RUN_STALE_MS = 30 * 60_000;
 /**
  * The backstop for a function that died between placing a run's hold and
  * settling it (a timeout, a deploy): every metered run still `processing`
- * past `METERED_RUN_STALE_MS` (an index run: past its day) is settled at the receipts it recorded and
+ * past `METERED_RUN_STALE_MS` is settled at the receipts it recorded and
  * failed as `abandoned` -- what it spent is charged, what it reserved and
  * never used goes back. A re-embed run belongs to its job and stays open
  * while that job runs; `settleReembedRuns` closes it once the job is over.
- * Answers how many runs it closed.
+ * A `workspace_index` run is a day's indexing that the removed agent
+ * workspace (migration 0101) left open; it is settled the same way, at what
+ * that day recorded. Answers how many runs it closed.
  */
 export async function reapMeteredRuns(now = new Date(), limit = 200): Promise<number> {
   const cutoff = new Date(now.getTime() - METERED_RUN_STALE_MS);
-  /* An index run stays open all its UTC day (workspace-index.ts settles it the next day); it is abandoned only once that is overdue. */
-  const dayCutoff = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - METERED_RUN_STALE_MS);
   const stale = await db().execute<{ id: string; run_id: string; user_id: string; ree_id: string | null; kind: string; title: string; ree_name: string }>(sql`
     select r.id, r.run_id, r.user_id, r.ree_id, r.kind, r.title, r.ree_name
     from ${schema.knowledgeCostRun} r
-    where r.status = 'processing' and r.knowledge_id is null and r.metered
-      and ((r.kind in ('profile', 'suggestions') and r.created_at < ${cutoff}) or (r.kind = 'workspace_index' and r.created_at < ${dayCutoff}))
+    where r.status = 'processing' and r.knowledge_id is null and r.metered and r.kind in ('profile', 'suggestions', 'workspace_index')
+      and r.created_at < ${cutoff}
     order by r.created_at
     limit ${limit}`);
   let closed = 0;
   for (const row of stale.rows) {
-    const input: MeteredWork = { userId: row.user_id, reeId: row.ree_id, kind: row.kind as MeteredKind, title: row.title, reeName: row.ree_name, refuse: row.kind === 'suggestions' || row.kind === 'workspace_index' };
+    const input: MeteredWork = { userId: row.user_id, reeId: row.ree_id, kind: row.kind as MeteredKind, title: row.title, reeName: row.ree_name, refuse: row.kind !== 'profile' };
     if ((await closeMeteredRun({ holdId: row.id, runId: row.run_id, input }, 'abandoned')) !== null) closed += 1;
   }
   return closed;

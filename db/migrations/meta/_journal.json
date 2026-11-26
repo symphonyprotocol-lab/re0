@@ -694,6 +694,13 @@
       "when": 1795659590783,
       "tag": "0100_workspace_resources_index",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1795685894985,
+      "tag": "0101_drop_workspace_oauth",
+      "breakpoints": true
     }
   ]
 }

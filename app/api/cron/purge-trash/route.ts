@@ -2,7 +2,6 @@ import type { NextRequest } from 'next/server';
 import { fail, json } from '@/lib/http/respond';
 import { timingSafeEqual } from '@/lib/infra/crypto/tokens';
 import { purgeTrash } from '@/lib/services/knowledge-library';
-import { purgeWorkspaces } from '@/lib/services/workspace';
 
 export const maxDuration = 300;
 
@@ -26,7 +25,5 @@ export async function GET(request: NextRequest) {
     files += batch.files;
     if (batch.purged === 0 || Date.now() - started > 270_000) break;
   }
-  /* The agent workspace: its trash after 30 days, versions past their keeping, and contents no version names. */
-  const workspace = Date.now() - started > 270_000 ? null : await purgeWorkspaces();
-  return json({ purged, files, workspace });
+  return json({ purged, files });
 }

@@ -19,7 +19,6 @@ import {
   integer,
   jsonb,
   numeric,
-  doublePrecision,
   pgTable,
   primaryKey,
   real,
@@ -39,7 +38,6 @@ import type { ProviderCharge, ProviderRate } from '@/lib/domain/provider-cost';
 import type { CallPurpose, CallStatus, CostBasis } from '@/lib/domain/model-calls';
 import type { KnowledgeActivity, KnowledgeChild } from '@/lib/domain/knowledge';
 import type { RoleMetrics } from '@/lib/domain/roles';
-import type { WorkspaceAccess } from '@/lib/domain/workspace';
 import type { ReeRank } from '@/lib/domain/explore';
 import { REE_COMMENT_MAX_LENGTH } from '@/lib/domain/ree-comment';
 import { VISITOR_ASK_PER_DAY, VISITOR_ASK_PER_VISITOR } from '@/lib/domain/visitor-ask';
@@ -264,7 +262,7 @@ export const knowledge = pgTable(
       .references(() => ree.id),
     /** Null is "未分组"; deleting a folder sends its rows back there, trash included. */
     folderId: uuid('folder_id').references(() => knowledgeFolder.id, { onDelete: 'set null' }),
-    kind: text('kind').$type<'document' | 'audio' | 'github' | 'page' | 'site' | 'text' | 'file'>().notNull(),
+    kind: text('kind').$type<'document' | 'audio' | 'github' | 'page' | 'site' | 'text'>().notNull(),
     title: text('title').notNull(),
     originalTitle: text('original_title').notNull(),
     /** Blob pathname for an upload, the URL for a fetched source, null for text. */
@@ -290,24 +288,12 @@ export const knowledge = pgTable(
     updatedAt: timestampTz('updated_at').notNull().defaultNow(),
     /** Storage is billed up to here (null: from `created_at`), see `lib/services/storage-billing.ts`. */
     storageBilledAt: timestampTz('storage_billed_at'),
-    /**
-     * A `file` source is an agent workspace file a binding brings in
-     * (lib/services/workspace-rees.ts): never processed here, its passages
-     * copied from the file's index at `workspace_revision_id`.
-     */
-    workspaceEntryId: uuid('workspace_entry_id'),
-    workspaceRevisionId: uuid('workspace_revision_id'),
-    /** A new file in a published Ree's bound folder waits for the owner (待确认) before it answers anyone. */
-    awaitingConfirmation: boolean('awaiting_confirmation').notNull().default(false),
-    /** What the secret scan found in it (`re0_sk_`, `aws_key`, …); such a file never answers in a public Ree. */
-    secretFound: text('secret_found'),
   },
   (t) => [
     index('knowledge_ree_idx').on(t.reeId, t.updatedAt),
     index('knowledge_folder_idx').on(t.folderId),
     index('knowledge_trash_idx').on(t.deletedAt).where(sql`deleted_at is not null`),
-    index('knowledge_workspace_entry_idx').on(t.workspaceEntryId).where(sql`workspace_entry_id is not null`),
-    check('knowledge_kind_check', oneOf('kind', ['document', 'audio', 'github', 'page', 'site', 'text', 'file'])),
+    check('knowledge_kind_check', oneOf('kind', ['document', 'audio', 'github', 'page', 'site', 'text'])),
     check('knowledge_status_check', oneOf('status', ['pending', 'processing', 'ready', 'failed'])),
   ],
 );
@@ -2723,9 +2709,7 @@ export const apiKey = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    /** SHA-256 of the secret; null for an OAuth grant (`oauth_client_id`), which has no secret of its own -- its tokens are in `oauth_token`. */
-    keyDigest: text('key_digest'),
-    /** The secret's last four characters; '' for an OAuth grant. */
+    keyDigest: text('key_digest').notNull(),
     keyTail: text('key_tail').notNull(),
     lastUsedAt: timestampTz('last_used_at'),
     expiresAt: timestampTz('expires_at'),
@@ -2743,468 +2727,11 @@ export const apiKey = pgTable(
      * key reads and asks only -- what every key did before migration 0094.
      */
     canWrite: boolean('can_write').notNull().default(false),
-    /**
-     * The agent workspace (docs/design/agent-workspace.md §7.1): what the key
-     * may do with files -- nothing (every key made before 0096), read, or
-     * read and write. A key with `workspace_id` is a workspace key: it sees
-     * only that workspace's `ws_*` tools, with `workspace_root` as its `/`,
-     * and never the Ree or post tools (so `can_write` is false). A key
-     * without one reaches the account's default workspace at its root.
-     */
-    workspaceAccess: text('workspace_access').$type<WorkspaceAccess>().notNull().default('none'),
-    workspaceId: uuid('workspace_id').references(() => workspace.id),
-    workspaceRoot: text('workspace_root').notNull().default('/'),
-    /** What the client called itself (MCP `initialize` `clientInfo.name`) when it last connected with this key; file versions show it as their writer. */
-    clientName: text('client_name'),
-    /**
-     * An OAuth grant (lib/services/oauth.ts): the access one user gave one
-     * OAuth client on the consent page, shown under 已连接的应用 rather than
-     * as a key. Its access tokens resolve to this row, so every permission,
-     * limit, tag and usage figure of a key applies to it unchanged.
-     * `expires_at` slides with each refresh; revoking it ends every token.
-     */
-    oauthClientId: text('oauth_client_id').references((): AnyPgColumn => oauthClient.id),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('api_key_digest_key').on(t.keyDigest),
-    index('api_key_oauth_client_idx').on(t.oauthClientId).where(sql`oauth_client_id is not null`),
-    check('api_key_oauth_check', sql`(oauth_client_id is null) = (key_digest is not null)`),
     index('api_key_user_idx').on(t.userId, t.createdAt),
     check('api_key_name_check', sql`char_length(name) between 1 and 60`),
-    check('api_key_workspace_access_check', oneOf('workspace_access', ['none', 'read', 'write'])),
-    check('api_key_workspace_key_check', sql`workspace_id is null or (not can_write and workspace_access <> 'none')`),
   ],
-);
-
-/* ------------------------------------------------- OAuth for the MCP server (docs/mcp.md, lib/services/oauth.ts) */
-
-/**
- * An OAuth client of the MCP server: one that registered itself (RFC 7591,
- * `registered`, id `re0_client_…`) or one whose id is the HTTPS URL of its
- * metadata document (`metadata_document`, re-fetched when `refresh_after`
- * passes). Clients are public (`none`, PKCE only) unless they registered for
- * a secret, whose digest is kept.
- */
-export const oauthClient = pgTable(
-  'oauth_client',
-  {
-    id: text('id').primaryKey(),
-    kind: text('kind').$type<'registered' | 'metadata_document'>().notNull(),
-    clientName: text('client_name').notNull(),
-    clientUri: text('client_uri'),
-    redirectUris: text('redirect_uris').array().notNull(),
-    tokenEndpointAuthMethod: text('token_endpoint_auth_method').$type<'none' | 'client_secret_post' | 'client_secret_basic'>().notNull().default('none'),
-    secretDigest: text('secret_digest'),
-    fetchedAt: timestampTz('fetched_at'),
-    refreshAfter: timestampTz('refresh_after'),
-    /** Registered, fetched or named by an authorization request: a client unseen for a week with no grant is deleted. */
-    lastSeenAt: timestampTz('last_seen_at').notNull().defaultNow(),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    check('oauth_client_kind_check', oneOf('kind', ['registered', 'metadata_document'])),
-    check('oauth_client_auth_method_check', oneOf('token_endpoint_auth_method', ['none', 'client_secret_post', 'client_secret_basic'])),
-    check('oauth_client_secret_check', sql`(token_endpoint_auth_method = 'none') = (secret_digest is null)`),
-    check('oauth_client_name_check', sql`char_length(client_name) between 1 and 100`),
-    index('oauth_client_last_seen_idx').on(t.lastSeenAt),
-  ],
-);
-
-/**
- * One authorization request, from `/oauth/authorize` to the token it is
- * exchanged for. Pending, it waits for the user's decision on the consent
- * page (bound to the browser that started it by `browser_digest`); approved,
- * it holds the digest of a one-time code and the permissions chosen; used,
- * it names the grant (`api_key_id`) the code became, so a replayed code can
- * revoke it. Rows past `expires_at` are deleted as new ones arrive.
- */
-export const oauthAuthorization = pgTable(
-  'oauth_authorization',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    clientId: text('client_id')
-      .notNull()
-      .references(() => oauthClient.id, { onDelete: 'cascade' }),
-    browserDigest: text('browser_digest').notNull(),
-    redirectUri: text('redirect_uri').notNull(),
-    codeChallenge: text('code_challenge').notNull(),
-    scope: text('scope').notNull().default(''),
-    state: text('state'),
-    resource: text('resource').notNull(),
-    userId: uuid('user_id').references(() => user.id, { onDelete: 'cascade' }),
-    codeDigest: text('code_digest'),
-    canWrite: boolean('can_write').notNull().default(false),
-    workspaceAccess: text('workspace_access').$type<WorkspaceAccess>().notNull().default('none'),
-    workspaceOnly: boolean('workspace_only').notNull().default(false),
-    workspaceRoot: text('workspace_root').notNull().default('/'),
-    apiKeyId: uuid('api_key_id').references(() => apiKey.id, { onDelete: 'cascade' }),
-    createdAt: createdAt(),
-    expiresAt: timestampTz('expires_at').notNull(),
-    decidedAt: timestampTz('decided_at'),
-    usedAt: timestampTz('used_at'),
-  },
-  (t) => [
-    uniqueIndex('oauth_authorization_code_key').on(t.codeDigest),
-    index('oauth_authorization_expires_idx').on(t.expiresAt),
-    check('oauth_authorization_workspace_access_check', oneOf('workspace_access', ['none', 'read', 'write'])),
-    check('oauth_authorization_code_check', sql`code_digest is null or user_id is not null`),
-  ],
-);
-
-/**
- * Access and refresh tokens of an OAuth grant (`api_key_id`), by SHA-256
- * digest only. Each names the resource it was issued for (the MCP server's
- * URL). A refresh token is used once: using it sets `rotated_at` and issues
- * a new pair, and presenting it again revokes the whole grant.
- */
-export const oauthToken = pgTable(
-  'oauth_token',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    apiKeyId: uuid('api_key_id')
-      .notNull()
-      .references(() => apiKey.id, { onDelete: 'cascade' }),
-    kind: text('kind').$type<'access' | 'refresh'>().notNull(),
-    digest: text('digest').notNull(),
-    resource: text('resource').notNull(),
-    createdAt: createdAt(),
-    expiresAt: timestampTz('expires_at').notNull(),
-    rotatedAt: timestampTz('rotated_at'),
-    revokedAt: timestampTz('revoked_at'),
-  },
-  (t) => [
-    uniqueIndex('oauth_token_digest_key').on(t.digest),
-    index('oauth_token_grant_idx').on(t.apiKeyId, t.expiresAt),
-    check('oauth_token_kind_check', oneOf('kind', ['access', 'refresh'])),
-  ],
-);
-
-/* ------------------------------------------------- the agent workspace (docs/design/agent-workspace.md) */
-
-/**
- * A place files live that every MCP client of the account can reach. The
- * schema allows several per account; the first phase opens one, `default`,
- * made on first use (lib/services/workspace.ts `defaultWorkspace`).
- */
-export const workspace = pgTable(
-  'agent_workspace',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    ownerId: uuid('owner_id')
-      .notNull()
-      .references(() => user.id, { onDelete: 'cascade' }),
-    name: text('name').notNull().default('default'),
-    createdAt: createdAt(),
-    deletedAt: timestampTz('deleted_at'),
-  },
-  (t) => [
-    uniqueIndex('agent_workspace_owner_name_key').on(t.ownerId, sql`lower(${t.name})`).where(sql`deleted_at is null`),
-    check('agent_workspace_name_check', sql`char_length(name) between 1 and 60`),
-  ],
-);
-
-/**
- * A file or folder, addressed by path (lib/domain/workspace.ts). Folders
- * have rows so an empty one exists. A file's current text is here when it is
- * text of at most WORKSPACE_TEXT_MAX bytes (all of phase 1's), for line reads
- * and grep; every version's bytes are in Blob (`agent_workspace_revision`). `etag`
- * is new on every change of content, so `if_match` notices A→B→A. Deleting
- * sets `deleted_at` on the entry and everything under it, keeping their
- * paths; two live entries may not share a path, ignoring case.
- */
-export const workspaceEntry = pgTable(
-  'agent_workspace_entry',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    workspaceId: uuid('workspace_id')
-      .notNull()
-      .references(() => workspace.id, { onDelete: 'cascade' }),
-    path: text('path').notNull(),
-    kind: text('kind').$type<'file' | 'folder'>().notNull(),
-    mediaType: text('media_type'),
-    size: bigint('size', { mode: 'number' }).notNull().default(0),
-    sha256: text('sha256'),
-    etag: text('etag'),
-    currentRevisionId: uuid('current_revision_id'),
-    text: text('text'),
-    lineCount: integer('line_count'),
-    updatedByKeyId: uuid('updated_by_key_id'),
-    updatedClient: text('updated_client'),
-    /** The latest `ws_append` `client_token`s (WORKSPACE_APPEND_TOKENS of them, newest last): one of them again is that append's retry, answered without appending twice, whoever appended since. */
-    appendTokens: uuid('append_tokens').array().notNull().default(sql`'{}'::uuid[]`),
-    /** Indexing (docs/design/agent-workspace.md §5): `on`/`off` here, or `inherit` the nearest folder's; off at the top. A file a Ree binds is indexed whatever this says. */
-    indexMode: text('index_mode').$type<'inherit' | 'on' | 'off'>().notNull().default('inherit'),
-    /** When the index worker should look at this file: set two minutes after each change, so a burst of saves is indexed once. */
-    indexDueAt: timestampTz('index_due_at'),
-    indexClaimedAt: timestampTz('index_claimed_at'),
-    /** The version `agent_workspace_passage` holds the passages of. */
-    indexedRevisionId: uuid('indexed_revision_id'),
-    /** Why the last attempt stopped: `budget` (today's index budget is spent), `insufficient_credits`, `failed`. */
-    indexError: text('index_error'),
-    /** Index runs that took this version and did not finish it (a crash, a timeout): after WORKSPACE_INDEX_ATTEMPTS it is `unreadable` until a new version. */
-    indexAttempts: integer('index_attempts').notNull().default(0),
-    deletedAt: timestampTz('deleted_at'),
-    createdAt: createdAt(),
-    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('agent_workspace_entry_path_key').on(t.workspaceId, sql`lower(${t.path})`).where(sql`deleted_at is null`),
-    index('agent_workspace_entry_prefix_idx').on(t.workspaceId, sql`lower(${t.path}) text_pattern_ops`),
-    index('agent_workspace_entry_trash_idx').on(t.workspaceId, t.deletedAt).where(sql`deleted_at is not null`),
-    check('agent_workspace_entry_kind_check', oneOf('kind', ['file', 'folder'])),
-    check('agent_workspace_entry_index_mode_check', oneOf('index_mode', ['inherit', 'on', 'off'])),
-    index('agent_workspace_entry_index_due_idx').on(t.indexDueAt).where(sql`index_due_at is not null and deleted_at is null`),
-    /* MCP `resources/list` (lib/services/workspace-resources.ts): a workspace's live files, most recently changed first, walked by (updated_at, id) -- scanned backwards, which matches ORDER BY ... DESC (nulls first). */
-    index('agent_workspace_entry_recent_idx').on(t.workspaceId, t.updatedAt, t.id).where(sql`deleted_at is null and kind = 'file'`),
-    check('agent_workspace_entry_path_check', sql`left(path, 1) = '/' and octet_length(path) <= 1024`),
-  ],
-);
-
-/**
- * One version of a file: its bytes in Blob at `workspace/<workspace>/<sha256>`
- * (one object per distinct content, counted in `agent_workspace_blob`), who wrote it
- * and through which key and client. Writes by the same key within
- * WORKSPACE_COALESCE_MS of the last one update that version in place
- * (`saves` counts them) instead of adding one.
- */
-export const workspaceRevision = pgTable(
-  'agent_workspace_revision',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    entryId: uuid('entry_id')
-      .notNull()
-      .references(() => workspaceEntry.id, { onDelete: 'cascade' }),
-    workspaceId: uuid('workspace_id').notNull(),
-    sha256: text('sha256').notNull(),
-    size: bigint('size', { mode: 'number' }).notNull(),
-    op: text('op').$type<'write' | 'append' | 'edit' | 'restore' | 'copy' | 'upload'>().notNull(),
-    userId: uuid('user_id').notNull(),
-    apiKeyId: uuid('api_key_id'),
-    clientName: text('client_name'),
-    saves: integer('saves').notNull().default(1),
-    /** When the run of merged saves this version ends began: a save by the same key within WORKSPACE_COALESCE_MS of it supersedes this version; the window never slides. */
-    runStartedAt: timestampTz('run_started_at').notNull().defaultNow(),
-    /** The version that superseded this one within its run: hidden from the history, kept (and readable by id) until the purge. */
-    squashedInto: uuid('squashed_into'),
-    createdAt: createdAt(),
-    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
-  },
-  (t) => [
-    index('agent_workspace_revision_entry_idx').on(t.entryId, t.updatedAt),
-    index('agent_workspace_revision_workspace_idx').on(t.workspaceId, t.updatedAt),
-    index('agent_workspace_revision_squashed_idx').on(t.workspaceId).where(sql`squashed_into is not null`),
-    check('agent_workspace_revision_op_check', oneOf('op', ['write', 'append', 'edit', 'restore', 'copy', 'upload'])),
-  ],
-);
-
-/**
- * One stored content of a workspace: how many versions name it. At zero it
- * waits for the purge (`purgeWorkspaces`), which deletes the Blob object and
- * the row under the owner's usage lock, the same lock every write takes
- * before it puts an object, so a write never loses the object it just named.
- */
-export const workspaceBlob = pgTable(
-  'agent_workspace_blob',
-  {
-    workspaceId: uuid('workspace_id')
-      .notNull()
-      .references(() => workspace.id, { onDelete: 'cascade' }),
-    sha256: text('sha256').notNull(),
-    size: bigint('size', { mode: 'number' }).notNull(),
-    refs: integer('refs').notNull().default(0),
-    releasedAt: timestampTz('released_at'),
-  },
-  (t) => [
-    primaryKey({ columns: [t.workspaceId, t.sha256] }),
-    index('agent_workspace_blob_released_idx').on(t.releasedAt).where(sql`refs = 0`),
-    check('agent_workspace_blob_refs_check', sql`refs >= 0`),
-  ],
-);
-
-/**
- * Per account, what its workspaces store, kept current by every write in the
- * same transaction (whose row lock serialises one account's writes): Blob
- * bytes (distinct contents), database bytes (current texts) and entries, and
- * the byte-milliseconds of each above the free allowance since the last
- * charge. The daily storage charge prices those and starts them again from 0.
- */
-export const workspaceUsage = pgTable('agent_workspace_usage', {
-  userId: uuid('user_id')
-    .primaryKey()
-    .references(() => user.id, { onDelete: 'cascade' }),
-  blobBytes: bigint('blob_bytes', { mode: 'number' }).notNull().default(0),
-  databaseBytes: bigint('database_bytes', { mode: 'number' }).notNull().default(0),
-  entries: integer('entries').notNull().default(0),
-  /** Writes today (UTC `writes_day`), against the console's `workspaceWritesPerDay`; counted here, under the same lock, since rate buckets live an hour. */
-  writesDay: date('writes_day', { mode: 'string' }),
-  writes: integer('writes').notNull().default(0),
-  blobByteMs: numeric('blob_byte_ms', { precision: 40, scale: 0 }).notNull().default('0'),
-  databaseByteMs: numeric('database_byte_ms', { precision: 40, scale: 0 }).notNull().default('0'),
-  measuredAt: timestampTz('measured_at').notNull().defaultNow(),
-  /** When storage was last charged (the daily charge takes the longest-waiting first, writes or not), and when the purge last went through the account. */
-  chargedAt: timestampTz('charged_at').notNull().defaultNow(),
-  purgedAt: timestampTz('purged_at'),
-  /**
-   * Credits indexing took today (UTC `index_spent_day`), against the console's
-   * `workspaceIndexBudget`: each embedding call reserves its quote here in one
-   * conditional update before it runs (so concurrent workers cannot pass the
-   * budget) and gives back what it did not use. Fractional: the day's
-   * indexing is billed as one run, rounded up once (workspace-index.ts).
-   */
-  indexSpentDay: date('index_spent_day', { mode: 'string' }),
-  indexSpent: doublePrecision('index_spent').notNull().default(0),
-}, (t) => [index('agent_workspace_usage_charged_idx').on(t.chargedAt), index('agent_workspace_usage_purged_idx').on(t.purgedAt)]);
-
-/**
- * A workspace that was deleted (its owner's account, by cascade), written by
- * the `agent_workspace_gone_on_delete` trigger (migration 0095): the orphan
- * sweep (upload-reaper.ts) deletes its Blob objects, which no row names any
- * more; the purge forgets it after WORKSPACE_TRASH_DAYS.
- */
-export const workspaceGone = pgTable('agent_workspace_gone', {
-  workspaceId: uuid('workspace_id').primaryKey(),
-  goneAt: timestampTz('gone_at').notNull().defaultNow(),
-});
-
-/**
- * The index of an indexed file's current version (docs/design/agent-workspace.md
- * §2.2): its passages, cut by lines, each with one vector in one embedding
- * space. `content_digest` is the passage text's hash alone, so an edit
- * re-embeds only the passages it changed: a passage whose digest and space
- * the workspace already holds reuses that vector.
- */
-export const workspacePassage = pgTable(
-  'agent_workspace_passage',
-  {
-    entryId: uuid('entry_id')
-      .notNull()
-      .references(() => workspaceEntry.id, { onDelete: 'cascade' }),
-    ordinal: integer('ordinal').notNull(),
-    workspaceId: uuid('workspace_id').notNull(),
-    revisionId: uuid('revision_id').notNull(),
-    content: text('content').notNull(),
-    locator: jsonb('locator').$type<Locator>().notNull().default({}),
-    contentDigest: text('content_digest').notNull(),
-    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
-    embeddingSpace: uuid('embedding_space').notNull(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.entryId, t.ordinal] }),
-    index('agent_workspace_passage_digest_idx').on(t.workspaceId, t.contentDigest, t.embeddingSpace),
-    /* Passages left in an old embedding space, found after a model switch (workspace-index.ts `queueStaleSpaces`). */
-    index('agent_workspace_passage_space_idx').on(t.embeddingSpace, t.entryId),
-  ],
-);
-
-/**
- * A Ree's view of the workspace (§2.3): a folder (everything below it but
- * `exclude`) or one file whose indexed text is the Ree's knowledge. It names
- * the entry, not its path, so moving or renaming the folder keeps it.
- * `auto_enable` lets new files answer in a published Ree without the
- * owner's confirmation.
- */
-export const reeBinding = pgTable(
-  'agent_ree_binding',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    reeId: uuid('ree_id')
-      .notNull()
-      .references(() => ree.id, { onDelete: 'cascade' }),
-    workspaceId: uuid('workspace_id')
-      .notNull()
-      .references(() => workspace.id, { onDelete: 'cascade' }),
-    entryId: uuid('entry_id')
-      .notNull()
-      .references(() => workspaceEntry.id, { onDelete: 'cascade' }),
-    exclude: text('exclude').array().notNull().default(sql`'{}'::text[]`),
-    autoEnable: boolean('auto_enable').notNull().default(false),
-    createdBy: uuid('created_by').notNull(),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    uniqueIndex('agent_ree_binding_key').on(t.reeId, t.entryId),
-    index('agent_ree_binding_workspace_idx').on(t.workspaceId),
-    check('agent_ree_binding_exclude_check', sql`cardinality(exclude) <= 20`),
-  ],
-);
-
-/**
- * An upload of bytes into the workspace (third phase): `ws_upload_url` or the
- * web makes one, and its URL (`/api/files/upload/<token>`, the token kept
- * here only as a digest) takes the file in one PUT, or in `parts` PUTs of
- * WORKSPACE_UPLOAD_PART bytes each, kept as objects under
- * `workspace/<workspace>/upload/<id>/` until the last one arrives and the
- * file is put together, checked against the quota and the debt again, and
- * saved as a new version at `path`. One not finished by `expires_at` has its
- * parts deleted and is never billed (workspace-upload.ts `reapUploads`).
- */
-export const workspaceUpload = pgTable(
-  'agent_workspace_upload',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    tokenHash: text('token_hash').notNull(),
-    workspaceId: uuid('workspace_id')
-      .notNull()
-      .references(() => workspace.id, { onDelete: 'cascade' }),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => user.id, { onDelete: 'cascade' }),
-    apiKeyId: uuid('api_key_id'),
-    client: text('client'),
-    /** Resolved from the workspace root, inside the key's root when it was made. */
-    path: text('path').notNull(),
-    size: bigint('size', { mode: 'number' }).notNull(),
-    parts: integer('parts').notNull(),
-    received: integer('received').array().notNull().default(sql`'{}'::integer[]`),
-    /** PUTs of parts so far, a part sent again included: capped (WORKSPACE_UPLOAD_REWRITES) so one URL cannot rewrite storage without end. */
-    writes: integer('writes').notNull().default(0),
-    /**
-     * Stitching, a step at a time across requests and the cron: how many parts
-     * are in the assembled object so far, the SHA-256 state over them (resumable),
-     * and the store's multipart upload with the parts it has taken.
-     */
-    stitched: integer('stitched').notNull().default(0),
-    hashState: text('hash_state'),
-    assembly: jsonb('assembly').$type<{ uploadId: string; key: string; parts: { partNumber: number; etag: string }[] }>(),
-    /** While stitching: whoever holds this lease is working on it; a lease run out is taken over (a request or the cron). */
-    leaseUntil: timestampTz('lease_until'),
-    ifMatch: text('if_match'),
-    ifNoneMatch: boolean('if_none_match').notNull().default(false),
-    status: text('status').$type<'open' | 'assembling' | 'done' | 'failed'>().notNull().default('open'),
-    error: text('error'),
-    sha256: text('sha256'),
-    revisionId: uuid('revision_id'),
-    expiresAt: timestampTz('expires_at').notNull(),
-    createdAt: createdAt(),
-    completedAt: timestampTz('completed_at'),
-  },
-  (t) => [
-    uniqueIndex('agent_workspace_upload_token_key').on(t.tokenHash),
-    index('agent_workspace_upload_user_idx').on(t.userId, t.status),
-    index('agent_workspace_upload_workspace_idx').on(t.workspaceId),
-    index('agent_workspace_upload_expires_idx').on(t.expiresAt),
-    check('agent_workspace_upload_status_check', oneOf('status', ['open', 'assembling', 'done', 'failed'])),
-    check('agent_workspace_upload_size_check', sql`size >= 0 and parts >= 1`),
-  ],
-);
-
-/**
- * A workspace file the owner took out of a Ree (trashed its `file` source on
- * the knowledge page): the Ree's bindings no longer bring it in, so no sync
- * restores or re-adds it, until the owner restores the source or binds that
- * path again.
- */
-export const reeFileExclusion = pgTable(
-  'agent_ree_file_exclusion',
-  {
-    reeId: uuid('ree_id')
-      .notNull()
-      .references(() => ree.id, { onDelete: 'cascade' }),
-    entryId: uuid('entry_id')
-      .notNull()
-      .references(() => workspaceEntry.id, { onDelete: 'cascade' }),
-    createdAt: createdAt(),
-  },
-  (t) => [primaryKey({ columns: [t.reeId, t.entryId] })],
 );

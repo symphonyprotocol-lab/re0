@@ -2,8 +2,8 @@
  * `/api/cron/purge-uploads` (daily, idempotent): files a browser uploaded
  * with a token from `/api/upload-token` but never registered — a knowledge
  * file no `knowledge.source` names, an avatar no user, Ree or setup draft
- * names, a cover no Ree names, a post image no post names, a workspace object no
- * version counts — are deleted once older than
+ * names, a cover no Ree names, a post image no post names, and anything the
+ * removed agent workspace left under `workspace/` — are deleted once older than
  * UPLOAD_ORPHAN_HOURS. Unregistered files are never billed for storage, so
  * this is what keeps them from accumulating. A replaced avatar or cover is
  * unreferenced too and goes the same way.
@@ -11,7 +11,7 @@
  * A store may serve several environments: a file is this database's to
  * delete only when its owning user (or, for covers, Ree) exists here.
  */
-import { and, inArray, sql } from 'drizzle-orm';
+import { inArray, sql } from 'drizzle-orm';
 import { UPLOAD_ORPHAN_HOURS, UPLOAD_REAP_BATCH, UPLOAD_REAP_SCAN } from '@/lib/constants';
 import { deleteBlobs, listByPrefix } from '@/lib/infra/blob-access';
 import { db, schema } from '@/lib/infra/db';
@@ -84,55 +84,22 @@ const PREFIXES: Prefix[] = [
   },
   {
     /*
-     * An agent workspace object whose write rolled back after the put
-     * (workspace.ts puts under the owner's usage lock, inside the write's
-     * transaction): no `agent_workspace_blob` row names it. A later write of the
-     * same content puts it again, so only the instant between this check and
-     * the delete could lose one, a day after the failed write. A deleted
-     * workspace's objects go the same way, by its tombstone.
+     * The agent workspace's objects (file contents and upload parts), left
+     * when migration 0101 dropped the workspace on 2026-11-26. Nothing names
+     * them any more, so all of them go, but only once this database no
+     * longer has the workspace tables: a database that refused the drop, or
+     * has not run it yet, keeps them. Last in the list, so it never takes
+     * the budget from the others. Remove this entry once a run reports 0
+     * here and `workspace/` lists nothing.
      */
     prefix: 'workspace/',
-    owner: new RegExp(`^workspace/(${UUID})/[0-9a-f]{64}$`),
+    owner: /^workspace\/([^/]+)\//,
     async known(ids) {
-      /* A workspace deleted here (its owner's account) left a tombstone: its objects are ours to remove, and nothing names them. */
-      const [live, gone] = await Promise.all([
-        db().select({ id: schema.workspace.id }).from(schema.workspace).where(inArray(schema.workspace.id, ids)),
-        db().select({ id: schema.workspaceGone.workspaceId }).from(schema.workspaceGone).where(inArray(schema.workspaceGone.workspaceId, ids)),
-      ]);
-      return new Set([...live, ...gone].map((row) => row.id));
+      const rows = await db().execute<{ gone: boolean }>(sql`select to_regclass('public.agent_workspace') is null as gone`);
+      return rows.rows[0]?.gone ? new Set(ids) : new Set();
     },
-    async referenced(pathnames) {
-      const pairs = pathnames.map((pathname) => pathname.split('/'));
-      const list = sql.join(pairs.map(([, workspaceId, sha]) => sql`(${workspaceId}::uuid, ${sha})`), sql`, `);
-      const rows = await db().execute<{ workspace_id: string; sha256: string }>(sql`
-        select workspace_id, sha256 from ${schema.workspaceBlob} where (workspace_id, sha256) in (${list})`);
-      return new Set(rows.rows.map((row) => `workspace/${row.workspace_id}/${row.sha256}`));
-    },
-  },
-  {
-    /*
-     * A part (or the half-stitched object) of a workspace upload that is no
-     * longer taking parts or being put together: done, failed, expired and
-     * forgotten, or a part that came in after the upload ended. An upload
-     * still open or being stitched keeps its objects.
-     */
-    prefix: 'workspace/',
-    owner: new RegExp(`^workspace/(${UUID})/upload/${UUID}/(?:[0-9]+|assembled(?:\\.[0-9]+)?)$`),
-    async known(ids) {
-      const [live, gone] = await Promise.all([
-        db().select({ id: schema.workspace.id }).from(schema.workspace).where(inArray(schema.workspace.id, ids)),
-        db().select({ id: schema.workspaceGone.workspaceId }).from(schema.workspaceGone).where(inArray(schema.workspaceGone.workspaceId, ids)),
-      ]);
-      return new Set([...live, ...gone].map((row) => row.id));
-    },
-    async referenced(pathnames) {
-      const uploads = [...new Set(pathnames.map((pathname) => pathname.split('/')[3]!))];
-      const rows = await db()
-        .select({ id: schema.workspaceUpload.id })
-        .from(schema.workspaceUpload)
-        .where(and(inArray(schema.workspaceUpload.id, uploads), inArray(schema.workspaceUpload.status, ['open', 'assembling'])));
-      const busy = new Set(rows.map((row) => row.id));
-      return new Set(pathnames.filter((pathname) => busy.has(pathname.split('/')[3]!)));
+    async referenced() {
+      return new Set();
     },
   },
 ];
@@ -142,7 +109,7 @@ export async function purgeOrphanUploads(now = new Date()): Promise<Record<strin
   const removed: Record<string, number> = {};
   let budget = UPLOAD_REAP_BATCH;
   for (const { prefix, owner, known, referenced } of PREFIXES) {
-    removed[prefix] ??= 0;
+    removed[prefix] = 0;
     let cursor: string | undefined;
     let seen = 0;
     do {

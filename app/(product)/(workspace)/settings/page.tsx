@@ -90,7 +90,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             ) : tab === 'role' ? (
               <RoleTab overview={await verificationOverview(user.id)} />
             ) : tab === 'api' ? (
-              <ApiKeysTab {...splitKeys(await listApiKeys(user.id))} mcpUrl={`${appBaseUrl()}/api/mcp`} />
+              <ApiKeysTab keys={(await listApiKeys(user.id)).map(serializeKey)} mcpUrl={`${appBaseUrl()}/api/mcp`} />
             ) : tab === 'invite' ? (
               <InviteTab panel={await invitePanel(user.id)} />
             ) : tab === 'balance' ? (
@@ -105,15 +105,6 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   );
 }
 
-
-/** Keys, and the OAuth grants still live (connected apps; a revoked or lapsed one is only in the console). */
-function splitKeys(items: Awaited<ReturnType<typeof listApiKeys>>) {
-  const now = Date.now();
-  return {
-    keys: items.filter((key) => !key.oauthClient).map(serializeKey),
-    apps: items.filter((key) => key.oauthClient && !key.revokedAt && (!key.expiresAt || key.expiresAt.getTime() > now)).map(serializeKey),
-  };
-}
 
 function serializeKey(key: Awaited<ReturnType<typeof listApiKeys>>[number]) {
   return {

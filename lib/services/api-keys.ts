@@ -20,13 +20,11 @@ import { db, schema } from '@/lib/infra/db';
 import { randomHex, sha256 } from '@/lib/infra/crypto/tokens';
 import { AdminInputError, audit } from '@/lib/services/admin';
 import type { SessionUser } from '@/lib/services/auth';
-import { cleanClientName, clientLabel, normalizePath, WORKSPACE_ACCESS, type WorkspaceAccess } from '@/lib/domain/workspace';
-import { defaultWorkspace } from '@/lib/services/workspace';
 
 export type ApiKeyRow = typeof schema.apiKey.$inferSelect;
 
 export class ApiKeyError extends Error {
-  constructor(readonly code: 'invalid_name' | 'invalid_expiry' | 'too_many_keys' | 'invalid_workspace_access' | 'invalid_workspace_root') {
+  constructor(readonly code: 'invalid_name' | 'invalid_expiry' | 'too_many_keys') {
     super(code);
   }
 }
@@ -42,21 +40,9 @@ export interface ApiKeyItem {
   revokedAt: Date | null;
   /** May change things through MCP, not only read and ask. */
   canWrite: boolean;
-  /** `workspace`: confined to one workspace's `ws_*` tools under `workspaceRoot`; `account`: the Ree and post tools, and the workspace if `workspaceAccess` allows. */
-  kind: 'account' | 'workspace';
-  workspaceAccess: WorkspaceAccess;
-  workspaceRoot: string;
-  /** What the client last called itself when it connected (`clientInfo.name`), for display. */
-  client: string | null;
   /** Questions asked with this key, and the credits they cost. */
   questions: number;
   spent: number;
-  /**
-   * Set for an OAuth grant (lib/services/oauth.ts) rather than a key: the
-   * app the user approved, as it named itself, and where it sends them
-   * back. Settings shows these under 已连接的应用, the console with the keys.
-   */
-  oauthClient: { id: string; name: string; uri: string | null; redirectHosts: string[]; documentHost: string | null } | null;
 }
 
 const KEY_PATTERN = new RegExp(`^${API_KEY_PREFIX}[0-9a-f]{64}$`);
@@ -70,26 +56,10 @@ export function keyIsLive(key: Pick<ApiKeyRow, 'revokedAt' | 'expiresAt'>, now =
   return !key.revokedAt && (!key.expiresAt || key.expiresAt.getTime() > now.getTime());
 }
 
-/**
- * `{name, expiresInDays?, canWrite?, kind?, workspaceAccess?, workspaceRoot?}`
- * → the new key, whose `secret` is never readable again. Only
- * `canWrite: true` makes a key that may write Rees and posts, and only an
- * explicit `workspaceAccess` one that reaches files: every default is the
- * narrowest. A `workspace` key needs `read` or `write`, never writes Rees or
- * posts, and is bound to the account's default workspace at `workspaceRoot`.
- */
-export async function createApiKey(
-  userId: string,
-  raw: { name?: unknown; expiresInDays?: unknown; canWrite?: unknown; kind?: unknown; workspaceAccess?: unknown; workspaceRoot?: unknown },
-  now = new Date(),
-): Promise<{ key: ApiKeyItem; secret: string }> {
+/** `{name, expiresInDays?, canWrite?}` → the new key, whose `secret` is never readable again. Only `canWrite: true` makes a key that may write. */
+export async function createApiKey(userId: string, raw: { name?: unknown; expiresInDays?: unknown; canWrite?: unknown }, now = new Date()): Promise<{ key: ApiKeyItem; secret: string }> {
   const name = typeof raw.name === 'string' ? raw.name.trim() : '';
   if (!name || Array.from(name).length > API_KEY_NAME_MAX) throw new ApiKeyError('invalid_name');
-  const kind = raw.kind === 'workspace' ? 'workspace' : 'account';
-  const access = raw.workspaceAccess === undefined || raw.workspaceAccess === null ? 'none' : raw.workspaceAccess;
-  if (!(WORKSPACE_ACCESS as readonly unknown[]).includes(access) || (kind === 'workspace' && access === 'none')) throw new ApiKeyError('invalid_workspace_access');
-  const root = kind === 'workspace' ? normalizePath(raw.workspaceRoot ?? '/') : '/';
-  if (!root) throw new ApiKeyError('invalid_workspace_root');
   let expiresAt: Date | null = null;
   if (raw.expiresInDays !== undefined && raw.expiresInDays !== null && raw.expiresInDays !== '') {
     const days = Number(raw.expiresInDays);
@@ -104,77 +74,23 @@ export async function createApiKey(
     const [{ live } = { live: 0 }] = await tx
       .select({ live: sql<number>`count(*)::int` })
       .from(schema.apiKey)
-      .where(and(eq(schema.apiKey.userId, userId), isNull(schema.apiKey.oauthClientId), isNull(schema.apiKey.revokedAt), sql`(${schema.apiKey.expiresAt} is null or ${schema.apiKey.expiresAt} > ${now})`));
+      .where(and(eq(schema.apiKey.userId, userId), isNull(schema.apiKey.revokedAt), sql`(${schema.apiKey.expiresAt} is null or ${schema.apiKey.expiresAt} > ${now})`));
     if (live >= API_KEY_MAX_ACTIVE) throw new ApiKeyError('too_many_keys');
-    const workspaceId = kind === 'workspace' ? await defaultWorkspace(userId, tx) : null;
-    const [created] = await tx
-      .insert(schema.apiKey)
-      .values({
-        userId,
-        name,
-        keyDigest,
-        keyTail: secret.slice(-4),
-        expiresAt,
-        canWrite: kind === 'account' && raw.canWrite === true,
-        workspaceAccess: access as WorkspaceAccess,
-        workspaceId,
-        workspaceRoot: root,
-        createdAt: now,
-      })
-      .returning();
+    const [created] = await tx.insert(schema.apiKey).values({ userId, name, keyDigest, keyTail: secret.slice(-4), expiresAt, canWrite: raw.canWrite === true, createdAt: now }).returning();
     return created!;
   });
-  return { key: { ...item(row, null), questions: 0, spent: 0 }, secret };
+  return { key: { ...item(row), questions: 0, spent: 0 }, secret };
 }
 
-function hostOf(uri: string): string {
-  try {
-    const url = new URL(uri);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.host : `${url.protocol}//`;
-  } catch {
-    return uri;
-  }
+function item(row: ApiKeyRow): Omit<ApiKeyItem, 'questions' | 'spent'> {
+  return { id: row.id, name: row.name, tail: row.keyTail, createdAt: row.createdAt, lastUsedAt: row.lastUsedAt, expiresAt: row.expiresAt, revokedAt: row.revokedAt, canWrite: row.canWrite };
 }
 
-function item(row: ApiKeyRow, client: typeof schema.oauthClient.$inferSelect | null): Omit<ApiKeyItem, 'questions' | 'spent'> {
-  return {
-    id: row.id,
-    name: row.name,
-    tail: row.keyTail,
-    createdAt: row.createdAt,
-    lastUsedAt: row.lastUsedAt,
-    expiresAt: row.expiresAt,
-    revokedAt: row.revokedAt,
-    canWrite: row.canWrite,
-    kind: row.workspaceId ? 'workspace' : 'account',
-    workspaceAccess: row.workspaceAccess,
-    workspaceRoot: row.workspaceRoot,
-    client: clientLabel(row.clientName),
-    oauthClient: client
-      ? {
-          id: client.id,
-          name: client.clientName,
-          uri: client.clientUri,
-          redirectHosts: Array.from(new Set(client.redirectUris.map(hostOf))),
-          documentHost: client.kind === 'metadata_document' ? hostOf(client.id) : null,
-        }
-      : null,
-  };
-}
-
-/**
- * Every key of the user, newest first, with what each one asked and spent;
- * OAuth grants (connected apps) are among them, marked by `oauthClient`.
- */
+/** Every key of the user, newest first, with what each one asked and spent. */
 export async function listApiKeys(userId: string): Promise<ApiKeyItem[]> {
-  const rows = await db()
-    .select({ key: schema.apiKey, client: schema.oauthClient })
-    .from(schema.apiKey)
-    .leftJoin(schema.oauthClient, eq(schema.oauthClient.id, schema.apiKey.oauthClientId))
-    .where(eq(schema.apiKey.userId, userId))
-    .orderBy(desc(schema.apiKey.createdAt));
-  const usage = await usageOf(rows.map((row) => row.key.id));
-  return rows.map(({ key, client }) => ({ ...item(key, client), questions: usage.get(key.id)?.questions ?? 0, spent: usage.get(key.id)?.spent ?? 0 }));
+  const rows = await db().select().from(schema.apiKey).where(eq(schema.apiKey.userId, userId)).orderBy(desc(schema.apiKey.createdAt));
+  const usage = await usageOf(rows.map((row) => row.id));
+  return rows.map((row) => ({ ...item(row), questions: usage.get(row.id)?.questions ?? 0, spent: usage.get(row.id)?.spent ?? 0 }));
 }
 
 /**
@@ -211,7 +127,7 @@ export async function usageOf(keyIds: readonly string[]): Promise<Map<string, { 
   return new Map(result.rows.map((row) => [row.key_id, { questions: Number(row.questions), spent: Number(row.spent) }]));
 }
 
-/** The owner revokes one of their keys or connected apps; false for someone else's, an unknown id, or one already revoked. An app's tokens stop working with it. */
+/** The owner revokes one of their keys; false for someone else's, an unknown id, or one already revoked. */
 export async function revokeApiKey(userId: string, id: string, now = new Date()): Promise<boolean> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
   const rows = await db()
@@ -245,12 +161,6 @@ export interface ApiKeyCaller {
   keyId: string;
   /** The key may write (`api_key.can_write`); without it, only reading and `ask_ree`. */
   canWrite: boolean;
-  /** What the key may do with files, and where (lib/http/mcp-workspace.ts). A workspace key has `workspaceId` and sees nothing else. */
-  workspaceAccess: WorkspaceAccess;
-  workspaceId: string | null;
-  workspaceRoot: string;
-  /** The MCP client's own name from its last `initialize` with this key. */
-  clientName: string | null;
 }
 
 /**
@@ -267,29 +177,9 @@ export async function resolveApiKey(secret: string, now = new Date()): Promise<A
     .innerJoin(schema.user, eq(schema.user.id, schema.apiKey.userId))
     .where(eq(schema.apiKey.keyDigest, digest))
     .limit(1);
-  if (!row || row.key.oauthClientId || !keyIsLive(row.key, now) || row.user.disabledAt) return null;
+  if (!row || !keyIsLive(row.key, now) || row.user.disabledAt) return null;
   if (!row.key.lastUsedAt || now.getTime() - row.key.lastUsedAt.getTime() >= API_KEY_LAST_USED_RESOLUTION_MS) {
     await db().update(schema.apiKey).set({ lastUsedAt: now }).where(eq(schema.apiKey.id, row.key.id));
   }
-  return keyCaller(row.key, row.user);
-}
-
-/** The caller a key row stands for -- an API key's, or an OAuth grant's (lib/services/oauth.ts `resolveAccessToken`). */
-export function keyCaller(key: ApiKeyRow, user: SessionUser): ApiKeyCaller {
-  return {
-    user,
-    keyId: key.id,
-    canWrite: key.canWrite,
-    workspaceAccess: key.workspaceAccess,
-    workspaceId: key.workspaceId,
-    workspaceRoot: key.workspaceRoot,
-    clientName: key.clientName,
-  };
-}
-
-/** Remembers what an MCP client called itself when it connected with this key (`initialize`), when that changed. */
-export async function noteKeyClient(keyId: string, raw: unknown): Promise<void> {
-  const name = cleanClientName(raw);
-  if (!name) return;
-  await db().update(schema.apiKey).set({ clientName: name }).where(and(eq(schema.apiKey.id, keyId), sql`${schema.apiKey.clientName} is distinct from ${name}`));
+  return { user: row.user, keyId: row.key.id, canWrite: row.key.canWrite };
 }

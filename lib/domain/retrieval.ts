@@ -122,7 +122,6 @@ const KIND_WORDS: Record<KnowledgeKind, string> = {
   page: 'web page',
   site: 'website',
   text: 'text note',
-  file: 'file',
 };
 
 function tokenCost(character: string): number {
