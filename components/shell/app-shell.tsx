@@ -163,8 +163,6 @@ function Sidebar({ user, collapsed, phone, open, hidden, onClose }: { user: Shel
         <NavItem href="/notifications" icon="bell" label={nav.notifications} active={pathname === '/notifications'} count={user.unreadNotices || undefined} />
         <NavItem href="/me/posts?tab=all" icon="chat" label={nav.myPosts} active={pathname.startsWith('/me/posts')} />
         <NavItem href="/rees" icon="ree" label={nav.rees} active={pathname.startsWith('/rees') || pathname.startsWith('/workspace') || pathname === '/videos'} count={user.reeCount} />
-        {/* The agent workspace (docs/design/agent-workspace.md); the phone's bottom bar keeps its five, so it is reached from this drawer there. */}
-        <NavItem href="/files" icon="folder" label={nav.files} active={pathname === '/files' || pathname.startsWith('/files/')} />
         <NavItem href="/saved" icon="bookmark" label={nav.saved} active={pathname === '/saved'} />
         {user.activities.visible && (
           <NavItem href="/activities" icon="gift" label={nav.activities} active={pathname.startsWith('/activities')} dot={user.activities.dot ? nav.activitiesPending : undefined} />

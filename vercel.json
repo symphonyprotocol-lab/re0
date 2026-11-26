@@ -38,10 +38,6 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/cron/workspace-index",
-      "schedule": "* * * * *"
-    },
-    {
       "path": "/api/cron/purge-kyc-files",
       "schedule": "45 3 * * *"
     },

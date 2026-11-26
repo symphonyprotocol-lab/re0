@@ -33,12 +33,10 @@ import * as consolePayouts from './pages/console-payouts';
 import * as video from './pages/video';
 import * as share from './pages/share';
 import * as apiKeys from './pages/api-keys';
-import * as oauth from './pages/oauth';
 import * as redeemAdmin from './pages/redeem-admin';
 import * as consoleConfirm from './pages/console-confirm';
 import * as invites from './pages/invites';
 import * as posts from './pages/posts';
-import * as files from './pages/files';
 import type { Locale } from './locale';
 
 /* Step 5's pages sit in their own spread, so other steps' additions to the first object merge cleanly. */
@@ -49,7 +47,7 @@ const step7 = { video };
 /* Sharing a Ree sits in its own spread too. */
 const sharing = { share };
 /* The MCP server's API keys sit in their own spread too. */
-const mcp = { apiKeys, oauth };
+const mcp = { apiKeys };
 /* Redeem codes sit in their own spread too. */
 const redeem = { redeemAdmin };
 /* The components review's console confirmations sit in their own spread too. */
@@ -60,9 +58,7 @@ const invitations = { invites };
 const v5 = { posts };
 /* Site-wide traffic sits in its own spread too. */
 const siteTraffic = { traffic };
-/* The agent workspace sits in its own spread too. */
-const agentWorkspace = { files };
-const pages = { servicePricing, modelCalls, knowledgeCosts, pricingAdmin, common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, firecrawl, rateLimits, discover, ...step5, ...step6, ...step7, ...sharing, ...mcp, ...redeem, ...confirmations, ...invitations, ...v5, ...siteTraffic, ...agentWorkspace };
+const pages = { servicePricing, modelCalls, knowledgeCosts, pricingAdmin, common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, firecrawl, rateLimits, discover, ...step5, ...step6, ...step7, ...sharing, ...mcp, ...redeem, ...confirmations, ...invitations, ...v5, ...siteTraffic };
 
 type Pages = typeof pages;
 export type Messages = { [K in keyof Pages]: Pages[K]['en'] };

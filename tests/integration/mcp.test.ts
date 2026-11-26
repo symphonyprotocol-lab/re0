@@ -11,6 +11,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { freezeDateAtWindowStart, pointModelsAt, TEST_DATABASE_URL, uniqueName } from './setup';
 import { and, eq } from 'drizzle-orm';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { startFakeOpenAi, type FakeOpenAi } from '../fixtures/fake-openai';
 
@@ -120,8 +122,11 @@ describeWithDb('MCP server: API keys', () => {
     const userId = await person();
     const live = await apiKeys.createApiKey(userId, { name: 'live' });
     const missing = await rawPost({});
-    expect(missing.headers.get('www-authenticate')).toContain('Bearer');
+    /* A plain bearer challenge: OAuth is gone (migration 0101), so no resource_metadata points a client at an authorization server. */
+    expect(missing.headers.get('www-authenticate')).toBe('Bearer realm="re0", error="invalid_request"');
     expect(await missing.json()).toMatchObject({ error: 'missing_api_key' });
+    const unknown = await rawPost({ authorization: `Bearer re0_sk_${'1'.repeat(64)}` });
+    expect(unknown.headers.get('www-authenticate')).toBe('Bearer realm="re0", error="invalid_token"');
     expect((await rawPost({ authorization: `Bearer ${live.secret}` })).status).toBe(200);
 
     const revoked = await apiKeys.createApiKey(userId, { name: 'revoked' });
@@ -134,6 +139,20 @@ describeWithDb('MCP server: API keys', () => {
 
     await db().update(schema.user).set({ disabledAt: new Date() }).where(eq(schema.user.id, userId));
     expect((await rawPost({ authorization: `Bearer ${live.secret}` })).status).toBe(401);
+  });
+
+  it('has no OAuth: no discovery documents or endpoints, and a connection 0101 revoked never signs in', async () => {
+    /* No route file, so Next answers 404 for every one of these paths. */
+    for (const path of ['app/.well-known/oauth-protected-resource', 'app/.well-known/oauth-authorization-server', 'app/oauth', 'app/api/oauth']) {
+      expect(existsSync(join(process.cwd(), path)), path).toBe(false);
+    }
+    const userId = await person();
+    /* As 0101 leaves an OAuth connection's key: revoked, with a digest no secret hashes to. */
+    const id = crypto.randomUUID();
+    await db().insert(schema.apiKey).values({ id, userId, name: 'Connected app', keyDigest: `removed-oauth:${id}`, keyTail: 'xxxx', revokedAt: new Date() });
+    expect((await rawPost({ authorization: `Bearer removed-oauth:${id}` })).status).toBe(401);
+    /* It stays in the owner's list as a revoked key, with what it asked. */
+    expect((await apiKeys.listApiKeys(userId)).find((key) => key.id === id)).toMatchObject({ name: 'Connected app', revokedAt: expect.any(Date) });
   });
 
   it('refuses a browser page on another origin, and never sends CORS headers', async () => {
