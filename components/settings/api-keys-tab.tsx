@@ -185,10 +185,6 @@ export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; 
           </div>
         </div>
         <p className="small muted">{a.connect.tools}</p>
-        <div className="info-strip mt16">
-          <I name="info" />
-          <span>{a.connect.docs}</span>
-        </div>
       </section>
 
       <Modal

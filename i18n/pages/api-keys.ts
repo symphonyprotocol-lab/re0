@@ -45,7 +45,6 @@ export const zh = {
     json: '其他客户端（JSON 配置）',
     tools: '所有 Key 可用：search_rees、get_ree、list_my_rees、list_favorite_rees、list_posts、get_post、list_knowledge、list_ree_comments、get_share_link、ree_statistics，以及 ask_ree（提问，会扣 credits）。「允许修改」的 Key 还可以：create_post、add_followup（会扣 credits）、publish_post、update_post、trash_post、delete_followup、save_post、mark_helpful、respond_paid_request、create_ree、update_ree、publish_ree、delete_ree、add_knowledge（会扣 credits）、delete_knowledge、add_ree_comment、delete_ree_comment、favorite_ree。',
     copy: '复制',
-    docs: '暂不支持 claude.ai / ChatGPT 网页版的 OAuth 连接器，后续版本会提供。',
   },
   errors: {
     invalid_name: '请填写 1–60 个字符的名称。',
@@ -106,7 +105,6 @@ export const en: Shape<typeof zh> = {
     json: 'Other clients (JSON config)',
     tools: 'Every key: search_rees, get_ree, list_my_rees, list_favorite_rees, list_posts, get_post, list_knowledge, list_ree_comments, get_share_link, ree_statistics, and ask_ree (spends credits). Keys that may make changes also: create_post, add_followup (spend credits), publish_post, update_post, trash_post, delete_followup, save_post, mark_helpful, respond_paid_request, create_ree, update_ree, publish_ree, delete_ree, add_knowledge (spends credits), delete_knowledge, add_ree_comment, delete_ree_comment, favorite_ree.',
     copy: 'Copy',
-    docs: 'OAuth connectors for claude.ai and ChatGPT on the web are not supported yet; they come in a later release.',
   },
   errors: {
     invalid_name: 'Enter a name of 1–60 characters.',
