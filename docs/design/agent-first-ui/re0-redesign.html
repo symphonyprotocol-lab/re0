@@ -861,6 +861,138 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   .rp-main > .ptabs.left { padding: 6px 8px 8px; }
   .rp-main > .ptabs.left button { padding: 6px 14px; font-size: 14px; }
 }
+/* ---------- Questions and answers ---------- */
+.qa-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; }
+.qa-main { display: grid; gap: 14px; min-width: 0; max-width: 780px; }
+.qa-q { background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); padding: 16px 18px; display: grid; gap: 10px; }
+.vis-p { display: inline-flex; gap: 4px; align-items: center; font-size: 11.5px; font-weight: 800; border-radius: 999px; padding: 1px 9px; background: var(--info-bg); color: var(--info-tx); white-space: nowrap; }
+.vis-p svg.i { width: 12px; height: 12px; }
+.vis-p.priv { background: #f1edfb; color: #5b3fb0; }
+.qa-title { font-size: 22px; font-weight: 900; line-height: 1.4; letter-spacing: -.2px; overflow-wrap: anywhere; }
+.qa-detail { font-size: 14.5px; font-weight: 600; color: #3d4058; }
+.qa-quote { display: grid; grid-template-columns: auto 30px minmax(0, 1fr); gap: 8px; align-items: start; padding: 10px 12px; border-radius: 16px; background: var(--bg); border-left: 3px solid var(--c2); font-size: 13px; font-weight: 600; }
+.qa-quote .ql { font-size: 11px; font-weight: 900; color: var(--mut); padding-top: 6px; }
+.qa-quote .av { width: 28px; height: 28px; font-size: 9px; }
+.qa-quote b { display: block; font-size: 12.5px; font-weight: 900; }
+.qa-qacts, .qa-acts { display: flex; gap: 2px; flex-wrap: wrap; align-items: center; }
+.qa-menu { position: relative; margin-left: auto; }
+.qm { display: none; position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 160px; background: var(--card); border-radius: 18px; box-shadow: var(--sh-lg); padding: 6px; }
+.qa-menu.open .qm { display: grid; }
+.qm button { text-align: left; padding: 8px 12px; border-radius: 12px; font-weight: 700; font-size: 14px; }
+.qm button:hover { background: var(--bg); }
+.qm button:last-child { color: var(--err-tx); }
+.qa-meta { display: flex; gap: 6px; align-items: center; font-size: 12.5px; font-weight: 700; color: var(--mut); padding-left: 6px; }
+.qa-meta svg.i { width: 14px; height: 14px; }
+.qa-answers { display: grid; gap: 12px; }
+.qa-a, .qa-ai { display: grid; gap: 8px; }
+.qa-ah { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.qa-ah .av { width: 36px; height: 36px; font-size: 11px; }
+.qa-an { min-width: 0; }
+.qa-an b { display: block; font-size: 14.5px; font-weight: 900; line-height: 1.3; overflow-wrap: anywhere; }
+.qa-an small { font-size: 12px; font-weight: 700; color: var(--mut); }
+.tagx.paid { background: var(--warn-bg); color: var(--warn-tx); }
+.qa-b { margin-left: 46px; background: var(--card); border-radius: 4px 20px 20px 20px; box-shadow: var(--sh-md); padding: 12px 16px; font-size: 15px; font-weight: 600; line-height: 1.75; overflow-wrap: anywhere; }
+.cite { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; margin: 0 1px; border-radius: 6px; background: var(--cor-s); color: var(--cor-d); font-size: 11.5px; font-weight: 900; vertical-align: 2px; line-height: 1; transition: background .15s; }
+.cite:hover, .cite:focus-visible { background: var(--cor); color: #fff; }
+.qa-src { margin-left: 46px; display: flex; gap: 6px; flex-wrap: wrap; }
+.qa-src .src, .qa .src { display: inline-flex; font-size: 11.5px; font-weight: 800; color: var(--mut); background: var(--card); border-radius: 6px; padding: 1px 8px; box-shadow: var(--sh-sm); text-align: left; overflow-wrap: anywhere; }
+.qa-src .src:hover { color: var(--cor-d); }
+.qa-acts { margin-left: 40px; }
+.muted2 { font-size: 12.5px; font-weight: 700; color: var(--mut); }
+.dots { display: inline-flex; gap: 4px; vertical-align: middle; }
+.dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); animation: blink 1.2s ease-in-out infinite; }
+.dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
+.qa-a.waiting .qa-b { box-shadow: none; border: 2px dashed var(--ln); background: transparent; }
+.caret { display: inline-block; width: 2px; height: 1.1em; background: var(--cor); margin-left: 2px; vertical-align: -3px; animation: blink 1s steps(2) infinite; }
+/* long answers: article, not a bubble */
+.qa-a.long .qa-art { margin-left: 46px; background: var(--card); border-radius: 20px; box-shadow: var(--sh-md); padding: 18px 22px; font-size: 15px; font-weight: 600; line-height: 1.8; overflow-wrap: anywhere; }
+.qa-art h4 { font-size: 16.5px; font-weight: 900; margin: 14px 0 4px; }
+.qa-art h4:first-child { margin-top: 0; }
+.qa-art p { margin: 0 0 6px; }
+.qa-art ul { margin: 4px 0 8px; padding-left: 20px; }
+.qa-art li { margin: 3px 0; }
+/* rounds */
+.qa-round { display: grid; gap: 8px; margin-top: 6px; }
+.rdiv { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 800; color: var(--mut); }
+.rdiv::before, .rdiv::after { content: ""; height: 1px; background: var(--ln); flex: 1; }
+.qa-fu { display: flex; gap: 8px; align-items: flex-end; justify-content: flex-end; }
+.qa-fu .pc-q { justify-self: end; background: var(--ink); color: #fff; border-radius: 18px 18px 4px 18px; max-width: min(560px, 85%); font-size: 14.5px; }
+.qa-fu .uav { order: 2; }
+.qa-fu .ic-t { order: 0; }
+/* paid, AI, guide, summary */
+.qa-paid, .qa-guide { background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); padding: 16px 18px; display: grid; gap: 10px; }
+.qa-paid { border: 2px dashed #f5d48a; }
+.qa-paid .sug-ic, .qa-guide .sug-ic { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 14px 14px 14px 4px; background: var(--warn-bg); color: var(--warn-tx); flex: none; }
+.qa-paid p { font-size: 13px; color: var(--mut); font-weight: 600; }
+.qp-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid var(--ln); }
+.qp-row .av { width: 36px; height: 36px; font-size: 11px; }
+.qp-n { min-width: 0; flex: 1 1 160px; }
+.qp-n b { display: block; font-size: 14px; font-weight: 900; overflow-wrap: anywhere; }
+.qp-n small { font-size: 12px; font-weight: 700; color: var(--mut); }
+.qp-row .sp { flex: 0 0 0; }
+.qa-state { display: flex; gap: 8px; align-items: flex-start; padding: 10px 14px; border-radius: 16px; background: var(--warn-bg); color: var(--warn-tx); font-size: 13px; font-weight: 700; }
+.qa-state svg.i { margin-top: 2px; }
+.ai-av { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--bg); color: var(--mut); border: 2px dashed var(--faint); }
+.qa-ai .qa-b { background: transparent; box-shadow: none; border: 2px dashed var(--ln); }
+.ai-note { margin-left: 46px; font-size: 12px; font-weight: 600; color: var(--mut); }
+.qa-guide h3 { font-size: 16px; font-weight: 900; }
+.g-l { font-size: 12.5px; font-weight: 800; color: var(--mut); }
+.qa-guide .two { margin-top: 4px; }
+.qa-sum { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 16px; border-radius: 20px; background: var(--card); box-shadow: var(--sh-sm); }
+.qa-sum > svg.i { color: var(--cor); }
+.qa-sum b { display: block; font-size: 14px; font-weight: 900; }
+.qa-sum small { font-size: 12px; font-weight: 700; color: var(--mut); }
+.qa-sum .sp { flex: 1; }
+/* bottom follow-up box: sticks to the bottom while you read */
+.qa-compose { position: sticky; bottom: max(12px, env(safe-area-inset-bottom, 0px)); z-index: 8; margin-top: 6px; min-width: 0; }
+.qa-compose .box, .qa-compose .bar { min-width: 0; }
+.qa-main > * { min-width: 0; }
+.qa-compose .box.compact { box-shadow: var(--sh-lg); }
+.qa-compose .bar { gap: 8px; padding-left: 50px; }
+.sm-chip { padding: 3px 10px; font-size: 12.5px; background: var(--bg); border-radius: 999px; font-weight: 800; box-shadow: none; }
+.qa-compose.out { position: static; background: var(--card); border-radius: 24px; box-shadow: var(--sh-lg); padding: 14px 16px; display: grid; gap: 10px; justify-items: start; }
+.qa-compose.out p { font-size: 13px; color: var(--mut); font-weight: 600; }
+/* side */
+.qa-side { display: grid; gap: 14px; position: sticky; top: calc(var(--rc-h, 84px) + var(--rpbar-h) + 16px); }
+.mini-r { display: flex; gap: 10px; align-items: center; padding: 6px; border-radius: 14px; }
+.mini-r:hover { background: var(--bg); }
+.mini-r .av { width: 32px; height: 32px; font-size: 10px; }
+.mini-r b { display: block; font-size: 13.5px; font-weight: 900; overflow-wrap: anywhere; }
+.mini-r small { font-size: 12px; font-weight: 700; color: var(--mut); }
+.rules { list-style: none; margin: 0; padding: 4px 6px; display: grid; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--mut); }
+.rules li { display: flex; gap: 8px; align-items: flex-start; }
+.rules svg.i { color: #5b3fb0; margin-top: 2px; width: 14px; height: 14px; }
+.qa .rb-id small .vis-p { flex: none; }
+/* citation panel */
+.cite-shade { position: fixed; inset: 0; z-index: 85; background: rgba(32,34,58,.28); opacity: 0; transition: opacity .25s; }
+.cite-shade.on { opacity: 1; }
+.cite-panel { position: fixed; z-index: 90; top: var(--rc-h, 84px); right: 0; bottom: 0; width: min(420px, 100%); background: var(--card); box-shadow: -18px 0 50px rgba(32,34,58,.18); padding: 18px 20px max(20px, env(safe-area-inset-bottom, 0px)); display: grid; gap: 14px; align-content: start; overflow-y: auto; transform: translateX(100%); transition: transform .25s ease; font-family: var(--round); color: var(--ink); }
+.cite-panel.on { transform: none; }
+.cp-h { display: flex; align-items: center; justify-content: space-between; }
+.cp-h b { font-size: 17px; font-weight: 900; }
+.cp-r { display: flex; gap: 10px; align-items: center; }
+.cp-r .av { width: 36px; height: 36px; font-size: 11px; }
+.cp-r b { display: block; font-size: 14px; font-weight: 900; }
+.cp-r small { font-size: 12px; font-weight: 700; color: var(--mut); }
+.cp-q { margin: 0; padding: 14px 16px; border-radius: 4px 20px 20px 20px; background: var(--bg); font-size: 15px; font-weight: 600; line-height: 1.8; }
+.cp-q mark { background: linear-gradient(transparent 55%, var(--b4) 55%); color: var(--ink); padding: 0 1px; }
+.cp-q .dim { color: var(--mut); }
+@media (max-width: 980px) { .qa-grid { grid-template-columns: minmax(0, 1fr); } .qa-side { position: static; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); } .qa-main { max-width: none; } }
+@media (max-width: 680px) {
+  .qa-title { font-size: 19px; }
+  .qa-b, .qa-src, .qa-a.long .qa-art, .ai-note { margin-left: 0; }
+  .qa-acts { margin-left: -6px; }
+  .qa-a.long .qa-art { padding: 14px 16px; }
+  .qa-compose .bar { padding: 0 12px 8px 14px; gap: 6px; flex-wrap: nowrap; }
+  .qa-compose .bar .hint { display: block; flex: 1 1 0; font-size: 11.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .qa-compose .bar .sm-chip { flex: none; }
+  .qa-compose .box-row { padding-top: 8px; padding-bottom: 2px; }
+  .qa-compose textarea:not(:focus) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-height: 28px; min-height: 28px; field-sizing: fixed; }
+  .cite-panel { top: auto; left: 0; width: 100%; max-height: 75vh; border-radius: 24px 24px 0 0; transform: translateY(100%); box-shadow: 0 -18px 50px rgba(32,34,58,.18); }
+  .cite-panel.on { transform: none; }
+  .qa-quote { grid-template-columns: 30px minmax(0, 1fr); }
+  .qa-quote .ql { grid-column: 1 / -1; padding-top: 0; }
+}
 </style>
 
 <header class="rc" id="rc"></header>
@@ -901,6 +1033,9 @@ const P = {
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  more: '<circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/>',
+  loader: '<path d="M21 12a9 9 0 1 1-6.22-8.56"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'
 };
 const DOT = '<circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/><path d="M8.3 5.1a7.8 7.8 0 0 1 10.6 10.6M15.7 18.9A7.8 7.8 0 0 1 5.1 8.3"/><circle cx="6" cy="6" r="1.7" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="1.7" fill="currentColor" stroke="none"/>';
@@ -965,9 +1100,9 @@ const DIRS = {
   c: { name: '贴纸', en: 'Sticker', cls: 'dC' }
 };
 const STATES = [['out', '未登录'], ['out-ask', '未登录 · 提问'], ['out-cmd', '未登录 · 输入指令'], ['in', '已登录'], ['ask', '提问'], ['cmd', '指令 · 有相关 Ree'], ['cmd-new', '指令 · 仍然新建'], ['unclear', '意图不明']];
-const PAGES = [['index', '说明'], ['spec', '设计规范'], ['home', '首页'], ['explore', 'Explore'], ['ree', 'Ree 页']];
+const PAGES = [['index', '说明'], ['spec', '设计规范'], ['home', '首页'], ['explore', 'Explore'], ['ree', 'Ree 页'], ['qa', '提问和回答']];
 const EX_STATES = [['browse', '默认浏览'], ['browse-out', '未登录'], ['cat', '按分类筛选'], ['search', '搜索有结果'], ['search-out', '未登录 · 搜索'], ['empty', '搜索无结果'], ['empty-build', '无结果 · 让 re0 建'], ['cmd', '指令'], ['posts', '帖子 · 为你推荐'], ['posts-un', '帖子 · 待回答'], ['loading', '加载中']];
-const statesFor = page => page === 'explore' ? EX_STATES : page === 'ree' ? RP_STATES : STATES;
+const statesFor = page => page === 'explore' ? EX_STATES : page === 'ree' ? RP_STATES : page === 'qa' ? Q_STATES : STATES;
 const ui = { bLight: false, paused: false, budget: 5000, editBudget: false, ph: 0, lang: 'zh' };
 try { const wn = /re0-lang:(zh|en)/.exec(window.name || ''); const saved = localStorage.getItem('re0-lang') || (wn && wn[1]); ui.lang = saved === 'en' || saved === 'zh' ? saved : ((navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'); } catch (e) { const wn = /re0-lang:(zh|en)/.exec(window.name || ''); ui.lang = wn ? wn[1] : ((navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'); }
 let route = { page: 'index', state: 'out' };
@@ -1535,6 +1670,201 @@ function reePage(st, lang = ui.lang) {
   return `<section class="dA rp ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}">${bar}${top}<div class="rp-in">${ownerBar}<div class="rp-grid"><div class="rp-main">${hero}${ask}${tabs}${content}</div>${side}</div></div>${foot}</section>`;
 }
 
+/* -------- Questions and answers /p/[id] (public posts and private questions, zh / en) -------- */
+const QX = {
+  zh: {
+    pub: '公开', priv: '私密 · 仅你可见', anon: '匿名', you: '你', answersN: n => `${n} 个 Ree 回答`, matched: (c, n) => `找了 ${c} 个候选，请了 ${n} 个相关的 Ree 来回答`,
+    chosen: n => `你选的 ${n} 个 Ree`, spent: n => `你花了 ${n} credits`, followPrice: '追问每个回答 20 credits', priceEach: n => `${n} credits`, freeTag: '免费', paidTag: '付费回答', mentioned: '被 @', added: '新加',
+    helpful: n => `有帮助 ${n}`, unhelpful: '没帮助', copy: '复制', quote: '引用', askIt: '继续问它', report: '举报', fav: '收藏', share: '分享', quotePost: '引用提问', more: '更多',
+    menu: ['置顶', '归档', '改名', '转为公开', '移到回收站'], menuPub: ['改名', '移到回收站'],
+    sources: '出处', round: n => `第 ${n} 轮`, byMention: '只请被 @ 的 Ree 回答', byRel: n => `按相关度请了 ${n} 个 Ree`, del: '删除这条追问', someone: '一位用户',
+    answering: '正在回答…', asking: n => `正在请 ${n} 个相关的 Ree 回答…`, streaming: '正在写…',
+    paidT: '这些 Ree 也能回答，等你确认', paidHint: '只有你能看到。付费 Ree 要你同意才回答；同意后按不高于显示的价格扣费，回答和其他回答一样公开；没有回答全部退还。', paidBy: n => `作者 ${n}`, agree: n => `同意并回答（${n} credits）`, decline: '不需要',
+    aiT: 'AI 通用回答', aiTag: '无出处 · 仅供参考', aiState: '暂时没有 Ree 能回答。AI 先给了一个通用回答；帖子仍在「待回答」里，有 Ree 回答时会通知你。', aiNote: '这是 AI 按通用知识写的，没有用到任何 Ree 的资料，也没有出处，可能不准确。', aiCost: '20 credits',
+    guideT: '想要有出处的回答？', recT: '这些 Ree 可能知道', reqBtn: n => `请它回答 · ${n} credits`, rephrase: ['换个说法再问', '写得更具体更容易命中 Ree，比如写清时间、地点和你的情况'], build: ['让 re0 建一个讲这个的 Ree', '找公开资料建一个私有 Ree，发布前问你；建好后它会来回答这条帖子'],
+    summaryT: '圆桌总结', summaryHint: n => `把 ${n} 个回答汇成一份结论，所有人可见`, summaryGo: '生成 · 30 credits',
+    compPh: '继续问点什么？输入 @ 指定回答的 Ree', compPhPriv: '继续问点什么？@ 指定 Ree，也可以加别的 Ree', compPhAi: '继续问 AI 点什么？也可以 @ 一个 Ree', at: '@ 指定 Ree', addRee: '加 Ree', send: '追问',
+    costAll: n => `最多 ${n} 个 Ree · 每个 20 credits，你来付`, costNamed: n => `只由 ${n} 回答 · 20 credits`, costPriv: '最多 100 credits · 没有回答不收费',
+    visT: '想接着问？', visB: '登录后可以在这条帖子下追问，回答过的 Ree 接着回答；谁问谁付费。', visBtn: '登录后追问', voteLogin: '登录后可以标记有帮助',
+    privRules: ['只有你能看到，不出现在信息流、搜索和 Ree 主页', '不审核，不能被收藏、举报或引用', '可以随时转为公开：转的时候审核问题和回答'], railRees: '回答这条帖子的 Ree', railPrivRees: '这次提问的 Ree',
+    citeT: '答案，从这里来', citeVer: '这是 Ree 回答时引用的原文。知识正文不公开，作者能打开完整来源。', close: '关闭', jump: '追问',
+    quoting: '引用了', expand: '展开全文', collapse: '收起',
+    t: { help: '原型：已标记有帮助', copy: '回答已复制', quote: '原型：会引用这条回答另发一帖', ask: '原型：会在追问框里 @ 这个 Ree', report: '原型：会举报这条回答', fav: '原型：已收藏', share: '分享链接已复制', menu: '原型：会执行这个操作', agree: '原型：同意后开始回答', decline: '原型：不需要', req: '原型：会请这个 Ree 回答', send: '原型：会发出追问', summary: '原型：会生成圆桌总结', del: '原型：会删除这条追问', build: '原型：会打开「让 re0 做」的建议卡', rephrase: '原型：光标会回到追问框' } },
+  en: {
+    pub: 'Public', priv: 'Private · only you', anon: 'Anonymous', you: 'You', answersN: n => `${n} Rees answered`, matched: (c, n) => `Checked ${c} candidates and asked the ${n} that fit`,
+    chosen: n => `${n} Rees you picked`, spent: n => `You spent ${n} credits`, followPrice: 'Follow-ups: 20 credits per answer', priceEach: n => `${n} credits`, freeTag: 'Free', paidTag: 'Paid answer', mentioned: '@ mentioned', added: 'Added',
+    helpful: n => `Helpful ${n}`, unhelpful: 'Not helpful', copy: 'Copy', quote: 'Quote', askIt: 'Ask it more', report: 'Report', fav: 'Save', share: 'Share', quotePost: 'Quote question', more: 'More',
+    menu: ['Pin', 'Archive', 'Rename', 'Make public', 'Move to trash'], menuPub: ['Rename', 'Move to trash'],
+    sources: 'Sources', round: n => `Round ${n}`, byMention: 'Only the @ mentioned Ree was asked', byRel: n => `Asked ${n} Rees by relevance`, del: 'Delete this follow-up', someone: 'Someone',
+    answering: 'Answering…', asking: n => `Asking the ${n} best-matched Rees…`, streaming: 'Writing…',
+    paidT: 'These Rees can answer too, if you agree', paidHint: 'Only you see this. Paid Rees answer once you agree; you pay no more than the price shown, the answer is public like the others, and you get it all back if they can’t answer.', paidBy: n => `by ${n}`, agree: n => `Agree and answer (${n} credits)`, decline: 'No thanks',
+    aiT: 'General AI answer', aiTag: 'No sources · for reference', aiState: 'No Ree can answer yet. AI wrote a general answer first; the post stays in Unanswered and you’ll hear when a Ree answers.', aiNote: 'Written by AI from general knowledge, without any Ree’s material or sources. It may be wrong.', aiCost: '20 credits',
+    guideT: 'Want an answer with sources?', recT: 'These Rees might know', reqBtn: n => `Ask it · ${n} credits`, rephrase: ['Ask it another way', 'More detail helps Rees match: say when, where and what your situation is'], build: ['Have re0 build a Ree on this', 'It gathers public sources into a private Ree and checks with you; once built, it answers this post'],
+    summaryT: 'Round-table summary', summaryHint: n => `Turn the ${n} answers into one conclusion everyone can read`, summaryGo: 'Generate · 30 credits',
+    compPh: 'Ask a follow-up. Type @ to pick a Ree', compPhPriv: 'Ask a follow-up. @ a Ree, or add another one', compPhAi: 'Ask the AI more, or @ a Ree', at: '@ a Ree', addRee: 'Add a Ree', send: 'Ask',
+    costAll: n => `Up to ${n} Rees · 20 credits each, you pay`, costNamed: n => `Only ${n} answers · 20 credits`, costPriv: 'Up to 100 credits · free if none answer',
+    visT: 'Want to ask more?', visB: 'Log in to ask a follow-up; the Rees that answered reply again. Whoever asks, pays.', visBtn: 'Log in to ask', voteLogin: 'Log in to mark answers helpful',
+    privRules: ['Only you see it: not in feeds, search or Ree pages', 'Not reviewed; can’t be saved, reported or quoted', 'Make it public any time; the question and answers are reviewed then'], railRees: 'Rees that answered', railPrivRees: 'Rees in this question',
+    citeT: 'Where this answer came from', citeVer: 'This is the passage the Ree quoted when it answered. The full knowledge stays private; the creator can open the source.', close: 'Close', jump: 'Follow up',
+    quoting: 'Quoting', expand: 'Read the whole answer', collapse: 'Collapse',
+    t: { help: 'Prototype: marked helpful', copy: 'Answer copied', quote: 'Prototype: quotes this answer in a new post', ask: 'Prototype: @ mentions this Ree in the follow-up box', report: 'Prototype: reports this answer', fav: 'Prototype: saved', share: 'Share link copied', menu: 'Prototype: runs this action', agree: 'Prototype: starts answering once you agree', decline: 'Prototype: dismissed', req: 'Prototype: asks this Ree to answer', send: 'Prototype: sends the follow-up', summary: 'Prototype: generates the summary', del: 'Prototype: deletes this follow-up', build: 'Prototype: opens the “have re0 do it” card', rephrase: 'Prototype: puts the cursor back in the box' } }
+};
+const QCITE = {
+  zh: {
+    probation: ['Probation & confirmation · MOM', '网页 · 第 2 段', '试用期一般为 3 至 6 个月。', '雇主如需延长试用期，应以书面形式通知员工，并说明延长的期限。', '试用期结束后，雇主应书面确认录用。'],
+    leave: ['Annual leave · MOM', '网页 · 第 1 段', '', '员工在同一雇主处工作满 3 个月后，即可享有带薪年假；第一年为 7 天，按已工作月数折算。', '此后每多工作一年增加 1 天，最多 14 天。'],
+    s10: ['Employment Act s.10', '法规 · 第 10 条', '(1) 合同任一方均可通知对方终止合同。', '(3) 工作未满 26 周者，通知期为 1 天。', '(4) 合同另有约定的，按约定的通知期。'],
+    ep: ['Employment Pass · MOM', '网页 · 第 3 段', '', 'Employment Pass 申请人的最低固定月薪为 5,600 新元，金融业为 6,200 新元，年龄越大要求越高。', ''],
+    mon: ['Runbook · Monitoring', '文档 · 第 4 节', '', '先为每个服务定义 4 个黄金指标：延迟、流量、错误、饱和度；告警只建在这 4 个指标和集群容量上。', ''],
+    oncall: ['Runbook · On-call', '文档 · 第 7 节', '', 'P1 告警 5 分钟内必须有人确认；15 分钟无人确认自动升级到二线。', '']
+  },
+  en: {
+    probation: ['Probation & confirmation · MOM', 'Web page · paragraph 2', 'Probation usually lasts 3 to 6 months.', 'If an employer wants to extend it, they should tell the employee in writing and say how long the extension is.', 'At the end of probation the employer should confirm the hire in writing.'],
+    leave: ['Annual leave · MOM', 'Web page · paragraph 1', '', 'Employees get paid annual leave once they have worked for the same employer for 3 months; in the first year it is 7 days, pro-rated by months worked.', 'It then grows by a day for each year of service, up to 14.'],
+    s10: ['Employment Act s.10', 'Statute · section 10', '(1) Either party may give notice to end the contract.', '(3) For less than 26 weeks of service, the notice period is one day.', '(4) Where the contract sets a notice period, that applies.'],
+    ep: ['Employment Pass · MOM', 'Web page · paragraph 3', '', 'Employment Pass candidates need a fixed monthly salary of at least S$5,600 (S$6,200 in financial services), rising with age.', ''],
+    mon: ['Runbook · Monitoring', 'Document · section 4', '', 'Define four golden signals per service first: latency, traffic, errors and saturation. Alert only on those and on cluster capacity.', ''],
+    oncall: ['Runbook · On-call', 'Document · section 7', '', 'A P1 alert must be acknowledged within 5 minutes; after 15 minutes it escalates to the second line automatically.', '']
+  }
+};
+// a Ree in the thread: [name, initials, colour index, owner, fee]
+const QREES = {
+  hr: ['Singapore HR Basics', 'HR', 1, 'Tan Wei Ming', 0], ea: ['Employment Act Explainer', 'EA', 2, 'RE0 Official', 0], se: [null, 'SE', 0, 'Lin Wei', 0],
+  wp: ['SG Work Pass Guide', 'WP', 4, 'Chloe Ng', 0], k8: ['Kubernetes Runbook', 'K8', 3, 'Ops Guild', 10], ld: ['SG Employment Lawyers Desk', 'LD', 5, 'Rajah Lim', 80], pp: ['SG Payroll Pro', 'PP', 4, 'Grace Ong', 20],
+  td: ['Thailand Dive Notes', 'TD', 2, 'Kai Hoffmann', 0], sb: ['Scuba Basics', 'SB', 1, 'Nora Weiss', 10], pk: ['Phuket Local Guide', 'PK', 5, 'Anan S.', 0]
+};
+const qreeName = (id, lang) => id === 'se' ? (lang === 'en' ? 'Singapore Employment Law Q&A' : '新加坡雇佣法问答') : QREES[id][0];
+const Q_STATES = [['pub', '公开帖子（他人的）'], ['mine', '自己的公开帖子'], ['priv', '私密多 Ree 对话'], ['gen', '回答生成中'], ['paid', '付费 Ree 等同意'], ['ai', '没有 Ree 能回答'], ['long', '长回答（文章）'], ['follow', '追问之后'], ['out', '未登录查看'], ['cite', '出处面板']];
+function qaThread(st, lang) {
+  const zh = lang !== 'en';
+  const Q = {
+    probation: zh ? '新加坡公司要把我的试用期延长 3 个月，合法吗？延长期间能请年假吗？' : 'My company wants to extend my probation by 3 more months. Is that legal, and can I take annual leave during the extension?',
+    probationDetail: zh ? '入职 6 个月，合同里写的试用期是 3 个月，HR 口头说要再延长 3 个月。' : 'I joined 6 months ago. My contract says 3 months of probation; HR told me verbally they want another 3.',
+    hiring: zh ? '我们 20 人的公司第一次招外籍员工，要准备哪些手续？' : 'We’re a 20-person company hiring our first foreign employee. What do we need to sort out?',
+    dive: zh ? '在普吉岛考 PADI 开放水域潜水证要几天？' : 'How many days does a PADI Open Water course take in Phuket?',
+    k8: zh ? '从零开始搭建 Kubernetes 生产集群，监控和告警该怎么配？' : 'Setting up a production Kubernetes cluster from scratch: how should monitoring and alerting work?'
+  };
+  const A = {
+    hr: zh ? '可以延长，但要书面通知你，并写明延长多久 [1]。法律没有规定试用期上限，以合同为准 [1]。年假从工作满 3 个月开始算，试用期也算在内 [2]，所以延长期间你可以按比例请年假。' : 'Yes, as long as they tell you in writing and say how long [1]. The law sets no maximum; your contract decides [1]. Annual leave starts after 3 months of service and probation counts toward it [2], so you can take pro-rated leave during the extension.',
+    ea: zh ? '延长期间合同照常有效。第 10 条：工作未满 26 周时，任一方提前 1 天通知即可终止合同 [1]；你已工作 6 个月，按合同或法定通知期 [1]。' : 'Your contract carries on as normal during the extension. Under section 10, before 26 weeks of service either side can end it with one day’s notice [1]; at six months in, your contract’s or the statutory notice period applies [1].',
+    se: zh ? '工作满 3 个月后就有年假，试用期也算在这 3 个月里 [1]。' : 'Leave starts after 3 months of service, and probation counts toward them [1].',
+    hrHire: zh ? '先确定岗位用哪种准证：月薪 5,600 新元以上的专业岗位一般申请 Employment Pass [1]。公司要先在 MyCareersFuture 发招聘广告 14 天，再提交申请。' : 'First decide which pass the role needs: professional roles paying S$5,600 a month or more usually take an Employment Pass [1]. Advertise the job on MyCareersFuture for 14 days before you apply.',
+    eaHire: zh ? '外籍员工同样适用 Employment Act：工时、加班、年假和通知期的规定都一样 [1]。' : 'The Employment Act covers foreign staff too: the same rules on hours, overtime, leave and notice apply [1].',
+    hrEp: zh ? '最低固定月薪 5,600 新元，金融业 6,200 新元，年龄越大要求越高 [1]。' : 'A fixed monthly salary of at least S$5,600 (S$6,200 in financial services), higher for older candidates [1].',
+    follow1: zh ? '没有书面通知的话，延长不成立：试用期按合同在 3 个月时结束，你已经是正式员工 [1]。' : 'Without written notice the extension doesn’t hold: probation ends at 3 months as your contract says, and you’re already confirmed [1].',
+    follow2: zh ? '书面通知可以是邮件，但要写明延长的期限 [1]。' : 'Email counts as writing, as long as it says how long the extension is [1].',
+    follow3: zh ? '第 10 条对所有雇员都适用，包括经理；不过经理的工时和加班规定不同 [1]。' : 'Section 10 applies to every employee, managers included, though managers’ hours and overtime rules differ [1].',
+    ai: zh ? '一般要 3 到 4 天：第 1 天理论课和泳池练习，之后 2 到 3 天做 4 次开放水域潜水。旺季可能要提前预约，天气不好会顺延。' : 'Usually 3 to 4 days: day one is theory and pool practice, then 2 to 3 days for four open-water dives. Book ahead in high season; bad weather can push dives back.'
+  };
+  const ans = (id, text, cites, o = {}) => ({ id, text, cites, ...o });
+  const base = { q: { who: zh ? 'Wei Kang' : 'Wei Kang', ini: 'WK', when: zh ? '3 小时前' : '3h ago', cat: 'professional', vis: 'pub', text: Q.probation, detail: Q.probationDetail }, meta: [10, 3],
+    rounds: [{ answers: [ans('hr', A.hr, ['probation', 'leave'], { help: 14 }), ans('ea', A.ea, ['s10'], { help: 6 }), ans('se', A.se, ['leave'], { help: 3 })] }] };
+  if (st === 'mine' || st === 'paid' || st === 'gen' || st === 'follow') { base.q.who = null; base.q.ini = 'LW'; base.q.when = zh ? '1 小时前' : '1h ago'; base.own = true; base.spent = 60; }
+  if (st === 'pub' || st === 'out' || st === 'cite') base.q.quote = { ree: 'ea', text: zh ? '第 10 条：工作未满 26 周时，任一方提前 1 天通知即可终止合同。' : 'Section 10: before 26 weeks of service, either side can end the contract with one day’s notice.' };
+  if (st === 'gen') { base.spent = 0; base.rounds = [{ answers: [ans('hr', A.hr.slice(0, zh ? 34 : 88), ['probation'], { streaming: 1 }), ans('ea', '', [], { waiting: 1 }), ans('se', '', [], { waiting: 1 })] }]; base.gen = true; }
+  if (st === 'paid') { base.rounds = [{ answers: [ans('hr', A.hr, ['probation', 'leave'], { help: 2 })] }]; base.meta = [10, 1]; base.spent = 20; base.paid = ['ld', 'pp']; }
+  if (st === 'follow') {
+    base.spent = 100;
+    base.rounds.push({ who: 'you', text: zh ? '如果公司一直没有书面通知，只是口头说延长呢？' : 'What if they never put it in writing and only said it out loud?', mode: 'rel', answers: [ans('hr', A.follow1, ['probation'], { help: 4 }), ans('se', A.follow2, ['probation'], { help: 1 })] });
+    base.rounds.push({ who: 'someone', text: zh ? '@Employment Act Explainer 第 10 条也适用于经理吗？' : '@Employment Act Explainer Does section 10 apply to managers too?', mode: 'mention', answers: [ans('ea', A.follow3, ['s10'], { help: 2, mention: 1 })] });
+  }
+  if (st === 'priv') return { q: { who: null, ini: 'LW', when: zh ? '昨天' : 'yesterday', cat: 'business', vis: 'priv', text: Q.hiring }, own: true, priv: true, spent: 80, chosen: ['hr', 'ea', 'wp'],
+    rounds: [{ answers: [ans('hr', A.hrHire, ['ep'], { help: 0 }), ans('ea', A.eaHire, ['s10'], { help: 0 })] }, { who: 'you', text: zh ? '@Singapore HR Basics Employment Pass 的最低月薪是多少？' : '@Singapore HR Basics What’s the minimum salary for an Employment Pass?', mode: 'mention', answers: [ans('hr', A.hrEp, ['ep'], { mention: 1 })] }, { who: 'you', addedRee: 'wp', text: zh ? '加了 SG Work Pass Guide：申请要多久能批下来？' : 'Added SG Work Pass Guide: how long does approval take?', mode: 'added', answers: [ans('wp', zh ? '网上申请一般 10 个工作日内有结果，材料齐全的话更快 [1]。' : 'Online applications usually get a decision within 10 working days, faster if the paperwork is complete [1].', ['ep'], { added: 1 })] }] };
+  if (st === 'ai') return { q: { who: null, ini: 'LW', when: zh ? '1 小时前' : '1h ago', cat: 'life', vis: 'pub', text: Q.dive }, own: true, meta: [10, 0], spent: 20, ai: A.ai, rec: ['td', 'sb', 'pk'], rounds: [] };
+  if (st === 'long') return { q: { who: 'Dev Patel', ini: 'DP', when: zh ? '昨天' : 'yesterday', cat: 'technology', vis: 'pub', text: Q.k8 }, meta: [10, 1], long: true, rounds: [{ answers: [ans('k8', '', ['mon', 'oncall'], { help: 31, article: 1 })] }] };
+  return base;
+}
+function qaArticle(lang) {
+  const zh = lang !== 'en', c = (n) => `<button class="cite" data-act="cite" data-a="k8" data-i="${n}" aria-label="${zh ? '出处' : 'Source'} ${n}">${n}</button>`;
+  return zh ? `<h4>1. 先定要看的指标</h4><p>每个服务只盯 4 个黄金指标：延迟、流量、错误、饱和度 ${c(1)}。集群层面再加节点 CPU、内存和 Pod 重启次数。</p>
+    <h4>2. 告警分三级</h4><ul><li><b>P1</b>：用户受影响（错误率 &gt; 2%，或 p99 延迟翻倍），立刻呼人。</li><li><b>P2</b>：容量快不够（节点内存 &gt; 85% 持续 10 分钟），工作时间处理。</li><li><b>P3</b>：只记录，周会上看趋势。</li></ul>
+    <h4>3. 值班和升级</h4><p>P1 告警 5 分钟内必须有人确认，15 分钟没人确认自动升级到二线 ${c(2)}。每条告警都要链接到对应的处理步骤。</p>
+    <h4>4. 先别做的事</h4><p>不要一开始就为每个 Pod 配告警，噪音会让人忽略真正的 P1。先跑两周，看哪些告警真的需要人处理，再加。</p>`
+    : `<h4>1. Pick the signals first</h4><p>Watch four golden signals per service: latency, traffic, errors and saturation ${c(1)}. At cluster level, add node CPU, memory and pod restarts.</p>
+    <h4>2. Three alert levels</h4><ul><li><b>P1</b>: users are affected (error rate &gt; 2%, or p99 latency doubles). Page someone now.</li><li><b>P2</b>: capacity is running out (node memory &gt; 85% for 10 minutes). Handle in working hours.</li><li><b>P3</b>: record only; review the trend weekly.</li></ul>
+    <h4>3. On-call and escalation</h4><p>A P1 must be acknowledged within 5 minutes; after 15 minutes it escalates to the second line automatically ${c(2)}. Link every alert to its runbook step.</p>
+    <h4>4. What to skip for now</h4><p>Don’t alert on every pod from day one; the noise buries the real P1s. Run for two weeks, see which alerts actually needed a person, then add more.</p>`;
+}
+function qaAnswer(a, ai, X, lang, signedIn, thread) {
+  const [nm0, ini, ci, ow, fee] = QREES[a.id], nm = qreeName(a.id, lang);
+  const head = `<div class="qa-ah">${avatar('a', ini, ci)}<div class="qa-an"><b>${esc(nm)}</b><small>${esc(ow)} · ${fee ? X.priceEach(20 + fee) : X.priceEach(20)}</small></div>
+    ${a.mention ? `<span class="tagx">${X.mentioned}</span>` : ''}${a.added ? `<span class="tagx">${X.added}</span>` : ''}${a.paidTag ? `<span class="tagx paid">${X.paidTag}</span>` : ''}</div>`;
+  if (a.waiting) return `<div class="qa-a waiting">${head}<div class="qa-b"><span class="dots" aria-label="${X.answering}"><i></i><i></i><i></i></span> <span class="muted2">${X.answering}</span></div></div>`;
+  const cite = n => `<button class="cite" data-act="cite" data-a="${a.id}" data-c="${a.cites[n - 1]}" aria-label="${lang === 'en' ? 'Source' : '出处'} ${n}">${n}</button>`;
+  const body = a.article ? `<div class="qa-art">${qaArticle(lang).replace(/data-a="k8" data-i="(\d)"/g, (m, n) => `data-a="k8" data-c="${a.cites[n - 1]}"`)}</div>`
+    : `<div class="qa-b">${esc(a.text).replace(/\[(\d)\]/g, (m, n) => cite(+n))}${a.streaming ? '<span class="caret" aria-hidden="true"></span>' : ''}</div>`;
+  const srcs = a.streaming ? '' : `<div class="qa-src">${a.cites.map((c, i) => `<button class="src" data-act="cite" data-a="${a.id}" data-c="${c}">[${i + 1}] ${esc(QCITE[lang][c][0])}</button>`).join('')}</div>`;
+  const acts = a.streaming ? `<div class="qa-acts"><span class="muted2">${X.streaming}</span></div>` : `<div class="qa-acts">
+      ${signedIn ? `<button class="ic-t" data-act="toast" data-msg="${X.t.help}">${I('thumb')} ${X.helpful(a.help || 0)}</button><button class="ic-t" data-act="toast" data-msg="${X.t.help}">${X.unhelpful}</button>` : `<span class="ic-t off" title="${X.voteLogin}">${I('thumb')} ${X.helpful(a.help || 0)}</span>`}
+      <button class="ic-t" data-act="toast" data-msg="${X.t.copy}">${X.copy}</button>${thread.priv ? '' : `<button class="ic-t" data-act="toast" data-msg="${X.t.quote}">${X.quote}</button>`}
+      ${signedIn ? `<button class="ic-t" data-act="qaask" data-n="${esc(nm)}">${I('msg')} ${X.askIt}</button>` : ''}${thread.priv || thread.own ? '' : `<button class="ic-t" data-act="toast" data-msg="${X.t.report}">${X.report}</button>`}</div>`;
+  return `<article class="qa-a ${a.article ? 'long' : ''}">${head}${body}${srcs}${acts}</article>`;
+}
+function qaPage(st, lang = ui.lang) {
+  const L = T[lang], X = QX[lang], XE = XT[lang], en = lang === 'en';
+  const signedIn = st !== 'out';
+  const th = qaThread(st, lang);
+  const top = topBar('a', L, signedIn, langMenu(lang), '');
+  const vis = th.priv ? `<span class="vis-p priv">${I('lock')} ${X.priv}</span>` : `<span class="vis-p">${I('globe')} ${X.pub}</span>`;
+  const who = th.q.who ? esc(th.q.who) : X.you;
+  const ownMenu = th.own ? `<div class="qa-menu"><button class="ic-t" data-act="qamenu" aria-haspopup="menu" aria-expanded="false">${I('more')} ${X.more}</button><div class="qm" role="menu">${(th.priv ? X.menu : X.menuPub).map(m => `<button role="menuitem" data-act="toast" data-msg="${X.t.menu}">${m}</button>`).join('')}</div></div>` : '';
+  const quote = th.q.quote ? `<a class="qa-quote" href="#"><span class="ql">${X.quoting}</span>${avatar('a', QREES[th.q.quote.ree][1], QREES[th.q.quote.ree][2])}<span><b>${esc(qreeName(th.q.quote.ree, lang))}</b>${esc(th.q.quote.text)}</span></a>` : '';
+  const qblock = `<header class="qa-q"><div class="pc-meta"><span class="uav ${th.q.who ? '' : 'me'}">${esc(th.q.ini)}</span><b>${who}</b><span>· ${th.q.when}</span><span class="cat">${catName(th.q.cat, XE)}</span>${vis}</div>
+    <h1 class="qa-title">${esc(th.q.text)}</h1>${th.q.detail ? `<p class="qa-detail">${esc(th.q.detail)}</p>` : ''}${quote}
+    <div class="qa-qacts">${th.priv ? '' : `<button class="ic-t" data-act="toast" data-msg="${signedIn ? X.t.fav : XE.tFavOut}">${I('bookmark')} ${X.fav}</button><button class="ic-t" data-act="toast" data-msg="${X.t.share}">${I('share')} ${X.share}</button><button class="ic-t" data-act="toast" data-msg="${X.t.quote}">${X.quotePost}</button>`}${ownMenu}</div></header>`;
+  const metaLine = th.priv ? `<p class="qa-meta">${I('users')} ${X.chosen(th.chosen.length)}</p>` : th.gen ? `<p class="qa-meta">${I('loader')} ${X.asking(th.meta[1])}</p>` : th.ai ? '' : `<p class="qa-meta">${I('search')} ${X.matched(th.meta[0], th.meta[1])}</p>`;
+  let body = '';
+  th.rounds.forEach((r, i) => {
+    if (i > 0) body += `<div class="qa-round"><span class="rdiv">${X.round(i + 1)} · ${r.mode === 'mention' ? X.byMention : r.mode === 'added' ? X.added : X.byRel(r.answers.length)}</span>
+      <div class="qa-fu"><span class="uav ${r.who === 'you' ? 'me' : ''}">${r.who === 'you' ? 'LW' : '?'}</span><div class="pc-q">${esc(r.text)}</div>${r.who === 'you' && signedIn ? `<button class="ic-t" aria-label="${X.del}" data-act="toast" data-msg="${X.t.del}">${I('trash')}</button>` : ''}</div></div>`;
+    body += `<div class="qa-answers">${r.answers.map(a => qaAnswer(a, null, X, lang, signedIn, th)).join('')}</div>`;
+  });
+  if (th.paid) body += `<section class="qa-paid"><div class="sug-h"><span class="sug-ic">${I('coins')}</span><div><b>${X.paidT}</b><p>${X.paidHint}</p></div></div>
+    ${th.paid.map((id, i) => { const [, ini, ci, ow, fee] = QREES[id]; return `<div class="qp-row">${avatar('a', ini, ci)}<span class="qp-n"><b>${esc(QREES[id][0])}</b><small>${X.paidBy(ow)} · ${X.priceEach(20 + fee)}</small></span><span class="sp"></span><button class="bt1 sm" data-act="toast" data-msg="${X.t.agree}">${X.agree(20 + fee)}</button><button class="bt2 sm" data-act="toast" data-msg="${X.t.decline}">${X.decline}</button></div>`; }).join('')}</section>`;
+  if (th.ai) body += `<div class="qa-state">${I('clock')} ${X.aiState}</div><article class="qa-ai"><div class="qa-ah"><span class="ai-av">${I('spark')}</span><div class="qa-an"><b>${X.aiT}</b><small>${X.aiTag} · ${X.aiCost}</small></div></div><div class="qa-b">${esc(th.ai)}</div><p class="ai-note">${X.aiNote}</p>
+      <div class="qa-acts"><button class="ic-t" data-act="toast" data-msg="${X.t.help}">${I('thumb')} ${X.helpful(0)}</button><button class="ic-t" data-act="toast" data-msg="${X.t.copy}">${X.copy}</button></div></article>
+    <section class="qa-guide"><h3>${X.guideT}</h3><p class="g-l">${X.recT}</p>${th.rec.map(id => { const [n, ini, ci, ow, fee] = QREES[id]; return `<div class="qp-row">${avatar('a', ini, ci)}<span class="qp-n"><b>${esc(n)}</b><small>${esc(ow)}</small></span><span class="sp"></span><button class="bt2 sm" data-act="toast" data-msg="${X.t.req}">${X.reqBtn(20 + fee)}</button></div>`; }).join('')}
+      <div class="two"><button class="opt" data-act="qafocus"><b>${I('pen')} ${X.rephrase[0]}</b><span>${X.rephrase[1]}</span></button><button class="opt" data-go="home" data-state="cmd-new"><b>${I('wand')} ${X.build[0]}</b><span>${X.build[1]}</span></button></div></section>`;
+  if (th.own && !th.priv && !th.gen && !th.ai && !th.paid) body += `<div class="qa-sum">${I('users')}<span><b>${X.summaryT}</b><small>${X.summaryHint(th.rounds[0].answers.length)}</small></span><span class="sp"></span><button class="bt2 sm" data-act="toast" data-msg="${X.t.summary}">${X.summaryGo}</button></div>`;
+  const named = st === 'follow' ? '' : '';
+  const compose = !signedIn ? `<div class="qa-compose out"><div class="sug-h"><span class="sug-ic">${I('door')}</span><div><b>${X.visT}</b><p>${X.visB}</p></div></div><a class="bt1" href="#">${I('door')} ${X.visBtn}</a></div>`
+    : th.gen ? '' : `<div class="qa-compose"><div class="box compact"><div class="box-row">${I('msg')}<label class="sr" for="qafu">${X.send}</label><textarea id="qafu" rows="1" placeholder="${esc(th.priv ? X.compPhPriv : th.ai ? X.compPhAi : X.compPh)}"></textarea><button class="go" data-act="toast" data-msg="${X.t.send}">${I('send')}<span class="go-t">${X.send}</span></button></div>
+      <div class="bar"><button class="chip sm-chip" data-act="qaat">${X.at}</button>${th.priv ? `<button class="chip sm-chip" data-act="toast" data-msg="${X.t.menu}">${I('plus')} ${X.addRee}</button>` : ''}<span class="hint">${th.ai ? X.aiCost : th.priv ? X.costPriv : X.costAll(3)}</span></div></div></div>`;
+  const railRees = (th.priv ? th.chosen : th.rounds.length ? [...new Set(th.rounds.flatMap(r => r.answers.map(a => a.id)))] : th.rec || []).map(id => `<a class="mini-r" href="#ree-user">${avatar('a', QREES[id][1], QREES[id][2])}<span><b>${esc(qreeName(id, lang))}</b><small>${X.priceEach(20 + QREES[id][4])}</small></span></a>`).join('');
+  const rail = `<aside class="qa-side">${th.own && th.spent ? `<div class="pcard2"><div class="pc2-h"><span>${X.spent(th.spent)}</span></div></div>` : ''}
+    <div class="rel"><h3>${th.priv ? X.railPrivRees : th.ai ? X.recT : X.railRees}</h3>${railRees || `<p class="sp-note">—</p>`}</div>
+    ${th.priv ? `<div class="rel"><ul class="rules">${X.privRules.map(r => `<li>${I('lock')} ${r}</li>`).join('')}</ul></div>` : ''}</aside>`;
+  const cost = th.own ? X.spent(th.spent) : X.followPrice;
+  const bar = `<div class="rp-bar" id="rpBar" aria-hidden="true"><div class="rb-in"><a class="rb-home" href="#home-in" tabindex="-1" aria-label="re0"><span class="bub">0</span></a>
+      <div class="rb-id"><b>${esc(th.q.text)}</b><small>${vis}<span class="rb-p">${cost}</span></small></div><span class="sp"></span>
+      ${signedIn && !th.gen ? `<button class="bt1 sm" tabindex="-1" data-act="qafocus">${I('msg')} ${X.jump}</button>` : !signedIn ? `<a class="bt1 sm" tabindex="-1" href="#">${I('door')} ${X.visBtn}</a>` : ''}</div></div>`;
+  const foot = `<div class="h-foot"><span>${L.privacy}</span><span>${L.terms}</span></div>`;
+  return `<section class="dA rp qa ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}">${bar}${top}<div class="rp-in"><div class="qa-grid"><div class="qa-main">${qblock}${metaLine}${body}${compose}</div>${rail}</div></div>${foot}</section>`;
+}
+function openCite(btn) {
+  const lang = ui.lang === 'en' ? 'en' : 'zh', X = QX[lang], c = QCITE[lang][btn.dataset.c], id = btn.dataset.a;
+  if (!c) return;
+  document.querySelector('.cite-panel')?.remove(); document.querySelector('.cite-shade')?.remove();
+  const [, ini, ci] = QREES[id];
+  const shade = document.createElement('div'); shade.className = 'cite-shade'; shade.dataset.act = 'citeclose';
+  const p = document.createElement('aside'); p.className = 'cite-panel dA'; p.setAttribute('role', 'dialog'); p.setAttribute('aria-modal', 'true'); p.setAttribute('aria-label', X.citeT);
+  p.innerHTML = `<div class="cp-h"><b>${X.citeT}</b><button class="fav" data-act="citeclose" aria-label="${X.close}">${I('x')}</button></div>
+    <div class="cp-r">${avatar('a', ini, ci)}<span><b>${esc(qreeName(id, lang))}</b><small>${esc(c[0])} · ${esc(c[1])}</small></span></div>
+    <blockquote class="cp-q">${c[2] ? `<span class="dim">${esc(c[2])} </span>` : ''}<mark>${esc(c[3])}</mark>${c[4] ? `<span class="dim"> ${esc(c[4])}</span>` : ''}</blockquote>
+    <p class="sp-note">${X.citeVer}</p>`;
+  document.body.append(shade, p);
+  requestAnimationFrame(() => { shade.classList.add('on'); p.classList.add('on'); });
+  p.querySelector('[data-act="citeclose"]').focus();
+  openCite.from = btn;
+}
+function closeCite() {
+  const p = document.querySelector('.cite-panel'), s = document.querySelector('.cite-shade');
+  if (!p) return;
+  p.classList.remove('on'); s?.classList.remove('on');
+  setTimeout(() => { p.remove(); s?.remove(); }, reduced() ? 0 : 250);
+  openCite.from?.focus?.();
+}
+
 /* -------- index -------- */
 function indexPage() {
   const tbd = [
@@ -1553,6 +1883,12 @@ function indexPage() {
     ['Ree 页的标签', '沿用现在的三块：回答（它回答过的帖子）、评论、介绍（视频、可以问这些、知识概况、作者和作者的其他 Ree）。默认打开「回答」。'],
     ['Ree 页的提问框', '只问这个 Ree：公开问 / 私下问切换，价格写在旁边；不做意图判断。作者想改 Ree 用所有者条里的「告诉 re0 要改什么」（第二期才开）。'],
     ['视频介绍', '封面可以取自视频的海报帧；视频本身只在 Ree 页「介绍」里播放，列表和页头都不自动播放。'],
+    ['对话页的地址', '公开帖子和私密提问都用 /p/[id]，私密的只有本人能打开；旧的 /chats、/talk 继续跳转。'],
+    ['追问框不识别「让 re0 做」', '对话页底部的框默认就是追问，不做意图判断。帖子里的追问常以「帮我……」开头（「帮我算一下加班费」），在这里猜意图误判多、代价是多收一次钱或少答一次。需要建 Ree 的地方（没人回答时）直接给一个明确的「让 re0 建一个讲这个的 Ree」按钮，点了跳到首页的建议卡。'],
+    ['引用和出处面板', '回答里的 [n] 和首页气泡墙、Explore 匹配卡用同一种样式；点开后桌面从右侧滑出、手机从底部弹出，只显示 Ree 回答时引用的那一段（前后各带一句），不显示完整来源；作者另有入口打开来源。'],
+    ['气泡还是文章', '回答不超过 3 段、没有标题和列表时用气泡；超过 3 段，或者有标题、列表、表格时改用文章排版（白底卡片、标题、列表），引用编号不变。'],
+    ['吸顶条的「花费」', '自己的帖子显示已经花了多少；别人的帖子显示追问的价格。私密的标「私密 · 仅你可见」。'],
+    ['圆桌总结', '保留，放在第一轮回答下面，只有发帖人能生成（30 credits，所有人可见）。'],
     ['Ree 页吸顶', '封面和名字滚出顶部后，一条 Ree 条（头像、名字、标记、价格、「问它」）和回答 / 评论 / 介绍标签一起吸顶；站点顶栏不吸顶，吸顶时由 Ree 条代替（左边的 re0 标志可回首页），所以不会叠两层。「问它」滚回提问框并聚焦，不另开提问框。所有者条太高，不吸顶；作者在 Ree 条上看到「你的 Ree」和「设置」。'],
     ['知识概况公开到什么程度', '只公开来源数量、类型占比、总字数和最近更新时间，不公开来源标题和网址（和现在「知识正文不公开」一致）。'],
     ['语言怎么选', '默认跟随浏览器语言（zh 开头的用中文，其余用英文）；用户手动选过就记住：登录用户存到账号，未登录存 cookie，和线上现在的做法一样。原型里用浏览器本地存储模拟。']
@@ -1567,9 +1903,9 @@ function indexPage() {
   const order = [
     ['首页', '已定稿。一个输入框，背景是问答气泡墙，三个统计数；问问题和让 re0 做事都从这里开始。', 'done'],
     ['Explore', '已按反馈修改：卡片加封面（图片 / 视频海报 / 回退），往下滚时输入框收成单行，和标签、分类一起吸顶。', 'done'],
-    ['Ree 页', '本轮，等确认。大封面 + 头像，介绍、标签、四个数字；「问它」的提问框和示例问题；回答 / 评论 / 介绍三个标签；右栏价格卡和相关 Ree；作者看到所有者条。', 'now'],
-    ['提问和回答',  '下一页。公开帖子、私密提问和回答页合成一种对话页：问题、各 Ree 的回答和引用，追问在底部。长回答用文章排版，不硬塞进气泡。', 'next'],
-    ['登录 / 注册', '沿用首页的气泡墙做背景，中间一张登录卡。'],
+    ['Ree 页', '已定稿。大封面 + 头像，介绍、标签、四个数字；「问它」的提问框；回答 / 评论 / 介绍三个标签；右栏价格卡和相关 Ree；作者看到所有者条；滚动时 Ree 条和标签吸顶。', 'done'],
+    ['提问和回答', '本轮，等确认。公开帖子和私密提问合成一种对话页：问题、各 Ree 的回答和 [n] 引用（点开看出处），追问框在底部；长回答用文章排版。', 'now'],
+    ['登录 / 注册', '下一页。沿用首页的气泡墙做背景，中间一张登录卡。', 'next'],
     ['我的 Ree + 任务', '顶部是同一个合并输入框（预填「帮我建一个关于……的 Ree」），下面是我的 Ree 和进行中的任务。'],
     ['知识库', '来源列表加「交给 re0」输入框，页面变成查看和撤销的地方。'],
     ['Ree 设置 / 统计', '设置、定价、统计合成一页，统计用一句话解释趋势。'],
@@ -1601,6 +1937,11 @@ function indexPage() {
         <p>覆盖现在 Ree 页的功能：封面和视频介绍、头像、名字、作者和角色、介绍、标签、数字、向它提问（公开 / 私下）、回答过的帖子、评论、可以问什么、作者和作者的其他 Ree、价格和信任说明、收藏、分享、相关 Ree；作者还能看到管理入口。</p>
         <div class="changed"><b>6 个状态</b><span>用户的 Ree、官方 Ree、自己的 Ree（作者视角）、未登录，以及评论、介绍两个标签。中英文各一套。</span></div>
         <a class="open" data-go="ree" data-state="own" href="#ree-own">看作者视角 ${I('arrow')}</a></div></div>
+    <div class="hero-thumb" style="margin-top:16px"><div class="thumb big" role="link" tabindex="0" data-go="qa" data-state="pub" aria-label="打开提问和回答"><div class="scale" aria-hidden="true" inert>${qaPage('pub', 'zh')}</div></div>
+      <div class="dir-b"><h3>提问和回答 · 第 4 页 <span class="new">本轮，等确认</span></h3>
+        <p>公开帖子（/p/[id]）和私密提问合成一种对话页（/chats 已退役，私密提问本来就是私密帖子）。覆盖现有功能：公开和私密、每个 Ree 的回答和编号引用、AI 通用回答、生成中、付费 Ree 等你同意、追问、@ 某个 Ree、加 Ree、有帮助、收藏、转为公开、置顶 / 归档 / 改名、删除追问、匿名、引用、分享、圆桌总结、没人回答时推荐 Ree。</p>
+        <div class="changed"><b>10 个状态</b><span>他人的公开帖子、自己的公开帖子、私密多 Ree 对话、回答生成中、付费 Ree 等你同意、没有 Ree 能回答、长回答（文章排版）、追问之后、未登录查看，以及出处面板。中英文各一套。</span></div>
+        <a class="open" data-go="qa" data-state="cite" href="#qa-cite">看出处面板 ${I('arrow')}</a></div></div>
     <h2>暂定，等用户确认</h2><div class="rows q">${tbd.map(([k, v]) => `<div class="rw rw2"><b>${k} <span class="tbd">暂定</span></b><span>${v}</span></div>`).join('')}</div>
     <h2>合并后的输入框</h2>
     <div class="intents">${intents.map(([k, q, v, s]) => `<div class="c"><b>${k}</b><q>${q}</q><span>${v}</span><a data-go="home" data-state="${s}" href="#home-${s}">看这个状态 ${I('arrow')}</a></div>`).join('')}</div>
@@ -1734,7 +2075,7 @@ function specPage() {
     <div class="sp-card"><h3>吸顶（所有页面共用一套规则）</h3><div class="rows">
       <div class="rw rw2"><b>共同规则</b><span>吸顶区域只有一块：贴在页面最上沿，背景 --bg 94% 加模糊和一道浅阴影；站点顶栏不吸顶，不和吸顶区叠两层。收起和展开都用两个阈值（进入、退出各一个），避免在边界来回抖。高度、位移、阴影 250ms；开了减少动态效果时直接切换。手机上吸顶区不超过约 100px。</span></div>
       <div class="rw rw2"><b>列表页（Explore）</b><span>往下滚过 160px 收起，回到 60px 以内展开。收起后输入框变单行（隐藏提示行），和 Rees / 帖子标签、分类、排序一起贴顶。手机：输入框 ~44px + 标签和分类一行 ~36px，隐藏标签数字和排序。</span></div>
-      <div class="rw rw2"><b>详情页（Ree 页）</b><span>封面和名字那一行滚出顶部时，顶部滑下一条 60px 的 Ree 条：re0 标志（回首页）、头像、名字、官方 / 认证标记、每次价格、「问它」；名字回到视野前 60px 收回。回答 / 评论 / 介绍标签贴在 Ree 条下面。「问它」把页面滚回提问框并把光标放进去，不另开第二个提问框。作者看到的是「你的 Ree」和「设置」，所有者条不吸顶。手机：Ree 条 54px（隐藏标志和官方标记，价格留着）+ 标签 ~44px。</span></div></div></div>
+      <div class="rw rw2"><b>详情页（Ree 页、提问和回答）</b><span>封面和名字那一行滚出顶部时，顶部滑下一条 60px 的 Ree 条：re0 标志（回首页）、头像、名字、官方 / 认证标记、每次价格、「问它」；名字回到视野前 60px 收回。回答 / 评论 / 介绍标签贴在 Ree 条下面。「问它」把页面滚回提问框并把光标放进去，不另开第二个提问框。作者看到的是「你的 Ree」和「设置」，所有者条不吸顶。手机：Ree 条 54px（隐藏标志和官方标记，价格留着）+ 标签 ~44px。提问和回答用同一条：问题标题（一行省略）、公开 / 私密、花费（自己的帖子写已花，别人的写追问价格）和「追问」（滚到底部追问框并聚焦）。</span></div></div></div>
     <div class="sp-card"><h3>Ree 页头和提问框</h3><div style="max-width:760px;display:grid;gap:10px">
       <div class="rp-stats">${['1,214', '84%', '18', '37'].map((v, i) => `<div class="rs"><b>${v}</b><span>${RT.zh.stats[i]}</span></div>`).join('')}</div>
       <div class="box"><div class="box-row">${I('msg')}<label class="sr" for="spec-rq">示例提问框</label><textarea id="spec-rq" rows="1" placeholder="问 Singapore HR Basics 一个问题"></textarea></div><div class="bar"><div class="vis"><button class="on">${I('globe')} 公开问</button><button>${I('lock')} 私下问</button></div><span class="hint">每次 20 credits，没回答不收费</span><span class="sp"></span><button class="go">${I('send')} 问它</button></div></div></div>
@@ -1744,6 +2085,14 @@ function specPage() {
       <div style="display:grid;gap:10px"><div class="cmt"><span class="uav">MK</span><div class="cb"><div class="cm"><b>Marcus K.</b><span>2 天前</span></div><p>问加班费那条答得很清楚。</p></div></div>
         <div class="obar"><div class="ob-h"><span class="ob-t">${I('spark')} <b>这是你的 Ree</b><span class="badge ok">${I('check')} 公开 · 已发布</span></span></div></div></div></div>
       <p class="sp-note">价格卡在桌面放右栏并吸顶，手机挪到正文后面（提问框旁已写了价格）。评论用左上角 4px 的白色气泡。所有者条只给作者看：状态、管理入口（设置、知识库、统计、用访客身份看）和「告诉 re0 要改什么」（第二期）。</p></div>
+    <h2>提问和回答组件</h2>
+    <div class="sp-card"><h3>引用和出处面板</h3><div class="grid2">
+      <div class="qa" style="display:grid;gap:8px"><div class="qa-b" style="margin-left:0">可以延长，但要书面通知你 <button class="cite" tabindex="-1">1</button>。年假从工作满 3 个月开始算 <button class="cite" tabindex="-1">2</button>。</div><div class="qa-src" style="margin-left:0"><span class="src">[1] Probation & confirmation · MOM</span><span class="src">[2] Annual leave · MOM</span></div></div>
+      <div class="cite-panel dA on" style="position:static;transform:none;width:auto;box-shadow:var(--sh-md);border-radius:24px"><div class="cp-h"><b>答案，从这里来</b></div><div class="cp-r">${avatar('a', 'HR', 1)}<span><b>Singapore HR Basics</b><small>Probation & confirmation · MOM · 网页 · 第 2 段</small></span></div><blockquote class="cp-q"><span class="dim">试用期一般为 3 至 6 个月。</span><mark>雇主如需延长试用期，应以书面形式通知员工。</mark></blockquote></div></div>
+      <p class="sp-note">行内编号是珊瑚浅底的小方块，悬停 / 聚焦变实心；回答下面列出 [n] 出处（和首页气泡墙、Explore 匹配卡同一个样式）。点任何一个都打开出处面板：桌面从右侧滑出 420px，手机从底部弹出（最高 75%）。面板写明 Ree、来源标题、类型和位置，引用的那句用黄色高亮，前后各带一句淡色上下文。Esc、点遮罩或关闭按钮都能关，焦点回到原来的编号。</p></div>
+    <div class="sp-card"><h3>回答：气泡还是文章</h3><p class="sp-note" style="margin-top:0">短回答（不超过 3 段，没有标题和列表）用白色回答气泡，左上角 4px，左边对齐头像。长回答（超过 3 段，或有标题、列表、表格）改用文章卡：圆角 20、内边距 18 × 22、标题 16.5/900、行高 1.8。两种都在下面放出处和操作：有帮助、没帮助、复制、引用、继续问它、举报。生成中：已经写出的文字后面跟一根闪烁的珊瑚色光标；还没开始的 Ree 显示虚线空气泡和三个点。</p></div>
+    <div class="sp-card"><h3>AI 通用回答、付费等你同意</h3><p class="sp-note" style="margin-top:0">AI 通用回答用虚线头像和虚线气泡，标「无出处 · 仅供参考」，和 Ree 的回答明显不同；下面紧跟「想要有出处的回答？」：推荐可能知道的 Ree（请它回答，按它的价格）、换个说法、让 re0 建一个讲这个的 Ree。付费 Ree 的等待卡用黄色虚线框，只有发帖人看得到，每行一个 Ree：价格、同意并回答、不需要。</p></div>
+    <div class="sp-card"><h3>底部追问框</h3><p class="sp-note" style="margin-top:0">合并输入框的紧凑型，固定在对话页底部（sticky）。默认是追问，不识别「让 re0 做」。下面一行：@ 指定 Ree（只问它）、私密提问里多一个「加 Ree」，右边写价格。未登录时换成「想接着问？登录后追问」卡片。追问一轮用分隔线「第 n 轮 · 按相关度 / 只请被 @ 的 Ree」，提问人的追问是右对齐的深色气泡，自己的追问可以删除。</p></div>
     <h2>文案语气</h2><div class="sp-card"><div class="rows">
       <div class="rw rw2"><b>口语、短句</b><span>「随便问，每句回答都带出处」「第一次平台请客」「不，我是在提问」。用「你」，不用「您」。</span></div>
       <div class="rw rw2"><b>花钱的事说清楚</b><span>凡是要花 credits 的按钮旁边都写上限和「没用完的退回」或「不点不花钱」。</span></div>
@@ -1753,10 +2102,10 @@ function specPage() {
 
 /* -------- chrome & render -------- */
 function chrome() {
-  const tabs = PAGES.map(([k, l]) => `<button class="rc-tab" data-go="${k}" ${k === route.page && ['home', 'explore', 'ree'].includes(k) ? `data-state="${route.state}"` : ''} ${route.page === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
+  const tabs = PAGES.map(([k, l]) => `<button class="rc-tab" data-go="${k}" ${k === route.page && ['home', 'explore', 'ree', 'qa'].includes(k) ? `data-state="${route.state}"` : ''} ${route.page === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
   const pg = route.page;
-  const states = !['home', 'explore', 'ree'].includes(pg) ? '' : `<div class="rc-row"><span class="rc-label">状态</span>${statesFor(pg).map(([k, l]) => `<button class="rc-state" data-go="${pg}" data-state="${k}" aria-pressed="${k === route.state}">${l}</button>`).join('')}<span class="rc-sep"></span><span class="rc-label">语言</span>${LANGS.map(([k, n]) => `<button class="rc-state" data-act="lang" data-lang="${k}" aria-pressed="${ui.lang === k}">${n}</button>`).join('')}<span class="rc-note">${pg === 'explore' ? 'Explore · 已按反馈修改' : pg === 'ree' ? 'Ree 页 · 第 3 页 · 等确认' : '首页 · 已定稿'}</span></div>`;
-  document.getElementById('rc').innerHTML = `<div class="rc-row"><span class="rc-brand">re0 全新改版 <small>方向 A · 首页定稿 · Ree 页等确认</small></span>${tabs}</div>${states}`;
+  const states = !['home', 'explore', 'ree', 'qa'].includes(pg) ? '' : `<div class="rc-row"><span class="rc-label">状态</span>${statesFor(pg).map(([k, l]) => `<button class="rc-state" data-go="${pg}" data-state="${k}" aria-pressed="${k === route.state}">${l}</button>`).join('')}<span class="rc-sep"></span><span class="rc-label">语言</span>${LANGS.map(([k, n]) => `<button class="rc-state" data-act="lang" data-lang="${k}" aria-pressed="${ui.lang === k}">${n}</button>`).join('')}<span class="rc-note">${pg === 'explore' ? 'Explore · 已按反馈修改' : pg === 'ree' ? 'Ree 页 · 已定稿' : pg === 'qa' ? '提问和回答 · 第 4 页 · 等确认' : '首页 · 已定稿'}</span></div>`;
+  document.getElementById('rc').innerHTML = `<div class="rc-row"><span class="rc-brand">re0 全新改版 <small>方向 A · 提问和回答等确认</small></span>${tabs}</div>${states}`;
 }
 function fitThumbs() { document.querySelectorAll('.thumb').forEach(t => t.style.setProperty('--s', t.clientWidth / 1440)); }
 const reduced = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1771,9 +2120,11 @@ function countUp() {
 function render(fresh) {
   parse();
   chrome();
-  document.getElementById('app').innerHTML = route.page === 'index' ? indexPage() : route.page === 'spec' ? specPage() : route.page === 'explore' ? explore(route.state) : route.page === 'ree' ? reePage(route.state) : home('a', route.state);
+  document.querySelector('.cite-panel')?.remove(); document.querySelector('.cite-shade')?.remove();
+  document.getElementById('app').innerHTML = route.page === 'index' ? indexPage() : route.page === 'spec' ? specPage() : route.page === 'explore' ? explore(route.state) : route.page === 'ree' ? reePage(route.state) : route.page === 'qa' ? qaPage(route.state) : home('a', route.state);
   document.documentElement.style.setProperty('--rc-h', document.getElementById('rc').offsetHeight + 'px');
   fitThumbs();
+  if (route.page === 'qa' && route.state === 'cite') { const c = document.querySelector('#app .qa-b .cite'); if (c) openCite(c); }
   if (fresh && route.page === 'home') countUp();
   startPh();
 }
@@ -1792,7 +2143,7 @@ window.addEventListener('scroll', () => {
 }, { passive: true });
 /* The Ree page's compact bar shows once the cover and the name row have scrolled under the top; it hides again a little before the name comes back. */
 function syncReeBar() {
-  const rp = document.querySelector('#app > .rp'), anchor = rp && rp.querySelector('.rp-id');
+  const rp = document.querySelector('#app > .rp'), anchor = rp && rp.querySelector('.rp-id, .qa-q');
   if (!rp || !anchor) return;
   const top = document.getElementById('rc').offsetHeight, b = anchor.getBoundingClientRect().bottom;
   const bar = document.getElementById('rpBar');
@@ -1801,9 +2152,10 @@ function syncReeBar() {
 }
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.thumb')) e.target.click(); });
 function closeLang() { document.querySelectorAll('.lang.open').forEach(w => { w.classList.remove('open'); w.querySelector('.lang-btn')?.setAttribute('aria-expanded', 'false'); }); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.querySelector('.lang.open')) { const b = document.querySelector('.lang.open .lang-btn'); closeLang(); b?.focus(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.querySelector('.cite-panel')) { closeCite(); return; } if (e.key === 'Escape' && document.querySelector('.lang.open')) { const b = document.querySelector('.lang.open .lang-btn'); closeLang(); b?.focus(); } });
 document.addEventListener('click', e => {
   if (!e.target.closest('.lang')) closeLang();
+  if (!e.target.closest('.qa-menu')) document.querySelectorAll('.qa-menu.open').forEach(m => m.classList.remove('open'));
   const t = e.target.closest('[data-go],[data-act],a[href="#"]');
   if (!t) return;
   if (t.dataset.go) { e.preventDefault(); go(t.dataset.go, t.dataset.state); return; }
@@ -1812,6 +2164,10 @@ document.addEventListener('click', e => {
   if (a === 'theme') { ui.bLight = !ui.bLight; render(); }
   if (a === 'pause') { ui.paused = !ui.paused; render(); }
   if (a === 'toast') toast(t.dataset.msg);
+  if (a === 'cite') { openCite(t); return; }
+  if (a === 'citeclose') { closeCite(); return; }
+  if (a === 'qamenu') { const m = t.closest('.qa-menu'); const open = !m.classList.contains('open'); m.classList.toggle('open', open); t.setAttribute('aria-expanded', String(open)); return; }
+  if (a === 'qafocus' || a === 'qaat' || a === 'qaask') { const ta = document.getElementById('qafu'); if (ta) { if (a === 'qaat' && !ta.value.endsWith('@')) ta.value += (ta.value && !ta.value.endsWith(' ') ? ' ' : '') + '@'; if (a === 'qaask') ta.value = '@' + t.dataset.n + ' '; ta.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'end' }); setTimeout(() => ta.focus({ preventScroll: true }), reduced() ? 0 : 400); } else { const login = document.querySelector('#app .qa-compose.out .bt1'); login?.scrollIntoView({ block: 'center' }); login?.focus(); } return; }
   if (a === 'askfocus') { const box = document.querySelector('#app .rp-ask'); if (box) { box.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'center' }); setTimeout(() => (box.querySelector('textarea') || box.querySelector('.go'))?.focus({ preventScroll: true }), reduced() ? 0 : 450); } }
   if (a === 'lang') { closeLang(); switchLang(t.dataset.lang); }
   if (a === 'langmenu') { const w = t.closest('.lang'), open = !w.classList.contains('open'); closeLang(); if (open) { w.classList.add('open'); t.setAttribute('aria-expanded', 'true'); w.querySelector('[aria-checked="true"]')?.focus(); } }
