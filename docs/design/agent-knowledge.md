@@ -1,6 +1,7 @@
 # Agent 产物进 Ree 知识库：设计稿
 
 - 状态：设计，未实现（2026-11-26）
+- 上级文档：[agent-first.md](agent-first.md)（agent 优先的 re0 总体设计）。本文是其中"外部 agent 产物知识化"一节的细化，排期见总文档 §12 第二期（可与第一期并行）。本文的工具定义在总文档第一期的工具注册表落地后，直接写在注册表里；密钥扫描 `lib/domain/secrets.ts` 两边共用。
 - 范围：让 Claude Code / Codex 这类 agent 在工作中产出的文档（调研报告、ADR、方案、复盘、benchmark 结论……）直接成为用户自己某个 Ree 的知识源，之后人或 agent 都能检索、带编号引用地问答。
 - 前提：re0 的定位不变——Ree 只依据给定知识回答。存储单位就是 Ree 知识库里的**一条 source**（`knowledge` 表一行）。没有文件树、没有同步、没有文件页。
 - 不依赖、也不复活 2026-11-26 决定下掉的任何东西：共享 workspace（`ws_*` 工具、`/files`、文件夹绑定 Ree、`create_ree_from_folder`、MCP resources、workspace key）和 MCP OAuth。它们由 PR #269（`0101_drop_workspace_oauth`）删除；`docs/design/agent-workspace*.md` 只用来确认哪些路已经被否掉。接入只用 API key。
@@ -341,7 +342,7 @@ bearer_token_env_var = "RE0_API_KEY"
 
 | 层 | 改动 |
 | --- | --- |
-| 迁移 | `0102_agent_knowledge`（编号排在 #269 的 `0101` 之后；如果并行分支抢了号，合并时重排）：`knowledge` 加 `external_id text`、`origin jsonb`、`api_key_id uuid references api_key(id) on delete set null`；`check (external_id is null or char_length(external_id) between 1 and 300)`；部分唯一索引 `knowledge_external_id_idx (ree_id, external_id) where external_id is not null and deleted_at is null`。只加可空列，不回填，不锁表重写。`test-integration.sh` 逐条自动提交执行迁移，所以不写 `BEGIN`，也不写 `ON COMMIT DROP` |
+| 迁移 | `0102_agent_knowledge`（编号排在 #269 的 `0101` 之后；与总文档第一期的 `0102_agent_runs` 谁先合并谁用 0102，另一个顺延）：`knowledge` 加 `external_id text`、`origin jsonb`、`api_key_id uuid references api_key(id) on delete set null`；`check (external_id is null or char_length(external_id) between 1 and 300)`；部分唯一索引 `knowledge_external_id_idx (ree_id, external_id) where external_id is not null and deleted_at is null`。只加可空列，不回填，不锁表重写。`test-integration.sh` 逐条自动提交执行迁移，所以不写 `BEGIN`，也不写 `ON COMMIT DROP` |
 | domain | `lib/domain/secrets.ts`（扫描规则 + 允许列表）；`lib/domain/agent-knowledge.ts`（校验 `external_id`、`origin`，规范化 repo，`format` 转换：html → markdown 用 turndown）；`chunkLines` 识别 fence；seed 匹配用的 digest（content + heading） |
 | service | `knowledge.ts`：`upsertText`（created / unchanged / renamed / replaced / busy / trashed）、处理时的 seed 步骤、text 带 `origin.path` 时按行切段；`retrieval.ts`：`retrieve` 的 top-k 参数化，加可选的 `external_id_prefix` 条件；`mcp-rees.ts`：`searchKnowledgeTool`、`getKnowledgeTool`，`addKnowledgeTool` 新参数；`mcp.ts`：`citationOut` 加字段 |
 | MCP | `add_knowledge` 加 `external_id`、`origin`、`format`、`allow_public`、`restore`、`wait`，text 上限 500,000，schema 与真实限额一致；新工具 `search_knowledge`、`get_knowledge`；`list_knowledge` 返回 `external_id`、`origin`，加 `external_id_prefix`；`ask_ree` 的引用加 `knowledge_id`、`external_id`、`origin` |
