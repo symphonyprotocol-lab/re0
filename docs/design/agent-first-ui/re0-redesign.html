@@ -834,6 +834,33 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   .ob-agent .box.compact .box-row { padding-left: 14px; }
   .rp .bar .hint { display: block; flex-basis: 100%; order: 3; }
 }
+
+/* ---------- Ree page: sticky identity bar + tabs ---------- */
+.rp { --rpbar-h: 60px; }
+.rp-bar { position: fixed; left: 0; right: 0; top: var(--rc-h, 84px); z-index: 30; height: var(--rpbar-h); background: rgba(247,248,252,.94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: 0 8px 22px rgba(32,34,58,.08); transform: translateY(-110%); opacity: 0; visibility: hidden; transition: transform .25s ease, opacity .2s ease, visibility 0s linear .25s; }
+.rp.stuck .rp-bar { transform: none; opacity: 1; visibility: visible; transition: transform .25s ease, opacity .2s ease, visibility 0s; }
+.rb-in { width: min(1120px, 100%); height: 100%; margin-inline: auto; display: flex; align-items: center; gap: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.rb-home .bub { width: 28px; height: 24px; border-radius: 11px 11px 11px 4px; background: var(--cor); color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 900; }
+.rb-in .av { width: 36px; height: 36px; font-size: 11px; flex: none; }
+.rb-id { min-width: 0; display: grid; }
+.rb-id b { font-size: 15px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rb-id small { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--mut); white-space: nowrap; min-width: 0; }
+.rb-p { overflow: hidden; text-overflow: ellipsis; }
+.rb-in .sp { flex: 1; }
+.rb-in .bt1, .rb-in .bt2 { flex: none; }
+.rp-main > .ptabs.left { position: sticky; top: calc(var(--rc-h, 84px) + var(--rpbar-h)); z-index: 12; background: rgba(247,248,252,.94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); margin-inline: -8px; padding: 8px 8px 10px; }
+.rp-side { top: calc(var(--rc-h, 84px) + var(--rpbar-h) + 16px); }
+@media (max-width: 680px) {
+  .rp { --rpbar-h: 54px; }
+  .rb-in { gap: 8px; }
+  .rb-home { display: none; }
+  .rb-in .av { width: 32px; height: 32px; }
+  .rb-id b { font-size: 14px; }
+  .rb-id small .tagx { display: none; }
+  .rb-mng .rb-t { display: none; }
+  .rp-main > .ptabs.left { padding: 6px 8px 8px; }
+  .rp-main > .ptabs.left button { padding: 6px 14px; font-size: 14px; }
+}
 </style>
 
 <header class="rc" id="rc"></header>
@@ -1437,6 +1464,7 @@ const RT = {
     video: '视频介绍', play: '播放', dur: '0:48', about: '关于作者',
     cHead: n => `${n} 条评论`, cPh: '说说你用下来的感受', cPub: '发表评论', cLogin: '登录后发表评论', cHint: '评论会公开显示你的昵称。', cDel: '删除这条评论',
     oBar: '这是你的 Ree', oStatus: '公开 · 已发布', oVia: '由 re0 任务 #7Q2K 建立', oSettings: '设置', oKnow: '知识库', oStats: '统计', oPreview: '用访客身份看', oAgentPh: '告诉 re0 要改什么，比如「再补上 2026 年的修订」', oPhase: '第二期', oRecent: '最近 re0 改动：发布、写介绍、加了 11 个来源', oActivity: '查看并撤销',
+    barPrice: n => `每次 ${n} credits`, barOwn: '你的 Ree · 自己问只收 20',
     tAsk: '原型：会发出提问（公开或私下）', tFav: '原型：已收藏', tFavOut: '登录后才能收藏', tShare: '分享链接已复制', tVideo: '原型：会播放视频介绍', tDel: '原型：会删除这条评论', tPub: '原型：评论已发表', tAgent: '原型：第二期会开一个「改这个 Ree」的任务', tOwner: '原型：会打开对应的管理页' },
   en: { by: 'by', updated: u => `updated ${u}`, official: 'Official', verified: 'Verified', fav: 'Save', saved: 'Saved', share: 'Share', edit: 'Edit',
     stats: ['answers', 'helpful', 'sources', 'asked this week'], askPh: n => `Ask ${n} something`, askLbl: n => `Ask ${n}`, pub: ['In public', 'The answer shows on this Ree’s page'], priv: ['Privately', 'Only you see it'],
@@ -1449,6 +1477,7 @@ const RT = {
     video: 'Video intro', play: 'Play', dur: '0:48', about: 'About the creator',
     cHead: n => `${n} comments`, cPh: 'How has it worked for you?', cPub: 'Post comment', cLogin: 'Log in to comment', cHint: 'Comments show your display name.', cDel: 'Delete this comment',
     oBar: 'This is your Ree', oStatus: 'Public · published', oVia: 'Built by re0 task #7Q2K', oSettings: 'Settings', oKnow: 'Knowledge', oStats: 'Stats', oPreview: 'View as visitor', oAgentPh: 'Tell re0 what to change, e.g. “add the 2026 amendments”', oPhase: 'Phase 2', oRecent: 'Recent re0 changes: published, wrote the intro, added 11 sources', oActivity: 'Review and undo',
+    barPrice: n => `${n} credits / answer`, barOwn: 'Your Ree · 20 to ask it yourself',
     tAsk: 'Prototype: sends the question (public or private)', tFav: 'Prototype: saved', tFavOut: 'Log in to save Rees', tShare: 'Share link copied', tVideo: 'Prototype: plays the video intro', tDel: 'Prototype: deletes this comment', tPub: 'Prototype: comment posted', tAgent: 'Prototype: phase 2 opens a “change this Ree” task', tOwner: 'Prototype: opens that management page' }
 };
 const RP_STATES = [['user', '用户的 Ree'], ['official', '官方 Ree'], ['own', '自己的 Ree'], ['out', '未登录'], ['comments', '评论标签'], ['intro', '介绍标签']];
@@ -1477,7 +1506,7 @@ function reePage(st, lang = ui.lang) {
         <div class="chips left"><span class="try">${R.tryHint}</span>${C.samples.map(q => `<button class="chip" data-act="toast" data-msg="${R.tAsk}">${I('msg')} ${esc(q)}</button>`).join('')}</div></div>`
     : `<div class="rp-ask"><div class="box out"><div class="box-row">${I('msg')}<span class="out-t">${esc(R.askPh(C.n))}</span></div><div class="bar"><span class="hint">${R.loginHint}</span><span class="sp"></span><a class="go" href="#">${I('door')} ${R.loginAsk}</a></div></div>
         <div class="chips left"><span class="try">${R.tryHint}</span>${C.samples.map(q => `<a class="chip" href="#">${I('msg')} ${esc(q)}</a>`).join('')}</div></div>`;
-  const tabs = `<div class="ptabs left" role="tablist">${R.tabs.map((t, i) => `<button role="tab" aria-selected="${i === tab}" class="${i === tab ? 'on' : ''}" data-go="ree" data-state="${i === 1 ? 'comments' : i === 2 ? 'intro' : (key === 'user' ? (signedIn ? 'user' : 'out') : key)}">${t}${i === 1 ? ` <span class="cnt">${key === 'user' ? 3 : key === 'own' ? 0 : 2}</span>` : ''}</button>`).join('')}</div>`;
+  const tabs = `<div class="ptabs left" role="tablist">${R.tabs.map((t, i) => `<button role="tab" aria-selected="${i === tab}" class="${i === tab ? 'on' : ''}" data-go="ree" data-state="${i === 1 ? 'comments' : i === 2 ? 'intro' : (key === 'user' ? (signedIn ? 'user' : 'out') : key)}">${t}${i === 1 ? ` <span class="cnt">3</span>` : ''}</button>`).join('')}</div>`;
   let content;
   if (tab === 0) content = `<div class="plist">${D.posts[lang].map(p => postCard(p, X, D.ci)).join('')}</div><div class="lend"><button class="bt2 sm" data-act="toast" data-msg="${R.tOwner}">${R.moreAnswers}</button></div>`;
   else if (tab === 1) {
@@ -1498,7 +1527,12 @@ function reePage(st, lang = ui.lang) {
       <p class="trust">${I('shield')} ${R.trust(D.src)}</p><span class="badge ok">${I('check')} ${R.ready}</span></div>
     <div class="rel"><h3>${R.related}</h3>${D.related.map((id, i) => { const r = xree(id, lang); return `<a class="mini" href="#">${cover(r.id, r.ini, i + 1, { noVideo: 1 })}<span><b>${esc(r.n)}</b><small>${esc(r.ow)}${r.off ? ` · ${R.official}` : ''}</small></span></a>`; }).join('')}</div></aside>`;
   const foot = `<div class="h-foot"><span>${L.privacy}</span><span>${L.terms}</span></div>`;
-  return `<section class="dA rp ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}">${top}<div class="rp-in">${ownerBar}<div class="rp-grid"><div class="rp-main">${hero}${ask}${tabs}${content}</div>${side}</div></div>${foot}</section>`;
+  const price = own ? R.barOwn : R.barPrice(20 + D.fee);
+  const bar = `<div class="rp-bar" id="rpBar" aria-hidden="true"><div class="rb-in"><a class="rb-home" href="#home-in" tabindex="-1" aria-label="re0"><span class="bub">0</span></a>
+      ${avatar('a', D.ini, D.ci)}<div class="rb-id"><b>${esc(C.n)}</b><small>${badge}<span class="rb-p">${price}</span></small></div><span class="sp"></span>
+      ${own ? `<button class="bt2 sm rb-mng" tabindex="-1" data-act="toast" data-msg="${R.tOwner}">${I('pen')}<span class="rb-t">${R.oSettings}</span></button>` : ''}
+      <button class="bt1 sm" tabindex="-1" data-act="askfocus">${I('msg')} ${signedIn ? R.send : R.loginAsk}</button></div></div>`;
+  return `<section class="dA rp ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}">${bar}${top}<div class="rp-in">${ownerBar}<div class="rp-grid"><div class="rp-main">${hero}${ask}${tabs}${content}</div>${side}</div></div>${foot}</section>`;
 }
 
 /* -------- index -------- */
@@ -1519,6 +1553,7 @@ function indexPage() {
     ['Ree 页的标签', '沿用现在的三块：回答（它回答过的帖子）、评论、介绍（视频、可以问这些、知识概况、作者和作者的其他 Ree）。默认打开「回答」。'],
     ['Ree 页的提问框', '只问这个 Ree：公开问 / 私下问切换，价格写在旁边；不做意图判断。作者想改 Ree 用所有者条里的「告诉 re0 要改什么」（第二期才开）。'],
     ['视频介绍', '封面可以取自视频的海报帧；视频本身只在 Ree 页「介绍」里播放，列表和页头都不自动播放。'],
+    ['Ree 页吸顶', '封面和名字滚出顶部后，一条 Ree 条（头像、名字、标记、价格、「问它」）和回答 / 评论 / 介绍标签一起吸顶；站点顶栏不吸顶，吸顶时由 Ree 条代替（左边的 re0 标志可回首页），所以不会叠两层。「问它」滚回提问框并聚焦，不另开提问框。所有者条太高，不吸顶；作者在 Ree 条上看到「你的 Ree」和「设置」。'],
     ['知识概况公开到什么程度', '只公开来源数量、类型占比、总字数和最近更新时间，不公开来源标题和网址（和现在「知识正文不公开」一致）。'],
     ['语言怎么选', '默认跟随浏览器语言（zh 开头的用中文，其余用英文）；用户手动选过就记住：登录用户存到账号，未登录存 cookie，和线上现在的做法一样。原型里用浏览器本地存储模拟。']
   ];
@@ -1696,11 +1731,10 @@ function specPage() {
     <div class="sp-card"><h3>Ree 封面</h3><div class="row-wrap" style="align-items:flex-start">
       ${[['hr', 'HR', 1, '有封面图'], ['bnt', 'BNT', 4, '封面取自视频'], ['ts', 'TS', 3, '没有封面（回退）']].map(([id, ini, ci, l]) => `<div style="width:220px;display:grid;gap:6px"><div style="border-radius:18px;overflow:hidden">${cover(id, ini, ci)}</div><small class="sp-note" style="margin:0">${l}</small></div>`).join('')}</div>
       <p class="sp-note">16:9，对应 coverBlob（裁剪器也是 16:9）。顺序：上传的封面图 → 介绍视频的海报帧（左上角标「视频封面」，列表里不播放）→ 回退：用头像色做浅渐变，铺一层淡淡的知识节点图案，右下角放头像的两个字。卡片里封面通栏，头像 44 压在封面下沿、带 3px 卡片色描边；收藏按钮放在封面右上角。Ree 页用 16:7 的大封面、84 的头像。搜索结果卡在右侧放 168 宽的小封面（手机隐藏），收藏行只用头像。</p></div>
-    <div class="sp-card"><h3>吸顶（Explore、以后的列表页）</h3><div class="rows">
-      <div class="rw rw2"><b>什么时候收起</b><span>往下滚过 160px 收起，回到 60px 以内展开（两个阈值，避免在边界来回抖）。</span></div>
-      <div class="rw rw2"><b>收起后</b><span>输入框变成单行（隐藏下面的提示行），和 Rees / 帖子标签、分类 chip、排序一起贴在顶部；背景 --bg 94% 加模糊和一道浅阴影。</span></div>
-      <div class="rw rw2"><b>手机</b><span>收起后两行：输入框 ~44px，一行标签和分类 ~36px；隐藏标签上的数字和排序，总高约 100px。</span></div>
-      <div class="rw rw2"><b>过渡</b><span>高度、内边距、阴影 250ms；开了减少动态效果时直接切换。</span></div></div></div>
+    <div class="sp-card"><h3>吸顶（所有页面共用一套规则）</h3><div class="rows">
+      <div class="rw rw2"><b>共同规则</b><span>吸顶区域只有一块：贴在页面最上沿，背景 --bg 94% 加模糊和一道浅阴影；站点顶栏不吸顶，不和吸顶区叠两层。收起和展开都用两个阈值（进入、退出各一个），避免在边界来回抖。高度、位移、阴影 250ms；开了减少动态效果时直接切换。手机上吸顶区不超过约 100px。</span></div>
+      <div class="rw rw2"><b>列表页（Explore）</b><span>往下滚过 160px 收起，回到 60px 以内展开。收起后输入框变单行（隐藏提示行），和 Rees / 帖子标签、分类、排序一起贴顶。手机：输入框 ~44px + 标签和分类一行 ~36px，隐藏标签数字和排序。</span></div>
+      <div class="rw rw2"><b>详情页（Ree 页）</b><span>封面和名字那一行滚出顶部时，顶部滑下一条 60px 的 Ree 条：re0 标志（回首页）、头像、名字、官方 / 认证标记、每次价格、「问它」；名字回到视野前 60px 收回。回答 / 评论 / 介绍标签贴在 Ree 条下面。「问它」把页面滚回提问框并把光标放进去，不另开第二个提问框。作者看到的是「你的 Ree」和「设置」，所有者条不吸顶。手机：Ree 条 54px（隐藏标志和官方标记，价格留着）+ 标签 ~44px。</span></div></div></div>
     <div class="sp-card"><h3>Ree 页头和提问框</h3><div style="max-width:760px;display:grid;gap:10px">
       <div class="rp-stats">${['1,214', '84%', '18', '37'].map((v, i) => `<div class="rs"><b>${v}</b><span>${RT.zh.stats[i]}</span></div>`).join('')}</div>
       <div class="box"><div class="box-row">${I('msg')}<label class="sr" for="spec-rq">示例提问框</label><textarea id="spec-rq" rows="1" placeholder="问 Singapore HR Basics 一个问题"></textarea></div><div class="bar"><div class="vis"><button class="on">${I('globe')} 公开问</button><button>${I('lock')} 私下问</button></div><span class="hint">每次 20 credits，没回答不收费</span><span class="sp"></span><button class="go">${I('send')} 问它</button></div></div></div>
@@ -1754,7 +1788,17 @@ let stickTick = false;
 window.addEventListener('scroll', () => {
   const el = document.getElementById('exStick');
   if (el) { const y = window.scrollY; if (y > 160) el.classList.add('stuck'); else if (y < 60) el.classList.remove('stuck'); }
+  syncReeBar();
 }, { passive: true });
+/* The Ree page's compact bar shows once the cover and the name row have scrolled under the top; it hides again a little before the name comes back. */
+function syncReeBar() {
+  const rp = document.querySelector('#app > .rp'), anchor = rp && rp.querySelector('.rp-id');
+  if (!rp || !anchor) return;
+  const top = document.getElementById('rc').offsetHeight, b = anchor.getBoundingClientRect().bottom;
+  const bar = document.getElementById('rpBar');
+  if (b < top + 4 && !rp.classList.contains('stuck')) { rp.classList.add('stuck'); bar.setAttribute('aria-hidden', 'false'); bar.querySelectorAll('[tabindex="-1"]').forEach(x => x.removeAttribute('tabindex')); }
+  else if (b > top + 60 && rp.classList.contains('stuck')) { rp.classList.remove('stuck'); bar.setAttribute('aria-hidden', 'true'); bar.querySelectorAll('a, button').forEach(x => x.setAttribute('tabindex', '-1')); }
+}
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.thumb')) e.target.click(); });
 function closeLang() { document.querySelectorAll('.lang.open').forEach(w => { w.classList.remove('open'); w.querySelector('.lang-btn')?.setAttribute('aria-expanded', 'false'); }); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.querySelector('.lang.open')) { const b = document.querySelector('.lang.open .lang-btn'); closeLang(); b?.focus(); } });
@@ -1768,6 +1812,7 @@ document.addEventListener('click', e => {
   if (a === 'theme') { ui.bLight = !ui.bLight; render(); }
   if (a === 'pause') { ui.paused = !ui.paused; render(); }
   if (a === 'toast') toast(t.dataset.msg);
+  if (a === 'askfocus') { const box = document.querySelector('#app .rp-ask'); if (box) { box.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'center' }); setTimeout(() => (box.querySelector('textarea') || box.querySelector('.go'))?.focus({ preventScroll: true }), reduced() ? 0 : 450); } }
   if (a === 'lang') { closeLang(); switchLang(t.dataset.lang); }
   if (a === 'langmenu') { const w = t.closest('.lang'), open = !w.classList.contains('open'); closeLang(); if (open) { w.classList.add('open'); t.setAttribute('aria-expanded', 'true'); w.querySelector('[aria-checked="true"]')?.focus(); } }
   if (a === 'budget') { const el = document.getElementById('budget-in'); if (el) { const v = parseInt(el.value.replace(/\D/g, ''), 10); if (v) ui.budget = Math.min(20000, Math.max(1000, v)); } ui.editBudget = !ui.editBudget; render(); }
