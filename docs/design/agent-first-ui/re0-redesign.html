@@ -993,6 +993,52 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   .qa-quote { grid-template-columns: 30px minmax(0, 1fr); }
   .qa-quote .ql { grid-column: 1 / -1; padding-top: 0; }
 }
+/* ---------- Sign in / sign up ---------- */
+.lg .veil { background: radial-gradient(ellipse 50% 70% at 50% 50%, rgba(247,248,252,.97) 0%, rgba(247,248,252,.9) 55%, rgba(247,248,252,.5) 85%, rgba(247,248,252,.2) 100%); }
+.lg .lk { display: inline-flex; gap: 5px; align-items: center; }
+.lg-wrap { width: min(440px, 100%); }
+.lg-card { position: relative; background: var(--card); border-radius: 28px; box-shadow: var(--sh-lg); padding: 28px 26px 22px; display: grid; gap: 14px; text-align: left; transition: opacity .2s; }
+.lg-card.is-loading > :not(.oa-list) { opacity: .55; }
+.lg-bub { width: 48px; height: 42px; border-radius: 18px 18px 18px 6px; background: var(--cor); color: #fff; display: grid; place-items: center; font: 900 22px var(--round); }
+.lg-bub svg.i { width: 22px; height: 22px; }
+.lg-card h1 { font-size: 26px; font-weight: 900; letter-spacing: -.4px; line-height: 1.25; }
+.lg-sub { font-size: 14px; font-weight: 600; color: var(--mut); margin-top: -6px; }
+.oa-list { display: grid; gap: 10px; }
+.oa { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; padding: 10px 16px; border-radius: 999px; background: var(--card); border: 2px solid var(--ln); font-weight: 900; font-size: 15px; color: var(--ink); transition: transform .15s, border-color .15s, box-shadow .15s; }
+.oa:not(:disabled):hover { transform: translateY(-1px); border-color: #cfd3e3; box-shadow: var(--sh-sm); }
+.oa:disabled { cursor: not-allowed; opacity: .5; }
+.oa.busy { opacity: 1; border-color: #ffc2b4; background: var(--cor-s); color: var(--cor-d); }
+.oa-ic { width: 20px; height: 20px; flex: none; }
+.spin { width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid currentColor; border-right-color: transparent; animation: spinr .8s linear infinite; flex: none; }
+@keyframes spinr { to { transform: rotate(360deg); } }
+.lg-gift { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; font-weight: 700; color: var(--mut); }
+.lg-terms { font-size: 12px; font-weight: 600; color: var(--mut); }
+.text-l { color: var(--cor-6); font-weight: 800; display: inline-flex; gap: 4px; align-items: center; }
+.text-l:hover { text-decoration: underline; text-underline-offset: 3px; }
+.text-l svg.i { width: 14px; height: 14px; }
+.lg-links { display: flex; gap: 6px 16px; flex-wrap: wrap; font-size: 13px; padding-top: 10px; border-top: 1px solid var(--ln); }
+/* what you were doing before signing in */
+.lg-cont { display: grid; gap: 8px; padding: 12px 14px; border-radius: 20px; background: var(--bg); border: 2px dashed #e1e4ef; }
+.lc-h { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.lc-h svg.i { color: var(--cor); }
+.lc-h b { font-weight: 900; }
+.lc-x { margin-left: auto; font-size: 12px; font-weight: 800; color: var(--mut); }
+.lc-x:hover { color: var(--ink); }
+.lg-cont .qb { justify-self: start; max-width: 100%; background: var(--ink); color: #fff; border-radius: 16px 16px 4px 16px; padding: 8px 12px; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+.lg-cont small { font-size: 12px; font-weight: 600; color: var(--mut); line-height: 1.55; }
+.code-chip { justify-self: start; display: inline-flex; gap: 8px; align-items: baseline; padding: 6px 12px; border-radius: 12px; background: var(--card); box-shadow: var(--sh-sm); font: 800 15px "JetBrains Mono", ui-monospace, monospace; letter-spacing: .04em; }
+.code-chip small { font: 700 11px var(--round); color: var(--mut); letter-spacing: 0; }
+.lg-inv { align-items: center; }
+.lg-inv .av { width: 32px; height: 32px; font-size: 10px; flex: none; }
+.lg-card.welcome { text-align: left; }
+.lg-full { width: 100%; justify-content: center; min-height: 46px; }
+.lg-l { font-size: 12px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; color: var(--mut); margin-bottom: -6px; }
+@media (max-width: 680px) {
+  .lg .h-mid { align-items: flex-start; padding-top: 16px; }
+  .lg-card { padding: 22px 18px 18px; border-radius: 24px; }
+  .lg-card h1 { font-size: 22px; }
+  .lg-bub { width: 42px; height: 36px; font-size: 19px; }
+}
 </style>
 
 <header class="rc" id="rc"></header>
@@ -1100,9 +1146,9 @@ const DIRS = {
   c: { name: '贴纸', en: 'Sticker', cls: 'dC' }
 };
 const STATES = [['out', '未登录'], ['out-ask', '未登录 · 提问'], ['out-cmd', '未登录 · 输入指令'], ['in', '已登录'], ['ask', '提问'], ['cmd', '指令 · 有相关 Ree'], ['cmd-new', '指令 · 仍然新建'], ['unclear', '意图不明']];
-const PAGES = [['index', '说明'], ['spec', '设计规范'], ['home', '首页'], ['explore', 'Explore'], ['ree', 'Ree 页'], ['qa', '提问和回答']];
+const PAGES = [['index', '说明'], ['spec', '设计规范'], ['home', '首页'], ['explore', 'Explore'], ['ree', 'Ree 页'], ['qa', '提问和回答'], ['login', '登录 / 注册']];
 const EX_STATES = [['browse', '默认浏览'], ['browse-out', '未登录'], ['cat', '按分类筛选'], ['search', '搜索有结果'], ['search-out', '未登录 · 搜索'], ['empty', '搜索无结果'], ['empty-build', '无结果 · 让 re0 建'], ['cmd', '指令'], ['posts', '帖子 · 为你推荐'], ['posts-un', '帖子 · 待回答'], ['loading', '加载中']];
-const statesFor = page => page === 'explore' ? EX_STATES : page === 'ree' ? RP_STATES : page === 'qa' ? Q_STATES : STATES;
+const statesFor = page => page === 'explore' ? EX_STATES : page === 'ree' ? RP_STATES : page === 'qa' ? Q_STATES : page === 'login' ? L_STATES : STATES;
 const ui = { bLight: false, paused: false, budget: 5000, editBudget: false, ph: 0, lang: 'zh' };
 try { const wn = /re0-lang:(zh|en)/.exec(window.name || ''); const saved = localStorage.getItem('re0-lang') || (wn && wn[1]); ui.lang = saved === 'en' || saved === 'zh' ? saved : ((navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'); } catch (e) { const wn = /re0-lang:(zh|en)/.exec(window.name || ''); ui.lang = wn ? wn[1] : ((navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'); }
 let route = { page: 'index', state: 'out' };
@@ -1263,7 +1309,7 @@ function cardFor(d, st, L, matches, signedIn, pg) {
   } else if (typed === 'cmd') {
     card = `<div class="sug" role="region" aria-label="${L.outT}">
       <div class="sug-h"><span class="sug-ic">${I('door')}</span><div><b>${L.outT}</b><p>${L.outP}</p></div></div>
-      <div class="sug-acts"><a class="bt1" href="#">${I('door')} ${L.outBtn}</a><button class="bt2" data-go="${pg}" data-state="${askSt}">${I('msg')} ${L.notQ}</button></div></div>`;
+      <div class="sug-acts"><a class="bt1" href="#login-agent">${I('door')} ${L.outBtn}</a><button class="bt2" data-go="${pg}" data-state="${askSt}">${I('msg')} ${L.notQ}</button></div></div>`;
   } else if (typed === 'unclear') {
     card = `<div class="two">
       <button class="opt" data-go="${pg}" data-state="${askSt}"><b>${I('search')} ${L.o1[0]}</b><span>${L.o1[1]}</span><span class="go-l">${L.o1[2]} ${I('arrow')}</span></button>
@@ -1276,7 +1322,7 @@ function topBar(d, L, signedIn, lm, active) {
     ? `<nav class="h-top">${brand(d)}<span class="sp"></span><a class="lk wide ${active === 'rees' ? 'on' : ''}" href="#explore-browse">${L.rees}</a><a class="lk wide" href="#">${L.mine}</a>${lm}
         <a class="ib" href="#" aria-label="${L.tasks}">${I('spark')}<span class="dot"></span></a>
         <a class="ib" href="#" aria-label="${L.notif}">${I('bell')}<span class="cnt">3</span></a><a class="me" href="#" aria-label="${L.me}">LW</a></nav>`
-    : `<nav class="h-top">${brand(d)}<span class="sp"></span><a class="lk wide ${active === 'rees' ? 'on' : ''}" href="#explore-browse-out">${L.rees}</a><a class="lk wide" href="#">${L.pricing}</a><a class="lk wide" href="#">${L.about}</a>${lm}<a class="b2" href="#">${L.login}</a><a class="b1" href="#">${L.signup}</a></nav>`;
+    : `<nav class="h-top">${brand(d)}<span class="sp"></span><a class="lk wide ${active === 'rees' ? 'on' : ''}" href="#explore-browse-out">${L.rees}</a><a class="lk wide" href="#">${L.pricing}</a><a class="lk wide" href="#">${L.about}</a>${lm}<a class="b2" href="#login-default">${L.login}</a><a class="b1" href="#login-default">${L.signup}</a></nav>`;
 }
 function home(d, st, preview = false, lang = ui.lang) {
   const D = DIRS[d], L = d === 'a' ? T[lang] : T.zh, en = d === 'a' && lang === 'en';
@@ -1296,7 +1342,7 @@ function home(d, st, preview = false, lang = ui.lang) {
   if (typed === 'ask') {
     const acts = signedIn
       ? `<button class="act p" data-act="toast" data-msg="${L.tPub}"><b>${I('globe')} ${L.pub[0]}</b><small>${L.pub[1]}</small></button><button class="act" data-act="toast" data-msg="${L.tPriv}"><b>${I('lock')} ${L.priv[0]}</b><small>${L.priv[1]}</small></button>`
-      : `<a class="act p" href="#"><b>${I('door')} ${L.loginAsk[0]}</b><small>${L.loginAsk[1]}</small></a><a class="act" href="#"><b>${I('compass')} ${L.browse[0]}</b><small>${L.browse[1]}</small></a>`;
+      : `<a class="act p" href="#login-ask"><b>${I('door')} ${L.loginAsk[0]}</b><small>${L.loginAsk[1]}</small></a><a class="act" href="#"><b>${I('compass')} ${L.browse[0]}</b><small>${L.browse[1]}</small></a>`;
     drop = `<div class="drop"><div class="sec"><span>${L.canAnswer}</span><button class="see-all" data-go="explore" data-state="${signedIn ? 'search' : 'search-out'}">${L.seeAll} ${I('arrow')}</button></div>${matches.filter(m => signedIn || m[4] || !/你的|Yours/.test(m[3])).map(row).join('')}<div class="acts">${acts}</div></div>`;
   }
   const box = `<div class="box">
@@ -1526,7 +1572,7 @@ function explore(st, lang = ui.lang) {
     if (base === 'cmd' || base === 'cmd-new') body = cardFor('a', base, L, en ? MATCHES_EN : MATCHES, signedIn, 'explore');
     else if (base === 'search') {
       const S = XSEARCH[lang];
-      const rt = `<div class="rt"><span class="sug-ic">${I('users')}</span><div class="rt-t"><b>${X.rtT(3)}</b><small>${X.rtP(3, 60)}</small></div><span class="sp"></span>${signedIn ? `<button class="bt1 sm" data-act="toast" data-msg="${X.tRt}">${I('msg')} ${X.rtBtn}</button><button class="bt2 sm" data-act="toast" data-msg="${L.tPub}">${I('globe')} ${X.rtPub}</button>` : `<a class="bt1 sm" href="#">${I('door')} ${X.rtLogin}</a>`}</div>`;
+      const rt = `<div class="rt"><span class="sug-ic">${I('users')}</span><div class="rt-t"><b>${X.rtT(3)}</b><small>${X.rtP(3, 60)}</small></div><span class="sp"></span>${signedIn ? `<button class="bt1 sm" data-act="toast" data-msg="${X.tRt}">${I('msg')} ${X.rtBtn}</button><button class="bt2 sm" data-act="toast" data-msg="${L.tPub}">${I('globe')} ${X.rtPub}</button>` : `<a class="bt1 sm" href="#login-ask">${I('door')} ${X.rtLogin}</a>`}</div>`;
       body = `<div class="shead"><b>${esc(X.searchHead(S.q.split(/[？?]/)[0] + (en ? '?' : '？'), S.total))}</b><small>${X.searchNote}</small></div>${rt}<div class="mlist">${S.hits.map((h, i) => matchCard(h, i, X, lang, signedIn)).join('')}</div>`;
     } else {
       const build = base === 'empty-build' && signedIn
@@ -1639,7 +1685,7 @@ function reePage(st, lang = ui.lang) {
     ? `<div class="rp-ask"><div class="box"><div class="box-row">${I('msg')}<label class="sr" for="rpq">${R.askLbl(C.n)}</label><textarea id="rpq" rows="2" placeholder="${esc(R.askPh(C.n))}"></textarea></div>
         <div class="bar"><div class="vis" role="radiogroup" aria-label="${en ? 'Who can see it' : '谁能看到'}"><button role="radio" aria-checked="true" class="on" title="${R.pub[1]}">${I('globe')} ${R.pub[0]}</button><button role="radio" aria-checked="false" title="${R.priv[1]}">${I('lock')} ${R.priv[0]}</button></div><span class="hint">${own ? R.ownerPrice : R.priceLine(D.fee)}</span><span class="sp"></span><button class="go" data-act="toast" data-msg="${R.tAsk}">${I('send')} ${R.send}</button></div></div>
         <div class="chips left"><span class="try">${R.tryHint}</span>${C.samples.map(q => `<button class="chip" data-act="toast" data-msg="${R.tAsk}">${I('msg')} ${esc(q)}</button>`).join('')}</div></div>`
-    : `<div class="rp-ask"><div class="box out"><div class="box-row">${I('msg')}<span class="out-t">${esc(R.askPh(C.n))}</span></div><div class="bar"><span class="hint">${R.loginHint}</span><span class="sp"></span><a class="go" href="#">${I('door')} ${R.loginAsk}</a></div></div>
+    : `<div class="rp-ask"><div class="box out"><div class="box-row">${I('msg')}<span class="out-t">${esc(R.askPh(C.n))}</span></div><div class="bar"><span class="hint">${R.loginHint}</span><span class="sp"></span><a class="go" href="#login-ask">${I('door')} ${R.loginAsk}</a></div></div>
         <div class="chips left"><span class="try">${R.tryHint}</span>${C.samples.map(q => `<a class="chip" href="#">${I('msg')} ${esc(q)}</a>`).join('')}</div></div>`;
   const tabs = `<div class="ptabs left" role="tablist">${R.tabs.map((t, i) => `<button role="tab" aria-selected="${i === tab}" class="${i === tab ? 'on' : ''}" data-go="ree" data-state="${i === 1 ? 'comments' : i === 2 ? 'intro' : (key === 'user' ? (signedIn ? 'user' : 'out') : key)}">${t}${i === 1 ? ` <span class="cnt">3</span>` : ''}</button>`).join('')}</div>`;
   let content;
@@ -1827,7 +1873,7 @@ function qaPage(st, lang = ui.lang) {
       <div class="two"><button class="opt" data-act="qafocus"><b>${I('pen')} ${X.rephrase[0]}</b><span>${X.rephrase[1]}</span></button><button class="opt" data-go="home" data-state="cmd-new"><b>${I('wand')} ${X.build[0]}</b><span>${X.build[1]}</span></button></div></section>`;
   if (th.own && !th.priv && !th.gen && !th.ai && !th.paid) body += `<div class="qa-sum">${I('users')}<span><b>${X.summaryT}</b><small>${X.summaryHint(th.rounds[0].answers.length)}</small></span><span class="sp"></span><button class="bt2 sm" data-act="toast" data-msg="${X.t.summary}">${X.summaryGo}</button></div>`;
   const named = st === 'follow' ? '' : '';
-  const compose = !signedIn ? `<div class="qa-compose out"><div class="sug-h"><span class="sug-ic">${I('door')}</span><div><b>${X.visT}</b><p>${X.visB}</p></div></div><a class="bt1" href="#">${I('door')} ${X.visBtn}</a></div>`
+  const compose = !signedIn ? `<div class="qa-compose out"><div class="sug-h"><span class="sug-ic">${I('door')}</span><div><b>${X.visT}</b><p>${X.visB}</p></div></div><a class="bt1" href="#login-ask">${I('door')} ${X.visBtn}</a></div>`
     : th.gen ? '' : `<div class="qa-compose"><div class="box compact"><div class="box-row">${I('msg')}<label class="sr" for="qafu">${X.send}</label><textarea id="qafu" rows="1" placeholder="${esc(th.priv ? X.compPhPriv : th.ai ? X.compPhAi : X.compPh)}"></textarea><button class="go" data-act="toast" data-msg="${X.t.send}">${I('send')}<span class="go-t">${X.send}</span></button></div>
       <div class="bar"><button class="chip sm-chip" data-act="qaat">${X.at}</button>${th.priv ? `<button class="chip sm-chip" data-act="toast" data-msg="${X.t.menu}">${I('plus')} ${X.addRee}</button>` : ''}<span class="hint">${th.ai ? X.aiCost : th.priv ? X.costPriv : X.costAll(3)}</span></div></div></div>`;
   const railRees = (th.priv ? th.chosen : th.rounds.length ? [...new Set(th.rounds.flatMap(r => r.answers.map(a => a.id)))] : th.rec || []).map(id => `<a class="mini-r" href="#ree-user">${avatar('a', QREES[id][1], QREES[id][2])}<span><b>${esc(qreeName(id, lang))}</b><small>${X.priceEach(20 + QREES[id][4])}</small></span></a>`).join('');
@@ -1837,7 +1883,7 @@ function qaPage(st, lang = ui.lang) {
   const cost = th.own ? X.spent(th.spent) : X.followPrice;
   const bar = `<div class="rp-bar" id="rpBar" aria-hidden="true"><div class="rb-in"><a class="rb-home" href="#home-in" tabindex="-1" aria-label="re0"><span class="bub">0</span></a>
       <div class="rb-id"><b>${esc(th.q.text)}</b><small>${vis}<span class="rb-p">${cost}</span></small></div><span class="sp"></span>
-      ${signedIn && !th.gen ? `<button class="bt1 sm" tabindex="-1" data-act="qafocus">${I('msg')} ${X.jump}</button>` : !signedIn ? `<a class="bt1 sm" tabindex="-1" href="#">${I('door')} ${X.visBtn}</a>` : ''}</div></div>`;
+      ${signedIn && !th.gen ? `<button class="bt1 sm" tabindex="-1" data-act="qafocus">${I('msg')} ${X.jump}</button>` : !signedIn ? `<a class="bt1 sm" tabindex="-1" href="#login-ask">${I('door')} ${X.visBtn}</a>` : ''}</div></div>`;
   const foot = `<div class="h-foot"><span>${L.privacy}</span><span>${L.terms}</span></div>`;
   return `<section class="dA rp qa ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}">${bar}${top}<div class="rp-in"><div class="qa-grid"><div class="qa-main">${qblock}${metaLine}${body}${compose}</div>${rail}</div></div>${foot}</section>`;
 }
@@ -1865,6 +1911,58 @@ function closeCite() {
   openCite.from?.focus?.();
 }
 
+/* -------- Sign in / sign up /login (zh / en) -------- */
+const LX = {
+  zh: { title: '登录或注册', hello: '你好，新的知识伙伴', sub: '用 Google 或 GitHub 继续。第一次登录就是注册。', google: '使用 Google 继续', github: '使用 GitHub 继续', going: p => `正在前往 ${p}…`,
+    gift: n => `${n} credits`, giftText: '新用户注册礼，给第一个好问题。', terms: ['继续即表示同意', '服务条款', '与', '隐私政策', '。'], explore: '先看看 Rees', back: '返回首页',
+    cont: '登录后继续', contAsk: '回到刚才的 Explore 搜索结果，问题已经填好。要你再点一次才会发出：发帖不收费，每个回答 20 credits。', contAgent: '回到首页的建议卡，预算上限 5,000 credits，第一次平台请客。要你点「开始建 Ree」才会开始。', contRedeem: '登录后打开「余额」页，兑换码已经填好，你确认后才兑换。', contClear: '不用了',
+    askText: '新加坡试用期最长多久？试用期也有年假吗？', agentText: '帮我做一个讲新加坡雇佣法的 Ree，用官方来源，中英文都能问', redeemCode: 'RE0-SPRING-7Q2K', redeemL: '兑换码',
+    invited: n => `${n} 邀请你加入 RE0`, invitedBody: '用新账号注册，即计入这份邀请。', inviteBad: '邀请链接无效，你仍然可以正常注册。',
+    errCancel: '你取消了授权。可以换一种方式，或者再试一次。', errDisabled: '这个账号已停用。如果你觉得是误会，请写信给 support@re0.io。', errOther: '其他情况：登录没有完成 / 账号没有已验证的邮箱 / 登录服务暂时不可用，都用同一个位置提示。',
+    wT: n => `欢迎来到 re0，${n}`, wGift: n => `注册礼 ${n} credits 已经到账`, wInvite: n => `${n} 的邀请已计入`, wNext: '接下来', wBack: '回到刚才的问题', wBackHint: '问题已经填好，点发送就会提问。', wTour: '先逛逛 Rees', wBuild: '或者，让 re0 帮你建第一个 Ree',
+    t: { go: '原型：会跳转到授权页', clear: '原型：清掉刚才的内容，登录后回首页', back: '原型：回到刚才的页面', link: '原型：打开链接' } },
+  en: { title: 'Sign in or sign up', hello: 'Hello, knowledge companion', sub: 'Continue with Google or GitHub. Your first sign-in creates your account.', google: 'Continue with Google', github: 'Continue with GitHub', going: p => `Taking you to ${p}…`,
+    gift: n => `${n} credits`, giftText: 'A welcome gift for your first good question.', terms: ['By continuing, you accept our', 'Terms', 'and', 'Privacy', '.'], explore: 'Browse Rees first', back: 'Back home',
+    cont: 'After you sign in', contAsk: 'You go back to your Explore results with the question filled in. It only goes out when you press Send: posting is free, each answer is 20 credits.', contAgent: 'You go back to the suggestion card on the home page: budget cap 5,000 credits, and your first build is on us. Nothing starts until you press Start building.', contRedeem: 'You land on the Balance page with the code filled in; it’s only redeemed when you confirm.', contClear: 'Never mind',
+    askText: 'How long can probation last in Singapore? Do I get annual leave during it?', agentText: 'Build me a Ree on Singapore employment law, official sources only, answers in English and Chinese', redeemCode: 'RE0-SPRING-7Q2K', redeemL: 'Redeem code',
+    invited: n => `${n} invited you to RE0`, invitedBody: 'Sign up with a new account and the invitation counts.', inviteBad: 'This invite link isn’t valid. You can still sign up as usual.',
+    errCancel: 'You cancelled the authorization. Try again, or use the other option.', errDisabled: 'This account is disabled. If you think that’s a mistake, write to support@re0.io.', errOther: 'Other cases (sign-in didn’t complete, no verified email, the service is down) use the same spot.',
+    wT: n => `Welcome to re0, ${n}`, wGift: n => `Your ${n}-credit welcome gift is in`, wInvite: n => `${n}’s invitation counted`, wNext: 'Next', wBack: 'Back to your question', wBackHint: 'It’s filled in; press Send to ask.', wTour: 'Browse Rees', wBuild: 'Or have re0 build your first Ree',
+    t: { go: 'Prototype: goes to the authorization page', clear: 'Prototype: drops the draft and returns home after sign-in', back: 'Prototype: returns to the page you came from', link: 'Prototype: opens the link' } }
+};
+const L_STATES = [['default', '默认'], ['ask', '从提问过来'], ['agent', '从「让 re0 做」过来'], ['invite', '带邀请码'], ['redeem', '带兑换码'], ['loading', '登录中'], ['cancel', '取消授权'], ['disabled', '账号已停用'], ['welcome', '首次登录后（建议新增）']];
+const GOOGLE_G = '<svg viewBox="0 0 24 24" aria-hidden="true" class="oa-ic"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5a5.6 5.6 0 0 1-2.4 3.6v3h3.9c2.3-2.1 3.5-5.2 3.5-8.8z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-2.9l-3.9-3a7.2 7.2 0 0 1-10.7-3.8H1.4v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.4 14.3a7.2 7.2 0 0 1 0-4.6V6.6h-4a12 12 0 0 0 0 10.8z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.4 6.6l4 3.1A7.2 7.2 0 0 1 12 4.8z"/></svg>';
+const GITHUB_I = '<svg viewBox="0 0 24 24" aria-hidden="true" class="oa-ic"><path fill="currentColor" d="M12 .5a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A11.5 11.5 0 0 0 12 .5z"/></svg>';
+function loginPage(st, lang = ui.lang) {
+  const L = T[lang], X = LX[lang], en = lang === 'en';
+  const lm = langMenu(lang);
+  const top = `<nav class="h-top lg-top"><a class="brand" href="#home-out"><span class="bub">0</span>re0</a><span class="sp"></span><a class="lk wide" href="#home-out">${I('back')} ${X.back}</a>${lm}</nav>`;
+  let card;
+  if (st === 'welcome') {
+    card = `<div class="lg-card welcome" role="dialog" aria-labelledby="lgw"><span class="lg-bub">${I('gift')}</span><h1 id="lgw">${X.wT('Lin Wei')}</h1>
+      <div class="lg-gift"><span class="badge ok">${I('check')} ${X.wGift(fmt(100000))}</span><span class="badge info">${I('users')} ${X.wInvite('Mia Chen')}</span></div>
+      <p class="lg-l">${X.wNext}</p>
+      <div class="lg-cont"><span class="qb">${esc(X.askText)}</span><small>${X.wBackHint}</small></div>
+      <button class="bt1 lg-full" data-go="explore" data-state="search">${I('msg')} ${X.wBack}</button>
+      <div class="lg-links"><a class="text-l" href="#explore-browse">${X.wTour}</a><a class="text-l" href="#home-cmd">${I('wand')} ${X.wBuild}</a></div></div>`;
+  } else {
+    const loading = st === 'loading';
+    const cont = st === 'ask' ? ['msg', X.askText, X.contAsk] : st === 'agent' ? ['wand', X.agentText, X.contAgent] : st === 'redeem' ? ['gift', null, X.contRedeem] : null;
+    const contBlock = cont ? `<div class="lg-cont" role="note"><div class="lc-h">${I(cont[0])} <b>${X.cont}</b><button class="lc-x" data-act="toast" data-msg="${X.t.clear}">${X.contClear}</button></div>
+        ${cont[1] ? `<span class="qb">${esc(cont[1])}</span>` : `<span class="code-chip"><small>${X.redeemL}</small>${X.redeemCode}</span>`}<small>${cont[2]}</small></div>` : '';
+    const invite = st === 'invite' ? `<div class="note n-info lg-inv">${avatar('a', 'MC', 4)}<span><b>${X.invited('Mia Chen')}</b><br>${X.invitedBody}</span></div>` : '';
+    const err = st === 'cancel' ? `<div class="note n-warn" role="alert">${I('clock')}<span>${X.errCancel}</span></div>` : st === 'disabled' ? `<div class="note n-err" role="alert">${I('x')}<span>${X.errDisabled}</span></div>` : '';
+    const btn = (p, ic, label) => `<button class="oa ${loading && p === 'Google' ? 'busy' : ''}" ${loading ? 'disabled' : ''} data-act="toast" data-msg="${X.t.go}">${loading && p === 'Google' ? `<span class="spin" aria-hidden="true"></span>${X.going(p)}` : `${ic}${label}`}</button>`;
+    card = `<div class="lg-card ${loading ? 'is-loading' : ''}" ${loading ? 'aria-busy="true"' : ''}><span class="lg-bub">0</span><h1>${X.hello}</h1><p class="lg-sub">${X.sub}</p>
+      ${invite}${contBlock}${err}
+      <div class="oa-list">${btn('Google', GOOGLE_G, X.google)}${btn('GitHub', GITHUB_I, X.github)}</div>
+      <div class="lg-gift"><span class="badge ok">${I('gift')} ${X.gift(fmt(100000))}</span><small>${X.giftText}</small></div>
+      <p class="lg-terms">${X.terms[0]} <a class="text-l" href="#">${X.terms[1]}</a> ${X.terms[2]} <a class="text-l" href="#">${X.terms[3]}</a>${X.terms[4]}</p>
+      <div class="lg-links"><a class="text-l" href="#explore-browse-out">${X.explore} ${I('arrow')}</a></div></div>`;
+  }
+  return `<section class="h dA lg ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}"><div class="wall" aria-hidden="true">${wallA(en ? 'en' : 'zh')}</div><div class="veil"></div>${top}<div class="h-mid"><div class="lg-wrap">${card}</div></div><div class="h-foot"><span>${L.privacy}</span><span>${L.terms}</span></div></section>`;
+}
+
 /* -------- index -------- */
 function indexPage() {
   const tbd = [
@@ -1883,6 +1981,12 @@ function indexPage() {
     ['Ree 页的标签', '沿用现在的三块：回答（它回答过的帖子）、评论、介绍（视频、可以问这些、知识概况、作者和作者的其他 Ree）。默认打开「回答」。'],
     ['Ree 页的提问框', '只问这个 Ree：公开问 / 私下问切换，价格写在旁边；不做意图判断。作者想改 Ree 用所有者条里的「告诉 re0 要改什么」（第二期才开）。'],
     ['视频介绍', '封面可以取自视频的海报帧；视频本身只在 Ree 页「介绍」里播放，列表和页头都不自动播放。'],
+    ['登录方式', '照现状只有 Google 和 GitHub，第一次登录就是注册，不加邮箱和密码。'],
+    ['登录后带回刚才的内容', '未登录时输入的问题或指令先存在这个浏览器里（sessionStorage），链接只带 returnTo，不把问题本身放进 URL（避免出现在日志和分享链接里）。登录后回到原页面并恢复内容，不会自动发出或自动开始：提问要再点一次发送，建 Ree 要再点「开始建 Ree」。卡上有「不用了」可以丢掉草稿。'],
+    ['首次登录的欢迎卡', '线上没有，建议新增：只出现一次，告诉新用户注册礼已到账、邀请已计入，并给三个去处（回到刚才的问题、逛逛 Rees、让 re0 建第一个 Ree）。不想加的话直接回到原页面即可。'],
+    ['管理员登录入口', '线上登录卡上有「管理员登录」链接；改版后从公开登录卡上去掉，只能直接打开 /admin/login，后台改版时再定。'],
+    ['兑换码', '照现状：/redeem?code= 跳到余额页并填好兑换码；没登录时先来这里，卡上显示「登录后兑换」和兑换码，登录后要确认才兑换，登录卡上不直接兑换。'],
+    ['邀请码', '照现状：?invite= 带过授权流程，只有新账号才计入；老账号登录时不提示；链接无效时显示一句「邀请链接无效，你仍然可以正常注册」。'],
     ['对话页的地址', '公开帖子和私密提问都用 /p/[id]，私密的只有本人能打开；旧的 /chats、/talk 继续跳转。'],
     ['追问框不识别「让 re0 做」', '对话页底部的框默认就是追问，不做意图判断。帖子里的追问常以「帮我……」开头（「帮我算一下加班费」），在这里猜意图误判多、代价是多收一次钱或少答一次。需要建 Ree 的地方（没人回答时）直接给一个明确的「让 re0 建一个讲这个的 Ree」按钮，点了跳到首页的建议卡。'],
     ['引用和出处面板', '回答里的 [n] 和首页气泡墙、Explore 匹配卡用同一种样式；点开后桌面从右侧滑出、手机从底部弹出，只显示 Ree 回答时引用的那一段（前后各带一句），不显示完整来源；作者另有入口打开来源。'],
@@ -1904,9 +2008,9 @@ function indexPage() {
     ['首页', '已定稿。一个输入框，背景是问答气泡墙，三个统计数；问问题和让 re0 做事都从这里开始。', 'done'],
     ['Explore', '已按反馈修改：卡片加封面（图片 / 视频海报 / 回退），往下滚时输入框收成单行，和标签、分类一起吸顶。', 'done'],
     ['Ree 页', '已定稿。大封面 + 头像，介绍、标签、四个数字；「问它」的提问框；回答 / 评论 / 介绍三个标签；右栏价格卡和相关 Ree；作者看到所有者条；滚动时 Ree 条和标签吸顶。', 'done'],
-    ['提问和回答', '本轮，等确认。公开帖子和私密提问合成一种对话页：问题、各 Ree 的回答和 [n] 引用（点开看出处），追问框在底部；长回答用文章排版。', 'now'],
-    ['登录 / 注册', '下一页。沿用首页的气泡墙做背景，中间一张登录卡。', 'next'],
-    ['我的 Ree + 任务', '顶部是同一个合并输入框（预填「帮我建一个关于……的 Ree」），下面是我的 Ree 和进行中的任务。'],
+    ['提问和回答', '已定稿。公开帖子和私密提问合成一种对话页：问题、各 Ree 的回答和 [n] 引用（点开看出处），追问框在底部；长回答用文章排版。', 'done'],
+    ['登录 / 注册', '本轮，等确认。首页的气泡墙做背景，中间一张登录卡：Google / GitHub、刚才输入的内容、邀请、注册礼、条款。', 'now'],
+    ['我的 Ree + 任务', '下一页。顶部是同一个合并输入框（预填「帮我建一个关于……的 Ree」），下面是我的 Ree 和进行中的任务。', 'next'],
     ['知识库', '来源列表加「交给 re0」输入框，页面变成查看和撤销的地方。'],
     ['Ree 设置 / 统计', '设置、定价、统计合成一页，统计用一句话解释趋势。'],
     ['通知 / 活动 / Agent 活动', '合成一个时间线：要你处理的、re0 做了什么、别人问了你的 Ree。'],
@@ -1942,6 +2046,11 @@ function indexPage() {
         <p>公开帖子（/p/[id]）和私密提问合成一种对话页（/chats 已退役，私密提问本来就是私密帖子）。覆盖现有功能：公开和私密、每个 Ree 的回答和编号引用、AI 通用回答、生成中、付费 Ree 等你同意、追问、@ 某个 Ree、加 Ree、有帮助、收藏、转为公开、置顶 / 归档 / 改名、删除追问、匿名、引用、分享、圆桌总结、没人回答时推荐 Ree。</p>
         <div class="changed"><b>10 个状态</b><span>他人的公开帖子、自己的公开帖子、私密多 Ree 对话、回答生成中、付费 Ree 等你同意、没有 Ree 能回答、长回答（文章排版）、追问之后、未登录查看，以及出处面板。中英文各一套。</span></div>
         <a class="open" data-go="qa" data-state="cite" href="#qa-cite">看出处面板 ${I('arrow')}</a></div></div>
+    <div class="hero-thumb" style="margin-top:16px"><div class="thumb big" role="link" tabindex="0" data-go="login" data-state="ask" aria-label="打开登录 / 注册"><div class="scale" aria-hidden="true" inert>${loginPage('ask', 'zh')}</div></div>
+      <div class="dir-b"><h3>登录 / 注册 · 第 5 页 <span class="new">本轮，等确认</span></h3>
+        <p>照线上现状：只有 Google 和 GitHub 两种登录，第一次登录就是注册；登录后回到原来的页面（returnTo）；邀请链接（?invite=）带过整个授权流程，只有新账号才计入；卡上显示注册礼和条款；5 种错误提示。新增：未登录时在首页、Explore、对话页输入的问题或指令，登录卡上会显示「登录后继续：……」，登录后回去接着做。</p>
+        <div class="changed"><b>9 个状态</b><span>默认、从提问过来、从「让 re0 做」过来、带邀请码、带兑换码、登录中、取消授权、账号已停用、首次登录后的欢迎卡（线上没有，建议新增）。中英文各一套。</span></div>
+        <a class="open" data-go="login" data-state="agent" href="#login-agent">看「让 re0 做」过来的样子 ${I('arrow')}</a></div></div>
     <h2>暂定，等用户确认</h2><div class="rows q">${tbd.map(([k, v]) => `<div class="rw rw2"><b>${k} <span class="tbd">暂定</span></b><span>${v}</span></div>`).join('')}</div>
     <h2>合并后的输入框</h2>
     <div class="intents">${intents.map(([k, q, v, s]) => `<div class="c"><b>${k}</b><q>${q}</q><span>${v}</span><a data-go="home" data-state="${s}" href="#home-${s}">看这个状态 ${I('arrow')}</a></div>`).join('')}</div>
@@ -2093,6 +2202,11 @@ function specPage() {
     <div class="sp-card"><h3>回答：气泡还是文章</h3><p class="sp-note" style="margin-top:0">短回答（不超过 3 段，没有标题和列表）用白色回答气泡，左上角 4px，左边对齐头像。长回答（超过 3 段，或有标题、列表、表格）改用文章卡：圆角 20、内边距 18 × 22、标题 16.5/900、行高 1.8。两种都在下面放出处和操作：有帮助、没帮助、复制、引用、继续问它、举报。生成中：已经写出的文字后面跟一根闪烁的珊瑚色光标；还没开始的 Ree 显示虚线空气泡和三个点。</p></div>
     <div class="sp-card"><h3>AI 通用回答、付费等你同意</h3><p class="sp-note" style="margin-top:0">AI 通用回答用虚线头像和虚线气泡，标「无出处 · 仅供参考」，和 Ree 的回答明显不同；下面紧跟「想要有出处的回答？」：推荐可能知道的 Ree（请它回答，按它的价格）、换个说法、让 re0 建一个讲这个的 Ree。付费 Ree 的等待卡用黄色虚线框，只有发帖人看得到，每行一个 Ree：价格、同意并回答、不需要。</p></div>
     <div class="sp-card"><h3>底部追问框</h3><p class="sp-note" style="margin-top:0">合并输入框的紧凑型，固定在对话页底部（sticky）。默认是追问，不识别「让 re0 做」。下面一行：@ 指定 Ree（只问它）、私密提问里多一个「加 Ree」，右边写价格。未登录时换成「想接着问？登录后追问」卡片。追问一轮用分隔线「第 n 轮 · 按相关度 / 只请被 @ 的 Ree」，提问人的追问是右对齐的深色气泡，自己的追问可以删除。</p></div>
+    <h2>登录组件</h2>
+    <div class="sp-card"><h3>登录卡</h3><div class="grid2">
+      <div class="oa-list" style="max-width:380px"><button class="oa" tabindex="-1">${GOOGLE_G}使用 Google 继续</button><button class="oa" tabindex="-1">${GITHUB_I}使用 GitHub 继续</button><button class="oa busy" tabindex="-1"><span class="spin" aria-hidden="true"></span>正在前往 Google…</button></div>
+      <div class="lg-cont"><div class="lc-h">${I('msg')} <b>登录后继续</b><span class="lc-x">不用了</span></div><span class="qb">新加坡试用期最长多久？</span><small>回到刚才的页面，问题已经填好；要你再点一次才会发出。</small></div></div>
+      <p class="sp-note">白色大卡，圆角 28、--sh-lg，最宽 440，放在首页气泡墙上（中间加一层更浓的白色遮罩）。登录按钮是白底全圆角、2px 浅描边、高 48，图标用各家官方的标志；点了以后这一颗变成珊瑚浅底加转圈「正在前往 Google…」，其余变灰不能点。「登录后继续」是浅底虚线框，里面放刚才输入的内容（问题 / 指令用提问气泡，兑换码用等宽字），说明登录后会发生什么，并能「不用了」。邀请用信息提示条加邀请人头像；错误用提示条：取消授权（警告色）、账号停用（错误色），其余几种（登录没有完成、没有已验证的邮箱、服务暂时不可用）用同一个位置。注册礼用成功色徽章。首次登录后的欢迎卡同样大小，一次性。</p></div>
     <h2>文案语气</h2><div class="sp-card"><div class="rows">
       <div class="rw rw2"><b>口语、短句</b><span>「随便问，每句回答都带出处」「第一次平台请客」「不，我是在提问」。用「你」，不用「您」。</span></div>
       <div class="rw rw2"><b>花钱的事说清楚</b><span>凡是要花 credits 的按钮旁边都写上限和「没用完的退回」或「不点不花钱」。</span></div>
@@ -2102,10 +2216,10 @@ function specPage() {
 
 /* -------- chrome & render -------- */
 function chrome() {
-  const tabs = PAGES.map(([k, l]) => `<button class="rc-tab" data-go="${k}" ${k === route.page && ['home', 'explore', 'ree', 'qa'].includes(k) ? `data-state="${route.state}"` : ''} ${route.page === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
+  const tabs = PAGES.map(([k, l]) => `<button class="rc-tab" data-go="${k}" ${k === route.page && ['home', 'explore', 'ree', 'qa', 'login'].includes(k) ? `data-state="${route.state}"` : ''} ${route.page === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
   const pg = route.page;
-  const states = !['home', 'explore', 'ree', 'qa'].includes(pg) ? '' : `<div class="rc-row"><span class="rc-label">状态</span>${statesFor(pg).map(([k, l]) => `<button class="rc-state" data-go="${pg}" data-state="${k}" aria-pressed="${k === route.state}">${l}</button>`).join('')}<span class="rc-sep"></span><span class="rc-label">语言</span>${LANGS.map(([k, n]) => `<button class="rc-state" data-act="lang" data-lang="${k}" aria-pressed="${ui.lang === k}">${n}</button>`).join('')}<span class="rc-note">${pg === 'explore' ? 'Explore · 已按反馈修改' : pg === 'ree' ? 'Ree 页 · 已定稿' : pg === 'qa' ? '提问和回答 · 第 4 页 · 等确认' : '首页 · 已定稿'}</span></div>`;
-  document.getElementById('rc').innerHTML = `<div class="rc-row"><span class="rc-brand">re0 全新改版 <small>方向 A · 提问和回答等确认</small></span>${tabs}</div>${states}`;
+  const states = !['home', 'explore', 'ree', 'qa', 'login'].includes(pg) ? '' : `<div class="rc-row"><span class="rc-label">状态</span>${statesFor(pg).map(([k, l]) => `<button class="rc-state" data-go="${pg}" data-state="${k}" aria-pressed="${k === route.state}">${l}</button>`).join('')}<span class="rc-sep"></span><span class="rc-label">语言</span>${LANGS.map(([k, n]) => `<button class="rc-state" data-act="lang" data-lang="${k}" aria-pressed="${ui.lang === k}">${n}</button>`).join('')}<span class="rc-note">${pg === 'explore' ? 'Explore · 已按反馈修改' : pg === 'ree' ? 'Ree 页 · 已定稿' : pg === 'qa' ? '提问和回答 · 已定稿' : pg === 'login' ? '登录 / 注册 · 第 5 页 · 等确认' : '首页 · 已定稿'}</span></div>`;
+  document.getElementById('rc').innerHTML = `<div class="rc-row"><span class="rc-brand">re0 全新改版 <small>方向 A · 登录 / 注册等确认</small></span>${tabs}</div>${states}`;
 }
 function fitThumbs() { document.querySelectorAll('.thumb').forEach(t => t.style.setProperty('--s', t.clientWidth / 1440)); }
 const reduced = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -2121,7 +2235,7 @@ function render(fresh) {
   parse();
   chrome();
   document.querySelector('.cite-panel')?.remove(); document.querySelector('.cite-shade')?.remove();
-  document.getElementById('app').innerHTML = route.page === 'index' ? indexPage() : route.page === 'spec' ? specPage() : route.page === 'explore' ? explore(route.state) : route.page === 'ree' ? reePage(route.state) : route.page === 'qa' ? qaPage(route.state) : home('a', route.state);
+  document.getElementById('app').innerHTML = route.page === 'index' ? indexPage() : route.page === 'spec' ? specPage() : route.page === 'explore' ? explore(route.state) : route.page === 'ree' ? reePage(route.state) : route.page === 'qa' ? qaPage(route.state) : route.page === 'login' ? loginPage(route.state) : home('a', route.state);
   document.documentElement.style.setProperty('--rc-h', document.getElementById('rc').offsetHeight + 'px');
   fitThumbs();
   if (route.page === 'qa' && route.state === 'cite') { const c = document.querySelector('#app .qa-b .cite'); if (c) openCite(c); }
