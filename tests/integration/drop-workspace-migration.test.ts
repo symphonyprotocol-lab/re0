@@ -26,6 +26,8 @@ const THIS = '0101_drop_workspace_oauth.sql';
 const tag = Array.from(crypto.getRandomValues(new Uint8Array(4)), (byte) => byte.toString(16).padStart(2, '0')).join('');
 const SCRATCH = `m0101_${tag}`;
 const REFERENCE = `m0100_${tag}`;
+const BASELINE = `m0094_${tag}`;
+const NEXT = '0102_drop_workspace_columns.sql';
 const urlOf = (name: string) => {
   const url = new URL(TEST_DATABASE_URL!);
   url.pathname = `/${name}`;
@@ -96,7 +98,12 @@ describeWithDb('migration 0101: guarded, data only, idempotent', () => {
   beforeAll(async () => {
     await db().execute(sql.raw(`create database ${SCRATCH}`));
     let build = createPool(urlOf(SCRATCH));
-    for (const file of files.filter((name) => name < THIS)) await apply(build, file);
+    for (const file of files.filter((name) => name < '0095')) await apply(build, file);
+    await build.end();
+    /* The baseline stays at 0094, as #254 left it. */
+    await db().execute(sql.raw(`create database ${BASELINE} template ${SCRATCH}`));
+    build = createPool(urlOf(SCRATCH));
+    for (const file of files.filter((name) => name >= '0095' && name < THIS)) await apply(build, file);
     await build.end();
     /* The reference stays at 0100. */
     await db().execute(sql.raw(`create database ${REFERENCE} template ${SCRATCH}`));
@@ -108,6 +115,7 @@ describeWithDb('migration 0101: guarded, data only, idempotent', () => {
     await pool?.end();
     await db().execute(sql.raw(`drop database if exists ${SCRATCH} with (force)`));
     await db().execute(sql.raw(`drop database if exists ${REFERENCE} with (force)`));
+    await db().execute(sql.raw(`drop database if exists ${BASELINE} with (force)`));
   });
 
   it('refuses while a workspace holds a live file, and changes nothing', async () => {
@@ -179,6 +187,28 @@ describeWithDb('migration 0101: guarded, data only, idempotent', () => {
       ]);
     } finally {
       await reference.end();
+    }
+  });
+
+  it("0102 then drops what is left: 0094's schema plus removed_workspace, and it runs again", async () => {
+    await apply(pool, NEXT);
+    await apply(pool, NEXT);
+    const baseline = createPool(urlOf(BASELINE));
+    try {
+      const [after, before] = await Promise.all([shape(pool), shape(baseline)]);
+      expect(difference(before, after)).toEqual([]);
+      expect(difference(after, before)).toEqual([
+        'column removed_workspace.removed_at timestamp with time zone null=NO default=now()',
+        'column removed_workspace.workspace_id uuid null=NO default=',
+        'constraint removed_workspace.removed_workspace_pkey PRIMARY KEY (workspace_id)',
+        'index CREATE UNIQUE INDEX removed_workspace_pkey ON public.removed_workspace USING btree (workspace_id)',
+        'table removed_workspace',
+      ]);
+      /* The Blob cleanup's list survives the drops; the revoked keys and the connector's post keep their rows. */
+      expect((await pool.query(`select count(*)::int as n from removed_workspace`)).rows[0].n).toBe(2);
+      expect((await pool.query(`select api_key_id from post where id = $1`, [IDS.post])).rows[0].api_key_id).toBe(IDS.oauthKey);
+    } finally {
+      await baseline.end();
     }
   });
 });
