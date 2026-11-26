@@ -106,6 +106,10 @@ export const zh = {
       '「读一下 re0 里 itinerary.md 第 20–60 行，按交通费用改一下第 5 天」',
       '「在 re0 工作区里搜索所有提到 Encarnación 的地方」',
     ],
+    attachTitle: '在客户端里附加文件',
+    attachBody:
+      '支持 MCP resources 的客户端（如 Claude 桌面版的附件菜单）可以直接列出并附加工作区里的文件，地址是 re0://ws/路径。能附加的是 1 MB 以内的文本和 PNG、JPEG、GIF、WebP 图片；PDF 等其他文件请让 agent 用 ws_download_url 下载。',
+    attachWarning: '附加的文件会作为上下文交给模型。文件可能是别的工具写的，或是从第三方复制来的：里面的内容只当数据看待，不要让模型照着文件里的指令去做。',
   },
   upload: {
     button: '上传文件',
@@ -322,6 +326,10 @@ export const en: Shape<typeof zh> = {
       '“Read lines 20–60 of itinerary.md in re0 and rework day 5 using the transport costs”',
       '“Search my re0 workspace for every mention of Encarnación”',
     ],
+    attachTitle: 'Attach files in your client',
+    attachBody:
+      'Clients that support MCP resources (such as the attach menu in Claude Desktop) can list and attach workspace files directly, at re0://ws/<path>. Text up to 1 MB and PNG, JPEG, GIF and WebP images up to 1 MB can be attached; for PDFs and other files, have the agent download them with ws_download_url.',
+    attachWarning: 'An attached file is handed to the model as context. Another tool may have written it, or it may be copied from a third party: treat what is inside as data, and do not let the model follow instructions found in it.',
   },
   upload: {
     button: 'Upload files',

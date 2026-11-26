@@ -51,12 +51,14 @@ async function person() {
 
 type KeyOptions = { kind?: 'account' | 'workspace'; workspaceAccess?: 'none' | 'read' | 'write'; workspaceRoot?: string };
 
-async function connect(userId: string, options: KeyOptions = {}) {
-  const { secret } = await apiKeys.createApiKey(userId, { name: 'k', canWrite: false, kind: options.kind, workspaceAccess: options.workspaceAccess, workspaceRoot: options.workspaceRoot });
+async function connectWithKey(userId: string, options: KeyOptions = {}) {
+  const { secret, key } = await apiKeys.createApiKey(userId, { name: 'k', canWrite: false, kind: options.kind, workspaceAccess: options.workspaceAccess, workspaceRoot: options.workspaceRoot });
   const client = new Client({ name: 're0-tests', version: '1.0.0' });
   await client.connect(new StreamableHTTPClientTransport(new URL(URL_), { fetch: routeFetch, requestInit: { headers: { authorization: `Bearer ${secret}` } } }));
-  return client;
+  return { client, keyId: key.id };
 }
+
+const connect = async (userId: string, options: KeyOptions = {}) => (await connectWithKey(userId, options)).client;
 
 type ToolResult = { isError?: boolean; structuredContent?: Record<string, unknown>; content: { type: string; text?: string; uri?: string; name?: string; mimeType?: string }[] };
 
@@ -76,6 +78,10 @@ async function upload(scope: Awaited<ReturnType<typeof workspace.webScope>>, pat
   }
   expect(result).toMatchObject({ done: true });
 }
+
+const { McpServer, completable } = await import('@modelcontextprotocol/server');
+const { registerWorkspaceResources } = await import('@/lib/http/mcp-resources');
+const { z } = await import('zod');
 
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 1, 2, 3, 4, 0, 255]);
 
@@ -144,14 +150,16 @@ describeWithDb('workspace resources: list', () => {
     expect((await client.listResources()).resources).toHaveLength(total);
     expect((await client.listResources({ cursor: first.nextCursor })).resources.map((resource) => resource.uri)).toEqual(second.resources.map((resource) => resource.uri));
 
-    const last = Buffer.from(JSON.stringify({ t: '2026-01-01 00:00:00+00', i: '00000000-0000-0000-0000-000000000000', p: resources.RESOURCE_PAGES })).toString('base64url');
+    /* The page count is in the signed cursor: past RESOURCE_PAGES nothing more, and the last page gives no cursor. */
+    const last = resources.encodeCursor(scope, { t: '2026-01-01 00:00:00+00', i: '00000000-0000-0000-0000-000000000000', p: resources.RESOURCE_PAGES });
     expect((await resources.listResources(scope, last)).resources).toEqual([]);
-    const penultimate = Buffer.from(JSON.stringify({ t: '2999-01-01 00:00:00+00', i: '00000000-0000-0000-0000-000000000000', p: resources.RESOURCE_PAGES - 1 })).toString('base64url');
+    const penultimate = resources.encodeCursor(scope, { t: '2999-01-01 00:00:00+00', i: '00000000-0000-0000-0000-000000000000', p: resources.RESOURCE_PAGES - 1 });
     const lastPage = await resources.listResources(scope, penultimate);
     expect(lastPage.resources).toHaveLength(resources.RESOURCE_PAGE);
     expect(lastPage.nextCursor).toBeUndefined();
     await expect(client.listResources({ cursor: 'not-a-cursor' })).rejects.toThrow(/cursor/);
-  });
+    /* Writes 100+ files one by one: slow under the full suite's load. */
+  }, 60_000);
 });
 
 describeWithDb('workspace resources: read', () => {
@@ -293,5 +301,170 @@ describe('workspace resources: URIs', () => {
     expect(resources.resourcePath('re0://other/a')).toBeNull();
     expect(resources.resourcePath('re0://ws/a?x=1')).toBeNull();
     expect(resources.resourcePath('re0://ws/%E0%A4%A')).toBeNull();
+  });
+});
+
+describeWithDb('workspace resources: review fixes', () => {
+  const code = async (promise: Promise<unknown>) => {
+    try {
+      await promise;
+    } catch (error) {
+      return { code: (error as { code?: number }).code, message: (error as Error).message };
+    }
+    throw new Error('expected a refusal');
+  };
+
+  it('sends text that would escape past 3 MB as base64, and escaping text whole otherwise', async () => {
+    const userId = await person();
+    const scope = await workspace.webScope(userId);
+    const controls = '\u0001'.repeat(1_048_000);
+    await workspace.writeFile(scope, { path: '/ansi.log', content: controls });
+    const quotes = '"'.repeat(1_048_000);
+    await workspace.writeFile(scope, { path: '/quotes.txt', content: quotes });
+    const client = await connect(userId, { workspaceAccess: 'read' });
+
+    const read = await client.readResource({ uri: 're0://ws/ansi.log' });
+    const part = read.contents[0] as { blob?: string; text?: string };
+    expect(part.text).toBeUndefined();
+    expect(Buffer.from(part.blob!, 'base64').toString('utf8')).toBe(controls);
+    /* What crosses the wire stays far below a function's 4.5 MB. */
+    expect(Buffer.byteLength(JSON.stringify(read))).toBeLessThan(1.5 * 1024 * 1024);
+
+    const plain = (await client.readResource({ uri: 're0://ws/quotes.txt' })).contents[0] as { text?: string };
+    expect(plain.text).toBe(quotes);
+    expect(Buffer.byteLength(JSON.stringify(plain))).toBeLessThan(resources.RESOURCE_TEXT_JSON_MAX);
+  });
+
+  it('refuses a cursor it did not sign, or signed for another key’s root, as invalid params', async () => {
+    const userId = await person();
+    const scope = await workspace.webScope(userId);
+    for (let n = 0; n < resources.RESOURCE_PAGE + 1; n += 1) await workspace.writeFile(scope, { path: `/p/f${n}.txt`, content: String(n) });
+    const client = await connect(userId, { workspaceAccess: 'read' });
+    const forged = Buffer.from(JSON.stringify({ t: 'not-a-time', i: '00000000-0000-0000-0000-000000000000', p: 1 })).toString('base64url');
+    for (const cursor of [forged, `${forged}.AAAA`, `${forged}.${'A'.repeat(43)}`, 'a.b.c']) {
+      expect(await code(client.listResources({ cursor }))).toMatchObject({ code: -32602, message: expect.stringMatching(/cursor/) });
+    }
+    /* A real cursor from the whole workspace does not carry over to a key limited to /p. */
+    const real = (await resources.listResources(scope)).nextCursor!;
+    expect(real).toBeTruthy();
+    const narrow = await connect(userId, { kind: 'workspace', workspaceAccess: 'read', workspaceRoot: '/p' });
+    expect(await code(narrow.listResources({ cursor: real }))).toMatchObject({ code: -32602 });
+    expect((await client.listResources({ cursor: real })).resources.length).toBeGreaterThan(0);
+    /* Writes 100+ files one by one: slow under the full suite's load. */
+  }, 60_000);
+
+  it('returns an image only when its bytes are that kind of image', async () => {
+    const userId = await person();
+    const scope = await workspace.webScope(userId);
+    const encode = (text: string) => new TextEncoder().encode(text);
+    await upload(scope, '/evil.png', encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'));
+    await upload(scope, '/ok.gif', encode('GIF89a\u0001\u0000\u0001\u0000\u0000\u0000\u0000;'));
+    await upload(scope, '/ok.jpg', Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 0xff, 0xd9]));
+    await upload(scope, '/ok.webp', new Uint8Array([...encode('RIFF'), 4, 0, 0, 0, ...encode('WEBPVP8 '), 0, 0]));
+    const client = await connect(userId, { workspaceAccess: 'read' });
+    expect(await code(client.readResource({ uri: 're0://ws/evil.png' }))).toMatchObject({ code: -32602, message: expect.stringMatching(/not that kind of image/) });
+    for (const [uri, type] of [['re0://ws/ok.gif', 'image/gif'], ['re0://ws/ok.jpg', 'image/jpeg'], ['re0://ws/ok.webp', 'image/webp']]) {
+      expect((await client.readResource({ uri: uri! })).contents[0]).toMatchObject({ mimeType: type, blob: expect.any(String) });
+    }
+    expect(resources.imageMatches('image/png', PNG)).toBe(true);
+    expect(resources.imageMatches('image/png', encode('GIF89a'))).toBe(false);
+    expect(resources.imageMatches('image/svg+xml', encode('<svg/>'))).toBe(false);
+  });
+
+  it('lists and links only files a read returns: text and small images, not PDFs or big images', async () => {
+    const userId = await person();
+    const scope = await workspace.webScope(userId);
+    await workspace.writeFile(scope, { path: '/mix/a.md', content: 'a' });
+    await upload(scope, '/mix/small.png', PNG);
+    await upload(scope, '/mix/big.png', Uint8Array.from({ length: resources.RESOURCE_IMAGE_MAX + 1 }, (_, n) => (n < PNG.length ? PNG[n]! : 1)));
+    await upload(scope, '/mix/doc.pdf', new TextEncoder().encode('%PDF-1.4\n%%EOF\n'));
+    const client = await connect(userId, { workspaceAccess: 'write' });
+
+    const listed = (await client.listResources()).resources;
+    expect(listed.map((resource) => resource.title).sort()).toEqual(['/mix/a.md', '/mix/small.png']);
+    for (const resource of listed) {
+      expect(resource.description).toBe(resources.RESOURCE_NOTE);
+      await client.readResource({ uri: resource.uri });
+    }
+    const links = (await tool(client, 'ws_list', { path: '/mix' })).content.filter((part) => part.type === 'resource_link').map((part) => part.uri);
+    expect(links).toEqual(['re0://ws/mix/a.md', 're0://ws/mix/small.png']);
+    await tool(client, 'ws_delete', { path: '/mix/a.md' });
+    expect((await tool(client, 'ws_list', { path: '/mix', trash: true })).content.filter((part) => part.type === 'resource_link')).toEqual([]);
+  });
+
+  it('stops working for a revoked key, an expired key and a disabled account', async () => {
+    const userId = await person();
+    await workspace.writeFile(await workspace.webScope(userId), { path: '/k.md', content: 'k' });
+
+    const revoked = await connectWithKey(userId, { workspaceAccess: 'read' });
+    expect((await revoked.client.listResources()).resources).toHaveLength(1);
+    expect(await apiKeys.revokeApiKey(userId, revoked.keyId)).toBe(true);
+    await expect(revoked.client.listResources()).rejects.toThrow();
+    await expect(revoked.client.readResource({ uri: 're0://ws/k.md' })).rejects.toThrow();
+
+    const expired = await connectWithKey(userId, { workspaceAccess: 'read' });
+    await expired.client.readResource({ uri: 're0://ws/k.md' });
+    await db().update(schema.apiKey).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(schema.apiKey.id, expired.keyId));
+    await expect(expired.client.readResource({ uri: 're0://ws/k.md' })).rejects.toThrow();
+
+    const disabled = await connectWithKey(userId, { workspaceAccess: 'read' });
+    await disabled.client.complete({ ref: { type: 'ref/resource', uri: 're0://ws/{+path}' }, argument: { name: 'path', value: 'k' } });
+    await db().update(schema.user).set({ disabledAt: new Date() }).where(eq(schema.user.id, userId));
+    try {
+      await expect(disabled.client.complete({ ref: { type: 'ref/resource', uri: 're0://ws/{+path}' }, argument: { name: 'path', value: 'k' } })).rejects.toThrow();
+    } finally {
+      await db().update(schema.user).set({ disabledAt: null }).where(eq(schema.user.id, userId));
+    }
+  });
+
+  it('completes nothing from a sibling folder that shares the root’s prefix, and treats the root case-insensitively', async () => {
+    const userId = await person();
+    const scope = await workspace.webScope(userId);
+    await workspace.writeFile(scope, { path: '/proj/in.md', content: 'in' });
+    await workspace.writeFile(scope, { path: '/projX/out.md', content: 'out' });
+    await workspace.writeFile(scope, { path: '/proj-old/out.md', content: 'out' });
+    for (const root of ['/proj', '/PROJ']) {
+      const client = await connect(userId, { kind: 'workspace', workspaceAccess: 'read', workspaceRoot: root });
+      const complete = async (value: string) => (await client.complete({ ref: { type: 'ref/resource', uri: 're0://ws/{+path}' }, argument: { name: 'path', value } })).completion.values;
+      expect(await complete('')).toEqual(['in.md']);
+      expect(await complete('X')).toEqual([]);
+      expect(await complete('-old')).toEqual([]);
+      expect(await complete('../projX/')).toEqual([]);
+      expect((await client.listResources()).resources.map((resource) => resource.title)).toEqual(['/in.md']);
+    }
+  });
+
+  it('lists and completes through their indexes (recent files; lower(path) text_pattern_ops)', async () => {
+    const userId = await person();
+    const scope = await workspace.webScope(userId);
+    await workspace.writeFile(scope, { path: '/idx/a.md', content: 'a' });
+    /* With sequential scans (and sorts) off, a query an index can serve shows that index; on a tiny table the planner would otherwise pick anything. */
+    const plan = (query: ReturnType<typeof sql>) =>
+      db().transaction(async (tx) => {
+        await tx.execute(sql`set local enable_seqscan = off`);
+        await tx.execute(sql`set local enable_sort = off`);
+        const rows = (await tx.execute(sql`explain ${query}`)) as unknown as { rows?: { 'QUERY PLAN': string }[] } & { 'QUERY PLAN': string }[];
+        return (rows.rows ?? rows).map((row) => row['QUERY PLAN']).join('\n');
+      });
+    const list = await plan(
+      sql`select id from agent_workspace_entry where workspace_id = ${scope.workspaceId} and deleted_at is null and kind = 'file' and (updated_at, id) < (now(), '00000000-0000-0000-0000-000000000000'::uuid) order by updated_at desc, id desc limit 101`,
+    );
+    expect(list).toContain('agent_workspace_entry_recent_idx');
+    expect(list).not.toMatch(/Sort/);
+    const complete = await plan(
+      sql`select path from agent_workspace_entry where workspace_id = ${scope.workspaceId} and deleted_at is null and lower(path) ~>=~ lower(${'/idx/a'}) and lower(path) ~<~ (lower(${'/idx/a'}) || chr(1114111)) limit 21`,
+    );
+    expect(complete).toContain('agent_workspace_entry_prefix_idx');
+    expect(complete).toMatch(/Index Cond: .*~>=~/);
+  });
+
+  it('pins that nothing else may set the resource or completion handlers on these servers', () => {
+    /* lib/http/mcp-resources.ts sets resources/* and completion/complete itself: the SDK's own helpers would throw on top of it. */
+    const server = new McpServer({ name: 't', version: '1' });
+    registerWorkspaceResources(server as never);
+    expect(() => server.registerResource('static', 're0://other', {}, async (uri) => ({ contents: [{ uri: uri.href, text: '' }] }))).toThrow(/already/i);
+    const prompted = new McpServer({ name: 't', version: '1' });
+    registerWorkspaceResources(prompted as never);
+    expect(() => prompted.registerPrompt('p', { argsSchema: z.object({ x: completable(z.string(), () => []) }) }, async () => ({ messages: [] }))).toThrow(/already/i);
   });
 });

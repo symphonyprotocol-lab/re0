@@ -43,7 +43,7 @@ import {
   type WorkspaceScope,
 } from '@/lib/services/workspace';
 import { searchPassages, setIndexMode } from '@/lib/services/workspace-index';
-import { resourceUri } from '@/lib/services/workspace-resources';
+import { readableAsResource, resourceUri } from '@/lib/services/workspace-resources';
 import { nameOf } from '@/lib/domain/workspace';
 import { createUpload, downloadUrl } from '@/lib/services/workspace-upload';
 import { bindPaths, createReeFromFolder, WorkspaceReeError } from '@/lib/services/workspace-rees';
@@ -106,13 +106,20 @@ function link(file: { path: string; name?: unknown; media_type?: unknown; size?:
 /**
  * The files a result names, as `resource_link` parts (re0://ws/…, the MCP
  * resources of docs/design/agent-workspace-p4.md §3): the file ws_read read,
- * the files on a ws_list page (not its folders, nor a trash listing's).
+ * the files on a ws_list page that `resources/read` can return (text, small
+ * images) -- not its folders, PDFs and other bytes, nor a trash listing's.
  */
 function linksOf(body: Record<string, unknown>): ResourceLinkPart[] {
   if (typeof body.content === 'string' && typeof body.path === 'string') return [link({ path: body.path, media_type: body.media_type, size: body.size })];
   if (!Array.isArray(body.entries)) return [];
   return (body.entries as Record<string, unknown>[])
-    .filter((entry) => entry.kind === 'file' && typeof entry.path === 'string' && entry.trash_id === undefined)
+    .filter(
+      (entry) =>
+        entry.kind === 'file' &&
+        typeof entry.path === 'string' &&
+        entry.trash_id === undefined &&
+        readableAsResource({ binary: entry.binary === true, media_type: typeof entry.media_type === 'string' ? entry.media_type : null, size: typeof entry.size === 'number' ? entry.size : Number.POSITIVE_INFINITY }),
+    )
     .slice(0, LINKS_MAX)
     .map((entry) => link(entry as { path: string }));
 }

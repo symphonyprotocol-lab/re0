@@ -10,7 +10,10 @@
  * browser's request, cross-site consent, revoked grants and disabled
  * accounts.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { TEST_DATABASE_URL, uniqueName } from './setup';
 import { and, eq, like } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
@@ -24,7 +27,13 @@ vi.mock('next/headers', () => ({
 
 const describeWithDb = TEST_DATABASE_URL ? describe : describe.skip;
 
+/* Files for the workspace grant's resources check, kept in a temporary folder. */
+const blobDir = mkdtempSync(join(tmpdir(), 're0-oauth-ws-'));
+process.env.WORKSPACE_BLOB_DIR = blobDir;
+afterAll(() => rmSync(blobDir, { recursive: true, force: true }));
+
 const { createSession } = await import('@/lib/services/auth');
+const workspaceService = await import('@/lib/services/workspace');
 const { db, schema } = await import('@/lib/infra/db');
 const apiKeys = await import('@/lib/services/api-keys');
 const oauth = await import('@/lib/services/oauth');
@@ -384,9 +393,17 @@ describeWithDb('MCP OAuth: the flow', () => {
     const files = await tokensFor(client.client_id, session, { workspaceOnly: true, workspaceAccess: 'write', workspaceRoot: '/notes', canWrite: true });
     expect(files.scope).toBe('workspace:write');
     expect((await rawMcp(writer.access_token)).status).toBe(200);
-    const fileTools = (await (await connect(files.access_token)).listTools()).tools.map((tool) => tool.name);
+    const filesClient = await connect(files.access_token);
+    const fileTools = (await filesClient.listTools()).tools.map((tool) => tool.name);
     expect(fileTools.every((name) => name.startsWith('ws_'))).toBe(true);
     expect(fileTools).toContain('ws_write');
+    /* The grant's root holds for MCP resources too: only /notes, shown from its own `/`. */
+    const scope = await workspaceService.webScope(userId);
+    await workspaceService.writeFile(scope, { path: '/notes/n.md', content: 'in' });
+    await workspaceService.writeFile(scope, { path: '/other.md', content: 'out' });
+    expect((await filesClient.listResources()).resources.map((resource) => resource.title)).toEqual(['/n.md']);
+    expect((await filesClient.readResource({ uri: 're0://ws/n.md' })).contents[0]).toMatchObject({ text: 'in' });
+    await expect(filesClient.readResource({ uri: 're0://ws/other.md' })).rejects.toThrow();
     const live = (await apiKeys.listApiKeys(userId)).filter((item) => item.oauthClient && !item.revokedAt);
     expect(live).toHaveLength(2);
     const workspaceGrant = live.find((item) => item.kind === 'workspace')!;

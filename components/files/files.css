@@ -395,6 +395,15 @@
   font-size: 12px;
   line-height: 1.9;
 }
+.files-ui .ws-try p {
+  margin: 8px 0 0;
+  color: #3b4361;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.files-ui .ws-try p.ws-muted {
+  color: var(--color-muted);
+}
 .files-ui .ws-section-title {
   margin: 18px 0 8px;
   font-size: 13px;
