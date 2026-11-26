@@ -5,7 +5,7 @@
  */
 import { TEST_DATABASE_URL, uniqueName } from './setup';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { inArray, sql } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
 
 const blobs = vi.hoisted(() => ({ listed: new Map<string, { pathname: string; uploadedAt: Date }[]>(), deleted: [] as string[] }));
@@ -83,32 +83,6 @@ suite('orphan upload reaper', () => {
 
     const removed = await purgeOrphanUploads(now);
     expect(new Set(blobs.deleted)).toEqual(new Set([orphanFile, orphanAvatar, orphanCover, orphanImage, orphanThumb]));
-    expect(removed).toEqual({ 'knowledge/': 1, 'avatars/': 1, 'ree-covers/': 1, 'post-images/': 2, 'workspace/': 0 });
-  });
-
-  it('deletes what the removed agent workspace left in Blob, only once its tables are gone', async () => {
-    const now = new Date();
-    const old = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
-    const workspace = crypto.randomUUID();
-    const content = `workspace/${workspace}/${'a'.repeat(64)}`;
-    const part = `workspace/${workspace}/upload/${crypto.randomUUID()}/1`;
-    const recent = `workspace/${workspace}/${'b'.repeat(64)}`;
-    for (const prefix of ['knowledge/', 'avatars/', 'ree-covers/', 'post-images/']) blobs.listed.set(prefix, []);
-    blobs.listed.set('workspace/', [{ pathname: content, uploadedAt: old }, { pathname: part, uploadedAt: old }, { pathname: recent, uploadedAt: new Date(now.getTime() - 60_000) }]);
-
-    /* A database still holding the workspace (the drop refused, or not run yet) keeps every object. */
-    await db().execute(sql`create table if not exists public.agent_workspace (id uuid primary key)`);
-    try {
-      blobs.deleted = [];
-      expect((await purgeOrphanUploads(now))['workspace/']).toBe(0);
-      expect(blobs.deleted).toEqual([]);
-    } finally {
-      await db().execute(sql`drop table if exists public.agent_workspace`);
-    }
-
-    /* After migration 0101: everything old enough goes, whatever workspace it was. */
-    blobs.deleted = [];
-    expect((await purgeOrphanUploads(now))['workspace/']).toBe(2);
-    expect(new Set(blobs.deleted)).toEqual(new Set([content, part]));
+    expect(removed).toEqual({ 'knowledge/': 1, 'avatars/': 1, 'ree-covers/': 1, 'post-images/': 2 });
   });
 });

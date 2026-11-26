@@ -2,8 +2,7 @@
  * `/api/cron/purge-uploads` (daily, idempotent): files a browser uploaded
  * with a token from `/api/upload-token` but never registered — a knowledge
  * file no `knowledge.source` names, an avatar no user, Ree or setup draft
- * names, a cover no Ree names, a post image no post names, and anything the
- * removed agent workspace left under `workspace/` — are deleted once older than
+ * names, a cover no Ree names, a post image no post names — are deleted once older than
  * UPLOAD_ORPHAN_HOURS. Unregistered files are never billed for storage, so
  * this is what keeps them from accumulating. A replaced avatar or cover is
  * unreferenced too and goes the same way.
@@ -80,26 +79,6 @@ const PREFIXES: Prefix[] = [
         select pathname from ${schema.postImage} where pathname in (${list})
         union select thumb_pathname from ${schema.postImage} where thumb_pathname in (${list})`);
       return new Set(rows.rows.map((row) => row.pathname));
-    },
-  },
-  {
-    /*
-     * The agent workspace's objects (file contents and upload parts), left
-     * when migration 0101 dropped the workspace on 2026-11-26. Nothing names
-     * them any more, so all of them go, but only once this database no
-     * longer has the workspace tables: a database that refused the drop, or
-     * has not run it yet, keeps them. Last in the list, so it never takes
-     * the budget from the others. Remove this entry once a run reports 0
-     * here and `workspace/` lists nothing.
-     */
-    prefix: 'workspace/',
-    owner: /^workspace\/([^/]+)\//,
-    async known(ids) {
-      const rows = await db().execute<{ gone: boolean }>(sql`select to_regclass('public.agent_workspace') is null as gone`);
-      return rows.rows[0]?.gone ? new Set(ids) : new Set();
-    },
-    async referenced() {
-      return new Set();
     },
   },
 ];

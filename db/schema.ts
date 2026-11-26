@@ -2735,3 +2735,15 @@ export const apiKey = pgTable(
     check('api_key_name_check', sql`char_length(name) between 1 and 60`),
   ],
 );
+
+/**
+ * The agent workspaces migration 0101 took out (dropped by product decision
+ * on 2026-11-26), one row each. Their Blob objects under `workspace/<id>/`
+ * are deleted by the daily purge-uploads cron
+ * (lib/services/removed-workspace-blobs.ts), only for the ids listed here,
+ * and a row goes once its prefix is empty.
+ */
+export const removedWorkspace = pgTable('removed_workspace', {
+  workspaceId: uuid('workspace_id').primaryKey(),
+  removedAt: timestampTz('removed_at').notNull().defaultNow(),
+});

@@ -1,24 +1,32 @@
--- 0101_drop_workspace_oauth: takes the agent workspace (0095, 0096, 0098, 0099, 0100) and OAuth for
--- the MCP server (0097) back out, both dropped by product decision on 2026-11-26. Release PR #267
--- shipped them to production first, so they are undone here, not deleted (as 0090 undid 0089).
--- Afterwards the database is as 0094_api_key_can_write left it, `api_key.can_write` included.
+-- 0101_drop_workspace_oauth: the first of two steps that take the agent workspace (0095, 0096, 0098,
+-- 0099, 0100) and OAuth for the MCP server (0097) back out, both dropped by product decision on
+-- 2026-11-26. Release PR #267 shipped them to production, so they are undone by new migrations.
 --
--- Guard first: it refuses -- and the deploy's one transaction rolls back, nothing dropped -- while
+-- Two steps, because production migrates at the end of the build while the previous deployment
+-- (whose code still reads these tables and columns -- api_key's workspace and OAuth columns, the
+-- knowledge list's workspace path, a Ree's bindings) keeps serving until the new one takes over, and
+-- an Instant Rollback returns to that code. This step only changes data: every table, column and
+-- foreign key stays, so the old code and the new both run on it. 0102, released once this is live,
+-- drops the tables and columns and restores the 0094 kind check.
+--
+-- Guard first: it refuses -- and the deploy's one transaction rolls back, nothing changed -- while
 -- a workspace holds a live file (one not in the trash), or a live Ree still answers from a
--- workspace file (`knowledge.kind = 'file'`). Trashed files, folders, versions, uploads and the
--- index are dropped with their tables; their Blob objects (under `workspace/`) are deleted
--- afterwards by the daily /api/cron/purge-uploads (lib/services/upload-reaper.ts), which only
--- touches that prefix once these tables are gone.
---
--- Then, before columns go:
--- * a workspace key (api_key.workspace_id set) could reach nothing but its workspace; without
---   that column it would read like an account key, so it is revoked;
--- * an OAuth connection's key (oauth_client_id set, no secret of its own) is deleted, so
---   key_digest can be NOT NULL again; posts and usage rows that named it keep their rows
---   (their api_key_id is ON DELETE SET NULL);
+-- workspace file (`knowledge.kind = 'file'`). Then:
+-- * every workspace's id goes into removed_workspace, the only list the Blob cleanup
+--   (lib/services/removed-workspace-blobs.ts) deletes `workspace/<id>/` objects for;
+-- * a workspace key (workspace_id set) is revoked: once 0102 drops that column it would read as an
+--   account key, with access it never had;
+-- * an OAuth connection's key is revoked and given a digest no key can hash to, so its row, its
+--   posts' api_key_id and its usage stay, and key_digest is NOT NULL again; its tokens and pending
+--   authorizations are deleted;
 -- * file sources left in the trash or in deleted Rees are deleted (their chunks cascade);
+-- * the workspace's contents -- trashed files and folders, versions, passages, bindings, uploads,
+--   usage -- are deleted; the workspace rows themselves stay until 0102;
 -- * the workspace rate limits and ceilings the console stored are removed.
 -- A day's index run still open is settled by the metered-run reaper (metered-work.ts).
+--
+-- Every statement can run again: production runs the file in one transaction, the test runner one
+-- statement at a time, and a run stopped half-way picks up where it left off.
 DO $guard$
 DECLARE
   found text[] := '{}';
@@ -28,54 +36,61 @@ BEGIN
     EXECUTE 'SELECT count(*) FROM public.agent_workspace_entry WHERE kind = ''file'' AND deleted_at IS NULL' INTO n;
     IF n > 0 THEN found := found || format('%s live workspace file(s) in agent_workspace_entry', n); END IF;
   END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'knowledge' AND column_name = 'workspace_entry_id') THEN
-    SELECT count(*) INTO n FROM knowledge k JOIN ree r ON r.id = k.ree_id WHERE k.kind = 'file' AND k.deleted_at IS NULL AND r.deleted_at IS NULL;
-    IF n > 0 THEN found := found || format('%s live workspace file source(s) in knowledge', n); END IF;
-  END IF;
+  SELECT count(*) INTO n FROM knowledge k JOIN ree r ON r.id = k.ree_id WHERE k.kind = 'file' AND k.deleted_at IS NULL AND r.deleted_at IS NULL;
+  IF n > 0 THEN found := found || format('%s live workspace file source(s) in knowledge', n); END IF;
   IF cardinality(found) > 0 THEN
-    RAISE EXCEPTION '0101_drop_workspace_oauth refused: workspace data exists (%). Nothing was dropped; move those files to the trash or export them, then deploy again.', array_to_string(found, ', ');
+    RAISE EXCEPTION '0101_drop_workspace_oauth refused: workspace data exists (%). Nothing was changed; see PR #269 for what to do, then deploy again.', array_to_string(found, ', ');
   END IF;
 END
 $guard$;--> statement-breakpoint
-UPDATE "api_key" SET "revoked_at" = now() WHERE "workspace_id" IS NOT NULL AND "revoked_at" IS NULL;--> statement-breakpoint
-DELETE FROM "api_key" WHERE "oauth_client_id" IS NOT NULL;--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "removed_workspace" (
+	"workspace_id" uuid PRIMARY KEY NOT NULL,
+	"removed_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+DO $tombstones$
+BEGIN
+  IF to_regclass('public.agent_workspace') IS NOT NULL THEN
+    INSERT INTO removed_workspace (workspace_id) SELECT id FROM public.agent_workspace ON CONFLICT DO NOTHING;
+  END IF;
+  /* Workspaces of deleted accounts left only a tombstone (0096). */
+  IF to_regclass('public.agent_workspace_gone') IS NOT NULL THEN
+    INSERT INTO removed_workspace (workspace_id) SELECT workspace_id FROM public.agent_workspace_gone ON CONFLICT DO NOTHING;
+  END IF;
+END
+$tombstones$;--> statement-breakpoint
+DO $keys$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'api_key' AND column_name = 'workspace_id') THEN
+    UPDATE api_key SET revoked_at = now() WHERE workspace_id IS NOT NULL AND revoked_at IS NULL;
+  END IF;
+  /* An OAuth key has no secret (key_digest null); the check said so, and goes with OAuth. */
+  ALTER TABLE api_key DROP CONSTRAINT IF EXISTS api_key_oauth_check;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'api_key' AND column_name = 'oauth_client_id') THEN
+    UPDATE api_key SET revoked_at = now() WHERE oauth_client_id IS NOT NULL AND revoked_at IS NULL;
+  END IF;
+  /* Not hex, so no key's HMAC digest can equal it; unique per row, as api_key_digest_key wants. */
+  UPDATE api_key SET key_digest = 'removed-oauth:' || id::text, revoked_at = coalesce(revoked_at, now()) WHERE key_digest IS NULL;
+END
+$keys$;--> statement-breakpoint
+ALTER TABLE "api_key" ALTER COLUMN "key_digest" SET NOT NULL;--> statement-breakpoint
+DO $oauth$
+BEGIN
+  IF to_regclass('public.oauth_token') IS NOT NULL THEN DELETE FROM public.oauth_token; END IF;
+  IF to_regclass('public.oauth_authorization') IS NOT NULL THEN DELETE FROM public.oauth_authorization; END IF;
+END
+$oauth$;--> statement-breakpoint
 DELETE FROM "knowledge" WHERE "kind" = 'file';--> statement-breakpoint
+DO $contents$
+BEGIN
+  /* Versions, passages, bindings and exclusions go with their entries (ON DELETE CASCADE). */
+  IF to_regclass('public.agent_workspace_entry') IS NOT NULL THEN DELETE FROM public.agent_workspace_entry; END IF;
+  IF to_regclass('public.agent_workspace_blob') IS NOT NULL THEN DELETE FROM public.agent_workspace_blob; END IF;
+  IF to_regclass('public.agent_workspace_upload') IS NOT NULL THEN DELETE FROM public.agent_workspace_upload; END IF;
+  IF to_regclass('public.agent_workspace_usage') IS NOT NULL THEN DELETE FROM public.agent_workspace_usage; END IF;
+END
+$contents$;--> statement-breakpoint
 DELETE FROM "rate_limit_setting" WHERE "name" IN ('workspaceRead', 'workspaceWrite', 'workspaceGrep');--> statement-breakpoint
 DELETE FROM "limit_ceiling_setting" WHERE "key" IN ('workspaceWritesPerDay', 'workspaceDebtLimit', 'workspaceFreeMb', 'workspaceIndexBudget');--> statement-breakpoint
 DELETE FROM "rate_limit_exemption" WHERE "limits" <@ ARRAY['workspaceRead', 'workspaceWrite', 'workspaceGrep']::text[];--> statement-breakpoint
-UPDATE "rate_limit_exemption" SET "limits" = array_remove(array_remove(array_remove("limits", 'workspaceRead'), 'workspaceWrite'), 'workspaceGrep') WHERE "limits" && ARRAY['workspaceRead', 'workspaceWrite', 'workspaceGrep']::text[];--> statement-breakpoint
-DROP TABLE IF EXISTS "oauth_token";--> statement-breakpoint
-DROP TABLE IF EXISTS "oauth_authorization";--> statement-breakpoint
-ALTER TABLE "api_key" DROP CONSTRAINT IF EXISTS "api_key_oauth_check";--> statement-breakpoint
-ALTER TABLE "api_key" DROP CONSTRAINT IF EXISTS "api_key_oauth_client_id_oauth_client_id_fk";--> statement-breakpoint
-DROP INDEX IF EXISTS "api_key_oauth_client_idx";--> statement-breakpoint
-DROP TABLE IF EXISTS "oauth_client";--> statement-breakpoint
-DROP TABLE IF EXISTS "agent_ree_file_exclusion";--> statement-breakpoint
-DROP TABLE IF EXISTS "agent_ree_binding";--> statement-breakpoint
-DROP TABLE IF EXISTS "agent_workspace_passage";--> statement-breakpoint
-DROP TABLE IF EXISTS "agent_workspace_upload";--> statement-breakpoint
-DROP TABLE IF EXISTS "agent_workspace_revision";--> statement-breakpoint
-DROP TABLE IF EXISTS "agent_workspace_entry";--> statement-breakpoint
-DROP TABLE IF EXISTS "agent_workspace_blob";--> statement-breakpoint
-DROP TABLE IF EXISTS "agent_workspace_usage";--> statement-breakpoint
-ALTER TABLE "api_key" DROP CONSTRAINT IF EXISTS "api_key_workspace_key_check";--> statement-breakpoint
-ALTER TABLE "api_key" DROP CONSTRAINT IF EXISTS "api_key_workspace_access_check";--> statement-breakpoint
-ALTER TABLE "api_key" DROP CONSTRAINT IF EXISTS "api_key_workspace_id_agent_workspace_id_fk";--> statement-breakpoint
-DROP TABLE IF EXISTS "agent_workspace";--> statement-breakpoint
-DROP FUNCTION IF EXISTS "agent_workspace_gone_on_delete"();--> statement-breakpoint
-DROP TABLE IF EXISTS "agent_workspace_gone";--> statement-breakpoint
-ALTER TABLE "api_key" ALTER COLUMN "key_digest" SET NOT NULL;--> statement-breakpoint
-ALTER TABLE "api_key" DROP COLUMN IF EXISTS "workspace_access";--> statement-breakpoint
-ALTER TABLE "api_key" DROP COLUMN IF EXISTS "workspace_id";--> statement-breakpoint
-ALTER TABLE "api_key" DROP COLUMN IF EXISTS "workspace_root";--> statement-breakpoint
-ALTER TABLE "api_key" DROP COLUMN IF EXISTS "client_name";--> statement-breakpoint
-ALTER TABLE "api_key" DROP COLUMN IF EXISTS "oauth_client_id";--> statement-breakpoint
-DROP INDEX IF EXISTS "knowledge_workspace_entry_idx";--> statement-breakpoint
-ALTER TABLE "knowledge" DROP COLUMN IF EXISTS "workspace_entry_id";--> statement-breakpoint
-ALTER TABLE "knowledge" DROP COLUMN IF EXISTS "workspace_revision_id";--> statement-breakpoint
-ALTER TABLE "knowledge" DROP COLUMN IF EXISTS "awaiting_confirmation";--> statement-breakpoint
-ALTER TABLE "knowledge" DROP COLUMN IF EXISTS "secret_found";--> statement-breakpoint
--- The kind check gets its 0094 definition back. Every row passes it (the 'file' rows are gone above), and the
--- column drops just took the table's ACCESS EXCLUSIVE lock, so the check is validated in place.
-ALTER TABLE "knowledge" DROP CONSTRAINT IF EXISTS "knowledge_kind_check";--> statement-breakpoint
-ALTER TABLE "knowledge" ADD CONSTRAINT "knowledge_kind_check" CHECK (kind in ('document', 'audio', 'github', 'page', 'site', 'text'));
+UPDATE "rate_limit_exemption" SET "limits" = array_remove(array_remove(array_remove("limits", 'workspaceRead'), 'workspaceWrite'), 'workspaceGrep') WHERE "limits" && ARRAY['workspaceRead', 'workspaceWrite', 'workspaceGrep']::text[];

@@ -223,8 +223,9 @@ export const METERED_RUN_STALE_MS = 30 * 60_000;
  * never used goes back. A re-embed run belongs to its job and stays open
  * while that job runs; `settleReembedRuns` closes it once the job is over.
  * A `workspace_index` run is a day's indexing that the removed agent
- * workspace (migration 0101) left open; it is settled the same way, at what
- * that day recorded. Answers how many runs it closed.
+ * workspace (migration 0101) left open, to be settled the next day: it is
+ * settled at what that day recorded and closed as done (`ready`), as that
+ * settlement would have, not as a failure. Answers how many runs it closed.
  */
 export async function reapMeteredRuns(now = new Date(), limit = 200): Promise<number> {
   const cutoff = new Date(now.getTime() - METERED_RUN_STALE_MS);
@@ -238,7 +239,8 @@ export async function reapMeteredRuns(now = new Date(), limit = 200): Promise<nu
   let closed = 0;
   for (const row of stale.rows) {
     const input: MeteredWork = { userId: row.user_id, reeId: row.ree_id, kind: row.kind as MeteredKind, title: row.title, reeName: row.ree_name, refuse: row.kind !== 'profile' };
-    if ((await closeMeteredRun({ holdId: row.id, runId: row.run_id, input }, 'abandoned')) !== null) closed += 1;
+    const error = row.kind === 'workspace_index' ? null : 'abandoned';
+    if ((await closeMeteredRun({ holdId: row.id, runId: row.run_id, input }, error)) !== null) closed += 1;
   }
   return closed;
 }

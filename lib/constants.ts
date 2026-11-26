@@ -695,6 +695,13 @@ export const KYC_PURGE_BATCH = 200;
 export const UPLOAD_ORPHAN_HOURS = 24;
 export const UPLOAD_REAP_BATCH = 1_000;
 export const UPLOAD_REAP_SCAN = 20_000;
+/**
+ * Objects of the removed agent workspace (migration 0101) the daily
+ * purge-uploads run deletes, apart from UPLOAD_REAP_BATCH: about a thousand
+ * per Blob delete call, well inside the cron's five minutes
+ * (lib/services/removed-workspace-blobs.ts).
+ */
+export const REMOVED_WORKSPACE_PURGE_BATCH = 20_000;
 /** The PayPal personal account's e-mail. */
 export const PAYPAL_EMAIL_MAX = 254;
 /** After the e-mail changes, payouts wait this long (account-takeover protection, 2.3). */
