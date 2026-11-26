@@ -7,6 +7,16 @@
 -- The 0101 guard runs again first, in case a rolled-back deployment let someone write a file in
 -- between; a workspace made in between is listed for the Blob cleanup before its table goes.
 -- Every statement can run again.
+--
+-- Instant Rollback after this: only to a deployment at main 4da14488 (release 1, #271) or later.
+-- Anything older (d1a39463 and before) still reads the dropped columns and tables, so its API keys,
+-- MCP and knowledge pages would answer 500. Roll forward instead.
+--
+-- Locks: the column drops change only the catalog, but they take ACCESS EXCLUSIVE on api_key and
+-- knowledge until the deploy's transaction commits (db:deploy waits at most lock_timeout for them).
+-- The kind check therefore comes back NOT VALID -- new and updated rows are checked at once, and no
+-- table scan runs under that lock -- and a later migration VALIDATEs it, which takes only SHARE UPDATE
+-- EXCLUSIVE and blocks no reads or writes. Until then it is as it has been since 0098: NOT VALID.
 DO $guard$
 DECLARE
   found text[] := '{}';
@@ -66,7 +76,6 @@ ALTER TABLE "knowledge" DROP COLUMN IF EXISTS "workspace_entry_id";--> statement
 ALTER TABLE "knowledge" DROP COLUMN IF EXISTS "workspace_revision_id";--> statement-breakpoint
 ALTER TABLE "knowledge" DROP COLUMN IF EXISTS "awaiting_confirmation";--> statement-breakpoint
 ALTER TABLE "knowledge" DROP COLUMN IF EXISTS "secret_found";--> statement-breakpoint
--- Every row passes the 0094 check ('file' rows are gone above), and the column drops just took the
--- table's ACCESS EXCLUSIVE lock, so it is validated in place.
+-- The 0094 kind check, NOT VALID (see above): every row already passes it, the 'file' rows being gone.
 ALTER TABLE "knowledge" DROP CONSTRAINT IF EXISTS "knowledge_kind_check";--> statement-breakpoint
-ALTER TABLE "knowledge" ADD CONSTRAINT "knowledge_kind_check" CHECK (kind in ('document', 'audio', 'github', 'page', 'site', 'text'));
+ALTER TABLE "knowledge" ADD CONSTRAINT "knowledge_kind_check" CHECK (kind in ('document', 'audio', 'github', 'page', 'site', 'text')) NOT VALID;
