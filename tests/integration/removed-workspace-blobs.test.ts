@@ -10,14 +10,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { TEST_DATABASE_URL } from './setup';
 
-const store = vi.hoisted(() => ({ objects: new Set<string>(), listed: [] as string[], deleted: [] as string[] }));
+const store = vi.hoisted(() => ({ objects: new Set<string>(), listed: [] as string[], deleted: [] as string[], pageSize: 0 }));
 vi.mock('@/lib/infra/blob-access', () => ({
-  /* Pages of `limit`, in name order; the cursor is the next index. */
+  /*
+   * Pages of `limit` (or of `pageSize`, when a test sets one), in name order.
+   * The cursor is an index into the listing as it is when the next page is
+   * asked for, so deleting while walking skips objects, as a real store's
+   * cursor may.
+   */
   listByPrefix: async (prefix: string, options: { cursor?: string; limit?: number } = {}) => {
     store.listed.push(prefix);
     const all = [...store.objects].filter((pathname) => pathname.startsWith(prefix)).sort();
     const from = Number(options.cursor ?? 0);
-    const to = from + (options.limit ?? 1000);
+    const to = from + Math.min(options.limit ?? 1000, store.pageSize || Infinity);
     return { blobs: all.slice(from, to).map((pathname) => ({ pathname, uploadedAt: new Date() })), cursor: to < all.length ? String(to) : null };
   },
   deleteBlobs: async (pathnames: readonly string[]) => {
@@ -42,6 +47,7 @@ beforeEach(async () => {
   store.objects.clear();
   store.listed = [];
   store.deleted = [];
+  store.pageSize = 0;
 });
 
 describeWithDb('removed workspace Blob cleanup', () => {
@@ -89,6 +95,35 @@ describeWithDb('removed workspace Blob cleanup', () => {
     store.listed = [];
     expect(await purgeRemovedWorkspaceBlobs()).toEqual({ deleted: 0, finished: 0, left: 0 });
     expect(store.listed).toEqual([]);
+  });
+
+  it('lists a walked prefix again from the start, and keeps the row until that comes back empty', async () => {
+    const a = crypto.randomUUID();
+    const all = objectsOf(a, 7);
+    for (const pathname of all) store.objects.add(pathname);
+    await db().insert(schema.removedWorkspace).values({ workspaceId: a });
+    /* Pages of two: deleting each page shifts the listing, so the first walk skips some objects. */
+    store.pageSize = 2;
+    expect(await purgeRemovedWorkspaceBlobs()).toEqual({ deleted: 7, finished: 1, left: 0 });
+    expect(new Set(store.deleted)).toEqual(new Set(all));
+    expect(store.objects.size).toBe(0);
+    expect(await tombstones()).toEqual([]);
+  });
+
+  it('keeps the row when the prefix still lists objects after its passes', async () => {
+    const a = crypto.randomUUID();
+    for (const pathname of objectsOf(a, 40)) store.objects.add(pathname);
+    await db().insert(schema.removedWorkspace).values({ workspaceId: a });
+    /* One object a page: every walk skips half of what is left, and three passes are not enough. */
+    store.pageSize = 1;
+    const first = await purgeRemovedWorkspaceBlobs();
+    expect(first).toMatchObject({ finished: 0, left: 1 });
+    expect(store.objects.size).toBeGreaterThan(0);
+    expect(await tombstones()).toEqual([a]);
+    /* Later runs finish it. */
+    for (let run = 0; run < 10 && (await tombstones()).length; run += 1) await purgeRemovedWorkspaceBlobs();
+    expect(store.objects.size).toBe(0);
+    expect(await tombstones()).toEqual([]);
   });
 
   it('stops at the deadline and leaves the rest for the next run', async () => {

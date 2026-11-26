@@ -9,7 +9,8 @@
  * transaction as its guard: a database that refused the drop, has not run
  * it, or never had a workspace lists none and deletes nothing, even when it
  * shares the Blob store with another environment. A workspace's row goes
- * once its prefix lists empty, so the job ends by itself.
+ * only once a fresh listing of its prefix, after the walk, comes back
+ * empty, so the job ends by itself and leaves nothing behind.
  *
  * Run by the daily `/api/cron/purge-uploads`, after the orphan reaper, with
  * its own budget (REMOVED_WORKSPACE_PURGE_BATCH objects a run) and the
@@ -20,6 +21,8 @@ import { REMOVED_WORKSPACE_PURGE_BATCH } from '@/lib/constants';
 import { deleteBlobs, listByPrefix } from '@/lib/infra/blob-access';
 import { db, schema } from '@/lib/infra/db';
 
+/** Walks of one prefix per run, each checked by a fresh listing. */
+const PASSES = 3;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export interface RemovedWorkspacePurge {
@@ -41,16 +44,28 @@ export async function purgeRemovedWorkspaceBlobs({ budget = REMOVED_WORKSPACE_PU
     if (spent()) break;
     if (!UUID.test(id)) continue;
     const prefix = `workspace/${id}/`;
-    let cursor: string | undefined;
+    /*
+     * A walk deletes while it lists, and a cursor is not promised to see
+     * every object when the listing changes under it. So a walk that reaches
+     * the end is checked by listing the prefix again from the start: only an
+     * empty answer ends the workspace. Whatever that finds is walked again,
+     * at most PASSES times a run; the next run carries on otherwise.
+     */
     let empty = false;
-    do {
-      const page = await listByPrefix(prefix, { cursor, limit: Math.min(1000, budget - deleted) });
-      const pathnames = page.blobs.map((blob) => blob.pathname).filter((pathname) => pathname.startsWith(prefix));
-      await deleteBlobs(pathnames);
-      deleted += pathnames.length;
-      cursor = page.cursor ?? undefined;
-      empty = !cursor;
-    } while (cursor && !spent());
+    for (let pass = 0; pass < PASSES && !empty && !spent(); pass += 1) {
+      let cursor: string | undefined;
+      let reachedEnd = false;
+      do {
+        const page = await listByPrefix(prefix, { cursor, limit: Math.min(1000, budget - deleted) });
+        const pathnames = page.blobs.map((blob) => blob.pathname).filter((pathname) => pathname.startsWith(prefix));
+        await deleteBlobs(pathnames);
+        deleted += pathnames.length;
+        cursor = page.cursor ?? undefined;
+        reachedEnd = !cursor;
+      } while (cursor && !spent());
+      if (reachedEnd) empty = (await listByPrefix(prefix, { limit: 1 })).blobs.length === 0;
+      else break;
+    }
     if (empty) {
       await db().delete(table).where(eq(table.workspaceId, id));
       finished += 1;

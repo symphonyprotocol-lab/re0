@@ -26,6 +26,8 @@ const THIS = '0101_drop_workspace_oauth.sql';
 const tag = Array.from(crypto.getRandomValues(new Uint8Array(4)), (byte) => byte.toString(16).padStart(2, '0')).join('');
 const SCRATCH = `m0101_${tag}`;
 const REFERENCE = `m0100_${tag}`;
+const BASELINE = `m0094_${tag}`;
+const NEXT = '0102_drop_workspace_columns.sql';
 const urlOf = (name: string) => {
   const url = new URL(TEST_DATABASE_URL!);
   url.pathname = `/${name}`;
@@ -45,6 +47,9 @@ const IDS = {
   ree: '00000000-0000-4000-8000-0000000000a1',
   workspace: '00000000-0000-4000-8000-0000000000b1',
   gone: '00000000-0000-4000-8000-0000000000b2',
+  late: '00000000-0000-4000-8000-0000000000b3',
+  lateFile: '00000000-0000-4000-8000-0000000000c2',
+  lateKey: '00000000-0000-4000-8000-0000000000d4',
   file: '00000000-0000-4000-8000-0000000000c1',
   accountKey: '00000000-0000-4000-8000-0000000000d1',
   workspaceKey: '00000000-0000-4000-8000-0000000000d2',
@@ -96,7 +101,12 @@ describeWithDb('migration 0101: guarded, data only, idempotent', () => {
   beforeAll(async () => {
     await db().execute(sql.raw(`create database ${SCRATCH}`));
     let build = createPool(urlOf(SCRATCH));
-    for (const file of files.filter((name) => name < THIS)) await apply(build, file);
+    for (const file of files.filter((name) => name < '0095')) await apply(build, file);
+    await build.end();
+    /* The baseline stays at 0094, as #254 left it. */
+    await db().execute(sql.raw(`create database ${BASELINE} template ${SCRATCH}`));
+    build = createPool(urlOf(SCRATCH));
+    for (const file of files.filter((name) => name >= '0095' && name < THIS)) await apply(build, file);
     await build.end();
     /* The reference stays at 0100. */
     await db().execute(sql.raw(`create database ${REFERENCE} template ${SCRATCH}`));
@@ -108,6 +118,7 @@ describeWithDb('migration 0101: guarded, data only, idempotent', () => {
     await pool?.end();
     await db().execute(sql.raw(`drop database if exists ${SCRATCH} with (force)`));
     await db().execute(sql.raw(`drop database if exists ${REFERENCE} with (force)`));
+    await db().execute(sql.raw(`drop database if exists ${BASELINE} with (force)`));
   });
 
   it('refuses while a workspace holds a live file, and changes nothing', async () => {
@@ -179,6 +190,63 @@ describeWithDb('migration 0101: guarded, data only, idempotent', () => {
       ]);
     } finally {
       await reference.end();
+    }
+  });
+
+  it('0102 refuses a live workspace file written after 0101 (a rolled-back deployment), and changes nothing', async () => {
+    await pool.query(`insert into agent_workspace_entry(id, workspace_id, path, kind) values ($1, $2, '/late.md', 'file')`, [IDS.lateFile, IDS.workspace]);
+    await expect(apply(pool, NEXT)).rejects.toThrow(/0102_drop_workspace_columns refused: workspace data exists \(1 live workspace file\(s\) in agent_workspace_entry\)/);
+    /* Nothing went: tables, columns and the permissive kind check are all still there. */
+    const left = await pool.query(`select
+      to_regclass('public.agent_workspace_entry') is not null as entries,
+      to_regclass('public.oauth_client') is not null as clients,
+      exists (select 1 from information_schema.columns where table_name = 'api_key' and column_name = 'workspace_id') as key_column,
+      exists (select 1 from information_schema.columns where table_name = 'knowledge' and column_name = 'secret_found') as knowledge_column,
+      (select pg_get_constraintdef(oid) from pg_constraint where conname = 'knowledge_kind_check') as kind_check`);
+    expect(left.rows[0]).toMatchObject({ entries: true, clients: true, key_column: true, knowledge_column: true, kind_check: expect.stringContaining("'file'") });
+    await pool.query(`update agent_workspace_entry set deleted_at = now() where id = $1`, [IDS.lateFile]);
+  });
+
+  it("0102 then drops what is left: 0094's schema plus removed_workspace, with the kind check NOT VALID, and it runs again", async () => {
+    /* A workspace and a workspace key made after 0101: 0102 lists the one for the Blob cleanup and revokes the other. */
+    await pool.query(`insert into agent_workspace(id, owner_id, name) values ($1, $2, 'late')`, [IDS.late, IDS.user]);
+    await pool.query(`insert into api_key(id, user_id, name, key_digest, key_tail, workspace_access, workspace_id) values ($1, $2, 'late workspace', 'digest-4', 'tail4', 'write', $3)`, [IDS.lateKey, IDS.user, IDS.late]);
+    await apply(pool, NEXT);
+    await apply(pool, NEXT);
+    const baseline = createPool(urlOf(BASELINE));
+    try {
+      const [after, before] = await Promise.all([shape(pool), shape(baseline)]);
+      const check = [...before].find((line) => line.startsWith('constraint knowledge.knowledge_kind_check '))!;
+      expect(difference(before, after)).toEqual([check]);
+      expect(difference(after, before)).toEqual([
+        'column removed_workspace.removed_at timestamp with time zone null=NO default=now()',
+        'column removed_workspace.workspace_id uuid null=NO default=',
+        `${check} NOT VALID`,
+        'constraint removed_workspace.removed_workspace_pkey PRIMARY KEY (workspace_id)',
+        'index CREATE UNIQUE INDEX removed_workspace_pkey ON public.removed_workspace USING btree (workspace_id)',
+        'table removed_workspace',
+      ].sort());
+      /* Validating it later succeeds: every row already passes. */
+      const scratch = await pool.connect();
+      try {
+        await scratch.query('begin');
+        await scratch.query('alter table knowledge validate constraint knowledge_kind_check');
+        await scratch.query('rollback');
+      } finally {
+        scratch.release();
+      }
+      expect((await pool.query(`select workspace_id from removed_workspace order by workspace_id`)).rows.map((row) => row.workspace_id)).toEqual([IDS.workspace, IDS.gone, IDS.late]);
+      const keys = await pool.query(`select id, revoked_at is not null as revoked from api_key order by id`);
+      expect(keys.rows).toEqual([
+        { id: IDS.accountKey, revoked: false },
+        { id: IDS.workspaceKey, revoked: true },
+        { id: IDS.oauthKey, revoked: true },
+        { id: IDS.lateKey, revoked: true },
+      ]);
+      /* The connector's post keeps its key. */
+      expect((await pool.query(`select api_key_id from post where id = $1`, [IDS.post])).rows[0].api_key_id).toBe(IDS.oauthKey);
+    } finally {
+      await baseline.end();
     }
   });
 });
