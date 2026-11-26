@@ -51,8 +51,8 @@ config, and others):
 A stdio-only client can go through `mcp-remote`:
 `npx -y mcp-remote https://<your re0 host>/api/mcp --header "Authorization: Bearer re0_sk_…"`.
 
-OAuth (the connectors of claude.ai and ChatGPT on the web) is not supported
-yet; it comes in a later phase.
+OAuth (the connectors of claude.ai and ChatGPT on the web) is not supported:
+every client connects with an API key in the `Authorization` header.
 
 ## 3. Tools
 
