@@ -90,19 +90,50 @@ async function source(reeId: string): Promise<string> {
  * which files ran first. Real profiles are dense and spread out; these
  * tests measure the search on their own Rees. (Files run one at a time
  * against the shared database, so nothing else reads profiles meanwhile.)
+ *
+ * The other files' passages likewise, for the passage index: one-hot
+ * vectors too, thousands of them on a few hundred binary copies (4,856 on
+ * 1,571 after a full local run). Built over them, the graph's entry point
+ * and upper levels are twins; the large Ree's 3,001 passages, inserted
+ * after the build, are each linked from wherever their own insertion's
+ * search got to through the twins, so they form islands, not one graph
+ * around the nearest. The search lands on an island and reads its 20
+ * best: in a probe of this test's search, 10 of 24 builds over those
+ * passages missed the nearest (best 22 to 62 signs turned, against a
+ * bound of 34), and 0 of 15 over this file's passages alone. Their binary
+ * copies in `chunk_bit` (kept by a trigger, removed by the cascade) are
+ * set aside with them and put back as they were, not recomputed.
  */
-const ASIDE = 'explore_search_profiles_aside';
+const ASIDE = {
+  profiles: 'explore_search_profiles_aside',
+  chunks: 'explore_search_chunks_aside',
+  bits: 'explore_search_chunk_bits_aside',
+};
 
-async function setOtherProfilesAside(): Promise<void> {
-  await db().execute(sql.raw(`create table if not exists ${ASIDE} (like public.ree_profile_vector)`));
-  await db().execute(sql.raw(`with moved as (delete from public.ree_profile_vector returning *) insert into ${ASIDE} select * from moved`));
+async function setOthersAside(): Promise<void> {
+  await db().execute(sql.raw(`create table if not exists ${ASIDE.profiles} (like public.ree_profile_vector)`));
+  await db().execute(sql.raw(`with moved as (delete from public.ree_profile_vector returning *) insert into ${ASIDE.profiles} select * from moved`));
+  await db().execute(sql.raw(`create table if not exists ${ASIDE.chunks} (like public.chunk)`));
+  await db().execute(sql.raw(`create table if not exists ${ASIDE.bits} (like public.chunk_bit)`));
+  await db().transaction(async (tx) => {
+    await tx.execute(sql.raw(`insert into ${ASIDE.bits} select * from public.chunk_bit`));
+    await tx.execute(sql.raw(`with moved as (delete from public.chunk returning *) insert into ${ASIDE.chunks} select * from moved`));
+  });
 }
 
-async function putOtherProfilesBack(): Promise<void> {
-  /* A Ree deleted meanwhile took its profiles with it. */
-  await db().execute(sql.raw(`with back as (delete from ${ASIDE} returning *)
+async function putOthersBack(): Promise<void> {
+  /* A Ree deleted meanwhile took its profiles with it, and a source its passages. */
+  await db().execute(sql.raw(`with back as (delete from ${ASIDE.profiles} returning *)
     insert into public.ree_profile_vector select * from back where ree_id in (select id from public.ree) on conflict (id) do nothing`));
-  await db().execute(sql.raw(`drop table ${ASIDE}`));
+  await db().transaction(async (tx) => {
+    await tx.execute(sql.raw(`insert into public.chunk select * from ${ASIDE.chunks}
+      where knowledge_id in (select id from public.knowledge) on conflict (id) do nothing`));
+    /* The trigger wrote fresh copies on the way back in; the ones found replace them, missing ones and all. */
+    await tx.execute(sql.raw(`delete from public.chunk_bit where chunk_id in (select id from ${ASIDE.chunks})`));
+    await tx.execute(sql.raw(`insert into public.chunk_bit select * from ${ASIDE.bits}
+      where chunk_id in (select id from public.chunk) on conflict do nothing`));
+  });
+  for (const table of Object.values(ASIDE)) await db().execute(sql.raw(`drop table ${table}`));
 }
 
 /* The index statements as `ensureSearchIndexes` writes them, without CONCURRENTLY (nothing else runs). */
@@ -127,7 +158,7 @@ describeWithDb('explore search', () => {
   let built: string[] = [];
 
   beforeAll(async () => {
-    await setOtherProfilesAside();
+    await setOthersAside();
     built = await buildSearchIndexes();
   }, 120_000);
 
@@ -138,7 +169,7 @@ describeWithDb('explore search', () => {
     }
     /* Leave the database as found: the other files search exactly. */
     for (const name of built) await db().execute(sql.raw(`drop index if exists "${name}"`));
-    await putOtherProfilesBack();
+    await putOthersBack();
     explore.forgetSearchIndexCheck();
   }, 120_000);
 
