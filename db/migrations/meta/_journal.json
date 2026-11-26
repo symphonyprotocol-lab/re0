@@ -645,6 +645,55 @@
       "when": 1795607082217,
       "tag": "0093_ree_answer_picks",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1795608896008,
+      "tag": "0094_api_key_can_write",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1795615510535,
+      "tag": "0095_agent_workspace",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1795617194590,
+      "tag": "0096_workspace_review_fixes",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1795619889016,
+      "tag": "0097_mcp_oauth",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1795621028387,
+      "tag": "0098_workspace_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1795623762457,
+      "tag": "0099_workspace_upload",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1795659590783,
+      "tag": "0100_workspace_resources_index",
+      "breakpoints": true
     }
   ]
 }

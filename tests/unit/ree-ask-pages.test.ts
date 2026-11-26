@@ -92,7 +92,8 @@ function expectPostsAndBox(html: string) {
   expect(html).not.toContain('ree-qa-item');
   expect(html).not.toContain('rounded-2xl rounded-br-md');
   expect(html).toContain('aria-label="向 个税顾问 提问"');
-  expect(html).toMatch(/<span class="fu-chip ask-chip">.*个税顾问<\/span>/);
+  /* Signed in, the chip has a × that takes the mention off (mention-chip); a visitor's box keeps its Ree. */
+  expect(html).toMatch(/<span class="fu-chip ask-chip(?: mention-chip)?"[^>]*>.*个税顾问/);
   expect(html).toContain('role="radiogroup" aria-label="谁能看到"');
   expect(html).toMatch(/role="radio" aria-checked="true"[^>]*>.*?公开帖子/);
   expect(html).toMatch(/role="radio" aria-checked="false"[^>]*>.*?私密提问/);
@@ -109,7 +110,8 @@ beforeEach(() => {
 /** The box 向 {name} 提问 at the foot of the share page. */
 function expectBox(html: string) {
   expect(html).toContain('aria-label="向 个税顾问 提问"');
-  expect(html).toMatch(/<span class="fu-chip ask-chip">.*个税顾问<\/span>/);
+  /* Signed in, the chip has a × that takes the mention off (mention-chip); a visitor's box keeps its Ree. */
+  expect(html).toMatch(/<span class="fu-chip ask-chip(?: mention-chip)?"[^>]*>.*个税顾问/);
   expect(html).toContain('role="radiogroup" aria-label="谁能看到"');
 }
 
@@ -169,6 +171,7 @@ describe('the share page', () => {
     const html = await share();
     expectBox(html);
     expect(html).not.toContain('登录后提问');
+    expect(html).toContain('class="mention-remove" aria-label="移除 @个税顾问"');
     expect(html).toContain('placeholder="向 个税顾问 提问…"');
     expect(html).toContain('>发布</button>');
   });
@@ -263,6 +266,7 @@ describe('the Ree page', () => {
   it('lists answered posts as cards under the box, and the rail goes to the box', () => {
     const html = reePage('00000000-0000-4000-8000-0000000000d1');
     expectPostsAndBox(html);
+    expect(html).toContain('class="mention-remove" aria-label="移除 @个税顾问"');
     expect(html).toContain(`</svg>${t.posts.ask.jump}</button>`);
     expect(html).not.toContain('加入对话');
   });

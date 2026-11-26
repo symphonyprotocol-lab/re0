@@ -2223,6 +2223,17 @@
 .settings-page .api-key-gap {
   margin-top: 7px;
 }
+.settings-page .api-key-access {
+  vertical-align: 1px;
+}
+.settings-page .api-key-write {
+  margin-top: 4px;
+  border-top: 1px solid #edf0f7;
+}
+.settings-page .api-key-write span {
+  display: grid;
+  gap: 3px;
+}
 
 /* 兑换码 (docs/design/redeem-codes.md 6.2): a code in, what it gave or why not. */
 .settings-page .redeem-card {
@@ -2289,3 +2300,83 @@
 .settings-page .invite-stats strong { color:#5d7395; font-size:18px; font-weight:550; }
 .settings-page .invite-person > div { flex:1; min-width:0; }
 @media(max-width:600px) { .settings-page .invite-fields, .settings-page .invite-stats { grid-template-columns:1fr; } }
+
+/* Settings → API: a key's kind and what it may do with the agent workspace (docs/design/agent-workspace.md §7.1). */
+.settings-page .api-key-kinds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.settings-page .api-key-kinds button {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--color-ink);
+  text-align: left;
+}
+.settings-page .api-key-kinds button svg {
+  grid-row: span 2;
+  width: 18px;
+  height: 18px;
+  color: var(--color-muted);
+}
+.settings-page .api-key-kinds button strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.settings-page .api-key-kinds button small {
+  grid-column: 2;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.settings-page .api-key-kinds button.is-on {
+  border-color: var(--color-blue);
+  background: var(--color-soft);
+  box-shadow: 0 0 0 3px #127ee318;
+}
+.settings-page .api-key-kinds button.is-on svg {
+  color: var(--color-blue);
+}
+.settings-page .api-key-access-options {
+  display: grid;
+  gap: 8px;
+}
+.settings-page .api-key-access-options label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.settings-page .api-key-access-options label.is-on {
+  border-color: var(--color-blue);
+  background: var(--color-soft);
+}
+.settings-page .api-key-access-options input {
+  flex: none;
+  width: auto;
+  min-height: 0;
+  margin: 3px 0 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  accent-color: var(--color-blue);
+}
+.settings-page .api-key-access-options strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+.settings-page .api-key-access-options small {
+  display: block;
+  color: var(--color-muted);
+  font-size: 11px;
+}

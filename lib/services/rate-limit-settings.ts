@@ -10,7 +10,7 @@
  * exemptions, and tries again shortly. Every change is audited.
  */
 import { asc, eq, sql } from 'drizzle-orm';
-import { EXPLORE_RATE_LIMIT, RATE_LIMIT_EXEMPT_DEFAULT, USER_RATE_LIMITS } from '@/lib/constants';
+import { EXPLORE_RATE_LIMIT, RATE_LIMIT_EXEMPT_DEFAULT, USER_RATE_LIMITS, WORKSPACE_DEBT_WRITE_LIMIT, WORKSPACE_FREE_MB, WORKSPACE_INDEX_BUDGET, WORKSPACE_WRITES_PER_DAY } from '@/lib/constants';
 import { FOLLOWUP_DAILY_LIMIT, FOLLOWUP_POST_DAILY_LIMIT, POST_DAILY_LIMIT } from '@/lib/domain/post';
 import { isUuid } from '@/lib/domain/list';
 import { VISITOR_ASK_PLATFORM_DAILY } from '@/lib/domain/visitor-ask';
@@ -81,7 +81,7 @@ function knownLimits(values: readonly string[]): RateLimitName[] {
   return RATE_LIMIT_NAMES.filter((name) => values.includes(name));
 }
 
-export const CEILING_KEYS = ['postsPerDay', 'followupsPerDay', 'followupsPerPostPerDay', 'exploreQuestions', 'visitorAsksPerDay'] as const;
+export const CEILING_KEYS = ['postsPerDay', 'followupsPerDay', 'followupsPerPostPerDay', 'exploreQuestions', 'visitorAsksPerDay', 'workspaceWritesPerDay', 'workspaceDebtLimit', 'workspaceFreeMb', 'workspaceIndexBudget'] as const;
 export type CeilingKey = (typeof CEILING_KEYS)[number];
 /** Bounds of a ceiling's value, as `limit_ceiling_setting`'s check holds them. */
 export const CEILING_VALUE_BOUNDS = { min: 1, max: 100_000 } as const;
@@ -97,20 +97,26 @@ export const CEILING_VALUE_BOUNDS = { min: 1, max: 100_000 } as const;
  * stores others in `limit_ceiling_setting`. An exemption from `post` lifts
  * the three daily ones (`CEILING_EXEMPTED_BY`).
  */
-export const CEILING_DEFAULTS: Record<CeilingKey, { value: number; per: 'day' | 'minute' }> = {
+export type CeilingUnit = 'day' | 'minute' | 'credits' | 'mb';
+export const CEILING_DEFAULTS: Record<CeilingKey, { value: number; per: CeilingUnit }> = {
   postsPerDay: { value: POST_DAILY_LIMIT, per: 'day' },
   followupsPerDay: { value: FOLLOWUP_DAILY_LIMIT, per: 'day' },
   followupsPerPostPerDay: { value: FOLLOWUP_POST_DAILY_LIMIT, per: 'day' },
   exploreQuestions: { value: EXPLORE_RATE_LIMIT.perUser, per: 'minute' },
   visitorAsksPerDay: { value: VISITOR_ASK_PLATFORM_DAILY, per: 'day' },
+  /* The agent workspace (docs/design/agent-workspace.md §6): writes per workspace a day, the debt above which writes are refused, and free storage per account. */
+  workspaceWritesPerDay: { value: WORKSPACE_WRITES_PER_DAY, per: 'day' },
+  workspaceDebtLimit: { value: WORKSPACE_DEBT_WRITE_LIMIT, per: 'credits' },
+  workspaceFreeMb: { value: WORKSPACE_FREE_MB, per: 'mb' },
+  workspaceIndexBudget: { value: WORKSPACE_INDEX_BUDGET, per: 'credits' },
 };
 
 export interface CeilingRow {
   key: CeilingKey;
   value: number;
   defaultValue: number;
-  /** `day`: from 00:00 UTC; `minute`: per account and per client address. */
-  per: 'day' | 'minute';
+  /** `day`: from 00:00 UTC; `minute`: per account and per client address; `credits` and `mb`: an amount, not a count. */
+  per: CeilingUnit;
   /** The exemption that lifts it for an account, if any. */
   exemptedBy: RateLimitName | null;
   overridden: boolean;
@@ -205,6 +211,10 @@ export const CEILING_EXEMPTED_BY: Record<CeilingKey, RateLimitName | null> = {
   followupsPerPostPerDay: 'post',
   exploreQuestions: null,
   visitorAsksPerDay: null,
+  workspaceWritesPerDay: null,
+  workspaceDebtLimit: null,
+  workspaceFreeMb: null,
+  workspaceIndexBudget: null,
 };
 
 /** A ceiling's value now: the console's, else the code default. */

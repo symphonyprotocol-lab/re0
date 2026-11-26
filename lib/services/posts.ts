@@ -178,6 +178,8 @@ export interface PostInput {
   clientToken?: string | null;
   /** Pathnames of the author's uploaded images, in order (lib/domain/post-images.ts); anything else is refused. */
   images?: unknown;
+  /** The API key an MCP `create_post` came through, for the key's usage (api-keys.ts `usageOf`). */
+  apiKeyId?: string | null;
 }
 
 export type PublishOutcome =
@@ -281,6 +283,7 @@ export async function publishPost(userId: string, input: PostInput, now = new Da
         quotePostId: quote?.postId ?? null,
         quoteAnswerId: quote?.answerId ?? null,
         clientToken,
+        apiKeyId: input.apiKeyId ?? null,
         createdAt: now,
       });
       await attachImages(tx, id, images);

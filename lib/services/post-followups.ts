@@ -142,6 +142,8 @@ export interface FollowupInput {
   mentionReeIds?: readonly string[];
   lang: 'zh' | 'en';
   clientToken?: string | null;
+  /** The API key an MCP `add_followup` came through, for the key's usage. */
+  apiKeyId?: string | null;
 }
 
 export type AskOutcome =
@@ -214,7 +216,7 @@ export async function askFollowup(userId: string, postId: string, input: Followu
       const balance = await balanceOf(tx, userId, now);
       if (balance < QUERY_BASE_FEE) return { ok: false, error: 'insufficient_credits', balance, needed: QUERY_BASE_FEE } as const;
       /* A 继续问 AI is public like any follow-up: reviewed first, then counted (`moderateFollowup`). */
-      await tx.insert(followup).values({ id, postId, userId, question, lang: input.lang, mentionReeIds: aiOnly ? [] : mentions, clientToken, aiOnly, createdAt: now });
+      await tx.insert(followup).values({ id, postId, userId, question, lang: input.lang, mentionReeIds: aiOnly ? [] : mentions, clientToken, aiOnly, apiKeyId: input.apiKeyId ?? null, createdAt: now });
       return { ok: true, id } as const;
     });
   } catch (error) {

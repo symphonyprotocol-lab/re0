@@ -168,6 +168,7 @@ export const zh = {
   },
   uploadRateLimited: '上传太频繁了，请稍等片刻再试。',
   errors: {
+    secret_found: '这个工作区文件里有疑似密钥，公开的 Ree 不能启用它。请先从文件里删掉密钥。',
     insufficient_credits: '可用 credits 不足，无法预留处理费用。',
     invalid_document: '文件格式或大小不符合要求。文档最大 20 MB。',
     invalid_audio: '文件格式或大小不符合要求。音频支持 MP3 / M4A / WAV，最大 100 MB。',
@@ -192,6 +193,7 @@ export const zh = {
   },
   failures: {
     insufficient_credits: '余额不足以支付后续服务成本，处理已停止。已发生的费用照常结算，余额不够的部分记为欠款；没用掉的预留已退回。请充值后重试。',
+    max_cost: '继续处理会超过添加时设定的费用上限（max_cost），处理已停止。已发生的费用照常结算，没用掉的预留已退回。可以重新处理（不再受该上限限制）。',
     pricing_unavailable: '第三方服务单价尚未配置，请联系管理员在价格设置中配置，未收取费用。',
     usage_unavailable: '第三方未返回完整计费数据，已保留调用记录待核对。费用无法确定，本次预留不退回。',
     source_missing: '没有找到原文件或页面。',
@@ -487,6 +489,7 @@ export const en: Shape<typeof zh> = {
   },
   uploadRateLimited: 'Too many uploads in a short time. Wait a moment and try again.',
   errors: {
+    secret_found: 'This workspace file looks like it holds a secret; a public Ree cannot use it. Remove the secret from the file first.',
     insufficient_credits: 'Not enough credits to reserve the processing cost.',
     invalid_document: 'Unsupported file format or size. Documents: 20 MB.',
     invalid_audio: 'Unsupported file format or size. Audio: MP3 / M4A / WAV up to 100 MB.',
@@ -511,6 +514,7 @@ export const en: Shape<typeof zh> = {
   },
   failures: {
     insufficient_credits: 'Balance cannot cover further provider costs, so processing stopped. Costs already incurred are charged and what the balance cannot cover is owed; unused reserved credits were returned. Add credits and retry.',
+    max_cost: 'Going on would cost more than the cap set when it was added (max_cost), so processing stopped. Costs already incurred are charged; unused reserved credits were returned. Reprocessing it is not held to that cap.',
     pricing_unavailable: 'Provider pricing is not configured. Ask an administrator to set it in Pricing. No charge was made.',
     usage_unavailable: 'The provider did not return complete billing data. Calls are recorded for reconciliation; the cost is unknown, so the reservation is kept.',
     source_missing: 'The original file or page was not found.',

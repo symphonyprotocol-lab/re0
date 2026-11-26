@@ -1,7 +1,7 @@
 /**
  * The MCP server (`/api/mcp`) through the official client: a missing,
  * unknown, revoked or expired key, or a disabled account's, is a 401; the
- * four tools find, describe, list and ask Rees; asking holds and settles
+ * Ree tools find, describe, list and ask Rees; asking holds and settles
  * exactly as the web does (20 + the owner's query fee, the fee credited to
  * the owner), tagged with the key; too few credits or a low `max_cost` is a
  * tool error that charges and saves nothing; calls are limited per key; and
@@ -161,11 +161,11 @@ describeWithDb('MCP server: API keys', () => {
 });
 
 describeWithDb('MCP server: tools', () => {
-  it('lists exactly the four tools, ask_ree saying it spends credits', async () => {
+  it('lists the Ree tools (the rest: mcp-tools.test.ts), ask_ree saying it spends credits', async () => {
     const { secret } = await apiKeys.createApiKey(await person(), { name: 'k' });
     const client = await connect(secret);
     const { tools } = await client.listTools();
-    expect(tools.map((tool) => tool.name).sort()).toEqual(['ask_ree', 'get_ree', 'list_my_rees', 'search_rees']);
+    expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['ask_ree', 'get_ree', 'list_my_rees', 'search_rees']));
     expect(tools.find((tool) => tool.name === 'ask_ree')!.description).toContain('SPENDS CREDITS');
     await client.close();
   });

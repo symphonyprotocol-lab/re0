@@ -20,7 +20,7 @@ import {
 } from '@/lib/constants';
 import type { Locator } from '@/lib/domain/answer';
 
-export const KNOWLEDGE_KIND_LIST = ['document', 'audio', 'github', 'page', 'site', 'text'] as const;
+export const KNOWLEDGE_KIND_LIST = ['document', 'audio', 'github', 'page', 'site', 'text', 'file'] as const;
 export type KnowledgeKind = (typeof KNOWLEDGE_KIND_LIST)[number];
 /** New-source UI choices. Historical pasted sources remain readable and reprocessable. */
 export const ADD_KNOWLEDGE_KINDS = ['document', 'audio', 'github', 'page', 'site'] as const;

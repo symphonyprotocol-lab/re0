@@ -1,0 +1,1 @@
+CREATE INDEX "agent_workspace_entry_recent_idx" ON "agent_workspace_entry" USING btree ("workspace_id","updated_at","id") WHERE deleted_at is null and kind = 'file';
