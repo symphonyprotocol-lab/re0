@@ -84,8 +84,6 @@ const config = {
     return [
       { source: '/:path*', headers: SECURITY_HEADERS },
       ...NON_DOCUMENT_PATHS.map((source) => ({ source, headers: [{ key: POLICY_HEADER, value: NON_DOCUMENT_POLICY }] })),
-      /* Workspace downloads are anyone's bytes (lib/services/workspace-upload.ts): sandboxed as well, should a browser ever render one. Listed last, so it wins. */
-      ...['/api/files/download/:path*', '/api/files/raw'].map((source) => ({ source, headers: [{ key: POLICY_HEADER, value: `${NON_DOCUMENT_POLICY}; sandbox` }] })),
     ];
   },
   reactStrictMode: true,
@@ -97,8 +95,6 @@ const config = {
    */
   outputFileTracingIncludes: {
     '/api/rees/*/knowledge{,/**}': ['./node_modules/pdfjs-dist/cmaps/**/*', './node_modules/pdfjs-dist/standard_fonts/**/*'],
-    /* The workspace index reads uploaded PDFs in its cron (lib/services/workspace-index.ts). */
-    '/api/cron/workspace-index': ['./node_modules/pdfjs-dist/cmaps/**/*', './node_modules/pdfjs-dist/standard_fonts/**/*'],
   },
   images: {
     remotePatterns: [

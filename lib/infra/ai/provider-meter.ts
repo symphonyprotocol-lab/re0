@@ -177,20 +177,3 @@ export function tokenUsage(value: unknown): ProviderUsage {
   const number = (n: unknown) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 ? n : undefined;
   return { inputTokens: number(raw.input_tokens ?? raw.prompt_tokens ?? raw.tokens), outputTokens: number(raw.output_tokens ?? raw.completion_tokens), audioInputTokens: number(details.audio_tokens) };
 }
-
-/**
- * What `usage` would cost at `target`'s rate (the console's, else the
- * gateway catalog's), in USD as a decimal string, or null when no rate is
- * known: the quote shown before optional work (the agent workspace's index
- * estimates), never what is billed.
- */
-export async function quoteProviderCost(target: ProviderTarget, prices: ProviderPrices, usage: ProviderUsage): Promise<string | null> {
-  const rate = configuredProviderRate(prices, target) ?? await catalogRate(target);
-  if (!rate) return null;
-  try {
-    return rateCost(rate, usage);
-  } catch (error) {
-    if (error instanceof ProviderCostUnavailable) return null;
-    throw error;
-  }
-}

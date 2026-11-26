@@ -7,7 +7,6 @@ export const zh = {
   nav: {
     dashboard: '工作台',
     rees: '我的 Ree',
-    files: '工作区',
     activities: '活动',
     activitiesPending: '有可领取的奖励',
     main: '主导航',
@@ -80,7 +79,6 @@ export const zh = {
     page: '单个网页',
     site: '整站',
     text: '粘贴文本',
-    file: '工作区文件',
   },
   status: { pending: '排队中', processing: '处理中', ready: '已就绪', failed: '处理失败' },
   colors: { default: '电光蓝', lilac: '薰衣草', sand: '沙色', sage: '鼠尾草', rose: '玫瑰', slate: '石板' },
@@ -110,7 +108,6 @@ export const en: Shape<typeof zh> = {
   nav: {
     dashboard: 'Dashboard',
     rees: 'My Rees',
-    files: 'Workspace',
     activities: 'Activities',
     activitiesPending: 'Rewards to claim',
     main: 'Main navigation',
@@ -183,7 +180,6 @@ export const en: Shape<typeof zh> = {
     page: 'Web page',
     site: 'Website',
     text: 'Pasted text',
-    file: 'Workspace file',
   },
   status: { pending: 'Queued', processing: 'Processing', ready: 'Ready', failed: 'Failed' },
   colors: { default: 'Blue', lilac: 'Lilac', sand: 'Sand', sage: 'Sage', rose: 'Rose', slate: 'Slate' },

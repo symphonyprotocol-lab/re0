@@ -20,16 +20,8 @@ export interface ApiKeyView {
   revokedAt: string | null;
   /** May change things through MCP (post, follow up, manage Rees), not only read and ask. */
   canWrite: boolean;
-  /** A workspace key reaches only the agent workspace's files, under its root. */
-  kind: 'account' | 'workspace';
-  workspaceAccess: 'none' | 'read' | 'write';
-  workspaceRoot: string;
-  /** The MCP client that last connected with it, as it named itself. */
-  client: string | null;
   questions: number;
   spent: number;
-  /** An OAuth grant (connected app) rather than a key. */
-  oauthClient?: { id: string; name: string; uri: string | null; redirectHosts: string[]; documentHost: string | null } | null;
 }
 
 const EXPIRIES = [
@@ -55,32 +47,13 @@ export function connectSnippets(url: string, secret: string) {
   };
 }
 
-/** The tags for what a key or a connected app may do, as the console shows them too. */
-function AccessTags({ item }: { item: ApiKeyView }) {
-  const { t } = useI18n();
-  const a = t.apiKeys;
-  return item.kind === 'workspace' ? (
-    <>
-      <span className="tag blue api-key-access">{item.oauthClient ? t.oauth.permissions.kinds.workspace : a.kinds.workspace}</span> <span className={`tag ${item.workspaceAccess === 'write' ? 'orange' : ''} api-key-access`}>{a.workspaceAccess[item.workspaceAccess]}</span>{' '}
-      <span className="tag api-key-access">{item.workspaceRoot}</span>
-    </>
-  ) : (
-    <>
-      <span className={`tag ${item.canWrite ? 'orange' : ''} api-key-access`}>{item.canWrite ? a.access.write : a.access.read}</span>{' '}
-      <span className="tag api-key-access">{fill(a.workspaceTag, { access: a.workspaceAccess[item.workspaceAccess] })}</span>
-    </>
-  );
-}
-
 /**
  * `/settings?tab=api`: API keys for the MCP server -- create one (name,
  * optional expiry, whether it may change things; the key is shown once),
- * see each one's tail, access, dates and usage, revoke -- the apps
- * connected through OAuth (each one's permissions, where it returns to,
- * usage; disconnect), and how to connect a client. A key's access is
- * chosen once: more needs a new key; an app's, by connecting it again.
+ * see each one's tail, access, dates and usage, revoke -- and how to
+ * connect a client. A key's access is chosen once: more needs a new key.
  */
-export function ApiKeysTab({ keys: initialKeys, apps: initialApps = [], mcpUrl }: { keys: ApiKeyView[]; apps?: ApiKeyView[]; mcpUrl: string }) {
+export function ApiKeysTab({ keys: initialKeys, mcpUrl }: { keys: ApiKeyView[]; mcpUrl: string }) {
   const { t, locale } = useI18n();
   const a = t.apiKeys;
   const router = useRouter();
@@ -90,15 +63,10 @@ export function ApiKeysTab({ keys: initialKeys, apps: initialApps = [], mcpUrl }
   const [name, setName] = useState('');
   const [expiry, setExpiry] = useState<(typeof EXPIRIES)[number][0]>('never');
   const [canWrite, setCanWrite] = useState(false);
-  const [kind, setKind] = useState<'workspace' | 'account'>('workspace');
-  const [access, setAccess] = useState<'none' | 'read' | 'write'>('write');
-  const [root, setRoot] = useState('/');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [secret, setSecret] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<ApiKeyView | null>(null);
-  const [apps, setApps] = useState(initialApps);
-  const [disconnecting, setDisconnecting] = useState<ApiKeyView | null>(null);
   const [now] = useState(() => Date.now());
 
   const reload = async () => {
@@ -110,7 +78,7 @@ export function ApiKeysTab({ keys: initialKeys, apps: initialApps = [], mcpUrl }
     setError('');
     setBusy(true);
     const days = EXPIRIES.find(([value]) => value === expiry)![1];
-    const result = await api<{ secret?: string; error?: string }>('/api/account/api-keys', { method: 'POST', json: { name, expiresInDays: days, canWrite: kind === 'account' && canWrite, kind, workspaceAccess: access, workspaceRoot: root } });
+    const result = await api<{ secret?: string; error?: string }>('/api/account/api-keys', { method: 'POST', json: { name, expiresInDays: days, canWrite } });
     setBusy(false);
     if (!result.ok || !result.data.secret) {
       const code = result.data.error as keyof typeof a.errors | undefined;
@@ -120,9 +88,6 @@ export function ApiKeysTab({ keys: initialKeys, apps: initialApps = [], mcpUrl }
     setName('');
     setExpiry('never');
     setCanWrite(false);
-    setKind('workspace');
-    setAccess('write');
-    setRoot('/');
     setSecret(result.data.secret);
     await reload();
   };
@@ -166,7 +131,8 @@ export function ApiKeysTab({ keys: initialKeys, apps: initialApps = [], mcpUrl }
               <div key={key.id} className="domain-row api-key-row">
                 <div className="min-w-0">
                   <h3>
-                    {key.name} <span className="api-key-tail">re0_sk_…{key.tail}</span> <AccessTags item={key} />
+                    {key.name} <span className="api-key-tail">re0_sk_…{key.tail}</span>{' '}
+                    <span className={`tag ${key.canWrite ? 'orange' : ''} api-key-access`}>{key.canWrite ? a.access.write : a.access.read}</span>
                   </h3>
                   <small>
                     {a.columns.created} {formatDateTime(key.createdAt, locale)} · {a.columns.lastUsed} {key.lastUsedAt ? formatDateTime(key.lastUsedAt, locale) : a.never} ·{' '}
@@ -185,37 +151,6 @@ export function ApiKeysTab({ keys: initialKeys, apps: initialApps = [], mcpUrl }
               </div>
             );
           })}
-        </div>
-      </section>
-
-      <section className="card settings-card">
-        <h2>{a.apps.title}</h2>
-        <p className="muted small domains-lede">{a.apps.lede}</p>
-        <div className="mt16">
-          {apps.length === 0 && <p className="small muted">{a.apps.empty}</p>}
-          {apps.map((app) => (
-            <div key={app.id} className="domain-row api-key-row">
-              <div className="min-w-0">
-                <h3>
-                  {app.oauthClient?.name ?? app.name} <AccessTags item={app} />
-                </h3>
-                <small>
-                  {app.oauthClient?.documentHost ? `${fill(a.apps.verified, { host: app.oauthClient.documentHost })} · ` : ''}
-                  {a.apps.redirect} {app.oauthClient?.redirectHosts.join(', ')}
-                </small>
-                <small>
-                  {a.apps.connected} {formatDateTime(app.createdAt, locale)} · {a.columns.lastUsed} {app.lastUsedAt ? formatDateTime(app.lastUsedAt, locale) : a.never}
-                  {app.client ? ` · ${app.client}` : ''}
-                </small>
-                <small className="api-key-usage">{fill(a.usage, { questions: formatNumber(app.questions, locale), spent: formatNumber(app.spent, locale) })}</small>
-              </div>
-              <div className="s-flex flex-none">
-                <button type="button" className="btn secondary sm" onClick={() => setDisconnecting(app)}>
-                  {a.apps.disconnect}
-                </button>
-              </div>
-            </div>
-          ))}
         </div>
       </section>
 
@@ -280,25 +215,6 @@ export function ApiKeysTab({ keys: initialKeys, apps: initialApps = [], mcpUrl }
             void create();
           }}
         >
-          <div className="api-key-kinds" role="radiogroup" aria-label={a.form.kind}>
-            {(['workspace', 'account'] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={kind === value}
-                className={kind === value ? 'is-on' : undefined}
-                onClick={() => {
-                  setKind(value);
-                  setAccess(value === 'workspace' ? 'write' : 'none');
-                }}
-              >
-                <I name={value === 'workspace' ? 'folder' : 'key'} />
-                <strong>{a.kinds[value]}</strong>
-                <small>{a.kindHints[value]}</small>
-              </button>
-            ))}
-          </div>
           <div className="field">
             <label htmlFor="api-key-name">{a.form.name}</label>
             <input id="api-key-name" value={name} placeholder={a.form.namePlaceholder} maxLength={60} required autoFocus onChange={(event) => setName(event.target.value)} />
@@ -313,37 +229,13 @@ export function ApiKeysTab({ keys: initialKeys, apps: initialApps = [], mcpUrl }
               ))}
             </select>
           </div>
-          {kind === 'workspace' && (
-            <div className="field">
-              <label htmlFor="api-key-root">{a.form.root}</label>
-              <input id="api-key-root" className="mono" value={root} maxLength={1024} onChange={(event) => setRoot(event.target.value)} />
-              <p className="form-hint">{a.form.rootHint}</p>
-            </div>
-          )}
-          {kind === 'account' && (
-            <label className="check-row api-key-write">
-              <span>
-                <strong>{a.form.write}</strong>
-                <small>{a.form.writeHint}</small>
-              </span>
-              <input type="checkbox" checked={canWrite} onChange={(event) => setCanWrite(event.target.checked)} />
-            </label>
-          )}
-          <div className="field">
-            <span className="field-label">{a.form.workspace}</span>
-            <div className="api-key-access-options" role="radiogroup" aria-label={a.form.workspace}>
-              {(kind === 'workspace' ? (['read', 'write'] as const) : (['none', 'read', 'write'] as const)).map((value) => (
-                <label key={value} className={access === value ? 'is-on' : undefined}>
-                  <input type="radio" name="api-key-workspace" checked={access === value} onChange={() => setAccess(value)} />
-                  <span>
-                    <strong>{a.workspaceAccess[value]}</strong>
-                    <small>{a.workspaceAccessHints[value]}</small>
-                  </span>
-                </label>
-              ))}
-            </div>
-            <p className="form-hint">{kind === 'workspace' ? a.form.workspaceKeyHint : a.form.workspaceHint}</p>
-          </div>
+          <label className="check-row api-key-write">
+            <span>
+              <strong>{a.form.write}</strong>
+              <small>{a.form.writeHint}</small>
+            </span>
+            <input type="checkbox" checked={canWrite} onChange={(event) => setCanWrite(event.target.checked)} />
+          </label>
           {error && (
             <p role="alert" className="form-error">
               {error}
@@ -398,24 +290,6 @@ export function ApiKeysTab({ keys: initialKeys, apps: initialApps = [], mcpUrl }
           if (!result.ok) return toast(t.common.errors.generic);
           toast(a.revoked);
           await reload();
-          router.refresh();
-        }}
-      />
-
-      <ConfirmModal
-        open={Boolean(disconnecting)}
-        title={a.apps.disconnectTitle}
-        body={disconnecting ? fill(a.apps.disconnectBody, { name: disconnecting.oauthClient?.name ?? disconnecting.name }) : ''}
-        confirmLabel={a.apps.disconnect}
-        danger
-        onClose={() => setDisconnecting(null)}
-        onConfirm={async () => {
-          const app = disconnecting!;
-          setDisconnecting(null);
-          const result = await api(`/api/account/api-keys/${app.id}`, { method: 'DELETE' });
-          if (!result.ok) return toast(t.common.errors.generic);
-          toast(a.apps.disconnected);
-          setApps((current) => current.filter((item) => item.id !== app.id));
           router.refresh();
         }}
       />

@@ -642,6 +642,21 @@ describeWithDb('metered runs: crash recovery and unknown prices', () => {
     expect(await balanceOf(db(), owner)).toBe(WELCOME_CREDITS);
   });
 
+  it('settles a day of workspace indexing the removed workspace left open at what it recorded, as a completed run', async () => {
+    const owner = await newUser();
+    /* 'workspace_index' runs are only ever left over from the agent workspace (migration 0101); nothing opens one now. */
+    const input = { userId: owner, reeId: null, kind: 'workspace_index' as unknown as 'profile', title: 'Workspace index 2026-11-26', reeName: '', refuse: true };
+    const run = await metered.openMeteredRun(input, {}, new Date(Date.now() - 60 * 60_000));
+    const charges = [{ costUsd: '0.0123' }, { costUsd: '0.0004' }];
+    await db().update(schema.knowledgeCostRun).set({ charges: charges as never }).where(eq(schema.knowledgeCostRun.id, run.holdId));
+    const due = providerTotal(charges).credits;
+    expect(due).toBeGreaterThan(0);
+    expect(await metered.reapMeteredRuns()).toBeGreaterThanOrEqual(1);
+    const [closed] = await db().select().from(schema.knowledgeCostRun).where(eq(schema.knowledgeCostRun.id, run.holdId));
+    expect(closed).toMatchObject({ status: 'ready', error: null, chargedCredits: due });
+    expect(await balanceOf(db(), owner)).toBe(WELCOME_CREDITS - due);
+  });
+
   it('optional work never calls a model whose price is unknown beforehand, even on AI Gateway', async () => {
     const prices = await providerPrices();
     const target = { service: 'generation' as const, endpoint: 'https://ai-gateway.vercel.sh/v1', model: 're0-test/no-such-model' };

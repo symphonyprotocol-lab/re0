@@ -59,7 +59,7 @@ function markdownService(): TurndownService {
  * the total passes the cap. The sizes a zip declares are not trusted: they
  * are only what the archive claims.
  */
-async function refuseZipBomb(bytes: Uint8Array, cap: number): Promise<void> {
+async function refuseZipBomb(bytes: Uint8Array): Promise<void> {
   let zip: JSZip;
   try {
     zip = await JSZip.loadAsync(bytes);
@@ -73,7 +73,7 @@ async function refuseZipBomb(bytes: Uint8Array, cap: number): Promise<void> {
       const stream = entry.nodeStream('nodebuffer');
       stream.on('data', (chunk: Buffer) => {
         total += chunk.length;
-        if (total <= cap) return;
+        if (total <= UNCOMPRESSED_MAX_BYTES) return;
         stream.pause();
         stream.removeAllListeners('data');
         resolve(true);
@@ -85,9 +85,8 @@ async function refuseZipBomb(bytes: Uint8Array, cap: number): Promise<void> {
   }
 }
 
-/** `inflateMax`: a lower cap for callers with less memory to spare (the workspace index reads in its cron). */
-export async function docxSections(bytes: Uint8Array, { inflateMax = UNCOMPRESSED_MAX_BYTES }: { inflateMax?: number } = {}): Promise<Section[]> {
-  await refuseZipBomb(bytes, Math.min(inflateMax, UNCOMPRESSED_MAX_BYTES));
+export async function docxSections(bytes: Uint8Array): Promise<Section[]> {
+  await refuseZipBomb(bytes);
   let html: string;
   try {
     ({ value: html } = await mammoth.convertToHtml(
