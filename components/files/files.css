@@ -383,6 +383,30 @@
   font-size: 12px;
   line-height: 1.7;
 }
+/* The OAuth card's numbered steps, and tag colours in the settings page's vocabulary. */
+.files-ui .ws-steps {
+  margin: 12px 16px 0 32px;
+  padding: 0;
+  list-style: decimal;
+  color: #3b4361;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.files-ui .ws-steps li + li {
+  margin-top: 4px;
+}
+.files-ui .tag.blue {
+  background: var(--color-soft);
+  color: var(--color-blue);
+}
+.files-ui .tag.green {
+  background: #eaf7f2;
+  color: var(--color-green);
+}
+.files-ui .tag.orange {
+  background: #fff3e3;
+  color: #aa721f;
+}
 .files-ui .ws-try {
   margin-top: 14px;
   padding: 14px 16px;

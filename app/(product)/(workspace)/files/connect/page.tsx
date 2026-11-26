@@ -17,9 +17,11 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * `/files/connect`: how to plug each MCP client into the workspace, and the
- * keys that can reach it with the client each last connected as. Keys are
- * made and revoked in Settings → API; a secret is shown only there, once.
+ * `/files/connect`: how to plug each MCP client into the workspace -- with
+ * a key, or (claude.ai, ChatGPT) through OAuth sign-in and the consent page
+ * (lib/services/oauth.ts) -- and the keys and connected apps that can reach
+ * it, with the client each last connected as. Keys are made and revoked,
+ * and apps disconnected, in Settings → API; a secret is shown only there, once.
  */
 export default async function FilesConnectPage() {
   const user = (await currentUser())!;
@@ -69,9 +71,9 @@ export default async function FilesConnectPage() {
             <ul className="ws-keys" aria-label={c.keysTitle}>
               {keys.map((key) => (
                 <li key={key.id}>
-                  <strong>{key.name}</strong>
-                  <span className="mono">re0_sk_…{key.tail}</span>
-                  <span className="tag">{key.kind === 'workspace' ? c.workspaceKey : c.accountKey}</span>
+                  <strong>{key.oauthClient?.name ?? key.name}</strong>
+                  {key.oauthClient ? <span className="tag blue">{c.oauthApp}</span> : <span className="mono">re0_sk_…{key.tail}</span>}
+                  {!key.oauthClient && <span className="tag">{key.kind === 'workspace' ? c.workspaceKey : c.accountKey}</span>}
                   <span className={`tag ${key.workspaceAccess === 'write' ? 'orange' : ''}`}>{c.access[key.workspaceAccess === 'write' ? 'write' : 'read']}</span>
                   {key.kind === 'workspace' && <span className="tag">{fill(c.root, { root: key.workspaceRoot })}</span>}
                   <span className="ws-grow" />
@@ -102,9 +104,14 @@ export default async function FilesConnectPage() {
             <div className="ws-snip">
               <div className="ws-snip-head">
                 <strong>{c.webTitle}</strong>
-                <span className="tag orange">{c.webSoon}</span>
+                <span className="tag green">{c.webTag}</span>
               </div>
-              <p>{c.webBody}</p>
+              <ol className="ws-steps">
+                {c.webSteps.map((step) => (
+                  <li key={step}>{fill(step, { url })}</li>
+                ))}
+              </ol>
+              <p className="ws-muted">{c.webBody}</p>
             </div>
           </div>
           <section className="card ws-try">
