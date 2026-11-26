@@ -1954,7 +1954,7 @@ export const verificationRequest = pgTable(
   ],
 );
 
-export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal', 'post_ai_answer', 'visitor_ask_paused'] as const;
+export const NOTICE_KINDS = ['takedown', 'restore', 'credits_adjust', 'kyc', 'payout', 'role', 'verification', 'post_answered', 'post_quoted', 'post_paid_requests', 'post_followup', 'followup_answered', 'chats_removal', 'post_ai_answer', 'visitor_ask_paused', 'publication'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**
@@ -3054,6 +3054,21 @@ export const workspaceUsage = pgTable('agent_workspace_usage', {
    */
   indexSpentDay: date('index_spent_day', { mode: 'string' }),
   indexSpent: doublePrecision('index_spent').notNull().default(0),
+  /**
+   * Public downloads of the account's published files (docs/design/agent-workspace-p4.md
+   * §2.7): bytes this UTC month (`egress_month`, its first day), against the
+   * free volume; bytes past it not yet charged (each download adds its share,
+   * so a new month never loses them; the daily storage charge bills them and
+   * starts again from 0); bytes today, against the daily ceiling. Counted
+   * under this row's lock.
+   */
+  egressMonth: date('egress_month', { mode: 'string' }),
+  egressMonthBytes: bigint('egress_month_bytes', { mode: 'number' }).notNull().default(0),
+  egressUnbilledBytes: bigint('egress_unbilled_bytes', { mode: 'number' }).notNull().default(0),
+  egressDay: date('egress_day', { mode: 'string' }),
+  egressDayBytes: bigint('egress_day_bytes', { mode: 'number' }).notNull().default(0),
+  /** An administrator froze publishing for the account (in the management log): its files stop being public and none can be published. */
+  publishFrozenAt: timestampTz('publish_frozen_at'),
 }, (t) => [index('agent_workspace_usage_charged_idx').on(t.chargedAt), index('agent_workspace_usage_purged_idx').on(t.purgedAt)]);
 
 /**
@@ -3208,3 +3223,100 @@ export const reeFileExclusion = pgTable(
   },
   (t) => [primaryKey({ columns: [t.reeId, t.entryId] })],
 );
+
+/* ------------------------------------------------- published originals (docs/design/agent-workspace-p4.md §2) */
+
+/**
+ * One file's original made public at `/f/<public_id>`: one version of it,
+ * pinned (`revision_id`, and the bytes' `sha256` and `size` copied here so a
+ * later save never changes what the link serves). A file has at most one
+ * live publication. It names the entry, so moving or renaming keeps the link;
+ * while the entry is in the trash, the account is disabled or its publishing
+ * frozen, or reports suspended it, the link shows "unavailable"; once revoked
+ * (by the owner, the purge, an administrator) it is gone for good. The pinned
+ * version is never purged while the publication is live.
+ */
+export const workspacePublication = pgTable(
+  'agent_workspace_publication',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    publicId: text('public_id').notNull(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    entryId: uuid('entry_id').references(() => workspaceEntry.id, { onDelete: 'set null' }),
+    revisionId: uuid('revision_id').notNull(),
+    sha256: text('sha256').notNull(),
+    size: bigint('size', { mode: 'number' }).notNull(),
+    mediaType: text('media_type').notNull(),
+    fileName: text('file_name').notNull(),
+    title: text('title').notNull(),
+    indexable: boolean('indexable').notNull().default(false),
+    /** What the public page shows: a text file's first lines, a document's extracted text (≤ PUBLISH_PREVIEW_BYTES); null for an image. */
+    preview: text('preview'),
+    /** The checks it passed when published or updated, as the dialog showed them. */
+    checks: jsonb('checks').$type<{ key: string; ok: boolean; detail?: string }[]>().notNull().default([]),
+    createdAt: createdAt(),
+    updatedAt: timestampTz('updated_at').notNull().defaultNow(),
+    /** Reports took it down until an administrator restores or revokes it. */
+    suspendedAt: timestampTz('suspended_at'),
+    revokedAt: timestampTz('revoked_at'),
+    revokeReason: text('revoke_reason').$type<'owner' | 'purged' | 'admin'>(),
+    revokedBy: uuid('revoked_by'),
+  },
+  (t) => [
+    uniqueIndex('agent_workspace_publication_public_id_key').on(t.publicId),
+    uniqueIndex('agent_workspace_publication_entry_key').on(t.entryId).where(sql`revoked_at is null`),
+    index('agent_workspace_publication_owner_idx').on(t.ownerId, t.createdAt),
+    index('agent_workspace_publication_revision_idx').on(t.revisionId).where(sql`revoked_at is null`),
+    check('agent_workspace_publication_reason_check', sql`revoke_reason is null or revoke_reason in ('owner', 'purged', 'admin')`),
+    check('agent_workspace_publication_revoked_check', sql`(revoked_at is null) = (revoke_reason is null)`),
+  ],
+);
+
+/** A public file's day (UTC): downloads served by the function (each counted in full when it starts), their bytes, and page views. */
+export const workspacePublicationDay = pgTable(
+  'agent_workspace_publication_day',
+  {
+    publicationId: uuid('publication_id')
+      .notNull()
+      .references(() => workspacePublication.id, { onDelete: 'cascade' }),
+    day: date('day', { mode: 'string' }).notNull(),
+    downloads: integer('downloads').notNull().default(0),
+    bytes: bigint('bytes', { mode: 'number' }).notNull().default(0),
+    pageViews: integer('page_views').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.publicationId, t.day] })],
+);
+
+/** A report of a public file, by a visitor known only by a keyed digest of their address; one per address and file. */
+export const workspacePublicationReport = pgTable(
+  'agent_workspace_publication_report',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    publicationId: uuid('publication_id')
+      .notNull()
+      .references(() => workspacePublication.id, { onDelete: 'cascade' }),
+    reporterDigest: text('reporter_digest').notNull(),
+    reason: text('reason').notNull(),
+    note: text('note'),
+    createdAt: createdAt(),
+    handledAt: timestampTz('handled_at'),
+  },
+  (t) => [
+    uniqueIndex('agent_workspace_publication_report_key').on(t.publicationId, t.reporterDigest),
+    index('agent_workspace_publication_report_open_idx').on(t.createdAt).where(sql`handled_at is null`),
+    check('agent_workspace_publication_report_reason_check', sql`reason in ('malware', 'phishing', 'illegal', 'infringement', 'personal_data', 'other')`),
+  ],
+);
+
+/** Contents an administrator took down: the same bytes can never be published again, from any account. */
+export const publishBlock = pgTable('agent_publish_block', {
+  sha256: text('sha256').primaryKey(),
+  reason: text('reason').notNull(),
+  createdBy: uuid('created_by').references(() => administrator.id, { onDelete: 'set null' }),
+  createdAt: createdAt(),
+});

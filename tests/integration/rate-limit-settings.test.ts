@@ -342,6 +342,7 @@ suite('console rate limits and exemptions', () => {
     expect((await listCeilings()).map((row) => [row.key, row.exemptedBy])).toEqual([
       ['postsPerDay', 'post'], ['followupsPerDay', 'post'], ['followupsPerPostPerDay', 'post'], ['exploreQuestions', null], ['visitorAsksPerDay', null],
       ['workspaceWritesPerDay', null], ['workspaceDebtLimit', null], ['workspaceFreeMb', null], ['workspaceIndexBudget', null],
+      ['publishFileMaxMb', null], ['publishMaxFiles', null], ['publishFreeMbMonth', null], ['publishDailyMb', null], ['publishFileDailyMb', null],
     ]);
   });
 

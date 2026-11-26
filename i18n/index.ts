@@ -39,6 +39,7 @@ import * as consoleConfirm from './pages/console-confirm';
 import * as invites from './pages/invites';
 import * as posts from './pages/posts';
 import * as files from './pages/files';
+import * as publish from './pages/publish';
 import type { Locale } from './locale';
 
 /* Step 5's pages sit in their own spread, so other steps' additions to the first object merge cleanly. */
@@ -61,7 +62,7 @@ const v5 = { posts };
 /* Site-wide traffic sits in its own spread too. */
 const siteTraffic = { traffic };
 /* The agent workspace sits in its own spread too. */
-const agentWorkspace = { files };
+const agentWorkspace = { files, publish };
 const pages = { servicePricing, modelCalls, knowledgeCosts, pricingAdmin, common, login, dashboard, rees, reeSetup, knowledge, chat, settings, billing, site, legal, admin, firecrawl, rateLimits, discover, ...step5, ...step6, ...step7, ...sharing, ...mcp, ...redeem, ...confirmations, ...invitations, ...v5, ...siteTraffic, ...agentWorkspace };
 
 type Pages = typeof pages;

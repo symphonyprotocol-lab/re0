@@ -2,7 +2,7 @@
 
 2026-11-26，基于 `rebuild` 分支 `c3732af9`（#257、#259、#260 已合并），以及尚未合并的 #261（第三期：二进制上传下载、PDF/Word 索引、版本对比，迁移 0099）。总体设计见 `docs/design/agent-workspace.md`（PR #256，还没合并），本文只写第四期，章节号独立。
 
-**状态**：已评审。用户 2026-11-26 确认第 7 节全部按推荐实施。4a（MCP resources）在单独的 PR 中实现；4b（公开原文）开工前还要等用户确认 R1 的服务条款，以及 R4 的生产环境只读验证。
+**状态**：已评审。用户 2026-11-26 确认第 7 节全部按推荐实施。4a（MCP resources）已合并（#264）。4b（公开原文）：用户 2026-11-26 确认了 R1（服务条款加入用户发布内容条款，4b PR 一并修改）和 R4（允许在生产 Blob 做一次只读验证）。R4 的验证尚未执行，所以 4b 默认走 R4 的退路（见 §2.5），验证通过后改一个常量即可打开 302。
 
 **设计稿（界面）**：用 re0 现有样式表渲染的桌面和手机画面放在 artifact 里，不在仓库中：https://claude.ai/artifact/NDg7ijxF8tFNLQfquhWyQA 。本文的网页版：https://claude.ai/artifact/UMMDyjgXr7rHrgQZCBJjL6 。
 
@@ -55,9 +55,11 @@
 | `agent_workspace_publication` | `id`、`public_id`（22 位随机 base62，唯一）、`workspace_id`、`entry_id`、`revision_id`、`sha256`、`size`、`media_type`、`file_name`、`title`、`indexable`（默认 false）、`preview`（≤ 8 KB 文本，可空）、`checks`（jsonb）、`created_at`、`updated_at`、`suspended_at`、`revoked_at`、`revoke_reason`（`owner \| purged \| admin \| account_disabled`） | 每个文件最多一条有效记录（部分唯一索引 `entry_id where revoked_at is null`）。`file_name` 在发布时固定，改名不影响公开链接，「更新到当前版本」时一起更新。 |
 | `agent_workspace_publication_day` | `publication_id`、`day`、`downloads`、`bytes`、`page_views` | 每天一行，由下载路由累加，用于统计和计费。 |
 | `agent_publish_block` | `sha256`、`reason`、`created_by`、`created_at` | 管理员下架时写入。同样的字节在任何账户都不能再公开。 |
-| `agent_workspace_usage` 新列 | `egress_month`、`egress_month_bytes`、`egress_billed_bytes`、`egress_day`、`egress_day_bytes` | 本月和今天的公开下载字节，与存储同一把锁，供免费额度、每日上限和计费使用。 |
+| `agent_workspace_usage` 新列 | `egress_month`、`egress_month_bytes`、`egress_unbilled_bytes`、`egress_day`、`egress_day_bytes`、`publish_frozen_at` | 本月和今天的公开下载字节，与存储同一把锁，供免费额度、每日上限和计费使用。每次下载把超出免费额度的那一部分加到 `egress_unbilled_bytes`，每天的存储计费按传输费率结算后清零，所以跨月时不会漏算。`publish_frozen_at` 是管理员冻结公开功能的时间。 |
+| `agent_workspace_publication_report` | `publication_id`、`reporter_digest`（举报人地址的 HMAC，不存原地址）、`reason`、`note`、`created_at`、`handled_at` | 每个地址对每个文件最多一条举报。 |
+| `notice.kind` | 新增 `publication` | 文件被举报暂停、恢复、下架，账号被冻结或解冻时通知所有者。 |
 
-**被公开的版本不会被清理**：发布时对 `agent_workspace_blob` 的这份内容加一次引用，停止公开时减掉；`purgeWorkspaces` 跳过被有效公开记录引用的版本。所以即使文件后来改了几十次，超过「最近 10 个、30 天」的保留规则，公开的那个版本仍在。这份字节照常计入所有者的存储。
+**被公开的版本不会被清理**：`purgeWorkspaces` 跳过被有效公开记录引用的版本（包括 60 秒内被合并掉、本来一天后就清理的版本）。版本行保留，它对 `agent_workspace_blob` 的引用也就保留，所以不需要另加引用（实现时的简化）。公开记录另存了 sha256 和大小，按自己的字段取字节。所以即使文件后来改了几十次，超过「最近 10 个、30 天」的保留规则，公开的那个版本仍在。这份字节照常计入所有者的存储。
 
 ### 2.3 固定版本，而不是跟随最新版
 
@@ -91,14 +93,14 @@
 
 | 路由 | 内容 | 缓存 |
 | --- | --- | --- |
-| `/f/<public_id>` | 公开页：标题、文件名、类型、大小、发布者（链到个人主页）、版本日期、sha256、下载按钮、复制链接、预览（文本前 200 行；图片用 `<img>`；PDF 和 Office 显示发布时抽取的前 8 KB 文本）、免责声明和举报入口。引用它的公开 Ree 也列出。 | `s-maxage=60`，带缓存标签 `wsp-<public_id>`。停止公开、暂停、下架时用 `dangerouslyDeleteByTag` 硬删除，不用 stale-while-revalidate 的失效方式，否则 CDN 会先把已撤销的页面再发一次。 |
+| `/f/<public_id>` | 公开页：标题、文件名、类型、大小、发布者（链到个人主页）、版本日期、sha256、下载按钮、复制链接、预览（文本前 200 行；图片用 `<img>`；PDF 和 Office 显示发布时抽取的前 8 KB 文本）、免责声明和举报入口。引用它的公开 Ree 也列出。 | **实现时改为不缓存**：每次请求都渲染（`force-dynamic`），停止公开、暂停、下架立即生效，不需要按标签清除 CDN。页面很轻，代价可以接受；访问量大时再加 `s-maxage` 和标签清除。 |
 | `/f/<public_id>/raw` | 原文字节 | **不进 CDN 缓存**（`private, no-store`） |
 
 **原文字节为什么不缓存**：每次下载都经过函数，才能 (1) 准确计量流量、按所有者计费；(2) 逐 IP、逐文件、逐账户限流；(3) 停止公开立即生效，不依赖缓存清除。代价是每次下载一次函数调用；4 MB 以内由函数流式返回，CPU 用得很少。
 
 **响应头**（沿用第三期的下载路由，`next.config.mjs` 对 `/f/:id/raw` 加同样的头）：`Content-Type` 按扩展名白名单给出，不嗅探；`X-Content-Type-Options: nosniff`；`Content-Security-Policy: sandbox; default-src 'none'`；**始终 `Content-Disposition: attachment`**，带 `filename*` 编码（第三期的 `extValue`）。公开页上的图片预览用 `<img src=".../raw">`，`attachment` 不影响 `<img>` 显示。`X-Robots-Tag: noindex` 加在原文上；公开页只有 `indexable = true` 时才允许收录，默认不收录。
 
-**4 MB 以上走 302**：与第三期相同，函数复核公开状态、限额并记账后，302 到 Blob 签名 URL，有效期 1 分钟，302 本身 `no-store`。停止公开后，已经发出的签名 URL 最多还能用 1 分钟。**依赖第三期尚未在 Vercel 上验证的两点**：签名 URL 加 `download=1` 后是否仍然有效，以及 Blob 的响应是否保留 `nosniff`。4b 实现前要先在生产环境用一个测试文件只读验证（第 8 节 R4）。
+**4 MB 以上走 302**：与第三期相同，函数复核公开状态、限额并记账后，302 到 Blob 签名 URL，有效期 1 分钟，302 本身 `no-store`。停止公开后，已经发出的签名 URL 最多还能用 1 分钟。**依赖第三期尚未在 Vercel 上验证的两点**：签名 URL 加 `download=1` 后是否仍然有效，以及 Blob 的响应是否保留 `nosniff`。4b 实现前要先在生产环境用一个测试文件只读验证（第 8 节 R4）。**现状**：验证还没执行，`PUBLISH_BLOB_REDIRECT` 默认关闭，按退路实现：可公开的文件最大 4 MB（不论后台的 `publishFileMaxMb` 设多大），全部由函数返回。验证通过后把这个常量改为 `true`，上限即按后台设置（默认 25 MB），超过 4 MB 的走 302。
 
 **`public_id` 不可猜**：22 位 base62 约 131 位随机。公开页不列出同一账户的其他公开文件，避免从一个链接枚举出所有公开文件；不存在和已撤销返回同样的页面。
 
@@ -207,7 +209,7 @@
 
 | # | 风险 | 应对 |
 | --- | --- | --- |
-| R1 | 公开原文第一次让 re0 承担文件分发的法律和声誉风险 | 白名单、举报、下架、哈希黑名单和审计日志；公开页写明内容由用户发布。上线前需要你确认服务条款是否要补充用户发布内容的条款。 |
+| R1 | 公开原文第一次让 re0 承担文件分发的法律和声誉风险 | 白名单、举报、下架、哈希黑名单和审计日志；公开页写明内容由用户发布。服务条款新增「公开的工作区文件」一节（中英文），写明发布者责任、举报、下架与暂停、哈希黑名单和审计日志。 |
 | R2 | 公开版本占用存储，所有者可能忘了自己公开过什么 | 存储照常计费并在用量页单列「已公开的文件」；停止公开后引用释放，按现有规则清理。 |
 | R3 | 通过 resources 附加的文件内容会被客户端当作用户上下文交给模型，`DATA_NOTE` 只能提醒 | 在 `/files/connect` 和文档里说明。 |
-| R4 | Blob 的 `download=1` 签名 URL 和响应头在 Vercel 上还没验证（第三期遗留） | 4b 开工前先在生产环境用测试文件只读验证；不行就把公开文件的上限降到 4 MB，全部由函数返回（函数响应体上限 4.5 MB）。 |
+| R4 | Blob 的 `download=1` 签名 URL 和响应头在 Vercel 上还没验证（第三期遗留） | 用户已批准在生产 Blob 上传一个测试文件做一次检查（验证后删除）。检查尚未执行，4b 默认按退路：公开文件上限 4 MB，全部由函数返回（函数响应体上限 4.5 MB）；检查通过后打开 `PUBLISH_BLOB_REDIRECT`。 |

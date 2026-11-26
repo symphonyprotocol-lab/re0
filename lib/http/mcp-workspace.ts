@@ -217,7 +217,7 @@ export function registerWorkspaceTools(server: Server) {
     'ws_stat',
     {
       title: 'Inspect a workspace file',
-      description: 'One file or folder: kind, size, etag, lines, how many versions, when and by which tool it last changed; for a folder, how many entries are inside.',
+      description: 'One file or folder: kind, size, etag, lines, how many versions, when and by which tool it last changed; for a folder, how many entries are inside. A file its owner published as a public original has `published` (its public URL, the version the link serves, and whether that is the current one); publishing happens only on the web, and a new version you write is not public until the owner updates the link.',
       inputSchema: z.object({ path: PATH }),
       annotations: READ,
     },

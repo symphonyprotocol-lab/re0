@@ -85,7 +85,9 @@ const config = {
       { source: '/:path*', headers: SECURITY_HEADERS },
       ...NON_DOCUMENT_PATHS.map((source) => ({ source, headers: [{ key: POLICY_HEADER, value: NON_DOCUMENT_POLICY }] })),
       /* Workspace downloads are anyone's bytes (lib/services/workspace-upload.ts): sandboxed as well, should a browser ever render one. Listed last, so it wins. */
-      ...['/api/files/download/:path*', '/api/files/raw'].map((source) => ({ source, headers: [{ key: POLICY_HEADER, value: `${NON_DOCUMENT_POLICY}; sandbox` }] })),
+      /* Published originals (docs/design/agent-workspace-p4.md §2.5) too: the public's download of anyone's file, never indexed. */
+      ...['/api/files/download/:path*', '/api/files/raw', '/f/:id/raw'].map((source) => ({ source, headers: [{ key: POLICY_HEADER, value: `${NON_DOCUMENT_POLICY}; sandbox` }] })),
+      { source: '/f/:id/raw', headers: [{ key: 'X-Robots-Tag', value: 'noindex' }, { key: 'X-Content-Type-Options', value: 'nosniff' }] },
     ];
   },
   reactStrictMode: true,
@@ -99,6 +101,8 @@ const config = {
     '/api/rees/*/knowledge{,/**}': ['./node_modules/pdfjs-dist/cmaps/**/*', './node_modules/pdfjs-dist/standard_fonts/**/*'],
     /* The workspace index reads uploaded PDFs in its cron (lib/services/workspace-index.ts). */
     '/api/cron/workspace-index': ['./node_modules/pdfjs-dist/cmaps/**/*', './node_modules/pdfjs-dist/standard_fonts/**/*'],
+    /* Publishing a PDF reads its text for the secret scan and the preview (lib/services/workspace-publish.ts). */
+    '/api/files/publish{,/**}': ['./node_modules/pdfjs-dist/cmaps/**/*', './node_modules/pdfjs-dist/standard_fonts/**/*'],
   },
   images: {
     remotePatterns: [

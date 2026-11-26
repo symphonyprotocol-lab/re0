@@ -43,6 +43,8 @@ export const SITEMAP_INDEX_ROUTE = '/sitemap-index.xml';
 
 export function middleware(request: NextRequest): NextResponse {
   if (request.nextUrl.pathname === '/sitemap.xml') return NextResponse.rewrite(new URL(SITEMAP_INDEX_ROUTE, request.url));
+  /* A published file's bytes (docs/design/agent-workspace-p4.md §2.5) keep the sandbox policy next.config.mjs and the route give them, not a page's. */
+  if (/^\/f\/[0-9A-Za-z]+\/raw$/.test(request.nextUrl.pathname)) return NextResponse.next();
   const search = request.nextUrl.search;
   const localized = splitLocale(request.nextUrl.pathname);
   if (localized && !isLocalizedPath(localized.path)) return NextResponse.redirect(new URL(localized.path + search, request.url));

@@ -231,7 +231,7 @@ above.
 | Tool | What it does | Access |
 | --- | --- | --- |
 | `ws_list {path?, recursive?, pattern?, trash?, cursor?, limit?}` | A folder's entries (or everything below it), sorted by path, with size, `etag`, lines, last change and which client made it; `pattern` is a glob (`*.md` matches names at any depth, `docs/*.md` paths below the folder); `trash` lists what was deleted there with its `trash_id` | read |
-| `ws_stat {path}` | One entry: kind, size, `etag`, versions, last writer | read |
+| `ws_stat {path}` | One entry: kind, size, `etag`, versions, last writer; for a file its owner published as a public original, `published` (URL, the version the link serves, whether it is the current one). Publishing and stopping happen only on the web: no tool publishes, and writing a new version does not change what the link serves | read |
 | `ws_read {path, offset?, limit?, byte_offset?, byte_length?, line_numbers?, revision?}` | The text, byte for byte, whole or a window of lines or bytes (256 KB a call, `next_offset` to continue); `revision` reads an older version. The content comes as its own text part | read |
 | `ws_grep {pattern, literal?, path?, glob?, ignore_case?, context?, limit?}` | Matching lines (POSIX regex, or literal text) by path and line, up to 200; `partial` when the 50 MB scan cap was reached | read |
 | `ws_history {path, cursor?, limit?}` | A file's versions, newest first, with the writer and how many saves each merged | read |

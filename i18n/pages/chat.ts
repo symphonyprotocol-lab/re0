@@ -16,6 +16,7 @@ export const zh = {
     source: '来源 {n}',
     copy: '复制引用',
     open: '打开来源',
+    original: '查看原文',
   },
   insufficient: {
     topUp: '前往充值',
@@ -32,6 +33,7 @@ export const en: Shape<typeof zh> = {
     source: 'Source {n}',
     copy: 'Copy excerpt',
     open: 'Open source',
+    original: 'View original',
   },
   insufficient: {
     topUp: 'Add credits',

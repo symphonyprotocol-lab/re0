@@ -124,6 +124,13 @@ export function CitationDrawer({
       footer={
         citation && (
           <div className="conv-citation conv-citation-actions">
+            {citation.original && (
+              /* The cited workspace file's published original (docs/design/agent-workspace-p4.md §2.1): its public page, in a new tab. */
+              <a className="btn secondary" href={citation.original} target="_blank" rel="noreferrer">
+                <I name="globe" />
+                {d.original}
+              </a>
+            )}
             {canOpen && ree && (
               <Link className="btn secondary" href={`/rees/${ree.id}/knowledge/${citation.knowledgeId}${citation.locator.time !== undefined ? `?t=${Math.floor(citation.locator.time)}` : ''}`}>
                 <I name="external" />

@@ -35,6 +35,11 @@ export const zh = {
     postAiAnswer: '没有 Ree 能回答你的帖子「{question}」，AI 先给了你一个通用回答。',
     followupAiAnswer: '没有 Ree 能回答你的追问「{question}」，AI 先给了你一个通用回答。',
     chatsRemoval: '旧的私密对话已随改版删除，私密提问现在是私密帖子。',
+    publicationTakenDown: '你公开的文件「{title}」已被管理员下架，链接已失效。同样的文件不能再公开。',
+    publicationSuspended: '你公开的文件「{title}」被多人举报，已暂停公开，等待管理员处理。',
+    publicationRestored: '你公开的文件「{title}」已恢复公开。',
+    publicationFrozen: '你的账号已被管理员暂停公开原文：已公开的文件暂时无法访问，也不能公开新的文件。',
+    publicationUnfrozen: '你的账号已恢复公开原文。',
     visitorAskPaused: '今天有访客没能在分享页向你的 Ree「{ree}」免登录提问：你的余额不够支付一个回答 {fee} credits 的基本使用费。充值后访客可以继续提问。',
   },
   open: {
@@ -45,6 +50,7 @@ export const zh = {
     privatePosts: '查看私密帖子',
     topUp: '去充值',
     visitorAsks: '免登录提问设置',
+    files: '查看已公开的文件',
   },
 };
 
@@ -83,6 +89,11 @@ export const en: Shape<typeof zh> = {
     followupAiAnswer: 'No Ree could answer your follow-up “{question}”, so the AI gave you a general answer for now.',
     chatsRemoval: 'Your old private conversations were deleted with the redesign; private questions are now private posts.',
 
+    publicationTakenDown: 'Your public file “{title}” was taken down by an administrator; its link no longer works, and the same file cannot be published again.',
+    publicationSuspended: 'Your public file “{title}” was reported by several people and is suspended until an administrator reviews it.',
+    publicationRestored: 'Your public file “{title}” is public again.',
+    publicationFrozen: 'An administrator paused publishing for your account: your public files are unavailable for now, and no new ones can be published.',
+    publicationUnfrozen: 'Publishing is available for your account again.',
     visitorAskPaused: 'Visitors could not ask your Ree “{ree}” on its share page today: your balance cannot cover the {fee}-credit base fee of one answer. Top up and visitors can ask again.',
   },
   open: {
@@ -94,5 +105,6 @@ export const en: Shape<typeof zh> = {
 
     topUp: 'Top up',
     visitorAsks: 'Visitor question settings',
+    files: 'View public files',
   },
 };

@@ -927,3 +927,36 @@ export const WORKSPACE_STITCH_LEASE_MS = 2 * 60_000;
 export const WORKSPACE_STITCH_BUDGET_MS = 120_000;
 /** Above this a download is a redirect to a short-lived signed store URL: a function's response holds at most 4.5 MB. */
 export const WORKSPACE_DOWNLOAD_INLINE_MAX = 4 * 1024 * 1024;
+
+/**
+ * Publishing a file's original (docs/design/agent-workspace-p4.md §2): the
+ * console's ceilings hold the sizes and counts (`publishFileMaxMb`,
+ * `publishMaxFiles`, the free and daily download volumes); these are the rest.
+ *
+ * PUBLISH_BLOB_REDIRECT: whether a published file over
+ * WORKSPACE_DOWNLOAD_INLINE_MAX is a 302 to a signed store URL (the design's
+ * path). Off until the production check (§2.5, R4) confirms that a signed URL
+ * with `download=1` stays valid and keeps `nosniff`; meanwhile the design's
+ * fallback holds: every published file is at most 4 MB and served by the
+ * function itself, whatever `publishFileMaxMb` says.
+ */
+export const PUBLISH_BLOB_REDIRECT = false;
+/** A public file's id: 22 base62 characters, about 131 random bits. */
+export const PUBLISH_ID_LENGTH = 22;
+/** Downloads of one public file from one address an hour; reports from one address an hour. */
+export const PUBLISH_DOWNLOADS_PER_IP_HOUR = 30;
+export const PUBLISH_REPORTS_PER_IP_HOUR = 10;
+/** Reports from this many different addresses within PUBLISH_REPORT_WINDOW_MS suspend a public file until an administrator looks. */
+export const PUBLISH_REPORT_SUSPEND = 5;
+export const PUBLISH_REPORT_WINDOW_MS = 24 * 3_600_000;
+/** Who may publish: an account at least this old. */
+export const PUBLISH_ACCOUNT_MIN_AGE_MS = 7 * 86_400_000;
+/** The preview a public page shows: text's first lines, a document's extracted text, at most this many bytes. */
+export const PUBLISH_PREVIEW_LINES = 200;
+export const PUBLISH_PREVIEW_BYTES = 8 * 1024;
+/** A public page's title. */
+export const PUBLISH_TITLE_MAX = 80;
+/** Takedowns of one account's files after which the console suggests freezing its publishing. */
+export const PUBLISH_TAKEDOWNS_WARN = 2;
+/** How much of a PDF's streams the active-content check inflates to look inside, in all. */
+export const PUBLISH_PDF_INFLATE_MAX = 64 * 1024 * 1024;

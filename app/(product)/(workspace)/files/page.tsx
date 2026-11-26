@@ -13,8 +13,12 @@ import { CreateReeButton } from '@/components/files/workspace-ui';
 import { reesUsingEntry } from '@/lib/services/workspace-rees';
 import { liveEntry } from '@/lib/services/workspace';
 import { filesHref, FilesTopbar, PathCrumbs, StorageStrip, WriterChip } from '@/components/files/files-parts';
+import { PublicationActions, PublishButton } from '@/components/files/publish-ui';
+import { publicationOfEntry } from '@/lib/services/workspace-publish';
+import { effectiveCeiling } from '@/lib/services/rate-limit-settings';
 import '@/components/knowledge/knowledge.css';
 import '@/components/files/files.css';
+import '@/components/files/publish.css';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
@@ -184,6 +188,11 @@ async function FileView({ t, locale, scope, path, diff }: { t: Messages; locale:
   const parent = parentOf(file.path);
   const entry = await liveEntry(db(), scope, file.path);
   const rees = entry ? await reesUsingEntry(scope.userId, entry.id) : [];
+  /* Publishing the original (docs/design/agent-workspace-p4.md §2.6): the owner's button, or the live link's card. */
+  const [publication, freeMb, dailyMb] = await Promise.all([entry ? publicationOfEntry(entry.id) : null, effectiveCeiling('publishFreeMbMonth'), effectiveCeiling('publishDailyMb')]);
+  const pc = t.publish.card;
+  const stale = publication !== null && publication.revision !== file.revision;
+  const publicVersion = publication ? history.versions.find((version) => version.revision === publication.revision) : undefined;
   return (
     <>
       <div className="ws-file-head">
@@ -199,6 +208,7 @@ async function FileView({ t, locale, scope, path, diff }: { t: Messages; locale:
           </span>
         </div>
         <div className="flex">
+          {!publication && <PublishButton path={file.path} revision={file.revision} freeMb={freeMb} dailyMb={dailyMb} />}
           <CopyButton text={file.path} label={f.copyPath} />
           <a className="btn secondary sm" href={rawHref(file.path)}>
             <Icon name="download" />
@@ -284,6 +294,41 @@ async function FileView({ t, locale, scope, path, diff }: { t: Messages; locale:
           )}
         </section>
         )}
+        <div className="publish-side">
+        {publication && (
+          <section className="card publish-card">
+            <div className="ws-history-head">
+              <strong>
+                <Icon name="globe" />
+                {pc.title}
+              </strong>
+              <span className={`tag ${publication.suspended ? 'orange' : 'green'}`}>{publication.suspended ? pc.suspended : pc.live}</span>
+            </div>
+            <div className="publish-card-body">
+              <div className="publish-link">
+                <span className="mono">{publication.url.replace(/^https?:\/\//, '')}</span>
+                <CopyButton text={publication.url} label={pc.copy} className="btn ghost sm" />
+              </div>
+              {stale && (
+                <div className="ws-notice publish-stale">
+                  <Icon name="info" />
+                  <span>{fill(pc.stale, { date: publicVersion ? formatDateTime(publicVersion.updated_at, locale) : '—', current: formatDateTime(file.updated_at, locale) })}</span>
+                </div>
+              )}
+              <div className="publish-stats">
+                <div>
+                  <strong>{publication.downloads_30d}</strong>
+                  <small>{pc.downloads}</small>
+                </div>
+                <div>
+                  <strong>{formatBytes(publication.bytes_30d)}</strong>
+                  <small>{pc.volume}</small>
+                </div>
+              </div>
+              <PublicationActions id={publication.id} url={publication.url} title={publication.title} stale={stale} />
+            </div>
+          </section>
+        )}
         <aside className="card ws-history">
           <div className="ws-history-head">
             <strong>
@@ -300,6 +345,7 @@ async function FileView({ t, locale, scope, path, diff }: { t: Messages; locale:
                   <div className="ws-ver-head">
                     <strong>#{history.versions.length - index}</strong>
                     <WriterChip t={t} writer={version.written_by} />
+                    {publication?.revision === version.revision && <span className="tag blue">{pc.versionTag}</span>}
                   </div>
                   <small>
                     {f.ops[version.op]} · {formatDateTime(version.updated_at, locale)} · {formatBytes(version.size)}
@@ -326,6 +372,7 @@ async function FileView({ t, locale, scope, path, diff }: { t: Messages; locale:
           </ol>
           <p className="ws-history-note">{f.historyNote}</p>
         </aside>
+        </div>
       </div>
     </>
   );

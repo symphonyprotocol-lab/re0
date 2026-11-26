@@ -74,6 +74,10 @@ export const AUDIT_ACTIONS = [
   'redeem.code.reveal',
   'redeem.code.disable',
   'redeem.code.enable',
+  'workspace.publication.takedown',
+  'workspace.publication.restore',
+  'workspace.publication.freeze',
+  'workspace.publication.unfreeze',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

@@ -148,6 +148,12 @@ function describe(t: Messages, locale: Locale, notice: NoticeItem): { line: stri
         reason: null,
         more: reeId ? { href: `/rees/${reeId}/settings#visitor-asks`, action: o.visitorAsks } : undefined,
       };
+    case 'publication': {
+      /* A file the reader published: taken down, suspended by reports or restored; or their publishing frozen or unfrozen (docs/design/agent-workspace-p4.md §2.8). */
+      const lines = { taken_down: l.publicationTakenDown, suspended: l.publicationSuspended, restored: l.publicationRestored, frozen: l.publicationFrozen, unfrozen: l.publicationUnfrozen } as const;
+      const line = lines[String(p.action) as keyof typeof lines] ?? l.other;
+      return { line: fill(line, { title: String(p.title ?? '') }), icon: p.action === 'restored' || p.action === 'unfrozen' ? 'globe' : 'lock', href: '/files/usage#published', action: o.files, reason };
+    }
     case 'chats_removal':
       /* Once, by migration 0067: private conversations became private posts, and the old ones go a week later. */
       return { line: l.chatsRemoval, icon: 'info', href: '/me/posts?tab=private', action: o.privatePosts, reason: null };

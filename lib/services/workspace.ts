@@ -68,7 +68,8 @@ import {
   restoredCandidate,
   underRoot,
 } from '@/lib/domain/workspace';
-import { storageCostPico } from '@/lib/domain/infra-cost';
+import { storageCostPico, transferCostUsd } from '@/lib/domain/infra-cost';
+import { usdPico } from '@/lib/domain/provider-cost';
 import { appBaseUrl } from '@/lib/http/cookies';
 import { db, schema, type Executor, type Tx } from '@/lib/infra/db';
 import { mayNeedIndex, queueIndexWithin } from '@/lib/services/ree-file-guard';
@@ -253,14 +254,14 @@ async function accrued(row: typeof schema.workspaceUsage.$inferSelect, now: Date
   return { blob: BigInt(row.blobByteMs) + billable.blob * ms, database: BigInt(row.databaseByteMs) + billable.database * ms };
 }
 
-async function lockUsage(tx: Tx, userId: string): Promise<typeof schema.workspaceUsage.$inferSelect> {
+export async function lockUsage(tx: Tx, userId: string): Promise<typeof schema.workspaceUsage.$inferSelect> {
   await tx.insert(schema.workspaceUsage).values({ userId }).onConflictDoNothing();
   const [row] = await tx.select().from(schema.workspaceUsage).where(eq(schema.workspaceUsage.userId, userId)).for('update');
   return row!;
 }
 
 /** What the owner owes, in credits (open `credit_debt`). */
-async function debtOf(userId: string): Promise<number> {
+export async function debtOf(userId: string): Promise<number> {
   const [row] = await db()
     .select({ owed: sql<string>`coalesce(sum(${schema.creditDebt.remaining}), 0)` })
     .from(schema.creditDebt)
@@ -637,7 +638,16 @@ export async function statEntry(scope: WorkspaceScope, rawPath: unknown) {
     entry.kind === 'folder'
       ? await db().select({ children: sql<number>`count(*)::int` }).from(schema.workspaceEntry).where(and(live(scope), under(entry.path)))
       : [{ children: 0 }];
-  return { ...view(scope, entry), versions, children, revision: entry.currentRevisionId, created_at: entry.createdAt };
+  /* A file published as an original (docs/design/agent-workspace-p4.md §2.6): agents see that it is public, and which version; only the web publishes. */
+  const [publication] =
+    entry.kind === 'file'
+      ? await db()
+          .select({ publicId: schema.workspacePublication.publicId, revision: schema.workspacePublication.revisionId, updatedAt: schema.workspacePublication.updatedAt })
+          .from(schema.workspacePublication)
+          .where(and(eq(schema.workspacePublication.entryId, entry.id), isNull(schema.workspacePublication.revokedAt)))
+      : [];
+  const published = publication ? { url: `${appBaseUrl()}/f/${publication.publicId}`, revision: publication.revision, updated_at: publication.updatedAt, current: publication.revision === entry.currentRevisionId } : null;
+  return { ...view(scope, entry), versions, children, revision: entry.currentRevisionId, created_at: entry.createdAt, published };
 }
 
 export interface ReadInput {
@@ -1179,6 +1189,11 @@ async function freeName(tx: Tx, scope: WorkspaceScope, path: string): Promise<st
 /** Deletes trashed entries for good (the owner on the web; the purge after 30 days). */
 async function destroy(tx: Tx, meter: Meter, workspaceId: string, ids: readonly string[], now: Date): Promise<number> {
   if (ids.length === 0) return 0;
+  /* A public file deleted for good (the purge, emptying the trash) loses its link; the row stays, revoked, for the record. */
+  await tx
+    .update(schema.workspacePublication)
+    .set({ revokedAt: now, revokeReason: 'purged', updatedAt: now })
+    .where(and(inArray(schema.workspacePublication.entryId, [...ids]), isNull(schema.workspacePublication.revokedAt)));
   const revisions = await tx.select({ sha: schema.workspaceRevision.sha256 }).from(schema.workspaceRevision).where(inArray(schema.workspaceRevision.entryId, [...ids]));
   for (const revision of revisions) await dropRef(tx, meter, workspaceId, revision.sha, now);
   const gone = await tx.delete(schema.workspaceEntry).where(inArray(schema.workspaceEntry.id, [...ids])).returning({ text: schema.workspaceEntry.text });
@@ -1261,12 +1276,15 @@ export async function purgeWorkspaces(now = new Date(), limit = 500): Promise<{ 
           const stale = await tx.execute<{ id: string; sha256: string }>(sql`
             select r.id, r.sha256 from ${schema.workspaceRevision} r
             where r.workspace_id = ${workspaceId} and r.squashed_into is not null and r.updated_at < ${squashedCutoff}
+              and not exists (select 1 from ${schema.workspacePublication} p where p.revision_id = r.id and p.revoked_at is null)
             union all
             select r.id, r.sha256 from (
               select r.*, row_number() over (partition by r.entry_id order by r.created_at desc, r.id desc) as rank
               from ${schema.workspaceRevision} r where r.workspace_id = ${workspaceId} and r.squashed_into is null
             ) r join ${schema.workspaceEntry} e on e.id = r.entry_id
             where r.updated_at < ${revisionCutoff} and r.rank > ${WORKSPACE_REVISIONS_KEPT} and r.id is distinct from e.current_revision_id
+              /* A published version is kept while its link is live (docs/design/agent-workspace-p4.md §2.2). */
+              and not exists (select 1 from ${schema.workspacePublication} p where p.revision_id = r.id and p.revoked_at is null)
             limit 5000`);
           for (const row of stale.rows) await dropRef(tx, meter, workspaceId, row.sha256, now);
           if (stale.rows.length) {
@@ -1317,9 +1335,11 @@ export async function chargeWorkspaceStorage(now = new Date(), limit = 1000): Pr
         const row = await lockUsage(tx, userId);
         const earned = await accrued(row, now);
         const rates = await infraCostRates(tx, now);
-        const cost = storageCostPico(earned.blob, earned.database, rates);
-        await tx.update(schema.workspaceUsage).set({ blobByteMs: '0', databaseByteMs: '0', measuredAt: now, chargedAt: now }).where(eq(schema.workspaceUsage.userId, userId));
-        return cost > 0n ? chargeStorageCost(tx, userId, cost, now, 'Workspace storage') : 0;
+        /* Public downloads past the month's free volume (docs/design/agent-workspace-p4.md §2.7), at the transfer rate, in the same charge. */
+        const egress = row.egressUnbilledBytes > 0 ? usdPico(transferCostUsd(row.egressUnbilledBytes, rates)) : 0n;
+        const cost = storageCostPico(earned.blob, earned.database, rates) + egress;
+        await tx.update(schema.workspaceUsage).set({ blobByteMs: '0', databaseByteMs: '0', egressUnbilledBytes: 0, measuredAt: now, chargedAt: now }).where(eq(schema.workspaceUsage.userId, userId));
+        return cost > 0n ? chargeStorageCost(tx, userId, cost, now, egress > 0n ? 'Workspace storage and public downloads' : 'Workspace storage') : 0;
       });
       if (credits > 0) charged.push({ userId, credits });
     } catch (error) {

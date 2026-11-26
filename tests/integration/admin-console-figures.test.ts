@@ -243,6 +243,11 @@ describeWithDb('console rate limits', () => {
       { key: 'workspaceDebtLimit', value: WORKSPACE_DEBT_WRITE_LIMIT, defaultValue: WORKSPACE_DEBT_WRITE_LIMIT, per: 'credits', overridden: false },
       { key: 'workspaceFreeMb', value: WORKSPACE_FREE_MB, defaultValue: WORKSPACE_FREE_MB, per: 'mb', overridden: false },
       { key: 'workspaceIndexBudget', value: 50, defaultValue: 50, per: 'credits', overridden: false },
+      { key: 'publishFileMaxMb', value: 25, defaultValue: 25, per: 'mb', overridden: false },
+      { key: 'publishMaxFiles', value: 100, defaultValue: 100, per: 'count', overridden: false },
+      { key: 'publishFreeMbMonth', value: 1024, defaultValue: 1024, per: 'mb', overridden: false },
+      { key: 'publishDailyMb', value: 5120, defaultValue: 5120, per: 'mb', overridden: false },
+      { key: 'publishFileDailyMb', value: 2048, defaultValue: 2048, per: 'mb', overridden: false },
     ]);
   });
 

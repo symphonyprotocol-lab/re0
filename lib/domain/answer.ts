@@ -38,6 +38,8 @@ export interface CitationSnapshot {
   kind: KnowledgeKind;
   locator: Locator;
   excerpt: string;
+  /** Added when shown, never stored: the public path (`/f/<id>`) of the cited workspace file's published original, when it has a live one. */
+  original?: string;
 }
 
 /** The model replies with exactly this when the passages do not answer the question. */

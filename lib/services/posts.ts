@@ -93,6 +93,7 @@ import { attachImages, checkedImages, hasSameImages, imagesReadableFor, ensureIm
 import { ceilingFor } from '@/lib/services/rate-limit-settings';
 import { VISITOR_ASK_NOTE } from '@/lib/domain/visitor-ask';
 import { channelIdOf, channelsFor, fileUnderChannels } from '@/lib/services/channels';
+import { publishedOriginals } from '@/lib/services/workspace-publish';
 
 const { post, postVote, postAnswer: answer, postAnswerVote: vote, postAnswerFeedback: feedback, postAnswerReport: report, postSave: save, postFollowup: followup, ree, user } = schema;
 
@@ -851,7 +852,7 @@ export interface AnswerRow {
 /** The first round's answers of these posts (shown, and running); `followupIds`: those follow-ups' answers instead. */
 export async function answersFor(postIds: string[], followupIds?: string[]): Promise<AnswerRow[]> {
   if ((followupIds ?? postIds).length === 0) return [];
-  return db()
+  const rows = await db()
     .select({
       id: answer.id,
       postId: answer.postId,
@@ -880,6 +881,10 @@ export async function answersFor(postIds: string[], followupIds?: string[]): Pro
     .innerJoin(user, eq(user.id, ree.ownerId))
     .where(and(followupIds ? inArray(answer.followupId, followupIds) : and(inArray(answer.postId, postIds), firstRound()), or(shownAnswer(), privateAnswerShown(), inArray(answer.state, ['queued', 'answering']))))
     .orderBy(desc(answer.mentioned), desc(answer.helpfulCount), sql`${answer.similarity} desc nulls last`, asc(answer.createdAt));
+  /* A cited workspace file published as an original carries its public link (docs/design/agent-workspace-p4.md §2.1). */
+  const originals = await publishedOriginals(rows.flatMap((row) => row.citations.filter((entry) => entry.kind === 'file').map((entry) => entry.knowledgeId)));
+  if (originals.size === 0) return rows;
+  return rows.map((row) => ({ ...row, citations: row.citations.map((entry) => (originals.has(entry.knowledgeId) ? { ...entry, original: originals.get(entry.knowledgeId) } : entry)) }));
 }
 
 export async function votedBy(viewerId: string | undefined, ids: string[]): Promise<Set<string>> {

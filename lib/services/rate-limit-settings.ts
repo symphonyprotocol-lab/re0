@@ -81,7 +81,7 @@ function knownLimits(values: readonly string[]): RateLimitName[] {
   return RATE_LIMIT_NAMES.filter((name) => values.includes(name));
 }
 
-export const CEILING_KEYS = ['postsPerDay', 'followupsPerDay', 'followupsPerPostPerDay', 'exploreQuestions', 'visitorAsksPerDay', 'workspaceWritesPerDay', 'workspaceDebtLimit', 'workspaceFreeMb', 'workspaceIndexBudget'] as const;
+export const CEILING_KEYS = ['postsPerDay', 'followupsPerDay', 'followupsPerPostPerDay', 'exploreQuestions', 'visitorAsksPerDay', 'workspaceWritesPerDay', 'workspaceDebtLimit', 'workspaceFreeMb', 'workspaceIndexBudget', 'publishFileMaxMb', 'publishMaxFiles', 'publishFreeMbMonth', 'publishDailyMb', 'publishFileDailyMb'] as const;
 export type CeilingKey = (typeof CEILING_KEYS)[number];
 /** Bounds of a ceiling's value, as `limit_ceiling_setting`'s check holds them. */
 export const CEILING_VALUE_BOUNDS = { min: 1, max: 100_000 } as const;
@@ -97,7 +97,7 @@ export const CEILING_VALUE_BOUNDS = { min: 1, max: 100_000 } as const;
  * stores others in `limit_ceiling_setting`. An exemption from `post` lifts
  * the three daily ones (`CEILING_EXEMPTED_BY`).
  */
-export type CeilingUnit = 'day' | 'minute' | 'credits' | 'mb';
+export type CeilingUnit = 'day' | 'minute' | 'credits' | 'mb' | 'count';
 export const CEILING_DEFAULTS: Record<CeilingKey, { value: number; per: CeilingUnit }> = {
   postsPerDay: { value: POST_DAILY_LIMIT, per: 'day' },
   followupsPerDay: { value: FOLLOWUP_DAILY_LIMIT, per: 'day' },
@@ -109,13 +109,19 @@ export const CEILING_DEFAULTS: Record<CeilingKey, { value: number; per: CeilingU
   workspaceDebtLimit: { value: WORKSPACE_DEBT_WRITE_LIMIT, per: 'credits' },
   workspaceFreeMb: { value: WORKSPACE_FREE_MB, per: 'mb' },
   workspaceIndexBudget: { value: WORKSPACE_INDEX_BUDGET, per: 'credits' },
+  /* Published originals (docs/design/agent-workspace-p4.md §2.4, §2.7): the largest file, live files per account, free download volume a month, and download volume a day per account and per file. */
+  publishFileMaxMb: { value: 25, per: 'mb' },
+  publishMaxFiles: { value: 100, per: 'count' },
+  publishFreeMbMonth: { value: 1024, per: 'mb' },
+  publishDailyMb: { value: 5120, per: 'mb' },
+  publishFileDailyMb: { value: 2048, per: 'mb' },
 };
 
 export interface CeilingRow {
   key: CeilingKey;
   value: number;
   defaultValue: number;
-  /** `day`: from 00:00 UTC; `minute`: per account and per client address; `credits` and `mb`: an amount, not a count. */
+  /** `day`: from 00:00 UTC; `minute`: per account and per client address; `credits` and `mb`: an amount; `count`: how many at once. */
   per: CeilingUnit;
   /** The exemption that lifts it for an account, if any. */
   exemptedBy: RateLimitName | null;
@@ -215,6 +221,11 @@ export const CEILING_EXEMPTED_BY: Record<CeilingKey, RateLimitName | null> = {
   workspaceDebtLimit: null,
   workspaceFreeMb: null,
   workspaceIndexBudget: null,
+  publishFileMaxMb: null,
+  publishMaxFiles: null,
+  publishFreeMbMonth: null,
+  publishDailyMb: null,
+  publishFileDailyMb: null,
 };
 
 /** A ceiling's value now: the console's, else the code default. */

@@ -48,8 +48,9 @@ describe('model entry limits (prototype suite.js model form)', () => {
 describe('audit search by action label', () => {
   const labels = [consoleZh.actions, consoleEn.actions];
   it('maps either language to the codes', () => {
-    expect(actionsLabelled('下架', labels)).toEqual(['ree.takedown']);
-    expect(actionsLabelled('Take down', labels)).toEqual(['ree.takedown']);
+    /* Taking down a Ree and a public file (docs/design/agent-workspace-p4.md §2.8) are both takedowns. */
+    expect(actionsLabelled('下架', labels)).toEqual(['ree.takedown', 'workspace.publication.takedown']);
+    expect(actionsLabelled('Take down', labels)).toEqual(['ree.takedown', 'workspace.publication.takedown']);
     /* The payout minimum's changes are payout changes too. */
     expect(actionsLabelled('提现', labels)).toEqual(['payout.minimum.update', 'user.payout_minimum', 'payout.approved', 'payout.rejected']);
     expect(actionsLabelled('  ', labels)).toEqual([]);

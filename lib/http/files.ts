@@ -10,6 +10,7 @@ import { apiUser } from '@/lib/http/session';
 import { webScope, WorkspaceError, type WorkspaceScope } from '@/lib/services/workspace';
 import { WorkspaceReeError } from '@/lib/services/workspace-rees';
 import { ReeInputError } from '@/lib/services/rees';
+import { PublishError } from '@/lib/services/workspace-publish';
 
 export async function filesScope(request: Request, kind: 'read' | 'write'): Promise<WorkspaceScope | Response> {
   const user = await apiUser(request);
@@ -36,4 +37,10 @@ export function filesFailure(error: unknown): Response {
   if (error instanceof WorkspaceReeError) return fail(error.code, error.code === 'not_found' ? 404 : error.code === 'max_cost_exceeded' ? 402 : error.code === 'limit_reached' ? 429 : 422, error.details);
   if (error instanceof ReeInputError) return fail(error.field, 422, { step: error.step });
   throw error;
+}
+
+/** A publishing refusal (docs/design/agent-workspace-p4.md §2) as `{error}`, the checks included; else as `filesFailure`. */
+export function publishFailure(error: unknown): Response {
+  if (error instanceof PublishError) return fail(error.code, error.status, error.details);
+  return filesFailure(error);
 }

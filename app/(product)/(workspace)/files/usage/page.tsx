@@ -7,8 +7,14 @@ import { indexBudget, indexedFolders, indexQueue, workspaceCosts } from '@/lib/s
 import { Icon } from '@/components/ui/icons';
 import { FilesTopbar } from '@/components/files/files-parts';
 import { FolderIndexList } from '@/components/files/workspace-ui';
+import { CopyButton } from '@/components/files/file-actions';
+import { PublicationActions } from '@/components/files/publish-ui';
+import { filesHref } from '@/components/files/files-parts';
+import { WorkspaceLink as Link } from '@/components/shell/workspace-link';
+import { publicationsOf } from '@/lib/services/workspace-publish';
 import '@/components/knowledge/knowledge.css';
 import '@/components/files/files.css';
+import '@/components/files/publish.css';
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await serverMessages();
@@ -26,6 +32,9 @@ export default async function FilesUsagePage() {
   const u = t.files.usage;
   const scope = await webScope(user.id);
   const [usage, budget, queue, folders, costs] = await Promise.all([workspaceUsageOf(user.id), indexBudget(user.id), indexQueue(scope), indexedFolders(scope), workspaceCosts(user.id)]);
+  /* Files published as originals (docs/design/agent-workspace-p4.md §2.6). */
+  const published = await publicationsOf(scope);
+  const pu = t.publish.usage;
   const share = (part: number) => `${Math.min(100, (part / Math.max(1, usage.freeBytes)) * 100)}%`;
   const n = (value: number) => formatNumber(value, locale);
   return (
@@ -156,6 +165,56 @@ export default async function FilesUsagePage() {
               </table>
             </div>
             {costs.uploads.open > 0 && <p className="km-page-note ws-muted">{fill(u.uploadsPending, { n: costs.uploads.open, bytes: formatBytes(costs.uploads.bytes) })}</p>}
+          </section>
+          <section className="card km-results publish-list" id="published">
+            <div className="ws-section-head">
+              <strong>{pu.title}</strong>
+              <small>{pu.lede}</small>
+            </div>
+            {published.length === 0 ? (
+              <p className="km-page-note ws-muted">{pu.empty}</p>
+            ) : (
+              <div className="km-scroll">
+                <table className="km-table">
+                  <thead>
+                    <tr>
+                      <th>{pu.file}</th>
+                      <th>{pu.link}</th>
+                      <th className="num">{pu.downloads}</th>
+                      <th>{pu.state}</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {published.map((item) => (
+                      <tr key={item.id}>
+                        <td>
+                          <div className="km-source-name">
+                            <span>
+                              {item.path ? <Link href={filesHref(item.path)}>{item.title}</Link> : <strong>{item.title}</strong>}
+                              <small>{item.path ?? item.file_name}</small>
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <CopyButton text={item.url} label={t.publish.card.copy} className="btn ghost sm" />
+                        </td>
+                        <td className="num">
+                          {n(item.downloads_30d)} · {formatBytes(item.bytes_30d)}
+                        </td>
+                        <td>
+                          <span className={`tag ${item.suspended || item.trashed ? 'orange' : 'green'}`}>{item.suspended ? t.publish.card.suspended : item.trashed ? pu.trashed : t.publish.card.live}</span>
+                          {item.stale && <span className="tag">{pu.stale}</span>}
+                        </td>
+                        <td>
+                          <PublicationActions id={item.id} url={item.url} title={item.title} stale={item.stale && !item.trashed} compact />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
         </div>
       </main>

@@ -129,7 +129,7 @@ export function RateLimitsBoard({ initial }: { initial: Board }) {
 
   const ceilingRows = data.ceilings.map((row) => {
     const draft = ceilingDrafts[row.key] ?? '';
-    const ruleOf = (value: number) => fill({ day: m.dayRule, minute: m.minuteRule, credits: m.creditsRule, mb: m.mbRule }[row.per], { n: n(value) });
+    const ruleOf = (value: number) => fill({ day: m.dayRule, minute: m.minuteRule, credits: m.creditsRule, mb: m.mbRule, count: m.countRule }[row.per], { n: n(value) });
     return [
       <div key="name" className="rate-limit-name">
         <strong>{m.ceilings[row.key]}</strong>
@@ -139,7 +139,7 @@ export function RateLimitsBoard({ initial }: { initial: Board }) {
       </div>,
       <div key="value" className="flex">
         <input className="input rate-limit-input" type="number" inputMode="numeric" min={1} max={100_000} step={1} aria-label={`${row.key} ${m.ceilingValue}`} value={draft} disabled={busy} onChange={(e) => setCeilingDrafts({ ...ceilingDrafts, [row.key]: e.target.value })} />
-        <small className="muted">{{ day: m.dayUnit, minute: m.minuteUnit, credits: m.creditsUnit, mb: m.mbUnit }[row.per]}</small>
+        <small className="muted">{{ day: m.dayUnit, minute: m.minuteUnit, credits: m.creditsUnit, mb: m.mbUnit, count: m.countUnit }[row.per]}</small>
       </div>,
       <Tag key="state" tone={row.overridden ? 'orange' : 'grey'}>{row.overridden ? m.custom : m.default}</Tag>,
       <div key="actions" className="flex">
