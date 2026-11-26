@@ -481,6 +481,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .badge { display: inline-flex; gap: 5px; align-items: center; font-size: 11.5px; font-weight: 800; border-radius: 999px; padding: 2px 10px; }
 .badge svg.i { width: 13px; height: 13px; }
 .badge.ok { background: var(--ok-bg); color: var(--ok-tx); } .badge.warn { background: var(--warn-bg); color: var(--warn-tx); } .badge.err { background: var(--err-bg); color: var(--err-tx); } .badge.info { background: var(--info-bg); color: var(--info-tx); }
+.note { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 14px; font-size: 13px; line-height: 1.55; font-weight: 700; min-width: 0; }
+.note > svg.i { flex: none; width: 16px; height: 16px; }
+.note > .av { flex: none; width: 32px; height: 32px; font-size: 10px; }
+.note > span { min-width: 0; overflow-wrap: anywhere; }
+.note > span b { font-weight: 900; }
+@media (max-width: 680px) { .note { padding: 9px 12px; gap: 8px; } .note > .av { width: 26px; height: 26px; font-size: 9px; } }
 .note.n-ok { background: var(--ok-bg); color: var(--ok-tx); border-radius: 14px; font-weight: 700; } .note.n-warn { background: var(--warn-bg); color: var(--warn-tx); border-radius: 14px; font-weight: 700; } .note.n-err { background: var(--err-bg); color: var(--err-tx); border-radius: 14px; font-weight: 700; } .note.n-info { background: var(--info-bg); color: var(--info-tx); border-radius: 14px; font-weight: 700; }
 .spec .st { max-width: 220px; }
 .spec .st .l::before { background: var(--c); }
@@ -1028,8 +1034,6 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .lg-cont small { font-size: 12px; font-weight: 600; color: var(--mut); line-height: 1.55; }
 .code-chip { justify-self: start; display: inline-flex; gap: 8px; align-items: baseline; padding: 6px 12px; border-radius: 12px; background: var(--card); box-shadow: var(--sh-sm); font: 800 15px "JetBrains Mono", ui-monospace, monospace; letter-spacing: .04em; }
 .code-chip small { font: 700 11px var(--round); color: var(--mut); letter-spacing: 0; }
-.lg-inv { align-items: center; }
-.lg-inv .av { width: 32px; height: 32px; font-size: 10px; flex: none; }
 .lg-card.welcome { text-align: left; }
 .lg-full { width: 100%; justify-content: center; min-height: 46px; }
 .lg-l { font-size: 12px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; color: var(--mut); margin-bottom: -6px; }
@@ -1093,29 +1097,29 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 const STATS = { official: 4836, shared: 1284 };
 STATS.total = STATS.official + STATS.shared;
 const REES = [
-  ['Cowboy Life on the Sidetrack', 'RE0 Official', 1, 'BNT', 'How were cattle shipped by rail?'],
+  ['Cowboy Life on the Sidetrack', 're0 Official', 1, 'BNT', 'How were cattle shipped by rail?'],
   ['Singapore HR Basics', 'Tan Wei Ming', 0, 'HR', '试用期辞退要提前通知吗？'],
-  ['RE0 User Guide', 'RE0 Official', 1, 'RE', 'How do I publish a Ree?'],
+  ['re0 User Guide', 're0 Official', 1, 'RE', 'How do I publish a Ree?'],
   ['Figma Auto Layout Notes', 'Mia Chen', 0, 'FA', 'Hug 还是 Fill？'],
-  ["Siringo's Texas Cow Boy", 'RE0 Official', 1, 'SIW', 'What was a cattle drive like?'],
+  ["Siringo's Texas Cow Boy", 're0 Official', 1, 'SIW', 'What was a cattle drive like?'],
   ['Kubernetes Runbook', 'Ops Guild', 0, 'K8', 'Pod 一直 Pending？'],
-  ['What Is Art?', 'RE0 Official 2', 1, 'WA', 'What makes art sincere?'],
+  ['What Is Art?', 're0 Official 2', 1, 'WA', 'What makes art sincere?'],
   ['新加坡雇佣法问答', 'Lin Wei', 0, '新加', '年假有几天？'],
   ['Sourdough Troubleshooting', 'Hannah Kerr', 0, 'SD', 'Why is my crumb gummy?'],
   ['港股 IPO 规则', 'Zhou Jie', 0, '港股', '主板上市要几年业绩？'],
-  ['Life of Nat Love', 'RE0 Official', 1, 'LOV', 'How did he become a cowboy?'],
+  ['Life of Nat Love', 're0 Official', 1, 'LOV', 'How did he become a cowboy?'],
   ['Postgres Index Tuning', 'Dev Patel', 0, 'PG', 'When is a GIN index worth it?'],
   ['UX Writing Style Guide', 'Studio North', 0, 'UX', 'Sentence case or title case?'],
   ['Japan Rail Pass FAQ', 'Kenji Mori', 0, 'JR', 'Does it cover the Nozomi?'],
   ['IELTS Writing Task 2', 'Grace Liu', 0, 'IE', '怎么写让步段？'],
-  ['Origin of Species', 'RE0 Official 2', 1, 'OOS', 'What is natural selection?'],
+  ['Origin of Species', 're0 Official 2', 1, 'OOS', 'What is natural selection?'],
   ['Home Espresso Dial-in', 'Nora Weiss', 0, 'ES', 'Sour shot, what now?'],
-  ['Meditations', 'RE0 Official 2', 1, 'MED', 'What is within our control?'],
+  ['Meditations', 're0 Official 2', 1, 'MED', 'What is within our control?'],
   ['个人所得税年度汇算', 'Zhou Jie', 0, '个税', '房租能扣多少？'],
   ['Brand Color Systems', 'Studio North', 0, 'BC', 'How many neutrals?'],
   ['React Server Components', 'Sam Okafor', 0, 'RSC', 'When do I need "use client"?'],
   ['Toddler Sleep Questions', 'Priya Nair', 0, 'TS', '两觉还是一觉？'],
-  ['Wealth of Nations', 'RE0 Official', 1, 'WON', 'What is the invisible hand?'],
+  ['Wealth of Nations', 're0 Official', 1, 'WON', 'What is the invisible hand?'],
   ['Bouldering Technique', 'Kai Hoffmann', 0, 'BT', 'How do I heel hook?']
 ];
 const QA = [
@@ -1134,7 +1138,7 @@ const QA = [
 ];
 const MATCHES = [
   ['Singapore HR Basics', 'Tan Wei Ming · 大家分享的 · 1,214 个回答', 'HR', '84% 有帮助', 0],
-  ['Employment Act Explainer', 'RE0 Official · 389 个回答', 'EA', '官方', 1],
+  ['Employment Act Explainer', 're0 Official · 389 个回答', 'EA', '官方', 1],
   ['新加坡雇佣法问答', 'Lin Wei · 你的 Ree · 今天发布', '新加', '你的', 0]
 ];
 const PLACEHOLDERS = ['问点什么，或者让 re0 帮你做个 Ree', '新加坡试用期最长多久？', '帮我做一个讲 Figma 自动布局的 Ree', 'Why is my sourdough crumb gummy?', '帮我把这几个网址做成一个 Ree'];
@@ -1221,7 +1225,7 @@ const QA_EN = [
 ];
 const MATCHES_EN = [
   ['Singapore HR Basics', 'Tan Wei Ming · Community · 1,214 answers', 'HR', '84% helpful', 0],
-  ['Employment Act Explainer', 'RE0 Official · 389 answers', 'EA', 'Official', 1],
+  ['Employment Act Explainer', 're0 Official · 389 answers', 'EA', 'Official', 1],
   ['Singapore Employment Law Q&A', 'Lin Wei · Your Ree · published today', 'SE', 'Yours', 0]
 ];
 const PH = {
@@ -1395,13 +1399,13 @@ const CATS = {
 // id, owner, official, category, fee, answers, helpful %, this week, initials, zh {name, intro, q}, en {name, intro, q}
 const XREES = [
   ['hr', 'Tan Wei Ming', 0, 'professional', 0, 1214, 84, 37, 'HR', { n: 'Singapore HR Basics', i: '新加坡雇佣、请假和薪资的常见问题，引用 MOM 指南和 Employment Act。', q: '试用期辞退要提前通知吗？' }, { n: 'Singapore HR Basics', i: 'Everyday questions on hiring, leave and pay in Singapore, cited to MOM guidance and the Employment Act.', q: 'Do I need to give notice during probation?' }],
-  ['ea', 'RE0 Official', 1, 'professional', 0, 389, 91, 12, 'EA', { n: 'Employment Act Explainer', i: '逐条解释新加坡 Employment Act，适合 HR 和员工查条文。', q: '加班费怎么算？' }, { n: 'Employment Act Explainer', i: "Section-by-section notes on Singapore's Employment Act, in plain English.", q: 'How is overtime pay worked out?' }],
+  ['ea', 're0 Official', 1, 'professional', 0, 389, 91, 12, 'EA', { n: 'Employment Act Explainer', i: '逐条解释新加坡 Employment Act，适合 HR 和员工查条文。', q: '加班费怎么算？' }, { n: 'Employment Act Explainer', i: "Section-by-section notes on Singapore's Employment Act, in plain English.", q: 'How is overtime pay worked out?' }],
   ['k8', 'Ops Guild', 0, 'technology', 10, 2310, 88, 64, 'K8', { n: 'Kubernetes Runbook', i: '生产集群排障手册：调度、内存、网络、发布回滚。', q: 'Pod 一直 Pending 怎么办？' }, { n: 'Kubernetes Runbook', i: 'A production runbook for scheduling, memory, networking and rollbacks.', q: 'Why is my pod stuck in Pending?' }],
   ['fa', 'Mia Chen', 0, 'design', 0, 876, 90, 21, 'FA', { n: 'Figma Auto Layout Notes', i: 'Figma 自动布局怎么用、哪里容易踩坑，配截图。', q: 'Hug 还是 Fill？' }, { n: 'Figma Auto Layout Notes', i: 'How auto layout really behaves, with the gotchas and screenshots.', q: 'Hug or fill for a row of buttons?' }],
-  ['bnt', 'RE0 Official', 1, 'learning', 0, 154, 79, 5, 'BNT', { n: 'Cowboy Life on the Sidetrack', i: 'Frank Benton 1903 年的牛仔回忆录：铁路运牛、牧场生活。', q: '牛是怎么用火车运的？' }, { n: 'Cowboy Life on the Sidetrack', i: "Frank Benton's 1903 memoir of cattle trains and ranch life.", q: 'How were cattle shipped by rail?' }],
+  ['bnt', 're0 Official', 1, 'learning', 0, 154, 79, 5, 'BNT', { n: 'Cowboy Life on the Sidetrack', i: 'Frank Benton 1903 年的牛仔回忆录：铁路运牛、牧场生活。', q: '牛是怎么用火车运的？' }, { n: 'Cowboy Life on the Sidetrack', i: "Frank Benton's 1903 memoir of cattle trains and ranch life.", q: 'How were cattle shipped by rail?' }],
   ['sd', 'Hannah Kerr', 0, 'life', 0, 642, 93, 18, 'SD', { n: 'Sourdough Troubleshooting', i: '酸面包发酵、组织、酸味问题的排查表。', q: '为什么切开组织是黏的？' }, { n: 'Sourdough Troubleshooting', i: 'Why your loaf came out flat, gummy or too sour, and what to change.', q: 'Why is my crumb gummy?' }],
   ['hk', 'Zhou Jie', 0, 'business', 30, 301, 86, 9, '港股', { n: '港股 IPO 规则', i: '港交所主板上市规则要点，每条都带条文编号。', q: '主板上市要几年业绩？' }, { n: 'HKEX Listing Rules Digest', i: 'Main Board listing rules from HKEX, each answer tied to a rule number.', q: 'How long a track record does a Main Board listing need?' }],
-  ['med', 'RE0 Official 2', 1, 'learning', 0, 520, 89, 14, 'MED', { n: 'Meditations', i: '马可·奥勒留《沉思录》，问斯多葛哲学在日常里怎么用。', q: '什么是我们能控制的？' }, { n: 'Meditations', i: 'Marcus Aurelius on what is in your control, sourced to book and section.', q: 'Does Stoicism mean not caring?' }],
+  ['med', 're0 Official 2', 1, 'learning', 0, 520, 89, 14, 'MED', { n: 'Meditations', i: '马可·奥勒留《沉思录》，问斯多葛哲学在日常里怎么用。', q: '什么是我们能控制的？' }, { n: 'Meditations', i: 'Marcus Aurelius on what is in your control, sourced to book and section.', q: 'Does Stoicism mean not caring?' }],
   ['pg', 'Dev Patel', 0, 'technology', 20, 712, 87, 26, 'PG', { n: 'Postgres Index Tuning', i: 'Postgres 索引怎么选、查询计划怎么读。', q: '什么时候该用 GIN 索引？' }, { n: 'Postgres Index Tuning', i: 'Picking indexes and reading query plans in Postgres.', q: 'When is a GIN index worth it?' }],
   ['ts', 'Priya Nair', 0, 'life', 0, 433, 82, 11, 'TS', { n: 'Toddler Sleep Questions', i: '1 到 3 岁幼儿的并觉、夜醒和作息表。', q: '两觉还是一觉？' }, { n: 'Toddler Sleep Questions', i: 'Nap transitions, night waking and schedules for ages 1 to 3.', q: 'Should a 2-year-old still nap twice?' }],
   ['ux', 'Studio North', 0, 'design', 0, 268, 92, 7, 'UX', { n: 'UX Writing Style Guide', i: '界面文案规范：按钮、错误提示和语气，附正反例。', q: '按钮文案要不要加「请」？' }, { n: 'UX Writing Style Guide', i: 'Button labels, error messages and tone, with do and don’t examples.', q: 'Sentence case or title case for buttons?' }],
@@ -1613,9 +1617,9 @@ const RP = {
       en: [['WK', 'Wei Kang', '3h ago', 'professional', 'My employer wants to extend my probation by 3 months. Is that allowed?', 2, 9, ['HR', 'Singapore HR Basics', 'Yes, if they tell you in writing. The law sets no cap; your contract decides.', 'Probation & confirmation · MOM']], ['AN', 'Anonymous', 'yesterday', 'professional', 'What do I get for working on a public holiday?', 3, 14, ['HR', 'Singapore HR Basics', 'An extra day’s basic pay on top of your wage, or a day off in lieu if you both agree.', 'Public holidays · MOM']]] },
     related: ['ea', 'uk', 'tax'] },
   official: { id: 'bnt', ini: 'BNT', ci: 4, role: 'official', cat: 'learning', fee: 0, ans: 154, help: 79, src: 1, wk: 5, chars: '307,433',
-    zh: { n: 'Cowboy Life on the Sidetrack', ow: 'RE0 Official', upd: '11-02', intro: 'Frank Benton 1903 年出版的牛仔回忆录全文。可以问铁路运牛、牧场日常、牛仔俚语和那个年代的美国西部。回答只依据书中原文，并标出章节。', tags: ['美国西部', '回忆录', '公有领域'],
+    zh: { n: 'Cowboy Life on the Sidetrack', ow: 're0 Official', upd: '11-02', intro: 'Frank Benton 1903 年出版的牛仔回忆录全文。可以问铁路运牛、牧场日常、牛仔俚语和那个年代的美国西部。回答只依据书中原文，并标出章节。', tags: ['美国西部', '回忆录', '公有领域'],
       samples: ['牛是怎么用火车运的？', '牛仔一天吃些什么？', '书名里的 sidetrack 是什么意思？'], topics: ['铁路运牛', '牧场日常', '西部俚语', '书里的人物'], mix: [['书', 1]], bio: 're0 官方账号，整理公有领域的经典书。', more: [["Siringo's Texas Cow Boy", 'SIW', 'bnt'], ['Life of Nat Love', 'LOV', 'jr']] },
-    en: { n: 'Cowboy Life on the Sidetrack', ow: 'RE0 Official', upd: 'Nov 2', intro: "The full text of Frank Benton's 1903 memoir. Ask about shipping cattle by rail, ranch routines, cowboy slang and the West of the time. Answers quote the book and name the chapter.", tags: ['American West', 'Memoir', 'Public domain'],
+    en: { n: 'Cowboy Life on the Sidetrack', ow: 're0 Official', upd: 'Nov 2', intro: "The full text of Frank Benton's 1903 memoir. Ask about shipping cattle by rail, ranch routines, cowboy slang and the West of the time. Answers quote the book and name the chapter.", tags: ['American West', 'Memoir', 'Public domain'],
       samples: ['How were cattle shipped by rail?', 'What did cowboys eat in a day?', 'What does “sidetrack” mean in the title?'], topics: ['Cattle by rail', 'Ranch routines', 'Cowboy slang', 'People in the book'], mix: [['Book', 1]], bio: 're0’s official account, turning public-domain classics into Rees.', more: [["Siringo's Texas Cow Boy", 'SIW', 'bnt'], ['Life of Nat Love', 'LOV', 'jr']] },
     posts: { zh: [['JD', 'Jake D.', '2 天前', 'learning', '书名里的 sidetrack 是什么意思？', 1, 6, ['BNT', 'Cowboy Life on the Sidetrack', '指铁路侧线：运牛的车厢常被甩在侧线上等主线放行，一等就是几个小时。', 'Ch. 1']]],
       en: [['JD', 'Jake D.', '2 days ago', 'learning', 'What does “sidetrack” mean in the title?', 1, 6, ['BNT', 'Cowboy Life on the Sidetrack', 'A railway siding: cattle cars were often left on one for hours, waiting for the main line to clear.', 'Ch. 1']]] },
@@ -1775,7 +1779,7 @@ const QCITE = {
 };
 // a Ree in the thread: [name, initials, colour index, owner, fee]
 const QREES = {
-  hr: ['Singapore HR Basics', 'HR', 1, 'Tan Wei Ming', 0], ea: ['Employment Act Explainer', 'EA', 2, 'RE0 Official', 0], se: [null, 'SE', 0, 'Lin Wei', 0],
+  hr: ['Singapore HR Basics', 'HR', 1, 'Tan Wei Ming', 0], ea: ['Employment Act Explainer', 'EA', 2, 're0 Official', 0], se: [null, 'SE', 0, 'Lin Wei', 0],
   wp: ['SG Work Pass Guide', 'WP', 4, 'Chloe Ng', 0], k8: ['Kubernetes Runbook', 'K8', 3, 'Ops Guild', 10], ld: ['SG Employment Lawyers Desk', 'LD', 5, 'Rajah Lim', 80], pp: ['SG Payroll Pro', 'PP', 4, 'Grace Ong', 20],
   td: ['Thailand Dive Notes', 'TD', 2, 'Kai Hoffmann', 0], sb: ['Scuba Basics', 'SB', 1, 'Nora Weiss', 10], pk: ['Phuket Local Guide', 'PK', 5, 'Anan S.', 0]
 };
@@ -1916,16 +1920,16 @@ const LX = {
   zh: { title: '登录或注册', hello: '你好，新的知识伙伴', sub: '用 Google 或 GitHub 继续。第一次登录就是注册。', google: '使用 Google 继续', github: '使用 GitHub 继续', going: p => `正在前往 ${p}…`,
     gift: n => `${n} credits`, giftText: '新用户注册礼，给第一个好问题。', terms: ['继续即表示同意', '服务条款', '与', '隐私政策', '。'], explore: '先看看 Rees', back: '返回首页',
     cont: '登录后继续', contAsk: '回到刚才的 Explore 搜索结果，问题已经填好。要你再点一次才会发出：发帖不收费，每个回答 20 credits。', contAgent: '回到首页的建议卡，预算上限 5,000 credits，第一次平台请客。要你点「开始建 Ree」才会开始。', contRedeem: '登录后打开「余额」页，兑换码已经填好，你确认后才兑换。', contClear: '不用了',
-    askText: '新加坡试用期最长多久？试用期也有年假吗？', agentText: '帮我做一个讲新加坡雇佣法的 Ree，用官方来源，中英文都能问', redeemCode: 'RE0-SPRING-7Q2K', redeemL: '兑换码',
-    invited: n => `${n} 邀请你加入 RE0`, invitedBody: '用新账号注册，即计入这份邀请。', inviteBad: '邀请链接无效，你仍然可以正常注册。',
+    askText: '新加坡试用期最长多久？试用期也有年假吗？', agentText: '帮我做一个讲新加坡雇佣法的 Ree，用官方来源，中英文都能问', redeemCode: 'SPRING-2026-7Q2K', redeemL: '兑换码',
+    invited: n => `${n} 邀请你加入 re0`, invitedBody: '用新账号注册，即计入这份邀请。', inviteBad: '邀请链接无效，你仍然可以正常注册。',
     errCancel: '你取消了授权。可以换一种方式，或者再试一次。', errDisabled: '这个账号已停用。如果你觉得是误会，请写信给 support@re0.io。', errOther: '其他情况：登录没有完成 / 账号没有已验证的邮箱 / 登录服务暂时不可用，都用同一个位置提示。',
     wT: n => `欢迎来到 re0，${n}`, wGift: n => `注册礼 ${n} credits 已经到账`, wInvite: n => `${n} 的邀请已计入`, wNext: '接下来', wBack: '回到刚才的问题', wBackHint: '问题已经填好，点发送就会提问。', wTour: '先逛逛 Rees', wBuild: '或者，让 re0 帮你建第一个 Ree',
     t: { go: '原型：会跳转到授权页', clear: '原型：清掉刚才的内容，登录后回首页', back: '原型：回到刚才的页面', link: '原型：打开链接' } },
   en: { title: 'Sign in or sign up', hello: 'Hello, knowledge companion', sub: 'Continue with Google or GitHub. Your first sign-in creates your account.', google: 'Continue with Google', github: 'Continue with GitHub', going: p => `Taking you to ${p}…`,
     gift: n => `${n} credits`, giftText: 'A welcome gift for your first good question.', terms: ['By continuing, you accept our', 'Terms', 'and', 'Privacy', '.'], explore: 'Browse Rees first', back: 'Back home',
     cont: 'After you sign in', contAsk: 'You go back to your Explore results with the question filled in. It only goes out when you press Send: posting is free, each answer is 20 credits.', contAgent: 'You go back to the suggestion card on the home page: budget cap 5,000 credits, and your first build is on us. Nothing starts until you press Start building.', contRedeem: 'You land on the Balance page with the code filled in; it’s only redeemed when you confirm.', contClear: 'Never mind',
-    askText: 'How long can probation last in Singapore? Do I get annual leave during it?', agentText: 'Build me a Ree on Singapore employment law, official sources only, answers in English and Chinese', redeemCode: 'RE0-SPRING-7Q2K', redeemL: 'Redeem code',
-    invited: n => `${n} invited you to RE0`, invitedBody: 'Sign up with a new account and the invitation counts.', inviteBad: 'This invite link isn’t valid. You can still sign up as usual.',
+    askText: 'How long can probation last in Singapore? Do I get annual leave during it?', agentText: 'Build me a Ree on Singapore employment law, official sources only, answers in English and Chinese', redeemCode: 'SPRING-2026-7Q2K', redeemL: 'Redeem code',
+    invited: n => `${n} invited you to re0`, invitedBody: 'Sign up with a new account and the invitation counts.', inviteBad: 'This invite link isn’t valid. You can still sign up as usual.',
     errCancel: 'You cancelled the authorization. Try again, or use the other option.', errDisabled: 'This account is disabled. If you think that’s a mistake, write to support@re0.io.', errOther: 'Other cases (sign-in didn’t complete, no verified email, the service is down) use the same spot.',
     wT: n => `Welcome to re0, ${n}`, wGift: n => `Your ${n}-credit welcome gift is in`, wInvite: n => `${n}’s invitation counted`, wNext: 'Next', wBack: 'Back to your question', wBackHint: 'It’s filled in; press Send to ask.', wTour: 'Browse Rees', wBuild: 'Or have re0 build your first Ree',
     t: { go: 'Prototype: goes to the authorization page', clear: 'Prototype: drops the draft and returns home after sign-in', back: 'Prototype: returns to the page you came from', link: 'Prototype: opens the link' } }
@@ -1981,6 +1985,7 @@ function indexPage() {
     ['Ree 页的标签', '沿用现在的三块：回答（它回答过的帖子）、评论、介绍（视频、可以问这些、知识概况、作者和作者的其他 Ree）。默认打开「回答」。'],
     ['Ree 页的提问框', '只问这个 Ree：公开问 / 私下问切换，价格写在旁边；不做意图判断。作者想改 Ree 用所有者条里的「告诉 re0 要改什么」（第二期才开）。'],
     ['视频介绍', '封面可以取自视频的海报帧；视频本身只在 Ree 页「介绍」里播放，列表和页头都不自动播放。'],
+    ['品牌写法', '全文统一写 re0（小写）。示例数据里官方账号和官方 Ree 的显示名也改成 re0 Official、re0 User Guide；线上现在是 RE0 Official，要不要一起改线上数据需要你定。'],
     ['登录方式', '照现状只有 Google 和 GitHub，第一次登录就是注册，不加邮箱和密码。'],
     ['登录后带回刚才的内容', '未登录时输入的问题或指令先存在这个浏览器里（sessionStorage），链接只带 returnTo，不把问题本身放进 URL（避免出现在日志和分享链接里）。登录后回到原页面并恢复内容，不会自动发出或自动开始：提问要再点一次发送，建 Ree 要再点「开始建 Ree」。卡上有「不用了」可以丢掉草稿。'],
     ['首次登录的欢迎卡', '线上没有，建议新增：只出现一次，告诉新用户注册礼已到账、邀请已计入，并给三个去处（回到刚才的问题、逛逛 Rees、让 re0 建第一个 Ree）。不想加的话直接回到原页面即可。'],
@@ -2134,9 +2139,9 @@ function specPage() {
       <div class="rw rw2"><b>不写死宽度</b><span>卡片、按钮宽度跟内容走；需要截断的只有 Ree 名和副标题这类单行文字，用省略号，完整内容放在 title 里。</span></div>
       <div class="rw rw2"><b>字号同一档</b><span>中英文用同一套字号；英文导语在桌面 20px、手机 17px，最多两行。</span></div>
     </div></div>
-    <div class="sp-card"><h3>提示条</h3><div class="grid2">
+    <div class="sp-card"><h3>提示条</h3><p class="sp-note" style="margin:0 0 10px">一行：左边图标（16px）或头像（32px，手机 26px），右边一到两行文字，垂直居中；内边距 10 × 14（手机 9 × 12），圆角 14，字号 13/700，标题用 900。四种颜色：成功、警告、错误、信息。</p><div class="grid2">
       <div class="note n-ok">${I('check')}<span>已发布。别人现在能问它了。</span></div><div class="note n-warn">${I('clock')}<span>等你确认：发布前看一下来源。</span></div>
-      <div class="note n-err">${I('x')}<span>余额不够，先充值或把预算改小。</span></div><div class="note n-info">${I('gift')}<span>第一次用对话建 Ree，平台请客。</span></div>
+      <div class="note n-err">${I('x')}<span>余额不够，先充值或把预算改小。</span></div><div class="note n-info">${avatar('a', 'MC', 4)}<span><b>Mia Chen 邀请你加入 re0</b><br>用新账号注册，即计入这份邀请。</span></div>
     </div></div>`;
   return `<div class="dA spec"><div class="ix-in">
     <p class="ey">re0 · design system · direction A 气泡</p>
