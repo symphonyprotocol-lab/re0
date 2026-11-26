@@ -101,8 +101,17 @@ async function ownerEntries(ownerId: string) {
   return db().select({ reason: schema.creditEntry.reason, delta: schema.creditEntry.delta, note: schema.creditEntry.note, reeId: schema.creditEntry.reeId }).from(schema.creditEntry).where(and(eq(schema.creditEntry.userId, ownerId), like(schema.creditEntry.reason, 'query_%'))).orderBy(schema.creditEntry.createdAt);
 }
 
-async function ask(slug: string, who = browser(), question = `${QUESTION} ${uniqueWord('ask')}`) {
-  return visitorAsks.askAsVisitor(slug, { question, lang: 'en' }, who);
+async function ask(slug: string, who = browser(), question = `${QUESTION} ${uniqueWord('ask')}`, now = new Date()) {
+  return visitorAsks.askAsVisitor(slug, { question, lang: 'en' }, who, now);
+}
+
+/**
+ * `ask` at one instant, for tests that count on a window: the address's
+ * minute (`VISITOR_ASK_IP_PER_MINUTE`) and the UTC day would otherwise
+ * reset when the wall clock crosses one mid-test.
+ */
+function askingAt(now: Date) {
+  return (slug: string, who?: Visitor) => ask(slug, who, undefined, now);
 }
 
 describeWithDb('visitor asks on the share page', () => {
@@ -240,6 +249,8 @@ describeWithDb('visitor asks on the share page', () => {
 
   it("holds a visitor to the owner's daily limit by fingerprint and by cookie, nothing held past it", async () => {
     const ree = await shared(500, { perVisitor: 2 });
+    const now = new Date();
+    const ask = askingAt(now);
     const who = browser();
     expect((await ask(ree.slug, who)).ok).toBe(true);
     expect((await ask(ree.slug, who)).ok).toBe(true);
@@ -248,7 +259,7 @@ describeWithDb('visitor asks on the share page', () => {
     expect(await ask(ree.slug, { ...who, visitorId: crypto.randomUUID() })).toEqual({ ok: false, error: 'visitor_limit' });
     expect(await ask(ree.slug, { ...who, fingerprint: 'f'.repeat(64) })).toEqual({ ok: false, error: 'visitor_limit' });
     expect(await balanceOf(db(), ree.ownerId)).toBe(500 - 2 * QUERY_BASE_FEE);
-    expect(await visitorAsks.visitorAskStatus(ree.slug, who)).toMatchObject({ remaining: 0, blocked: 'visitor_limit' });
+    expect(await visitorAsks.visitorAskStatus(ree.slug, who, now)).toMatchObject({ remaining: 0, blocked: 'visitor_limit' });
     /* Another visitor, and the same visitor on another Ree, are counted apart. */
     expect((await ask(ree.slug)).ok).toBe(true);
     /* (From another address: this one has asked five times this minute, `VISITOR_ASK_IP_PER_MINUTE`.) */
@@ -259,6 +270,7 @@ describeWithDb('visitor asks on the share page', () => {
 
   it('holds one address to three visitors’ worth a day, and refuses a request without one', async () => {
     const ree = await shared(500, { perVisitor: 1 });
+    const ask = askingAt(new Date());
     const ip = '203.0.113.77';
     for (let n = 0; n < 3; n += 1) expect((await ask(ree.slug, browser(ip))).ok).toBe(true);
     expect(await ask(ree.slug, browser(ip))).toEqual({ ok: false, error: 'network_limit' });
