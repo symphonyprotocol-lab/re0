@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>re0 全新改版</title>
@@ -401,7 +401,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .dir { background: #fff; border: 1px solid var(--page-line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
 .thumb { position: relative; aspect-ratio: 16 / 10; overflow: hidden; border-bottom: 1px solid var(--page-line); display: block; cursor: pointer; }
 .thumb > .scale { position: absolute; left: 0; top: 0; width: 1440px; height: 900px; transform-origin: 0 0; transform: scale(var(--s, .24)); pointer-events: none; }
-.thumb > .scale .h, .thumb > .scale .ex { min-height: 900px; height: 900px; overflow: hidden; }
+.thumb > .scale .h, .thumb > .scale .ex, .thumb > .scale .rp { min-height: 900px; height: 900px; overflow: hidden; }
 .thumb > .scale * { animation: none !important; }
 .dir-b { padding: 16px 18px 18px; display: grid; gap: 10px; }
 .dir-b h3 { font-size: 17px; font-weight: 700; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
@@ -471,8 +471,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .rr code { font: 600 11.5px "JetBrains Mono", monospace; }
 .rbox { width: 44px; height: 32px; background: var(--card); border: 2px solid var(--cor); }
 .bar-s { height: 12px; border-radius: 6px; background: var(--cor); }
-.rs { display: flex; gap: 12px; align-items: center; padding: 5px 0; font-size: 12.5px; }
-.rs b { width: 24px; text-align: right; }
+.spc { display: flex; gap: 12px; align-items: center; padding: 5px 0; font-size: 12.5px; }
+.spc b { width: 24px; text-align: right; }
 .dA .bt3 { background: var(--ink); color: #fff; border-radius: 999px; padding: 9px 18px; font-weight: 900; display: inline-flex; gap: 6px; align-items: center; transition: transform .15s; }
 .dA .bt3:hover { transform: translateY(-1px); }
 .row-wrap { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
@@ -662,6 +662,178 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   .ptabs button { padding: 8px 16px; }
   .ex .h-top { position: relative; top: 0; }
 }
+
+/* ---------- covers ---------- */
+.cov { position: relative; aspect-ratio: 16 / 9; width: 100%; max-width: 100%; overflow: hidden; background: linear-gradient(135deg, var(--g1), var(--g2)); }
+.cov svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cov.none { background: linear-gradient(135deg, color-mix(in srgb, var(--c) 30%, #fff), color-mix(in srgb, var(--c) 70%, #fff)); }
+.cov-ini { position: absolute; right: 14px; bottom: 8px; font: 900 34px var(--round); color: #fff; opacity: .7; letter-spacing: -1px; }
+.cov-v { position: absolute; left: 10px; top: 10px; display: inline-flex; gap: 4px; align-items: center; padding: 2px 8px 2px 6px; border-radius: 999px; background: rgba(32,34,58,.55); color: #fff; font-size: 11px; font-weight: 800; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+.cov-v svg.i { width: 11px; height: 11px; fill: #fff; stroke: none; }
+.rcard { position: relative; padding: 0; overflow: hidden; gap: 0; }
+.rc-cov { display: block; }
+.rc-body { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.rc-top { align-items: flex-end; }
+.rc-top .av { margin-top: -22px; box-shadow: 0 0 0 3px var(--card); position: relative; }
+.rc-top .rc-id { padding-top: 6px; }
+.fav.on-cov { position: absolute; top: 10px; right: 10px; background: rgba(255,255,255,.92); box-shadow: var(--sh-sm); }
+.fav.on-cov.on { background: #fff; }
+.mc-body { display: grid; grid-template-columns: minmax(0, 1fr) 168px; gap: 12px; align-items: start; margin-left: 54px; }
+.mc-body .mc-pass { margin-left: 0; }
+.mc-cov { display: block; border-radius: 16px; overflow: hidden; }
+/* ---------- Explore sticky header ---------- */
+.ex-stick { position: sticky; top: var(--rc-h, 84px); z-index: 10; display: grid; gap: 14px; margin-inline: -16px; padding: 4px 16px 10px; transition: padding .25s ease, background .25s ease, box-shadow .25s ease; }
+.ex .h-top { position: relative; top: 0; }
+.ex-row { display: grid; gap: 14px; min-width: 0; }
+.ex-row .ptabs { justify-content: center; }
+.ex-stick .box.compact .bar { transition: max-height .25s ease, opacity .2s ease, padding .25s ease; max-height: 40px; overflow: hidden; }
+.ex-stick.stuck { background: rgba(247,248,252,.94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: 0 10px 24px rgba(32,34,58,.08); padding-top: 10px; gap: 10px; }
+.ex-stick.stuck .box.compact { box-shadow: var(--sh-sm); }
+.ex-stick.stuck .box.compact .box-row { padding-top: 7px; padding-bottom: 7px; }
+.ex-stick.stuck .box.compact .bar { max-height: 0; opacity: 0; padding-bottom: 0; }
+.ex-stick.stuck .box.compact textarea { min-height: 26px; max-height: 26px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; field-sizing: fixed; width: 100%; }
+.ex-stick.stuck .ex-head { width: min(1120px, 100%); }
+.ex-stick.stuck .ex-row { display: flex; align-items: center; gap: 12px; }
+.ex-stick.stuck .ptabs { flex: none; }
+.ex-stick.stuck .ptabs button { padding: 6px 14px; font-size: 14px; }
+.ex-stick.stuck .fbar { flex: 1; min-width: 0; }
+.ex-stick.stuck .catc { padding: 5px 12px; }
+.ex-stick.stuck .sortp { height: 32px; }
+@media (max-width: 1100px) { .mc-body { grid-template-columns: minmax(0, 1fr) 128px; } }
+@media (max-width: 680px) {
+  .mc-body { grid-template-columns: minmax(0, 1fr); margin-left: 0; }
+  .mc-cov { display: none; }
+  .ex-stick { gap: 10px; }
+  .ex-stick.stuck { padding-top: 8px; padding-bottom: 8px; gap: 8px; }
+  .ex-stick.stuck .box.compact .box-row { padding: 4px 6px 4px 14px; }
+  .ex-stick.stuck .box.compact .go { padding: 6px 10px; }
+  .ex-stick.stuck .ex-row { gap: 8px; }
+  .ex-stick.stuck .ptabs { gap: 2px; }
+  .ex-stick.stuck .ptabs button { padding: 5px 10px; font-size: 13px; }
+  .ex-stick.stuck .ptabs .cnt { display: none; }
+  .ex-stick.stuck .fbar { flex-wrap: nowrap; }
+  .ex-stick.stuck .cats { flex-basis: auto; }
+  .ex-stick.stuck .sortp { display: none; }
+}
+/* ---------- Ree page ---------- */
+.rp { min-height: calc(100vh - var(--rc-h, 84px)); background: var(--bg); color: var(--ink); font-family: var(--round); display: flex; flex-direction: column; }
+.rp .h-top { background: rgba(247,248,252,.9); }
+.rp-in { width: min(1120px, 100%); margin-inline: auto; padding-block: 16px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 16px; flex: 1; align-content: start; }
+.rp-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
+.rp-main { display: grid; gap: 16px; min-width: 0; }
+.rp-hero .cov { border-radius: 28px; aspect-ratio: 16 / 7; }
+.rp-id { display: flex; gap: 14px; align-items: flex-end; margin-top: -34px; padding: 0 8px 0 20px; position: relative; flex-wrap: wrap; }
+.rp-ava .av { width: 84px; height: 84px; font-size: 24px; box-shadow: 0 0 0 5px var(--bg); }
+.rp-name { flex: 1 1 280px; min-width: 0; padding-bottom: 2px; }
+.rp-name h1 { font-size: 28px; font-weight: 900; letter-spacing: -.5px; overflow-wrap: anywhere; }
+.rp-meta { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; font-size: 13px; font-weight: 700; color: var(--mut); }
+.rp-meta b { color: var(--ink); }
+.rp-meta .dot { opacity: .5; }
+.tagx.ver { display: inline-flex; gap: 3px; align-items: center; background: var(--info-bg); color: var(--info-tx); }
+.tagx.ver svg.i { width: 11px; height: 11px; stroke-width: 3; }
+.rp-acts { display: flex; gap: 8px; padding-bottom: 4px; }
+.rp-acts .fav { background: var(--card); box-shadow: var(--sh-sm); }
+.rp-intro { font-size: 15px; font-weight: 600; line-height: 1.7; color: #33364f; max-width: 70ch; }
+.rp-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.rp-tags .cat { background: var(--card); box-shadow: var(--sh-sm); font-size: 12px; padding: 3px 11px; }
+.rp-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.rp-stats .rs { display: grid; gap: 0; padding: 10px 14px; background: var(--card); border-radius: 18px; box-shadow: var(--sh-sm); }
+.rp-stats .rs b { font-size: 22px; font-weight: 900; letter-spacing: -.3px; padding-right: 2px; }
+.rp-stats .rs span { font-size: 12px; font-weight: 700; color: var(--mut); }
+.rp-ask { display: grid; gap: 10px; }
+.vis { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--bg); gap: 2px; }
+.vis button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 800; color: var(--mut); white-space: nowrap; }
+.vis button svg.i { width: 13px; height: 13px; }
+.vis button.on { background: var(--card); color: var(--ink); box-shadow: var(--sh-sm); }
+.box.out .out-t { font-size: 17px; font-weight: 700; color: var(--faint); padding: 3px 0 18px; }
+.chips.left { justify-content: flex-start; }
+.try { font-size: 12.5px; font-weight: 800; color: var(--mut); align-self: center; margin-right: 2px; }
+.ptabs.left { justify-content: flex-start; border-bottom: 1px solid var(--ln); padding-bottom: 10px; }
+.rp-main .plist, .rp-main .lend { width: auto; }
+/* comments */
+.chead b { font-size: 16px; font-weight: 900; }
+.cwrite { display: flex; gap: 10px; align-items: center; }
+.cwrite .box { flex: 1; }
+.uav.me { background: linear-gradient(135deg, var(--c1), var(--c2)); color: #fff; width: 30px; height: 30px; }
+.clist { display: grid; gap: 12px; }
+.cmt { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; }
+.cmt .uav { width: 30px; height: 30px; }
+.cb { background: var(--card); border-radius: 4px 18px 18px 18px; padding: 10px 14px; box-shadow: var(--sh-sm); }
+.cm { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--mut); font-weight: 700; }
+.cm b { color: var(--ink); font-weight: 800; }
+.cm .ic-t { margin-left: auto; height: 26px; padding: 0 6px; }
+.cb p { font-size: 14px; font-weight: 600; margin-top: 2px; }
+/* about tab */
+.rp-video { position: relative; border-radius: 24px; overflow: hidden; cursor: pointer; }
+.rp-video .cov { aspect-ratio: 16 / 9; }
+.playb { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: inline-flex; gap: 8px; align-items: center; padding: 10px 18px 10px 14px; border-radius: 999px; background: rgba(32,34,58,.72); color: #fff; font-weight: 900; font-size: 14px; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); transition: transform .15s; }
+.rp-video:hover .playb { transform: translate(-50%, -50%) scale(1.05); }
+.playb svg.i { fill: #fff; stroke: none; width: 16px; height: 16px; }
+.rp-sec { background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); padding: 16px 18px; display: grid; gap: 10px; }
+.rp-sec h3 { font-size: 16px; font-weight: 900; }
+.rp-topics { display: flex; flex-wrap: wrap; gap: 8px; }
+.rp-topics .qb { background: var(--bg); color: var(--ink); border-radius: 14px 14px 14px 4px; padding: 6px 12px; font-weight: 800; font-size: 13px; max-width: 100%; justify-self: auto; }
+.kbar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; gap: 3px; }
+.kbar i { display: block; height: 100%; }
+.klegend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; font-weight: 700; color: var(--mut); }
+.klegend span { display: inline-flex; gap: 6px; align-items: center; }
+.klegend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.acard { display: flex; gap: 12px; align-items: flex-start; }
+.acard p { font-size: 13.5px; font-weight: 600; color: var(--mut); margin-top: 2px; }
+.mini-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.mini { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px; border-radius: 16px; transition: background .15s; }
+.mini:hover { background: var(--bg); }
+.mini .cov { border-radius: 12px; }
+.mini .cov-ini { font-size: 18px; right: 8px; bottom: 2px; }
+.mini b { display: block; font-size: 13.5px; font-weight: 900; line-height: 1.3; overflow-wrap: anywhere; }
+.mini small { font-size: 12px; font-weight: 700; color: var(--mut); }
+/* side column */
+.rp-side { display: grid; gap: 14px; position: sticky; top: calc(var(--rc-h, 84px) + 16px); }
+.pcard2 { background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); padding: 16px 18px; display: grid; gap: 10px; }
+.pc2-h { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; font-weight: 800; color: var(--mut); }
+.pc2-h b { font-size: 30px; font-weight: 900; color: var(--ink); letter-spacing: -.8px; }
+.pc2-h small { font-size: 12px; color: var(--mut); letter-spacing: 0; }
+.pcard2 dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; margin: 0; font-size: 13px; font-weight: 700; }
+.pcard2 dt { color: var(--mut); }
+.pcard2 dd { margin: 0; text-align: right; }
+.trust { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; font-weight: 600; color: var(--mut); padding-top: 10px; border-top: 1px solid var(--ln); }
+.trust svg.i { color: var(--ok); margin-top: 2px; }
+.pcard2 .badge { justify-self: start; }
+.rel { background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); padding: 14px 12px; display: grid; gap: 4px; }
+.rel h3 { font-size: 15px; font-weight: 900; padding: 0 6px 4px; }
+/* owner bar */
+.obar { background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); padding: 14px 16px; display: grid; gap: 10px; border: 2px solid var(--ok-bg); }
+.ob-h { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ob-h .sp { flex: 1; }
+.ob-t { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ob-t > svg.i { color: var(--cor); }
+.ob-t b { font-size: 15px; font-weight: 900; }
+.ob-t small { font-size: 12px; font-weight: 700; color: var(--mut); }
+.ob-agent { display: grid; gap: 8px; }
+.ob-agent .box.compact { box-shadow: none; background: var(--bg); }
+.ob-agent .badge { flex: none; align-self: center; }
+.ob-recent { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; font-weight: 700; color: var(--mut); }
+.ob-recent b { color: var(--cor-6); }
+.ob-recent svg.i { width: 14px; height: 14px; }
+@media (max-width: 980px) {
+  .rp-grid { grid-template-columns: minmax(0, 1fr); }
+  .rp-side { position: static; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+}
+@media (max-width: 680px) {
+  .rp-hero .cov { border-radius: 22px; aspect-ratio: 16 / 9; }
+  .rp-id { padding: 0 4px 0 12px; margin-top: -30px; gap: 10px; }
+  .rp-ava .av { width: 68px; height: 68px; font-size: 20px; }
+  .rp-name { flex-basis: 100%; order: 3; }
+  .rp-acts { margin-left: auto; }
+  .rp-name h1 { font-size: 23px; }
+  .rp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rp-stats .rs b { font-size: 19px; }
+  .mini-list { grid-template-columns: minmax(0, 1fr); }
+  .ob-h .bt2 { flex: 1 1 calc(50% - 8px); justify-content: center; }
+  .ob-agent .badge { display: none; }
+  .ob-agent .box.compact .box-row { padding-left: 14px; }
+  .rp .bar .hint { display: block; flex-basis: 100%; order: 3; }
+}
 </style>
 
 <header class="rc" id="rc"></header>
@@ -693,11 +865,18 @@ const P = {
   bookmark: '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>',
   thumb: '<path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/>',
   share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/>',
+  book: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
+  chart: '<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+  eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+  shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'
 };
+const DOT = '<circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/><path d="M8.3 5.1a7.8 7.8 0 0 1 10.6 10.6M15.7 18.9A7.8 7.8 0 0 1 5.1 8.3"/><circle cx="6" cy="6" r="1.7" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="1.7" fill="currentColor" stroke="none"/>';
 const I = (n, c = '') => `<svg class="i ${c}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
 const fmt = n => n.toLocaleString('en-US');
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -759,11 +938,11 @@ const DIRS = {
   c: { name: '贴纸', en: 'Sticker', cls: 'dC' }
 };
 const STATES = [['out', '未登录'], ['out-ask', '未登录 · 提问'], ['out-cmd', '未登录 · 输入指令'], ['in', '已登录'], ['ask', '提问'], ['cmd', '指令 · 有相关 Ree'], ['cmd-new', '指令 · 仍然新建'], ['unclear', '意图不明']];
-const PAGES = [['index', '说明'], ['spec', '设计规范'], ['home', '首页'], ['explore', 'Explore']];
+const PAGES = [['index', '说明'], ['spec', '设计规范'], ['home', '首页'], ['explore', 'Explore'], ['ree', 'Ree 页']];
 const EX_STATES = [['browse', '默认浏览'], ['browse-out', '未登录'], ['cat', '按分类筛选'], ['search', '搜索有结果'], ['search-out', '未登录 · 搜索'], ['empty', '搜索无结果'], ['empty-build', '无结果 · 让 re0 建'], ['cmd', '指令'], ['posts', '帖子 · 为你推荐'], ['posts-un', '帖子 · 待回答'], ['loading', '加载中']];
-const statesFor = page => page === 'explore' ? EX_STATES : STATES;
+const statesFor = page => page === 'explore' ? EX_STATES : page === 'ree' ? RP_STATES : STATES;
 const ui = { bLight: false, paused: false, budget: 5000, editBudget: false, ph: 0, lang: 'zh' };
-try { const saved = localStorage.getItem('re0-lang'); ui.lang = saved === 'en' || saved === 'zh' ? saved : ((navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'); } catch (e) { ui.lang = (navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'; }
+try { const wn = /re0-lang:(zh|en)/.exec(window.name || ''); const saved = localStorage.getItem('re0-lang') || (wn && wn[1]); ui.lang = saved === 'en' || saved === 'zh' ? saved : ((navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'); } catch (e) { const wn = /re0-lang:(zh|en)/.exec(window.name || ''); ui.lang = wn ? wn[1] : ((navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'); }
 let route = { page: 'index', state: 'out' };
 let phTimer = null, toastTimer = null;
 
@@ -973,6 +1152,7 @@ function switchLang(l) {
   if (l === ui.lang) return;
   ui.lang = l;
   try { localStorage.setItem('re0-lang', l); } catch (e) {}
+  try { window.name = 're0-lang:' + l; } catch (e) {}
   const h = document.querySelector('#app > .h');
   if (route.page !== 'home' || !h) { const y = window.scrollY; render(); window.scrollTo(0, y); return; }
   const tmp = document.createElement('div');
@@ -1097,26 +1277,57 @@ const xree = (id, lang) => {
   return { id, n: t.n, ow: r[1], off: r[2], cat: r[3], fee: r[4], ans: r[5], help: r[6], wk: r[7], ini: r[8], intro: t.i, q: t.q };
 };
 const catName = (k, X) => (X.cats.find(c => c[0] === k) || ['', ''])[1];
+/* -------- Ree covers: 16:9 art per Ree (stands in for coverBlob / the intro video's poster); none → fallback -------- */
+const COVERS = {
+  hr: ['#c9f7e4', '#62cfa6', 'doc'], ea: ['#d6ebff', '#7aa9ff', 'book'], k8: ['#e3e8ff', '#8794ff', 'hex'], fa: ['#ffe0ec', '#ff93bb', 'frames'],
+  bnt: ['#ffd9a8', '#ff8250', 'sunset', 1], sd: ['#fff0bf', '#f0b85a', 'loaf'], hk: ['#ffe4d6', '#ff9474', 'skyline'], med: ['#e8e3ff', '#a48cff', 'column'],
+  pg: ['#d6f2ff', '#5fbfe6', 'db'], ux: ['#f1edfb', '#bba6f3', 'bubbles'], jr: ['#ffe0e0', '#ff7070', 'rail', 1], uk: ['#dfe9ff', '#6a8ae0', 'passport'],
+  tax: ['#fdf2d0', '#e6bd55', 'receipt'], mine: ['#c9f7e4', '#12b886', 'doc'], ts: null, ex: null
+};
+const MOTIF = {
+  doc: '<rect x="58" y="13" width="44" height="60" rx="5" fill="#fff" opacity=".92"/><rect x="66" y="24" width="28" height="4" rx="2" fill="#20223a" opacity=".22"/><rect x="66" y="33" width="24" height="3" rx="1.5" fill="#20223a" opacity=".14"/><rect x="66" y="40" width="27" height="3" rx="1.5" fill="#20223a" opacity=".14"/><rect x="66" y="47" width="20" height="3" rx="1.5" fill="#20223a" opacity=".14"/><circle cx="96" cy="64" r="11" fill="none" stroke="#fff" stroke-width="3"/><circle cx="96" cy="64" r="5" fill="#fff"/>',
+  book: '<path d="M80 22c-10-6-24-7-34-4v48c10-3 24-2 34 4z" fill="#fff" opacity=".92"/><path d="M80 22c10-6 24-7 34-4v48c-10-3-24-2-34 4z" fill="#fff" opacity=".75"/><path d="M54 32h18M54 40h18M54 48h14M88 32h18M88 40h18M88 48h12" stroke="#20223a" stroke-opacity=".18" stroke-width="2.5" stroke-linecap="round"/>',
+  hex: '<g fill="none" stroke="#fff" stroke-width="2.5" opacity=".9"><path d="M60 30l10-6 10 6v12l-10 6-10-6z"/><path d="M80 42l10-6 10 6v12l-10 6-10-6z"/><path d="M100 30l10-6 10 6v12l-10 6-10-6z"/><path d="M60 54l10-6 10 6v12l-10 6-10-6z" opacity=".6"/></g><path d="M80 42l10-6 10 6v12l-10 6-10-6z" fill="#fff" opacity=".5"/>',
+  frames: '<rect x="42" y="18" width="76" height="54" rx="8" fill="#fff" opacity=".55"/><rect x="50" y="26" width="26" height="38" rx="5" fill="#fff"/><rect x="82" y="26" width="28" height="17" rx="5" fill="#fff" opacity=".9"/><rect x="82" y="47" width="28" height="17" rx="5" fill="#fff" opacity=".9"/><path d="M42 12v6M36 18h6" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>',
+  sunset: '<circle cx="80" cy="56" r="24" fill="#fff" opacity=".55"/><rect x="0" y="62" width="160" height="28" fill="#20223a" opacity=".16"/><g fill="#20223a" opacity=".55"><rect x="30" y="52" width="22" height="9" rx="2"/><rect x="55" y="52" width="22" height="9" rx="2"/><rect x="80" y="52" width="22" height="9" rx="2"/><rect x="105" y="48" width="18" height="13" rx="2"/></g><path d="M20 63h120" stroke="#20223a" stroke-opacity=".4" stroke-width="1.5"/>',
+  loaf: '<ellipse cx="80" cy="54" rx="40" ry="24" fill="#fff" opacity=".85"/><ellipse cx="80" cy="50" rx="34" ry="18" fill="#c47a2c" opacity=".45"/><path d="M60 46c8-6 16-6 22 0M78 42c8-6 16-6 22 0" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/>',
+  skyline: '<g fill="#fff" opacity=".88"><rect x="30" y="44" width="14" height="46"/><rect x="48" y="30" width="16" height="60"/><rect x="68" y="18" width="12" height="72"/><rect x="84" y="36" width="18" height="54"/><rect x="106" y="26" width="14" height="64"/><rect x="124" y="48" width="12" height="42"/></g><g fill="#ff9474" opacity=".5"><rect x="51" y="36" width="3" height="3"/><rect x="57" y="36" width="3" height="3"/><rect x="71" y="26" width="3" height="3"/><rect x="88" y="42" width="3" height="3"/><rect x="109" y="32" width="3" height="3"/></g>',
+  column: '<circle cx="112" cy="26" r="10" fill="#fff" opacity=".7"/><g fill="#fff" opacity=".92"><rect x="52" y="20" width="44" height="7" rx="2"/><rect x="56" y="28" width="7" height="40"/><rect x="70" y="28" width="7" height="40"/><rect x="84" y="28" width="7" height="40"/><rect x="50" y="68" width="48" height="7" rx="2"/></g>',
+  db: '<g fill="#fff"><ellipse cx="80" cy="24" rx="26" ry="8"/><path d="M54 24v14c0 4 12 8 26 8s26-4 26-8V24c0 4-12 8-26 8s-26-4-26-8z" opacity=".9"/><path d="M54 42v14c0 4 12 8 26 8s26-4 26-8V42c0 4-12 8-26 8s-26-4-26-8z" opacity=".75"/><path d="M54 60v10c0 4 12 8 26 8s26-4 26-8V60c0 4-12 8-26 8s-26-4-26-8z" opacity=".6"/></g>',
+  bubbles: '<rect x="34" y="18" width="58" height="20" rx="10" fill="#fff"/><rect x="66" y="44" width="60" height="20" rx="10" fill="#20223a" opacity=".55"/><rect x="34" y="68" width="40" height="12" rx="6" fill="#fff" opacity=".8"/><path d="M44 28h30M76 54h36" stroke="#20223a" stroke-opacity=".2" stroke-width="3" stroke-linecap="round"/>',
+  rail: '<path d="M10 58h140" stroke="#fff" stroke-width="4" stroke-linecap="round"/><path d="M10 40h140" stroke="#fff" stroke-opacity=".5" stroke-width="3" stroke-linecap="round" stroke-dasharray="2 8"/><g fill="#fff"><circle cx="34" cy="58" r="6"/><circle cx="80" cy="58" r="6"/><circle cx="126" cy="58" r="6"/></g><rect x="52" y="30" width="56" height="16" rx="8" fill="#20223a" opacity=".55"/><rect x="58" y="34" width="10" height="6" rx="2" fill="#fff" opacity=".8"/><rect x="72" y="34" width="10" height="6" rx="2" fill="#fff" opacity=".8"/><rect x="86" y="34" width="10" height="6" rx="2" fill="#fff" opacity=".8"/>',
+  passport: '<rect x="58" y="12" width="44" height="64" rx="6" fill="#fff" opacity=".92"/><circle cx="80" cy="38" r="11" fill="none" stroke="#6a8ae0" stroke-width="2.5"/><path d="M69 38h22M80 27c-5 6-5 16 0 22M80 27c5 6 5 16 0 22" stroke="#6a8ae0" stroke-width="2" fill="none"/><rect x="68" y="58" width="24" height="4" rx="2" fill="#6a8ae0" opacity=".5"/>',
+  receipt: '<path d="M60 12h40v66l-5-4-5 4-5-4-5 4-5-4-5 4-5-4-5 4z" fill="#fff" opacity=".92"/><path d="M68 26h24M68 34h18M68 42h24M68 50h12" stroke="#20223a" stroke-opacity=".2" stroke-width="3" stroke-linecap="round"/><text x="88" y="64" font-size="10" font-weight="900" fill="#e6bd55" font-family="Nunito, sans-serif">¥</text>'
+};
+function cover(id, ini, ci, opts = {}) {
+  const c = COVERS[id];
+  const play = c && c[3] && !opts.noVideo ? `<span class="cov-v">${I('play')}<span>${opts.lang === 'en' ? 'From video' : '视频封面'}</span></span>` : '';
+  if (!c) return `<div class="cov none" style="--c:var(${HUE.a[ci % 6]})"><svg viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><g fill="none" stroke="#fff" stroke-width="2" opacity=".55">${[0, 1, 2, 3, 4, 5].map(k => `<g transform="translate(${-10 + k * 34} ${k % 2 ? 40 : 6}) scale(1.4)">${DOT.replace(/fill="currentColor"/g, 'fill="#fff"')}</g>`).join('')}</g></svg><span class="cov-ini">${esc(ini)}</span></div>`;
+  return `<div class="cov" style="--g1:${c[0]};--g2:${c[1]}"><svg viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${MOTIF[c[2]]}</svg>${play}</div>`;
+}
+
 function reeCard(r, i, X, signedIn, saved) {
-  return `<article class="rcard"><div class="rc-top">${avatar('a', r.ini, i)}<div class="rc-id"><b>${esc(r.n)}</b><small>${esc(r.ow)}${r.off ? ` <span class="tagx off">${X.official}</span>` : ''}</small></div>
-      <button class="fav ${saved ? 'on' : ''}" aria-pressed="${saved}" aria-label="${saved ? X.unfav : X.fav}" data-act="toast" data-msg="${signedIn ? X.tFav : X.tFavOut}">${I('bookmark')}</button></div>
+  const lang = X === XT.en ? 'en' : 'zh';
+  return `<article class="rcard"><a class="rc-cov" href="#ree-user" aria-label="${esc(r.n)}">${cover(r.id, r.ini, i, { lang })}</a>
+    <button class="fav on-cov ${saved ? 'on' : ''}" aria-pressed="${saved}" aria-label="${saved ? X.unfav : X.fav}" data-act="toast" data-msg="${signedIn ? X.tFav : X.tFavOut}">${I('bookmark')}</button>
+    <div class="rc-body"><div class="rc-top">${avatar('a', r.ini, i)}<div class="rc-id"><b>${esc(r.n)}</b><small>${esc(r.ow)}${r.off ? ` <span class="tagx off">${X.official}</span>` : ''}</small></div></div>
     <p class="rc-intro">${esc(r.intro)}</p>
     <div class="rc-q"><span class="qb">${esc(r.q)}</span></div>
     <div class="rc-meta"><span>${I('msg')} ${fmt(r.ans)} ${X.answers}</span><span>${I('thumb')} ${r.help}% ${X.helpful}</span><span class="hot">${X.week(r.wk)}</span></div>
-    <div class="rc-foot"><span class="cat">${catName(r.cat, X)}</span><span class="price" title="${X.priceTitle(r.fee)}">${X.price(r.fee)}</span><span class="sp"></span><button class="bt1 sm" data-act="toast" data-msg="${X.tAsk}">${I('msg')} ${X.ask}</button></div></article>`;
+    <div class="rc-foot"><span class="cat">${catName(r.cat, X)}</span><span class="price" title="${X.priceTitle(r.fee)}">${X.price(r.fee)}</span><span class="sp"></span><button class="bt1 sm" data-act="toast" data-msg="${X.tAsk}">${I('msg')} ${X.ask}</button></div></div></article>`;
 }
 function matchCard(h, i, X, lang, signedIn) {
   const r = xree(h[0], lang);
   if (r.you && !signedIn) return '';
   return `<article class="mcard"><div class="mc-head">${avatar('a', r.ini, i)}<div class="rc-id"><b>${esc(r.n)}</b><small>${esc(r.ow)}${r.off ? ` <span class="tagx off">${X.official}</span>` : ''}${r.you ? ` <span class="tagx">${X.yours}</span>` : ''}</small></div>${i === 0 ? `<span class="badge info">${I('spark')} ${X.best}</span>` : ''}<span class="sp"></span>
       <button class="fav" aria-label="${X.fav}" data-act="toast" data-msg="${signedIn ? X.tFav : X.tFavOut}">${I('bookmark')}</button><button class="bt1 sm" data-act="toast" data-msg="${X.tAsk}">${I('msg')} ${X.ask}</button></div>
-    <div class="mc-pass" aria-label="${X.passage}"><span class="mc-l">${X.passage}</span>${esc(h[1])}<br><span class="src">[1] ${esc(h[2])}</span></div></article>`;
+    <div class="mc-body"><div class="mc-pass" aria-label="${X.passage}"><span class="mc-l">${X.passage}</span>${esc(h[1])}<br><span class="src">[1] ${esc(h[2])}</span></div><a class="mc-cov" href="#ree-user" tabindex="-1" aria-hidden="true">${cover(r.id, r.ini, i, { noVideo: 1 })}</a></div></article>`;
 }
-function postCard(p, X) {
+function postCard(p, X, ci) {
   const [ini, who, when, cat, q, n, helpN, a] = p;
   return `<article class="pcard"><div class="pc-meta"><span class="uav">${esc(ini)}</span><b>${esc(who)}</b><span>· ${when}</span><span class="cat">${catName(cat, X)}</span></div>
     <div class="pc-q">${esc(q)}</div>
-    <div class="ab">${avatar('a', a[0], n)}<div style="--c:var(${HUE.a[n % 6]})"><b>${esc(a[1])}</b>${esc(a[2])}<br><span class="src">[1] ${esc(a[3])}</span></div></div>
+    <div class="ab">${avatar('a', a[0], ci ?? n)}<div style="--c:var(${HUE.a[(ci ?? n) % 6]})"><b>${esc(a[1])}</b>${esc(a[2])}<br><span class="src">[1] ${esc(a[3])}</span></div></div>
     <div class="pc-foot"><a class="more" href="#">${X.answered(n)} · ${X.seeAll} ${I('arrow')}</a><span class="sp"></span><button class="ic-t" data-act="toast" data-msg="${X.tFav}">${I('thumb')} ${X.helpfulN(helpN)}</button><button class="ic-t" aria-label="${X.fav}" data-act="toast" data-msg="${X.tFav}">${I('bookmark')}</button><button class="ic-t" aria-label="${X.share}" data-act="toast" data-msg="${X.tShare}">${I('share')}</button></div></article>`;
 }
 function unansweredCard(p, X, signedIn) {
@@ -1144,11 +1355,11 @@ function explore(st, lang = ui.lang) {
   const box = `<div class="box compact"><div class="box-row">${I(typed === 'cmd' ? 'wand' : 'search')}<label class="sr" for="xq">${L.label}</label><textarea id="xq" rows="1" placeholder="${esc(ph)}">${esc(text)}</textarea><button class="go" ${typed ? '' : 'disabled'} data-act="toast" data-msg="${L.tSend}">${I('send')}<span class="go-t">${L.send}</span></button></div><div class="bar">${chip}</div></div>`;
   const isPosts = base.startsWith('posts');
   const tabs = `<div class="ptabs" role="tablist"><button role="tab" aria-selected="${!isPosts}" class="${isPosts ? '' : 'on'}" data-go="explore" data-state="${signedIn ? 'browse' : 'browse-out'}">${X.tabRees} <span class="cnt">${fmt(STATS.total)}</span></button><button role="tab" aria-selected="${isPosts}" class="${isPosts ? 'on' : ''}" data-go="explore" data-state="${signedIn ? 'posts' : 'posts-out'}">${X.tabPosts}</button></div>`;
-  let body = '';
+  let body = '', fbar = '';
   if (isPosts) {
     const un = base === 'posts-un';
     const subs = `<div class="fbar"><div class="cats" role="tablist">${X.pSubs.map((s, i) => `<button role="tab" class="catc ${(un ? i === 2 : i === 0) ? 'on' : ''}" aria-selected="${un ? i === 2 : i === 0}" data-go="explore" data-state="${i === 2 ? 'posts-un' : 'posts'}${signedIn ? '' : '-out'}">${s}${i === 2 ? ' <span class="n">13</span>' : ''}</button>`).join('')}</div></div>`;
-    body = subs + `<div class="plist">${un ? XUNANSWERED[lang].map(p => unansweredCard(p, X, signedIn)).join('') : XPOSTS[lang].map(p => postCard(p, X)).join('')}</div><div class="lend">${skeleton('post')}<p>${X.loadingPosts}</p></div>`;
+    fbar = subs; body = `<div class="plist">${un ? XUNANSWERED[lang].map(p => unansweredCard(p, X, signedIn)).join('') : XPOSTS[lang].map(p => postCard(p, X)).join('')}</div><div class="lend">${skeleton('post')}<p>${X.loadingPosts}</p></div>`;
   } else if (base === 'search' || base === 'empty' || base === 'empty-build' || base === 'cmd' || base === 'cmd-new') {
     if (base === 'cmd' || base === 'cmd-new') body = cardFor('a', base, L, en ? MATCHES_EN : MATCHES, signedIn, 'explore');
     else if (base === 'search') {
@@ -1175,10 +1386,119 @@ function explore(st, lang = ui.lang) {
       ? `<div class="rgrid" aria-busy="true" aria-label="${X.loadingLabel}">${Array.from({ length: 6 }, () => skeleton()).join('')}</div>`
       : `<div class="rgrid">${list.map((r, i) => reeCard(xree(r[0], lang), i, X, signedIn, signedIn && ['hr', 'fa', 'pg', 'med'].includes(r[0]))).join('')}</div>`;
     const foot = base === 'loading' ? '' : base === 'cat' ? `<div class="lend"><p>${X.end(4)}</p></div>` : `<div class="lend"><div class="rgrid">${skeleton()}${skeleton()}${skeleton()}</div><p>${X.shown(12)}</p><button class="bt2 sm" data-go="explore" data-state="loading${signedIn ? '' : '-out'}">${X.loadMore}</button></div>`;
-    body = catsBar + (base === 'loading' ? '' : note) + savedStrip + grid + foot;
+    fbar = catsBar; body = (base === 'loading' ? '' : note) + savedStrip + grid + foot;
   }
   const foot = `<div class="h-foot"><span>${L.privacy}</span><span>${L.terms}</span></div>`;
-  return `<section class="dA ex ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}"><div class="ex-bg" aria-hidden="true"></div>${top}<div class="ex-in"><div class="ex-head">${box}</div>${tabs}${body}</div>${foot}</section>`;
+  return `<section class="dA ex ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}"><div class="ex-bg" aria-hidden="true"></div>${top}<div class="ex-in"><div class="ex-stick" id="exStick"><div class="ex-head">${box}</div><div class="ex-row">${tabs}${fbar}</div></div>${body}</div>${foot}</section>`;
+}
+
+/* -------- Ree page /r/[slug] (zh / en) -------- */
+const RP = {
+  user: { id: 'hr', ini: 'HR', ci: 1, role: 'verified', cat: 'professional', fee: 0, ans: 1214, help: 84, src: 18, wk: 37, chars: '1,284,500',
+    zh: { n: 'Singapore HR Basics', ow: 'Tan Wei Ming', upd: '3 天前', intro: '新加坡雇佣、请假和薪资的常见问题。知识来自人力部（MOM）的雇佣指南和 Employment Act 原文，每个回答都附出处。适合 HR、刚到新加坡工作的外籍员工和小公司老板。', tags: ['雇佣法', '新加坡', 'HR', '请假'],
+      samples: ['试用期辞退要提前通知吗？', '病假需要医生证明吗？', '公共假期上班怎么补偿？'], topics: ['年假、病假和产假', '加班和工作时间', '试用期和解雇通知', '工资发放和扣款', '外籍员工的雇佣条件'],
+      mix: [['网页', 14], ['文档', 3], ['文本', 1]], bio: '新加坡执业 HR 顾问，帮中小企业做雇佣合规。', more: [['Singapore Payroll Q&A', 'SP', 'ts'], ['CPF for Employers', 'CPF', 'ex']] },
+    en: { n: 'Singapore HR Basics', ow: 'Tan Wei Ming', upd: '3 days ago', intro: 'Everyday questions on hiring, leave and pay in Singapore. Built from Ministry of Manpower guidance and the Employment Act itself, with a source on every answer. Handy for HR teams, new hires from abroad and small-business owners.', tags: ['Employment law', 'Singapore', 'HR', 'Leave'],
+      samples: ['Do I need to give notice during probation?', 'Do I need an MC for sick leave?', 'What do I get for working on a public holiday?'], topics: ['Annual, sick and maternity leave', 'Overtime and working hours', 'Probation and notice', 'Paying salaries and deductions', 'Hiring staff from abroad'],
+      mix: [['Web pages', 14], ['Documents', 3], ['Text', 1]], bio: 'HR consultant in Singapore, helping small firms stay compliant.', more: [['Singapore Payroll Q&A', 'SP', 'ts'], ['CPF for Employers', 'CPF', 'ex']] },
+    posts: { zh: [['WK', 'Wei Kang', '3 小时前', 'professional', '公司要把我的试用期延长 3 个月，合法吗？', 2, 9, ['HR', 'Singapore HR Basics', '可以，但要书面通知你；法律没有规定试用期上限，以合同为准。', 'Probation & confirmation · MOM']], ['匿', '匿名', '昨天', 'professional', '公共假期上班怎么补偿？', 3, 14, ['HR', 'Singapore HR Basics', '除了当天工资，还要多付一天基本工资；双方同意的话也可以换一天假。', 'Public holidays · MOM']]],
+      en: [['WK', 'Wei Kang', '3h ago', 'professional', 'My employer wants to extend my probation by 3 months. Is that allowed?', 2, 9, ['HR', 'Singapore HR Basics', 'Yes, if they tell you in writing. The law sets no cap; your contract decides.', 'Probation & confirmation · MOM']], ['AN', 'Anonymous', 'yesterday', 'professional', 'What do I get for working on a public holiday?', 3, 14, ['HR', 'Singapore HR Basics', 'An extra day’s basic pay on top of your wage, or a day off in lieu if you both agree.', 'Public holidays · MOM']]] },
+    related: ['ea', 'uk', 'tax'] },
+  official: { id: 'bnt', ini: 'BNT', ci: 4, role: 'official', cat: 'learning', fee: 0, ans: 154, help: 79, src: 1, wk: 5, chars: '307,433',
+    zh: { n: 'Cowboy Life on the Sidetrack', ow: 'RE0 Official', upd: '11-02', intro: 'Frank Benton 1903 年出版的牛仔回忆录全文。可以问铁路运牛、牧场日常、牛仔俚语和那个年代的美国西部。回答只依据书中原文，并标出章节。', tags: ['美国西部', '回忆录', '公有领域'],
+      samples: ['牛是怎么用火车运的？', '牛仔一天吃些什么？', '书名里的 sidetrack 是什么意思？'], topics: ['铁路运牛', '牧场日常', '西部俚语', '书里的人物'], mix: [['书', 1]], bio: 're0 官方账号，整理公有领域的经典书。', more: [["Siringo's Texas Cow Boy", 'SIW', 'bnt'], ['Life of Nat Love', 'LOV', 'jr']] },
+    en: { n: 'Cowboy Life on the Sidetrack', ow: 'RE0 Official', upd: 'Nov 2', intro: "The full text of Frank Benton's 1903 memoir. Ask about shipping cattle by rail, ranch routines, cowboy slang and the West of the time. Answers quote the book and name the chapter.", tags: ['American West', 'Memoir', 'Public domain'],
+      samples: ['How were cattle shipped by rail?', 'What did cowboys eat in a day?', 'What does “sidetrack” mean in the title?'], topics: ['Cattle by rail', 'Ranch routines', 'Cowboy slang', 'People in the book'], mix: [['Book', 1]], bio: 're0’s official account, turning public-domain classics into Rees.', more: [["Siringo's Texas Cow Boy", 'SIW', 'bnt'], ['Life of Nat Love', 'LOV', 'jr']] },
+    posts: { zh: [['JD', 'Jake D.', '2 天前', 'learning', '书名里的 sidetrack 是什么意思？', 1, 6, ['BNT', 'Cowboy Life on the Sidetrack', '指铁路侧线：运牛的车厢常被甩在侧线上等主线放行，一等就是几个小时。', 'Ch. 1']]],
+      en: [['JD', 'Jake D.', '2 days ago', 'learning', 'What does “sidetrack” mean in the title?', 1, 6, ['BNT', 'Cowboy Life on the Sidetrack', 'A railway siding: cattle cars were often left on one for hours, waiting for the main line to clear.', 'Ch. 1']]] },
+    related: ['med', 'sd', 'jr'] },
+  own: { id: 'mine', ini: 'SE', ci: 0, role: 'normal', cat: 'professional', fee: 0, ans: 12, help: 92, src: 11, wk: 12, chars: '96,210',
+    zh: { n: '新加坡雇佣法问答', ow: 'Lin Wei', upd: '今天', intro: '根据新加坡人力部（MOM）指南和 Employment Act 回答年假、病假、加班、工资和解雇通知期等问题。法规原文来自 Singapore Statutes Online（新加坡总检察署）。', tags: ['雇佣法', '新加坡', '劳动', 'HR'],
+      samples: ['年假有几天？', '加班费怎么算？', '试用期辞退要提前通知吗？'], topics: ['年假和病假', '加班费', '解雇通知期', '公共假期'], mix: [['网页', 11]], bio: '在新加坡做产品，顺手整理雇佣法资料。', more: [['港股 IPO 规则', '港股', 'hk']] },
+    en: { n: 'Singapore Employment Law Q&A', ow: 'Lin Wei', upd: 'today', intro: 'Answers on annual and sick leave, overtime, pay and notice periods, based on Ministry of Manpower guidance and the Employment Act. Statute text from Singapore Statutes Online (Attorney-General’s Chambers).', tags: ['Employment law', 'Singapore', 'Labour', 'HR'],
+      samples: ['How many days of annual leave do I get?', 'How is overtime pay worked out?', 'Do I need to give notice during probation?'], topics: ['Annual and sick leave', 'Overtime pay', 'Notice periods', 'Public holidays'], mix: [['Web pages', 11]], bio: 'Product person in Singapore who collects employment-law notes on the side.', more: [['HKEX Listing Rules Digest', 'HK', 'hk']] },
+    posts: { zh: [['TS', 'Tan S.', '今天', 'professional', '试用期也能请年假吗？', 2, 3, ['新加', '新加坡雇佣法问答', '工作满 3 个月后才有年假，试用期也算在这 3 个月里。', 'MOM · Annual leave']]],
+      en: [['TS', 'Tan S.', 'today', 'professional', 'Can I take annual leave during probation?', 2, 3, ['SE', 'Singapore Employment Law Q&A', 'Leave starts after 3 months of service, and probation counts toward them.', 'MOM · Annual leave']]] },
+    related: ['hr', 'ea', 'uk'] }
+};
+const RCOMMENTS = {
+  zh: [['MK', 'Marcus K.', '2 天前', '问加班费那条答得很清楚，还给了条文编号。'], ['匿', '匿名', '5 天前', '希望能补充外籍员工工作准证的问题。'], ['LT', 'Li Ting', '1 周前', '试用期那部分和我们公司的合同对得上，省了很多事。']],
+  en: [['MK', 'Marcus K.', '2 days ago', 'The overtime answer was clear and cited the exact section.'], ['AN', 'Anonymous', '5 days ago', 'Would love coverage of work passes for foreign staff too.'], ['LT', 'Li Ting', '1 week ago', 'The probation part matched our contracts exactly. Saved me an afternoon.']]
+};
+const RT = {
+  zh: { by: '作者', updated: u => `${u}更新`, official: '官方', verified: '认证', fav: '收藏', saved: '已收藏', share: '分享', edit: '编辑',
+    stats: ['回答', '有帮助', '知识来源', '本周提问'], askPh: n => `问 ${n} 一个问题`, askLbl: n => `向 ${n} 提问`, pub: ['公开问', '回答会出现在这个 Ree 的主页上'], priv: ['私下问', '只有你能看到'],
+    priceLine: f => f ? `每次 ${20 + f} credits，没回答不收费` : '每次 20 credits，没回答不收费', ownerPrice: '你问自己的 Ree 只收 20 基本费', send: '问它', tryHint: '可以这样问',
+    loginAsk: '登录后提问', loginHint: '登录后可以公开问或私下问，回答都带出处。',
+    tabs: ['回答', '评论', '介绍'], answeredN: n => `它回答过的帖子`, moreAnswers: '加载更早的帖子',
+    priceT: '每次回答', base: '基本费', fee: '查询费（全部给作者）', noFee: '无查询费', perAns: 'credits / 次',
+    trust: n => `只根据 ${n} 个知识来源回答，每个回答都附出处。知识正文由作者管理，不公开。`, ready: '知识已就绪',
+    related: '相关的 Ree', moreBy: n => `${n} 的其他 Ree`, topics: '可以问这些', knowledge: '知识概况', srcN: n => `${n} 个来源`, chars: c => `约 ${c} 字`, lastUpd: u => `最近更新：${u}`,
+    video: '视频介绍', play: '播放', dur: '0:48', about: '关于作者',
+    cHead: n => `${n} 条评论`, cPh: '说说你用下来的感受', cPub: '发表评论', cLogin: '登录后发表评论', cHint: '评论会公开显示你的昵称。', cDel: '删除这条评论',
+    oBar: '这是你的 Ree', oStatus: '公开 · 已发布', oVia: '由 re0 任务 #7Q2K 建立', oSettings: '设置', oKnow: '知识库', oStats: '统计', oPreview: '用访客身份看', oAgentPh: '告诉 re0 要改什么，比如「再补上 2026 年的修订」', oPhase: '第二期', oRecent: '最近 re0 改动：发布、写介绍、加了 11 个来源', oActivity: '查看并撤销',
+    tAsk: '原型：会发出提问（公开或私下）', tFav: '原型：已收藏', tFavOut: '登录后才能收藏', tShare: '分享链接已复制', tVideo: '原型：会播放视频介绍', tDel: '原型：会删除这条评论', tPub: '原型：评论已发表', tAgent: '原型：第二期会开一个「改这个 Ree」的任务', tOwner: '原型：会打开对应的管理页' },
+  en: { by: 'by', updated: u => `updated ${u}`, official: 'Official', verified: 'Verified', fav: 'Save', saved: 'Saved', share: 'Share', edit: 'Edit',
+    stats: ['answers', 'helpful', 'sources', 'asked this week'], askPh: n => `Ask ${n} something`, askLbl: n => `Ask ${n}`, pub: ['In public', 'The answer shows on this Ree’s page'], priv: ['Privately', 'Only you see it'],
+    priceLine: f => f ? `${20 + f} credits per answer, free if it can’t answer` : '20 credits per answer, free if it can’t answer', ownerPrice: 'Asking your own Ree costs the 20 base fee only', send: 'Ask', tryHint: 'Try asking',
+    loginAsk: 'Log in to ask', loginHint: 'Log in to ask in public or privately. Every answer comes with sources.',
+    tabs: ['Answers', 'Comments', 'About'], answeredN: n => 'Posts it has answered', moreAnswers: 'Load earlier posts',
+    priceT: 'Per answer', base: 'Base fee', fee: 'Creator fee (all to the creator)', noFee: 'No creator fee', perAns: 'credits each',
+    trust: n => `Answers only from its ${n} sources, with a citation on every answer. The creator manages the knowledge; the full text stays private.`, ready: 'Knowledge ready',
+    related: 'Related Rees', moreBy: n => `More from ${n}`, topics: 'Good things to ask', knowledge: 'What it knows', srcN: n => `${n} source${n > 1 ? 's' : ''}`, chars: c => `about ${c} characters`, lastUpd: u => `Last updated ${u}`,
+    video: 'Video intro', play: 'Play', dur: '0:48', about: 'About the creator',
+    cHead: n => `${n} comments`, cPh: 'How has it worked for you?', cPub: 'Post comment', cLogin: 'Log in to comment', cHint: 'Comments show your display name.', cDel: 'Delete this comment',
+    oBar: 'This is your Ree', oStatus: 'Public · published', oVia: 'Built by re0 task #7Q2K', oSettings: 'Settings', oKnow: 'Knowledge', oStats: 'Stats', oPreview: 'View as visitor', oAgentPh: 'Tell re0 what to change, e.g. “add the 2026 amendments”', oPhase: 'Phase 2', oRecent: 'Recent re0 changes: published, wrote the intro, added 11 sources', oActivity: 'Review and undo',
+    tAsk: 'Prototype: sends the question (public or private)', tFav: 'Prototype: saved', tFavOut: 'Log in to save Rees', tShare: 'Share link copied', tVideo: 'Prototype: plays the video intro', tDel: 'Prototype: deletes this comment', tPub: 'Prototype: comment posted', tAgent: 'Prototype: phase 2 opens a “change this Ree” task', tOwner: 'Prototype: opens that management page' }
+};
+const RP_STATES = [['user', '用户的 Ree'], ['official', '官方 Ree'], ['own', '自己的 Ree'], ['out', '未登录'], ['comments', '评论标签'], ['intro', '介绍标签']];
+function reePage(st, lang = ui.lang) {
+  const L = T[lang], X = XT[lang], R = RT[lang], en = lang === 'en';
+  const key = st === 'official' ? 'official' : st === 'own' ? 'own' : 'user';
+  const D = RP[key], C = D[lang];
+  const signedIn = st !== 'out', own = st === 'own';
+  const tab = st === 'comments' ? 1 : st === 'intro' ? 2 : 0;
+  const top = topBar('a', L, signedIn, langMenu(lang), '');
+  const badge = D.role === 'official' ? `<span class="tagx off">${R.official}</span>` : D.role === 'verified' ? `<span class="tagx ver">${I('check')} ${R.verified}</span>` : '';
+  const ownerBar = own ? `<div class="obar"><div class="ob-h"><span class="ob-t">${I('spark')} <b>${R.oBar}</b><span class="badge ok">${I('check')} ${R.oStatus}</span><small>${R.oVia}</small></span><span class="sp"></span>
+      ${[['pen', R.oSettings], ['book', R.oKnow + ' · 11'], ['chart', R.oStats], ['eye', R.oPreview]].map(([ic, l]) => `<button class="bt2 sm" data-act="toast" data-msg="${R.tOwner}">${I(ic)} ${l}</button>`).join('')}</div>
+      <div class="ob-agent"><div class="box compact"><div class="box-row">${I('wand')}<label class="sr" for="oagent">${R.oAgentPh}</label><textarea id="oagent" rows="1" placeholder="${esc(R.oAgentPh)}"></textarea><span class="badge info">${R.oPhase}</span><button class="go" data-act="toast" data-msg="${R.tAgent}">${I('send')}<span class="go-t">${L.send}</span></button></div></div>
+      <a class="ob-recent" href="#">${I('undo')} ${R.oRecent} · <b>${R.oActivity}</b></a></div></div>` : '';
+  const hero = `<div class="rp-hero">${cover(D.id, D.ini, D.ci, { lang })}</div>
+    <div class="rp-id"><div class="rp-ava">${avatar('a', D.ini, D.ci)}</div>
+      <div class="rp-name"><h1>${esc(C.n)}</h1><p class="rp-meta">${en ? 'by ' : ''}<b>${esc(C.ow)}</b>${en ? '' : ' 创建'} ${badge}<span class="dot">·</span>${catName(D.cat, X)}<span class="dot">·</span>${R.updated(C.upd)}</p></div>
+      <div class="rp-acts">${own ? `<button class="bt2 sm" data-act="toast" data-msg="${R.tOwner}">${I('pen')} ${R.edit}</button>` : `<button class="fav ${signedIn && key === 'user' ? 'on' : ''}" aria-pressed="${signedIn && key === 'user'}" aria-label="${R.fav}" data-act="toast" data-msg="${signedIn ? R.tFav : R.tFavOut}">${I('bookmark')}</button>`}<button class="fav" aria-label="${R.share}" data-act="toast" data-msg="${R.tShare}">${I('share')}</button></div></div>
+    <p class="rp-intro">${esc(C.intro)}</p>
+    <div class="rp-tags">${C.tags.map(t => `<span class="cat">${esc(t)}</span>`).join('')}</div>
+    <div class="rp-stats">${[fmt(D.ans), D.help + '%', D.src, D.wk].map((v, i) => `<div class="rs"><b>${v}</b><span>${R.stats[i]}</span></div>`).join('')}</div>`;
+  const ask = signedIn
+    ? `<div class="rp-ask"><div class="box"><div class="box-row">${I('msg')}<label class="sr" for="rpq">${R.askLbl(C.n)}</label><textarea id="rpq" rows="2" placeholder="${esc(R.askPh(C.n))}"></textarea></div>
+        <div class="bar"><div class="vis" role="radiogroup" aria-label="${en ? 'Who can see it' : '谁能看到'}"><button role="radio" aria-checked="true" class="on" title="${R.pub[1]}">${I('globe')} ${R.pub[0]}</button><button role="radio" aria-checked="false" title="${R.priv[1]}">${I('lock')} ${R.priv[0]}</button></div><span class="hint">${own ? R.ownerPrice : R.priceLine(D.fee)}</span><span class="sp"></span><button class="go" data-act="toast" data-msg="${R.tAsk}">${I('send')} ${R.send}</button></div></div>
+        <div class="chips left"><span class="try">${R.tryHint}</span>${C.samples.map(q => `<button class="chip" data-act="toast" data-msg="${R.tAsk}">${I('msg')} ${esc(q)}</button>`).join('')}</div></div>`
+    : `<div class="rp-ask"><div class="box out"><div class="box-row">${I('msg')}<span class="out-t">${esc(R.askPh(C.n))}</span></div><div class="bar"><span class="hint">${R.loginHint}</span><span class="sp"></span><a class="go" href="#">${I('door')} ${R.loginAsk}</a></div></div>
+        <div class="chips left"><span class="try">${R.tryHint}</span>${C.samples.map(q => `<a class="chip" href="#">${I('msg')} ${esc(q)}</a>`).join('')}</div></div>`;
+  const tabs = `<div class="ptabs left" role="tablist">${R.tabs.map((t, i) => `<button role="tab" aria-selected="${i === tab}" class="${i === tab ? 'on' : ''}" data-go="ree" data-state="${i === 1 ? 'comments' : i === 2 ? 'intro' : (key === 'user' ? (signedIn ? 'user' : 'out') : key)}">${t}${i === 1 ? ` <span class="cnt">${key === 'user' ? 3 : key === 'own' ? 0 : 2}</span>` : ''}</button>`).join('')}</div>`;
+  let content;
+  if (tab === 0) content = `<div class="plist">${D.posts[lang].map(p => postCard(p, X, D.ci)).join('')}</div><div class="lend"><button class="bt2 sm" data-act="toast" data-msg="${R.tOwner}">${R.moreAnswers}</button></div>`;
+  else if (tab === 1) {
+    const write = signedIn ? `<div class="cwrite">${`<span class="uav me">LW</span>`}<div class="box compact"><div class="box-row"><label class="sr" for="rpc">${R.cPh}</label><textarea id="rpc" rows="1" placeholder="${esc(R.cPh)}"></textarea><button class="go" data-act="toast" data-msg="${R.tPub}">${I('send')}<span class="go-t">${R.cPub}</span></button></div></div></div><p class="sp-note" style="margin:0 0 0 38px">${R.cHint}</p>` : `<div class="note n-info">${I('door')}<span><b>${R.cLogin}</b> · ${R.cHint}</span></div>`;
+    content = `<div class="chead"><b>${R.cHead(3)}</b></div>${write}<div class="clist">${RCOMMENTS[lang].map(c => `<div class="cmt"><span class="uav">${esc(c[0])}</span><div class="cb"><div class="cm"><b>${esc(c[1])}</b><span>${c[2]}</span>${own ? `<button class="ic-t" aria-label="${R.cDel}" data-act="toast" data-msg="${R.tDel}">${I('trash')}</button>` : ''}</div><p>${esc(c[3])}</p></div></div>`).join('')}</div>`;
+  } else {
+    const total = C.mix.reduce((a, m) => a + m[1], 0);
+    content = `<div class="rp-video" role="button" tabindex="0" data-act="toast" data-msg="${R.tVideo}">${cover(D.id, D.ini, D.ci, { noVideo: 1 })}<span class="playb">${I('play')}<span>${R.play} · ${R.dur}</span></span></div>
+      <div class="rp-sec"><h3>${R.topics}</h3><div class="rp-topics">${C.topics.map(t => `<span class="qb">${esc(t)}</span>`).join('')}</div></div>
+      <div class="rp-sec"><h3>${R.knowledge}</h3><div class="kbar">${C.mix.map((m, i) => `<i style="flex:${m[1]};background:var(${HUE.a[(i + 1) % 6]})"></i>`).join('')}</div>
+        <div class="klegend">${C.mix.map((m, i) => `<span><i style="background:var(${HUE.a[(i + 1) % 6]})"></i>${esc(m[0])} ${m[1]}</span>`).join('')}</div>
+        <p class="sp-note">${R.srcN(total)} · ${R.chars(D.chars)} · ${R.lastUpd(C.upd)}</p></div>
+      <div class="rp-sec"><h3>${R.about}</h3><div class="acard"><span class="av" style="--c:var(--c5);width:48px;height:48px;font-size:14px">${esc(C.ow.split(' ').map(w => w[0]).join('').slice(0, 2))}</span><div><b>${esc(C.ow)}</b> ${badge}<p>${esc(C.bio)}</p></div></div>
+        <h3 style="margin-top:14px">${R.moreBy(C.ow)}</h3><div class="mini-list">${C.more.map((m, i) => `<a class="mini" href="#">${cover(m[2] === 'ts' || m[2] === 'ex' ? m[2] : m[2], m[1], i + 2, { noVideo: 1 })}<span><b>${esc(m[0])}</b><small>${esc(C.ow)}</small></span></a>`).join('')}</div></div>`;
+  }
+  const side = `<aside class="rp-side"><div class="pcard2"><div class="pc2-h"><span>${R.priceT}</span><b>${20 + D.fee} <small>${R.perAns}</small></b></div>
+      <dl><dt>${R.base}</dt><dd>20</dd><dt>${R.fee}</dt><dd>${D.fee ? D.fee : R.noFee}</dd></dl>
+      <p class="trust">${I('shield')} ${R.trust(D.src)}</p><span class="badge ok">${I('check')} ${R.ready}</span></div>
+    <div class="rel"><h3>${R.related}</h3>${D.related.map((id, i) => { const r = xree(id, lang); return `<a class="mini" href="#">${cover(r.id, r.ini, i + 1, { noVideo: 1 })}<span><b>${esc(r.n)}</b><small>${esc(r.ow)}${r.off ? ` · ${R.official}` : ''}</small></span></a>`; }).join('')}</div></aside>`;
+  const foot = `<div class="h-foot"><span>${L.privacy}</span><span>${L.terms}</span></div>`;
+  return `<section class="dA rp ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}">${top}<div class="rp-in">${ownerBar}<div class="rp-grid"><div class="rp-main">${hero}${ask}${tabs}${content}</div>${side}</div></div>${foot}</section>`;
 }
 
 /* -------- index -------- */
@@ -1196,6 +1516,10 @@ function indexPage() {
     ['右栏去掉', '现在的右栏（我收藏的、本周问得最多、创建 Ree 横幅）去掉：收藏变成列表上方的一行，「本周问得最多」放进排序，创建 Ree 交给合并输入框。'],
     ['搜不到时', '给两个下一步：让 re0 建一个讲这个的 Ree，或者公开发帖等 Ree 来答（沿用现在的 AI 通用回答规则）。'],
     ['加载方式', '无限滚动（提前 800px 加载），保留「加载更多」按钮兜底；搜索结果一次给前 10 个，和现在一样。'],
+    ['Ree 页的标签', '沿用现在的三块：回答（它回答过的帖子）、评论、介绍（视频、可以问这些、知识概况、作者和作者的其他 Ree）。默认打开「回答」。'],
+    ['Ree 页的提问框', '只问这个 Ree：公开问 / 私下问切换，价格写在旁边；不做意图判断。作者想改 Ree 用所有者条里的「告诉 re0 要改什么」（第二期才开）。'],
+    ['视频介绍', '封面可以取自视频的海报帧；视频本身只在 Ree 页「介绍」里播放，列表和页头都不自动播放。'],
+    ['知识概况公开到什么程度', '只公开来源数量、类型占比、总字数和最近更新时间，不公开来源标题和网址（和现在「知识正文不公开」一致）。'],
     ['语言怎么选', '默认跟随浏览器语言（zh 开头的用中文，其余用英文）；用户手动选过就记住：登录用户存到账号，未登录存 cookie，和线上现在的做法一样。原型里用浏览器本地存储模拟。']
   ];
   const intents = [
@@ -1207,9 +1531,9 @@ function indexPage() {
   ];
   const order = [
     ['首页', '已定稿。一个输入框，背景是问答气泡墙，三个统计数；问问题和让 re0 做事都从这里开始。', 'done'],
-    ['Explore', '本轮，等确认。紧凑合并输入框 + Rees / 帖子两个标签；Rees 按分类和排序浏览，搜索显示命中段落；帖子标签里是为你推荐 / 最新 / 待回答。', 'now'],
-    ['Ree 页', '下一页。首屏只留头像、名字、一句介绍和「问它」的输入框；示例问题、公开回答、来源往下放，SEO 内容保留。', 'next'],
-    ['提问和回答', '公开帖子、私密提问和回答页合成一种对话页：问题、各 Ree 的回答和引用，追问在底部。长回答用文章排版，不硬塞进气泡。'],
+    ['Explore', '已按反馈修改：卡片加封面（图片 / 视频海报 / 回退），往下滚时输入框收成单行，和标签、分类一起吸顶。', 'done'],
+    ['Ree 页', '本轮，等确认。大封面 + 头像，介绍、标签、四个数字；「问它」的提问框和示例问题；回答 / 评论 / 介绍三个标签；右栏价格卡和相关 Ree；作者看到所有者条。', 'now'],
+    ['提问和回答',  '下一页。公开帖子、私密提问和回答页合成一种对话页：问题、各 Ree 的回答和引用，追问在底部。长回答用文章排版，不硬塞进气泡。', 'next'],
     ['登录 / 注册', '沿用首页的气泡墙做背景，中间一张登录卡。'],
     ['我的 Ree + 任务', '顶部是同一个合并输入框（预填「帮我建一个关于……的 Ree」），下面是我的 Ree 和进行中的任务。'],
     ['知识库', '来源列表加「交给 re0」输入框，页面变成查看和撤销的地方。'],
@@ -1226,7 +1550,7 @@ function indexPage() {
   return `<div class="ix"><div class="ix-in">
     <p class="ey">re0 · redesign · direction A chosen</p>
     <h1>re0 全新改版：方向 A「气泡」</h1>
-    <p class="lede2">用户选定了方向 A。这一轮把首页按 A 定稿，并把 A 整理成一份设计规范（顶部「设计规范」），之后每一页都从规范取值。首页在顶部「首页」里，第二行切换 8 个状态和中 / 英文。示例数字：官方 4,836 + 大家分享的 1,284 = 一共 6,120。</p>
+    <p class="lede2">本地文件：<code>~/Documents/re0-redesign/re0-redesign.html</code>（双击即可离线打开，字体断网时退回系统字体）。<br>用户选定了方向 A。这一轮把首页按 A 定稿，并把 A 整理成一份设计规范（顶部「设计规范」），之后每一页都从规范取值。首页在顶部「首页」里，第二行切换 8 个状态和中 / 英文。示例数字：官方 4,836 + 大家分享的 1,284 = 一共 6,120。</p>
     <div class="hero-thumb"><div class="thumb big" role="link" tabindex="0" data-go="home" data-state="in" aria-label="打开首页"><div class="scale" aria-hidden="true" inert>${home('a', 'in', true, 'zh')}</div></div>
       <div class="dir-b"><h3>首页 · 定稿 <span class="new">本轮</span></h3>
         <p>白底加几团柔和的彩色光斑，背景是一列列往上冒的「提问气泡 + 带出处的回答气泡」。一个合并的输入框：问问题、找 Ree、让 re0 建 Ree 都从这里开始，re0 按输入判断意图，在框下给出选择。</p>
@@ -1237,6 +1561,11 @@ function indexPage() {
         <p>覆盖现在 Explore 的全部功能：按问题匹配 Ree 并显示命中段落、7 个分类、3 种排序、无限滚动、一起问前 3 个、收藏；再加上从首页挪过来的帖子流（为你推荐 / 最新 / 待回答）。顶部是同一个合并输入框，紧凑一行。</p>
         <div class="changed"><b>11 个状态</b><span>默认浏览、未登录、按分类筛选、搜索有结果、未登录搜索、搜索无结果、无结果时让 re0 建、指令、帖子 · 为你推荐、帖子 · 待回答、加载中。中英文各一套（英文的 Ree 介绍、示例问题、帖子另写）。</span></div>
         <a class="open" data-go="explore" data-state="search" href="#explore-search">看搜索结果 ${I('arrow')}</a></div></div>
+    <div class="hero-thumb" style="margin-top:16px"><div class="thumb big" role="link" tabindex="0" data-go="ree" data-state="user" aria-label="打开 Ree 页"><div class="scale" aria-hidden="true" inert>${reePage('user', 'zh')}</div></div>
+      <div class="dir-b"><h3>Ree 页 · 第 3 页 <span class="new">本轮，等确认</span></h3>
+        <p>覆盖现在 Ree 页的功能：封面和视频介绍、头像、名字、作者和角色、介绍、标签、数字、向它提问（公开 / 私下）、回答过的帖子、评论、可以问什么、作者和作者的其他 Ree、价格和信任说明、收藏、分享、相关 Ree；作者还能看到管理入口。</p>
+        <div class="changed"><b>6 个状态</b><span>用户的 Ree、官方 Ree、自己的 Ree（作者视角）、未登录，以及评论、介绍两个标签。中英文各一套。</span></div>
+        <a class="open" data-go="ree" data-state="own" href="#ree-own">看作者视角 ${I('arrow')}</a></div></div>
     <h2>暂定，等用户确认</h2><div class="rows q">${tbd.map(([k, v]) => `<div class="rw rw2"><b>${k} <span class="tbd">暂定</span></b><span>${v}</span></div>`).join('')}</div>
     <h2>合并后的输入框</h2>
     <div class="intents">${intents.map(([k, q, v, s]) => `<div class="c"><b>${k}</b><q>${q}</q><span>${v}</span><a data-go="home" data-state="${s}" href="#home-${s}">看这个状态 ${I('arrow')}</a></div>`).join('')}</div>
@@ -1335,7 +1664,7 @@ function specPage() {
     <div class="grid3">
       <div class="sp-card"><h3>圆角</h3>${radius.map(([r, u]) => `<div class="rr"><span class="rbox" style="border-radius:${r === '999' ? '999px' : r + 'px'}"></span><b>${r}</b><span>${u}</span></div>`).join('')}</div>
       <div class="sp-card"><h3>阴影</h3>${shadow.map(([n, v, u]) => `<div class="rr"><span class="rbox" style="box-shadow:var(${n});border:0"></span><span><code>${n}</code><br><small>${v}</small></span><span>${u}</span></div>`).join('')}</div>
-      <div class="sp-card"><h3>间距</h3><p class="sp-note" style="margin-top:0">4 的倍数。卡片内边距 16–18，卡片之间 12–20，区块之间 32–48。</p>${space.map(v => `<div class="rs"><b>${v}</b><span class="bar-s" style="width:${v * 2}px"></span></div>`).join('')}</div>
+      <div class="sp-card"><h3>间距</h3><p class="sp-note" style="margin-top:0">4 的倍数。卡片内边距 16–18，卡片之间 12–20，区块之间 32–48。</p>${space.map(v => `<div class="spc"><b>${v}</b><span class="bar-s" style="width:${v * 2}px"></span></div>`).join('')}</div>
     </div>
     <h2>动效</h2><div class="sp-card"><div class="rows">
       <div class="rw rw2"><b>悬停</b><span>按钮、卡片上移 1–2px，150ms；标志里的 0 气泡轻微旋转。</span></div>
@@ -1349,7 +1678,7 @@ function specPage() {
       <div class="box compact"><div class="box-row">${I('search')}<label class="sr" for="spec-x">示例紧凑输入框</label><textarea id="spec-x" rows="1" placeholder="问点什么，或者让 re0 帮你做个 Ree"></textarea><button class="go" disabled>${I('send')}<span class="go-t">发送</span></button></div><div class="bar"><span class="hint">问问题、找 Ree、让 re0 帮你建 Ree，都在这里</span></div></div>
       <div class="ptabs"><button class="on">Rees <span class="cnt">6,120</span></button><button>帖子</button></div></div>
       <p class="sp-note">内页用紧凑型合并输入框：圆角 24，单行，发送按钮在行内（手机只留图标），行为和首页一样。页面标签全圆角，选中是 --ink 底白字，一页最多 3 个。</p></div>
-    <div class="sp-card"><h3>筛选条</h3><div class="fbar" style="max-width:760px"><div class="cats"><button class="catc on">全部</button><button class="catc">技术与 AI</button><button class="catc">设计与创作</button><button class="catc">专业知识</button><button class="catc">生活与兴趣</button></div><label class="sortp">排序<select aria-label="排序示例"><option>推荐优先</option></select>${I('chevd')}</label></div>
+    <div class="sp-card"><h3>筛选条</h3><div class="fbar" style="max-width:760px"><div class="cats"><button class="catc on">全部</button><button class="catc">技术与 AI</button><button class="catc">设计与创作</button><button class="catc">专业知识</button><button class="catc">生活与兴趣</button></div><label class="sortp">排序<select id="spec-sort" aria-label="排序示例"><option>推荐优先</option></select>${I('chevd')}</label></div>
       <p class="sp-note">分类 chip 白底、--sh-sm，选中用 coral-600 实心；一行放不下时横向滑动（右侧渐隐提示还有），不折行。排序是药丸形下拉，固定在右边；手机上换到第二行。</p></div>
     <div class="sp-card"><h3>Ree 卡片</h3><div class="rgrid" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${reeCard(xree('hr', 'zh'), 0, XT.zh, true, true)}${reeCard(xree('k8', 'zh'), 2, XT.zh, true, false)}</div>
       <p class="sp-note">圆角 24、--sh-md，悬停上移并换 --sh-lg。顺序：头像 44 + 名字 + 作者（官方徽章）+ 收藏；两行介绍；一个示例问题（浅底提问气泡）；回答数、有帮助、本周提问；底部分类、每次价格、「问它」。价格写总价，悬停说明基本费和查询费。桌面 3 列，平板 2 列，手机 1 列。</p></div>
@@ -1363,6 +1692,24 @@ function specPage() {
       <div class="empty" style="padding:8px 0"><div class="em-art"><span class="qb">普吉岛考 PADI 潜水证要几天？</span><span class="ab-dash"><i></i><i></i><i></i></span></div><h2 style="font-size:18px">还没有 Ree 讲这个</h2><p style="font-size:13px">空状态一律给下一步：让 re0 建，或者公开发帖。</p></div>
       <div style="display:grid;gap:10px">${skeleton()}<div class="lend"><p>已显示 12 个，下滑会继续加载</p><button class="bt2 sm">加载更多</button></div></div></div>
       <p class="sp-note">加载用骨架卡（和真卡同尺寸，微光扫过，减少动态效果时不动）。列表无限滚动，提前 800px 加载下一批；同时保留「加载更多」按钮兜底，到底写「这一类就这些了，共 N 个」。</p></div>
+    <h2>封面、吸顶和 Ree 页组件</h2>
+    <div class="sp-card"><h3>Ree 封面</h3><div class="row-wrap" style="align-items:flex-start">
+      ${[['hr', 'HR', 1, '有封面图'], ['bnt', 'BNT', 4, '封面取自视频'], ['ts', 'TS', 3, '没有封面（回退）']].map(([id, ini, ci, l]) => `<div style="width:220px;display:grid;gap:6px"><div style="border-radius:18px;overflow:hidden">${cover(id, ini, ci)}</div><small class="sp-note" style="margin:0">${l}</small></div>`).join('')}</div>
+      <p class="sp-note">16:9，对应 coverBlob（裁剪器也是 16:9）。顺序：上传的封面图 → 介绍视频的海报帧（左上角标「视频封面」，列表里不播放）→ 回退：用头像色做浅渐变，铺一层淡淡的知识节点图案，右下角放头像的两个字。卡片里封面通栏，头像 44 压在封面下沿、带 3px 卡片色描边；收藏按钮放在封面右上角。Ree 页用 16:7 的大封面、84 的头像。搜索结果卡在右侧放 168 宽的小封面（手机隐藏），收藏行只用头像。</p></div>
+    <div class="sp-card"><h3>吸顶（Explore、以后的列表页）</h3><div class="rows">
+      <div class="rw rw2"><b>什么时候收起</b><span>往下滚过 160px 收起，回到 60px 以内展开（两个阈值，避免在边界来回抖）。</span></div>
+      <div class="rw rw2"><b>收起后</b><span>输入框变成单行（隐藏下面的提示行），和 Rees / 帖子标签、分类 chip、排序一起贴在顶部；背景 --bg 94% 加模糊和一道浅阴影。</span></div>
+      <div class="rw rw2"><b>手机</b><span>收起后两行：输入框 ~44px，一行标签和分类 ~36px；隐藏标签上的数字和排序，总高约 100px。</span></div>
+      <div class="rw rw2"><b>过渡</b><span>高度、内边距、阴影 250ms；开了减少动态效果时直接切换。</span></div></div></div>
+    <div class="sp-card"><h3>Ree 页头和提问框</h3><div style="max-width:760px;display:grid;gap:10px">
+      <div class="rp-stats">${['1,214', '84%', '18', '37'].map((v, i) => `<div class="rs"><b>${v}</b><span>${RT.zh.stats[i]}</span></div>`).join('')}</div>
+      <div class="box"><div class="box-row">${I('msg')}<label class="sr" for="spec-rq">示例提问框</label><textarea id="spec-rq" rows="1" placeholder="问 Singapore HR Basics 一个问题"></textarea></div><div class="bar"><div class="vis"><button class="on">${I('globe')} 公开问</button><button>${I('lock')} 私下问</button></div><span class="hint">每次 20 credits，没回答不收费</span><span class="sp"></span><button class="go">${I('send')} 问它</button></div></div></div>
+      <p class="sp-note">Ree 页的提问框只用来问这个 Ree（不做意图判断，不出「让 re0 做」），公开 / 私下用一个小分段切换，价格写在旁边。下面放 3 个示例问题。四个数字卡：回答、有帮助、知识来源、本周提问。</p></div>
+    <div class="sp-card"><h3>价格卡、评论、所有者条</h3><div class="grid2">
+      <div class="pcard2"><div class="pc2-h"><span>每次回答</span><b>30 <small>credits / 次</small></b></div><dl><dt>基本费</dt><dd>20</dd><dt>查询费（全部给作者）</dt><dd>10</dd></dl><p class="trust">${I('shield')} 只根据 18 个知识来源回答，每个回答都附出处。</p></div>
+      <div style="display:grid;gap:10px"><div class="cmt"><span class="uav">MK</span><div class="cb"><div class="cm"><b>Marcus K.</b><span>2 天前</span></div><p>问加班费那条答得很清楚。</p></div></div>
+        <div class="obar"><div class="ob-h"><span class="ob-t">${I('spark')} <b>这是你的 Ree</b><span class="badge ok">${I('check')} 公开 · 已发布</span></span></div></div></div></div>
+      <p class="sp-note">价格卡在桌面放右栏并吸顶，手机挪到正文后面（提问框旁已写了价格）。评论用左上角 4px 的白色气泡。所有者条只给作者看：状态、管理入口（设置、知识库、统计、用访客身份看）和「告诉 re0 要改什么」（第二期）。</p></div>
     <h2>文案语气</h2><div class="sp-card"><div class="rows">
       <div class="rw rw2"><b>口语、短句</b><span>「随便问，每句回答都带出处」「第一次平台请客」「不，我是在提问」。用「你」，不用「您」。</span></div>
       <div class="rw rw2"><b>花钱的事说清楚</b><span>凡是要花 credits 的按钮旁边都写上限和「没用完的退回」或「不点不花钱」。</span></div>
@@ -1372,10 +1719,10 @@ function specPage() {
 
 /* -------- chrome & render -------- */
 function chrome() {
-  const tabs = PAGES.map(([k, l]) => `<button class="rc-tab" data-go="${k}" ${k === route.page && (k === 'home' || k === 'explore') ? `data-state="${route.state}"` : ''} ${route.page === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
+  const tabs = PAGES.map(([k, l]) => `<button class="rc-tab" data-go="${k}" ${k === route.page && ['home', 'explore', 'ree'].includes(k) ? `data-state="${route.state}"` : ''} ${route.page === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
   const pg = route.page;
-  const states = pg !== 'home' && pg !== 'explore' ? '' : `<div class="rc-row"><span class="rc-label">状态</span>${statesFor(pg).map(([k, l]) => `<button class="rc-state" data-go="${pg}" data-state="${k}" aria-pressed="${k === route.state}">${l}</button>`).join('')}<span class="rc-sep"></span><span class="rc-label">语言</span>${LANGS.map(([k, n]) => `<button class="rc-state" data-act="lang" data-lang="${k}" aria-pressed="${ui.lang === k}">${n}</button>`).join('')}<span class="rc-note">${pg === 'explore' ? 'Explore · 第 2 页 · 等确认' : '首页 · 已定稿'}</span></div>`;
-  document.getElementById('rc').innerHTML = `<div class="rc-row"><span class="rc-brand">re0 全新改版 <small>方向 A · 首页定稿 · Explore 等确认</small></span>${tabs}</div>${states}`;
+  const states = !['home', 'explore', 'ree'].includes(pg) ? '' : `<div class="rc-row"><span class="rc-label">状态</span>${statesFor(pg).map(([k, l]) => `<button class="rc-state" data-go="${pg}" data-state="${k}" aria-pressed="${k === route.state}">${l}</button>`).join('')}<span class="rc-sep"></span><span class="rc-label">语言</span>${LANGS.map(([k, n]) => `<button class="rc-state" data-act="lang" data-lang="${k}" aria-pressed="${ui.lang === k}">${n}</button>`).join('')}<span class="rc-note">${pg === 'explore' ? 'Explore · 已按反馈修改' : pg === 'ree' ? 'Ree 页 · 第 3 页 · 等确认' : '首页 · 已定稿'}</span></div>`;
+  document.getElementById('rc').innerHTML = `<div class="rc-row"><span class="rc-brand">re0 全新改版 <small>方向 A · 首页定稿 · Ree 页等确认</small></span>${tabs}</div>${states}`;
 }
 function fitThumbs() { document.querySelectorAll('.thumb').forEach(t => t.style.setProperty('--s', t.clientWidth / 1440)); }
 const reduced = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1390,7 +1737,7 @@ function countUp() {
 function render(fresh) {
   parse();
   chrome();
-  document.getElementById('app').innerHTML = route.page === 'index' ? indexPage() : route.page === 'spec' ? specPage() : route.page === 'explore' ? explore(route.state) : home('a', route.state);
+  document.getElementById('app').innerHTML = route.page === 'index' ? indexPage() : route.page === 'spec' ? specPage() : route.page === 'explore' ? explore(route.state) : route.page === 'ree' ? reePage(route.state) : home('a', route.state);
   document.documentElement.style.setProperty('--rc-h', document.getElementById('rc').offsetHeight + 'px');
   fitThumbs();
   if (fresh && route.page === 'home') countUp();
@@ -1403,6 +1750,11 @@ function toast(msg) {
 }
 window.addEventListener('hashchange', () => { ui.editBudget = false; window.scrollTo(0, 0); render(true); });
 window.addEventListener('resize', fitThumbs);
+let stickTick = false;
+window.addEventListener('scroll', () => {
+  const el = document.getElementById('exStick');
+  if (el) { const y = window.scrollY; if (y > 160) el.classList.add('stuck'); else if (y < 60) el.classList.remove('stuck'); }
+}, { passive: true });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.thumb')) e.target.click(); });
 function closeLang() { document.querySelectorAll('.lang.open').forEach(w => { w.classList.remove('open'); w.querySelector('.lang-btn')?.setAttribute('aria-expanded', 'false'); }); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.querySelector('.lang.open')) { const b = document.querySelector('.lang.open .lang-btn'); closeLang(); b?.focus(); } });
@@ -1422,5 +1774,3 @@ document.addEventListener('click', e => {
 });
 render(true);
 </script>
-
-</body></html>
