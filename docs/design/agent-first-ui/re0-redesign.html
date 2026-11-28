@@ -1060,6 +1060,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .mr-bar { position: sticky; top: var(--rc-h, 84px); z-index: 10; display: grid; gap: 10px; margin-inline: -16px; padding: 6px 16px 10px; transition: background .25s ease, box-shadow .25s ease; }
 .mr-bar.stuck { background: rgba(247,248,252,.94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: 0 10px 24px rgba(32,34,58,.08); }
 .mr-bar .ptabs.left { border-bottom: 0; padding-bottom: 0; }
+.mr .ptabs.left { flex-wrap: wrap; row-gap: 4px; }
+.mr .ptabs button { white-space: nowrap; }
+@media (max-width: 680px) { .mr .ptabs button { padding: 7px 13px; font-size: 14px; } }
 .mr-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; min-width: 0; }
 .mr-tools .cats { flex: 1 1 300px; }
 .srch { display: inline-flex; gap: 6px; align-items: center; height: 36px; padding: 0 14px; border-radius: 999px; background: var(--card); box-shadow: var(--sh-sm); min-width: 0; flex: 0 1 220px; }
@@ -1358,6 +1361,226 @@ textarea.inp { resize: vertical; line-height: 1.6; font-weight: 600; }
   .srow { grid-template-columns: minmax(0, 1fr); }
   .srow .a { justify-content: flex-start; }
 }
+/* ---------- Ree bounties (/bounties) ---------- */
+.subj { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; font-weight: 900; padding: 3px 10px 3px 8px; border-radius: 999px; background: color-mix(in srgb, var(--c) 16%, #fff); color: color-mix(in srgb, var(--c) 70%, #20223a); white-space: nowrap; }
+.subj svg.i { width: 13px; height: 13px; }
+.bgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.bcard { position: relative; background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); padding: 16px 18px; display: grid; gap: 10px; align-content: start; min-width: 0; transition: transform .15s, box-shadow .15s; }
+.bcard:hover { transform: translateY(-2px); box-shadow: var(--sh-lg); }
+.bcard.ended { background: rgba(255,255,255,.6); box-shadow: none; border: 2px dashed #dfe2ee; }
+.bc-link { position: absolute; inset: 0; border-radius: inherit; z-index: 1; }
+.bc-top { display: flex; gap: 6px 8px; align-items: center; flex-wrap: wrap; }
+.bcard h3 { font-size: 17px; font-weight: 900; line-height: 1.35; overflow-wrap: anywhere; }
+.bcard > p { font-size: 13px; font-weight: 600; color: var(--mut); line-height: 1.55; }
+.bc-rw { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.bc-rw b { font-size: 28px; font-weight: 900; letter-spacing: -.6px; color: var(--cor); line-height: 1.1; }
+.bcard.ended .bc-rw b { color: var(--mut); }
+.bc-rw small { font-size: 12px; font-weight: 800; color: var(--mut); }
+.bc-m { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 0; }
+.bc-m div { background: var(--bg); border-radius: 14px; padding: 6px 10px; min-width: 0; }
+.bc-m dt { font-size: 11.5px; font-weight: 700; color: var(--mut); }
+.bc-m dd { margin: 0; font-size: 13px; font-weight: 900; overflow-wrap: anywhere; }
+.bc-f { display: flex; gap: 8px; align-items: center; padding-top: 10px; border-top: 1px solid var(--ln); font-size: 12.5px; font-weight: 700; color: var(--mut); }
+.bc-f > span:first-child { display: inline-flex; gap: 5px; align-items: center; }
+.bc-f svg.i { width: 14px; height: 14px; }
+.bc-f .sp { flex: 1; }
+.bhow { background: var(--card); border-radius: 24px; box-shadow: var(--sh-sm); padding: 16px 18px; }
+.bhow h2 { font-size: 17px; font-weight: 900; margin-bottom: 10px; }
+.bhow ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.bhow li { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+.bh-n { width: 34px; height: 34px; flex: none; border-radius: 12px 12px 12px 4px; background: var(--cor-s); color: var(--cor); display: grid; place-items: center; }
+.bh-n svg.i { width: 16px; height: 16px; }
+.bhow b { font-size: 13.5px; font-weight: 900; }
+.bhow p { font-size: 12.5px; font-weight: 600; color: var(--mut); margin-top: 2px; }
+.bhero { background: linear-gradient(135deg, color-mix(in srgb, var(--c) 18%, #fff), #fff 70%); border-radius: 28px; box-shadow: var(--sh-md); padding: 22px 24px; display: grid; gap: 8px; }
+.bhero .subj { background: #fff; }
+.bhero .by { font-size: 12px; font-weight: 700; color: var(--mut); }
+.bhero h1 { font-size: 30px; font-weight: 900; letter-spacing: -.5px; line-height: 1.2; overflow-wrap: anywhere; }
+.bhero p { font-size: 15px; font-weight: 600; color: #33364f; }
+.bt .rp-in > .text-l { justify-self: start; font-size: 13.5px; }
+.bmain { display: grid; gap: 14px; min-width: 0; }
+.bsec { background: var(--card); border-radius: 24px; box-shadow: var(--sh-sm); padding: 16px 18px; display: grid; gap: 10px; min-width: 0; }
+.bsec h2 { font-size: 17px; font-weight: 900; display: flex; gap: 8px; align-items: baseline; }
+.bsec h2 small { font-size: 12.5px; color: var(--mut); font-weight: 800; }
+.bann p { font-size: 14.5px; font-weight: 600; line-height: 1.75; color: #33364f; }
+.bann p + p { margin-top: 8px; }
+.kps, .brules { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.kps li, .brules li { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; font-weight: 700; line-height: 1.55; }
+.kps svg.i { width: 15px; height: 15px; color: var(--ok); margin-top: 3px; flex: none; }
+.brules li { font-weight: 600; color: #33364f; }
+.brules svg.i { width: 15px; height: 15px; color: var(--cor); margin-top: 3px; flex: none; }
+.bsec .fine, .bside .fine, .brun .fine { font-size: 12px; font-weight: 600; color: var(--mut); }
+.bwin { display: flex; gap: 8px 18px; flex-wrap: wrap; }
+.bw { display: flex; gap: 8px; align-items: center; }
+.bw b { display: block; font-size: 13.5px; font-weight: 900; }
+.bw small { font-size: 12px; font-weight: 700; color: var(--mut); }
+.bside .pc2-h b { color: var(--cor); }
+.bside .full, .bt-full { width: 100%; justify-content: center; }
+.dA .bt2.full:disabled { opacity: .6; cursor: not-allowed; }
+.brun { background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); padding: 16px 18px; display: grid; gap: 10px; border: 2px solid var(--info-bg); min-width: 0; }
+.brun.ok { border-color: #bdeedb; } .brun.no { border-color: #ffc9c9; } .brun.warn { border-color: #f5d48a; } .brun.live { border-color: #b9d3ff; }
+.br-h { display: flex; gap: 6px 10px; align-items: center; flex-wrap: wrap; }
+.snap { display: inline-flex; gap: 5px; align-items: center; font-size: 12.5px; font-weight: 700; color: var(--mut); min-width: 0; overflow-wrap: anywhere; }
+.snap svg.i { width: 14px; height: 14px; flex: none; }
+.brun h2 { font-size: 19px; font-weight: 900; line-height: 1.35; overflow-wrap: anywhere; }
+.brun > p { font-size: 14px; font-weight: 600; color: #33364f; }
+.br-f { display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; }
+.br-score { display: flex; gap: 6px 12px; align-items: baseline; flex-wrap: wrap; }
+.br-score b { font-size: 40px; font-weight: 900; letter-spacing: -1px; line-height: 1; }
+.brun.ok .br-score b { color: var(--ok-tx); } .brun.no .br-score b { color: var(--err-tx); }
+.br-score span { font-size: 13px; font-weight: 800; color: var(--mut); }
+.bseg { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+.bseg i { height: 8px; border-radius: 4px; background: var(--ln); }
+.bseg i.d { background: #8f93b3; }
+.bseg i.a { background: linear-gradient(90deg, var(--info) 50%, #cfe0ff 50%); }
+.bsteps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.bsteps li { display: grid; gap: 2px; padding: 10px 12px; border-radius: 16px; background: var(--bg); min-width: 0; }
+.bsteps .ic { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; border: 2px dashed #cfd3e3; }
+.bsteps .ic svg.i { width: 12px; height: 12px; stroke-width: 3; }
+.bsteps li.d .ic { border: 0; background: var(--ok-bg); color: var(--ok-tx); }
+.bsteps li.a .ic { border: 0; background: var(--warn-bg); color: var(--warn-tx); }
+.bsteps b { font-size: 13.5px; font-weight: 900; }
+.bsteps small { font-size: 12px; font-weight: 700; color: var(--mut); }
+.pick.col { grid-template-columns: minmax(0, 1fr); }
+.pick.col .pk { align-items: center; }
+.pick.col .pk .av { width: 34px; height: 34px; font-size: 11px; flex: none; }
+.pick.col .pk input { margin-top: 0; }
+/* My bounties */
+.bents { display: grid; gap: 14px; }
+.bent { background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); padding: 16px 18px; display: grid; gap: 8px; min-width: 0; }
+.be-h { display: flex; gap: 6px 8px; flex-wrap: wrap; align-items: center; }
+.be-t { font-size: 17px; font-weight: 900; color: var(--ink); overflow-wrap: anywhere; }
+.be-t:hover { color: var(--cor-6); }
+.runs { border-radius: 16px; background: var(--bg); overflow: hidden; }
+.rr { display: grid; grid-template-columns: 36px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, .8fr) minmax(0, .8fr) minmax(0, 1.4fr); gap: 8px; padding: 8px 12px; border-top: 1px solid var(--ln); font-size: 13px; font-weight: 700; background: var(--card); align-items: center; }
+.rr > span { min-width: 0; overflow-wrap: anywhere; }
+.rr.hd { border-top: 0; background: transparent; font-size: 12px; color: var(--mut); }
+.be-f { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.be-f .sp { flex: 1; }
+.be-f .fine { font-size: 12.5px; font-weight: 700; color: var(--mut); }
+@media (max-width: 1100px) { .bgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .bhow ol { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 680px) {
+  .bgrid, .bhow ol, .bsteps { grid-template-columns: minmax(0, 1fr); }
+  .bhero { padding: 18px 16px; border-radius: 24px; }
+  .bhero h1 { font-size: 24px; }
+  .bsec, .brun, .bent { padding: 14px; border-radius: 22px; }
+  .rr.hd { display: none; }
+  .rr { grid-template-columns: 30px minmax(0, 1fr) minmax(0, 1fr); row-gap: 2px; }
+  .rr > span:nth-child(n+4) { grid-column: auto; }
+  .bc-m { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .bc-m div:last-child { grid-column: 1 / -1; }
+}
+/* ---------- Admin console preview: same A tokens at ~0.78x density ---------- */
+.adm { min-height: calc(100vh - var(--rc-h, 84px)); background: var(--bg); color: var(--ink); font-family: var(--round); font-size: 12.5px; }
+.adm-top { display: flex; gap: 10px; align-items: center; height: 50px; padding: 0 16px; background: var(--card); border-bottom: 1px solid var(--ln); position: sticky; top: var(--rc-h, 84px); z-index: 20; }
+.adm-top .brand { font-size: 16px; }
+.adm-top .brand .bub { width: 26px; height: 22px; font-size: 13px; }
+.adm-lbl { font-size: 12px; font-weight: 900; color: #fff; background: var(--ink); border-radius: 999px; padding: 2px 10px; }
+.adm-top .sp { flex: 1; }
+.adm-top .lang-btn { height: 32px; font-size: 12.5px; }
+.adm-top .me { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--ink); color: #fff; font-size: 11px; font-weight: 900; }
+.adm-body { display: grid; grid-template-columns: 180px minmax(0, 1fr); min-height: calc(100vh - var(--rc-h, 84px) - 50px); }
+.adm-nav { display: grid; gap: 2px; align-content: start; padding: 12px 8px; border-right: 1px solid var(--ln); background: var(--card); position: sticky; top: calc(var(--rc-h, 84px) + 50px); height: calc(100vh - var(--rc-h, 84px) - 50px); }
+.adm-nav a { display: flex; gap: 8px; align-items: center; padding: 7px 10px; border-radius: 10px; font-size: 13px; font-weight: 800; color: var(--mut); white-space: nowrap; }
+.adm-nav a svg.i { width: 15px; height: 15px; }
+.adm-nav a:hover { background: var(--bg); color: var(--ink); }
+.adm-nav a.on { background: var(--cor-s); color: var(--cor-d); }
+.adm-main { padding: 14px 20px 32px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.adm-tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--ln); padding-bottom: 8px; }
+.adm-tabs button { padding: 5px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 900; color: var(--mut); white-space: nowrap; display: inline-flex; gap: 5px; align-items: center; }
+.adm-tabs button.on { background: var(--ink); color: #fff; }
+.adm-tabs .cnt { font-size: 11px; opacity: .75; }
+.adm-h { display: flex; gap: 10px; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; }
+.adm-h > div { min-width: 0; flex: 1 1 280px; }
+.adm-h h1 { font-size: 22px; font-weight: 900; letter-spacing: -.3px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.adm-h h2 { font-size: 15px; font-weight: 900; }
+.adm-h p { font-size: 12.5px; font-weight: 600; color: var(--mut); margin-top: 2px; }
+.adm-h.in { margin-bottom: 4px; }
+.adm .crumb .text-l { font-size: 12px; }
+.adm .bt1.sm, .adm .bt2.sm, .adm .bt-err.sm { padding: 6px 12px; font-size: 12.5px; }
+.adm .ic-t { height: 28px; padding: 0 8px; font-size: 12px; }
+.adm .ic-t svg.i { width: 13px; height: 13px; }
+.ic-t.err { color: var(--err-tx); }
+.ic-t:disabled { opacity: .45; cursor: not-allowed; }
+.adm .badge { font-size: 11px; padding: 1px 8px; }
+.adm-kpi { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.adm-kpi div { background: var(--card); border-radius: 14px; box-shadow: var(--sh-sm); padding: 8px 12px; display: grid; min-width: 0; }
+.adm-kpi b { font-size: 18px; font-weight: 900; overflow-wrap: anywhere; }
+.adm-kpi span { font-size: 11.5px; font-weight: 700; color: var(--mut); }
+.adm-tbl { background: var(--card); border-radius: 16px; box-shadow: var(--sh-sm); overflow: hidden; }
+.adm-r { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(0, .9fr) minmax(0, 1fr) minmax(0, .8fr) minmax(0, .9fr) minmax(0, .8fr) minmax(0, 1.8fr); gap: 8px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--ln); font-size: 12.5px; font-weight: 700; }
+.adm-r > span { min-width: 0; overflow-wrap: anywhere; }
+.adm-r.hd { border-top: 0; background: var(--bg); font-size: 11.5px; color: var(--mut); font-weight: 800; }
+.adm-r.pay { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.6fr) minmax(0, .8fr) minmax(0, .8fr) minmax(0, 1fr) minmax(0, 1.4fr); }
+.adm-tbl.qa .adm-r { grid-template-columns: minmax(0, 1fr) auto; }
+.adm-r.more { display: block; color: var(--mut); font-size: 12px; }
+.c-t b { display: block; font-weight: 900; font-size: 13px; }
+.c-t small { display: block; font-size: 11.5px; font-weight: 700; color: var(--mut); }
+.c-a { display: flex; gap: 2px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.who { display: inline-flex; gap: 6px; align-items: center; }
+.who .av { width: 24px; height: 24px; font-size: 9px; flex: none; }
+.adm-card { background: var(--card); border-radius: 16px; box-shadow: var(--sh-sm); padding: 12px 14px; display: grid; gap: 10px; min-width: 0; align-content: start; }
+.adm-card h2 { font-size: 14.5px; font-weight: 900; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.adm-card h2 small { font-size: 11.5px; font-weight: 700; color: var(--mut); }
+.adm .fld > .lb, .adm .fld > label { font-size: 12px; }
+.adm .inp { font-size: 13px; padding: 6px 10px; border-radius: 10px; }
+.adm .mini-in { width: 84px; padding: 3px 10px; font-size: 13px; }
+.adm .fee { font-size: 12.5px; flex-wrap: wrap; }
+.adm .fine { font-size: 11.5px; font-weight: 600; color: var(--mut); }
+.adm .vis { justify-self: start; }
+.adm-ed { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; align-items: start; }
+.adm-col { display: grid; gap: 12px; min-width: 0; }
+.adm-col.side { position: sticky; top: calc(var(--rc-h, 84px) + 62px); }
+.adm-2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.tagin { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 6px; border: 2px solid var(--ln); border-radius: 12px; }
+.tg { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; font-weight: 800; padding: 2px 6px 2px 10px; border-radius: 999px; background: var(--bg); }
+.tg svg.i { width: 12px; height: 12px; color: var(--mut); }
+.tagin input { border: 0; outline: 0; font: 700 12.5px var(--round); min-width: 120px; flex: 1; background: transparent; color: var(--ink); }
+.edtb { display: flex; gap: 2px; align-items: center; padding: 4px; border-radius: 10px; background: var(--bg); }
+.edtb button { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: #3d4058; font-size: 13px; }
+.edtb button:hover { background: var(--card); }
+.edtb svg.i { width: 14px; height: 14px; }
+.edtb .sp { flex: 1; }
+.edta { font: 600 13px/1.65 var(--round); }
+.aq { border-radius: 12px; background: var(--bg); padding: 8px 10px; display: grid; gap: 8px; }
+.aq.open { background: var(--card); border: 2px solid #ffd2c7; }
+.aq-h { display: flex; gap: 6px 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; min-width: 0; }
+.aq-h b { font-weight: 900; white-space: nowrap; }
+.aq-h .kind { margin: 0; }
+.aq-q { font-weight: 700; color: #3d4058; min-width: 0; flex: 1 1 200px; overflow-wrap: anywhere; }
+.aq-h .sp { flex: 0 0 0; }
+.aq-h small { display: inline-flex; gap: 4px; align-items: center; font-weight: 800; font-size: 11.5px; white-space: nowrap; }
+.aq-h small svg.i { width: 12px; height: 12px; }
+.rub { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.rub li { display: flex; gap: 6px; align-items: center; font-size: 12.5px; font-weight: 700; padding: 5px 8px; border-radius: 8px; background: var(--bg); }
+.rub li svg.i { width: 13px; height: 13px; color: var(--ok); flex: none; }
+.rub li.add { background: transparent; color: var(--cor-6); }
+.rub li.add svg.i { color: var(--cor-6); }
+.adm-rv { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 12px; align-items: start; }
+.adm-q { display: grid; gap: 6px; }
+.aqr { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: center; text-align: left; padding: 8px 10px; border-radius: 14px; background: var(--card); box-shadow: var(--sh-sm); border: 2px solid transparent; }
+.aqr.on { border-color: var(--cor-6); }
+.aqr .av { width: 28px; height: 28px; font-size: 10px; }
+.aqr b { display: block; font-size: 12.5px; font-weight: 900; }
+.aqr small { display: block; font-size: 11px; font-weight: 700; color: var(--mut); overflow-wrap: anywhere; }
+@media (max-width: 1100px) { .adm-ed, .adm-rv { grid-template-columns: minmax(0, 1fr); } .adm-col.side { position: static; } }
+@media (max-width: 880px) {
+  .adm-body { grid-template-columns: minmax(0, 1fr); }
+  .adm-nav { position: static; height: auto; display: flex; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--ln); padding: 6px 12px; }
+  .adm-r.hd { display: none; }
+  .adm-r, .adm-r.pay { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 10px 12px; }
+  .adm-r > span[data-l]::before { content: attr(data-l); display: block; font-size: 11px; font-weight: 800; color: var(--mut); }
+  .adm-r > .c-t, .adm-r > .c-a { grid-column: 1 / -1; }
+  .adm-r > .c-t::before { display: none !important; }
+  .c-a { justify-content: flex-start; }
+  .adm-tbl.qa .adm-r { grid-template-columns: minmax(0, 1fr); }
+  .adm-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 680px) {
+  .adm-main { padding: 12px 12px 28px; }
+  .adm-top { padding: 0 12px; gap: 8px; }
+  .adm-2 { grid-template-columns: minmax(0, 1fr); }
+}
 </style>
 
 <header class="rc" id="rc"></header>
@@ -1422,7 +1645,13 @@ const P = {
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   code: '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>',
-  type: '<path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>'
+  type: '<path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>',
+  bone: '<path d="M17 10c.7-.7 1.69 0 2.5 0a2.5 2.5 0 1 0 0-5 .5.5 0 0 1-.5-.5 2.5 2.5 0 1 0-5 0c0 .81.7 1.8 0 2.5l-7 7c-.7.7-1.69 0-2.5 0a2.5 2.5 0 0 0 0 5c.28 0 .5.22.5.5a2.5 2.5 0 1 0 5 0c0-.81-.7-1.8 0-2.5Z"/>',
+  trophy: '<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>',
+  eyeoff: '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/>',
+  pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
+  wallet: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+  camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>'
 };
 const DOT = '<circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/><path d="M8.3 5.1a7.8 7.8 0 0 1 10.6 10.6M15.7 18.9A7.8 7.8 0 0 1 5.1 8.3"/><circle cx="6" cy="6" r="1.7" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="1.7" fill="currentColor" stroke="none"/>';
 const I = (n, c = '') => `<svg class="i ${c}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
@@ -1486,9 +1715,9 @@ const DIRS = {
   c: { name: '贴纸', en: 'Sticker', cls: 'dC' }
 };
 const STATES = [['out', '未登录'], ['out-ask', '未登录 · 提问'], ['in', '已登录'], ['ask', '提问']];
-const PAGES = [['index', '说明'], ['spec', '设计规范'], ['home', '首页'], ['explore', 'Explore'], ['ree', 'Ree 页'], ['qa', '提问和回答'], ['login', '登录 / 注册'], ['mine', '我的 Ree']];
+const PAGES = [['index', '说明'], ['spec', '设计规范'], ['home', '首页'], ['explore', 'Explore'], ['ree', 'Ree 页'], ['qa', '提问和回答'], ['login', '登录 / 注册'], ['mine', '我的 Ree'], ['bounty', '悬赏'], ['admin', '管理后台 · 悬赏']];
 const EX_STATES = [['browse', '默认浏览'], ['browse-out', '未登录'], ['cat', '按分类筛选'], ['search', '搜索有结果'], ['search-out', '未登录 · 搜索'], ['empty', '搜索无结果'], ['posts', '帖子 · 为你推荐'], ['posts-un', '帖子 · 待回答'], ['loading', '加载中']];
-const statesFor = page => page === 'explore' ? EX_STATES : page === 'ree' ? RP_STATES : page === 'qa' ? Q_STATES : page === 'login' ? L_STATES : page === 'mine' ? M_STATES : STATES;
+const statesFor = page => page === 'explore' ? EX_STATES : page === 'ree' ? RP_STATES : page === 'qa' ? Q_STATES : page === 'login' ? L_STATES : page === 'mine' ? M_STATES : page === 'bounty' ? BT_STATES : page === 'admin' ? AD_STATES : STATES;
 const ui = { bLight: false, paused: false, budget: 5000, editBudget: false, ph: 0, lang: 'zh' };
 try { const wn = /re0-lang:(zh|en)/.exec(window.name || ''); const saved = localStorage.getItem('re0-lang') || (wn && wn[1]); ui.lang = saved === 'en' || saved === 'zh' ? saved : ((navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'); } catch (e) { const wn = /re0-lang:(zh|en)/.exec(window.name || ''); ui.lang = wn ? wn[1] : ((navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'); }
 let route = { page: 'index', state: 'out' };
@@ -1570,7 +1799,7 @@ const PH = {
 };
 const T = {
   zh: {
-    rees: 'Rees', mine: '我的 Ree', pricing: '价格', about: '关于', login: '登录', signup: '免费注册', tasks: '待你确认 3 条', notif: '通知 3 条', me: '我的账号',
+    rees: 'Rees', mine: '我的 Ree', pricing: '价格', about: '关于', login: '登录', signup: '免费注册', tasks: '待你确认 3 条', bounty: '悬赏', notif: '通知 3 条', me: '我的账号',
     st: [['官方 Ree', '官方 Ree'], ['大家分享的', '大家分享的'], ['一共', '一共']], stTitle: ['官方账号发布、公开且未下架的 Ree', '其他用户发布、公开且未下架的 Ree', '官方 + 大家分享的'],
     lede: '随便问，每句回答都<em>带出处</em>', label: '问点什么', idle: '输入问题，先找能回答的 Ree，再挑一个问',
     iAsk: '找到 12 个能回答的 Ree', send: '发送',
@@ -1583,7 +1812,7 @@ const T = {
     tSend: '原型：回车和点这个按钮一样', tPub: '原型：会发成公开帖子，最相关的 Ree 来回答', tPriv: '原型：会打开私密提问，只问你选的 Ree'
   },
   en: {
-    rees: 'Rees', mine: 'My Rees', pricing: 'Pricing', about: 'About', login: 'Log in', signup: 'Sign up free', tasks: '3 waiting for you', notif: '3 notifications', me: 'My account',
+    rees: 'Rees', mine: 'My Rees', pricing: 'Pricing', about: 'About', login: 'Log in', signup: 'Sign up free', tasks: '3 waiting for you', bounty: 'Bounties', notif: '3 notifications', me: 'My account',
     st: [['Official Rees', 'Official'], ['Community Rees', 'Community'], ['All Rees', 'In all']], stTitle: ['Public, published Rees from official accounts', 'Public, published Rees from everyone else', 'Official + community'],
     lede: 'Ask anything. Every answer <em>shows its source</em>.', label: 'Ask something', idle: 'Ask a question; we find the Rees that can answer',
     iAsk: '12 Rees can answer', send: 'Send',
@@ -1615,10 +1844,10 @@ function wallA(lang = 'zh') {
 }
 function topBar(d, L, signedIn, lm, active) {
   return signedIn
-    ? `<nav class="h-top">${brand(d)}<span class="sp"></span><a class="lk wide ${active === 'rees' ? 'on' : ''}" href="#explore-browse">${L.rees}</a><a class="lk wide ${active === 'mine' ? 'on' : ''}" href="#mine-list">${L.mine}</a>${lm}
+    ? `<nav class="h-top">${brand(d)}<span class="sp"></span><a class="lk wide ${active === 'rees' ? 'on' : ''}" href="#explore-browse">${L.rees}</a><a class="lk wide ${active === 'bounty' ? 'on' : ''}" href="#bounty-list">${L.bounty}</a><a class="lk wide ${active === 'mine' ? 'on' : ''}" href="#mine-list">${L.mine}</a>${lm}
         <a class="ib" href="#mine-list" aria-label="${L.tasks}">${I('hand')}<span class="cnt">3</span></a>
         <a class="ib" href="#" aria-label="${L.notif}">${I('bell')}<span class="cnt">3</span></a><a class="me" href="#" aria-label="${L.me}">LW</a></nav>`
-    : `<nav class="h-top">${brand(d)}<span class="sp"></span><a class="lk wide ${active === 'rees' ? 'on' : ''}" href="#explore-browse-out">${L.rees}</a><a class="lk wide" href="#">${L.pricing}</a><a class="lk wide" href="#">${L.about}</a>${lm}<a class="b2" href="#login-default">${L.login}</a><a class="b1" href="#login-default">${L.signup}</a></nav>`;
+    : `<nav class="h-top">${brand(d)}<span class="sp"></span><a class="lk wide ${active === 'rees' ? 'on' : ''}" href="#explore-browse-out">${L.rees}</a><a class="lk wide ${active === 'bounty' ? 'on' : ''}" href="#bounty-list-out">${L.bounty}</a><a class="lk wide" href="#">${L.pricing}</a><a class="lk wide" href="#">${L.about}</a>${lm}<a class="b2" href="#login-default">${L.login}</a><a class="b1" href="#login-default">${L.signup}</a></nav>`;
 }
 function home(d, st, preview = false, lang = ui.lang) {
   const D = DIRS[d], L = d === 'a' ? T[lang] : T.zh, en = d === 'a' && lang === 'en';
@@ -1858,7 +2087,7 @@ function explore(st, lang = ui.lang) {
   const ph = PH[en ? 'en' : 'zh'][ui.ph % PH.zh.length];
   const box = `<div class="box compact"><div class="box-row">${I('search')}<label class="sr" for="xq">${L.label}</label><textarea id="xq" rows="1" placeholder="${esc(ph)}">${esc(text)}</textarea><button class="go" ${typed ? '' : 'disabled'} data-act="toast" data-msg="${L.tSend}">${I('send')}<span class="go-t">${L.send}</span></button></div><div class="bar">${chip}</div></div>`;
   const isPosts = base.startsWith('posts');
-  const tabs = `<div class="ptabs" role="tablist"><button role="tab" aria-selected="${!isPosts}" class="${isPosts ? '' : 'on'}" data-go="explore" data-state="${signedIn ? 'browse' : 'browse-out'}">${X.tabRees} <span class="cnt">${fmt(STATS.total)}</span></button><button role="tab" aria-selected="${isPosts}" class="${isPosts ? 'on' : ''}" data-go="explore" data-state="${signedIn ? 'posts' : 'posts-out'}">${X.tabPosts}</button></div>`;
+  const tabs = `<div class="ptabs" role="tablist"><button role="tab" aria-selected="${!isPosts}" class="${isPosts ? '' : 'on'}" data-go="explore" data-state="${signedIn ? 'browse' : 'browse-out'}">${X.tabRees} <span class="cnt">${fmt(STATS.total)}</span></button><button role="tab" aria-selected="${isPosts}" class="${isPosts ? 'on' : ''}" data-go="explore" data-state="${signedIn ? 'posts' : 'posts-out'}">${X.tabPosts}</button><button role="tab" aria-selected="false" data-go="bounty" data-state="${signedIn ? 'list' : 'list-out'}">${L.bounty}</button></div>`;
   let body = '', fbar = '';
   if (isPosts) {
     const un = base === 'posts-un';
@@ -2253,7 +2482,7 @@ function loginPage(st, lang = ui.lang) {
 }
 
 /* -------- My Rees: /rees and /rees/new (zh / en). Since 2026-11-29 re0 builds Rees by hand only; Claude, Codex and other agents build them over re0's MCP. -------- */
-const M_STATES = [['list', '我的 Ree · 有待你确认'], ['empty', '还没有 Ree'], ['mcp', '用 Claude / Codex 创建'], ['mcpcheck', '发布 MCP 建的草稿'], ['mcpdel', 'MCP 请求删除'], ['new', '新建 1 · 加知识'], ['new-src', '新建 1 · 网址、网站、GitHub、文字'], ['info', '新建 2 · 基本信息'], ['pub', '新建 3 · 公开和查询费'], ['check', '发布前检查'], ['qafail', 'QA 没通过'], ['qaforce', 'QA 没通过 · 仍然发布']];
+const M_STATES = [['list', '我的 Ree · 有待你确认'], ['empty', '还没有 Ree'], ['bounties', '我的悬赏'], ['mcp', '用 Claude / Codex 创建'], ['mcpcheck', '发布 MCP 建的草稿'], ['mcpdel', 'MCP 请求删除'], ['new', '新建 1 · 加知识'], ['new-src', '新建 1 · 网址、网站、GitHub、文字'], ['info', '新建 2 · 基本信息'], ['pub', '新建 3 · 公开和查询费'], ['check', '发布前检查'], ['qafail', 'QA 没通过'], ['qaforce', 'QA 没通过 · 仍然发布']];
 const WZ_STEP = { new: 1, 'new-src': 1, info: 2, pub: 3, check: 3, qafail: 3, qaforce: 3 };
 // id, initials, colour, status, ready, total, failed, answers this week, helpful %, earned this month, fee, made by (MCP client), waiting for you, category, zh name, en name
 const MREES = [
@@ -2628,7 +2857,10 @@ function minePage(st, lang = ui.lang) {
   const head = `<div class="mr-head"><div class="t"><h1>${M.title}</h1><p>${M.lede}</p></div><div class="mr-acts"><button class="bt2 sm" data-go="mine" data-state="mcp">${I('term')} ${M.viaMcp}</button><button class="bt1 sm" data-go="mine" data-state="new">${I('plus')} ${M.create}</button></div></div>`;
   const stats = empty ? '' : `<div class="rp-stats">${M.stats.map(([v, l]) => `<a class="rs" href="#" data-act="toast" data-msg="${M.tOwner}"><b>${v}</b><span>${l}</span></a>`).join('')}</div>`;
   const pend = empty ? '' : pendStrip(lang);
-  const tools = `<div class="mr-bar" id="mrBar"><div class="ptabs left" role="tablist"><button role="tab" aria-selected="true" class="on">${M.created} <span class="cnt">${empty ? 0 : MREES.length}</span></button><button role="tab" aria-selected="false" data-act="toast" data-msg="${M.tOwner}">${M.favs} <span class="cnt">12</span></button></div>
+  const bnt = st === 'bounties';
+  const ptabs = `<div class="ptabs left" role="tablist"><button role="tab" aria-selected="${!bnt}" class="${bnt ? '' : 'on'}" data-go="mine" data-state="list">${M.created} <span class="cnt">${empty ? 0 : MREES.length}</span></button><button role="tab" aria-selected="false" data-act="toast" data-msg="${M.tOwner}">${M.favs} <span class="cnt">12</span></button><button role="tab" aria-selected="${bnt}" class="${bnt ? 'on' : ''}" data-go="mine" data-state="bounties">${en ? 'My bounties' : '我的悬赏'} <span class="cnt">3</span></button></div>`;
+  if (bnt) return `<section class="dA ex mr ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}"><div class="ex-bg" aria-hidden="true"></div>${topBar('a', L, true, langMenu(lang), 'mine')}<div class="ex-in">${head}${ptabs}${myBounties(lang)}<p class="wz-tip">${I('trophy')} <a class="text-l" href="#bounty-list">${en ? 'Browse open bounties' : '看看进行中的悬赏'} ${I('arrow')}</a></p></div><div class="h-foot"><span>${L.privacy}</span><span>${L.terms}</span></div></section>`;
+  const tools = `<div class="mr-bar" id="mrBar">${ptabs}
     ${empty ? '' : `<div class="mr-tools"><div class="cats" role="group" aria-label="${en ? 'Visibility' : '公开状态'}">${M.filters.map((f, i) => `<button class="catc ${i === 0 ? 'on' : ''}" aria-pressed="${i === 0}" data-act="toast" data-msg="${M.tOwner}">${f}</button>`).join('')}</div>
       <label class="srch">${I('search')}<span class="sr">${M.searchLbl}</span><input type="search" name="mrsearch" placeholder="${M.search}"></label>
       <label class="sortp">${M.sort}<select name="mrsort" aria-label="${M.sort}">${M.sorts.map(s => `<option>${s}</option>`).join('')}</select>${I('chevd')}</label>
@@ -2643,9 +2875,223 @@ function minePage(st, lang = ui.lang) {
   return `<section class="dA ex mr ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}"><div class="ex-bg" aria-hidden="true"></div>${topBar('a', L, true, langMenu(lang), 'mine')}<div class="ex-in">${head}${stats}${pend}${tools}${list}</div>${foot}${dlg}</section>`;
 }
 
+/* -------- Ree bounties: /bounties, /bounties/[id], admin (zh / en). Admins post a topic and 5–10 hidden questions; people build a Ree, enter it, and pay per blind-test run; every question must pass to win withdrawable credits. -------- */
+const BT_STATES = [['list', '悬赏列表'], ['list-out', '未登录'], ['detail', '悬赏详情'], ['ended', '已结束的悬赏'], ['enter', '参加 · 选 Ree'], ['enter-none', '参加 · 没有合适的 Ree'], ['joined', '已参加 · 开始盲测'], ['run', '盲测中'], ['pass', '通过 · 待审核'], ['paid', '奖励已到账'], ['fail', '没通过'], ['nocredit', '余额不够'], ['changed', '参加后 Ree 改过'], ['error', '系统出错']];
+const AD_STATES = [['list', '悬赏管理'], ['edit', '新建 / 编辑悬赏'], ['review', '盲测审核'], ['payout', '奖励发放']];
+const SUBJ = { paleo: ['古生物', 'Paleontology', 1, 'bone'], history: ['历史', 'History', 3, 'book'], astro: ['天文', 'Astronomy', 4, 'globe'], botany: ['植物', 'Botany', 0, 'spark'], ling: ['语言', 'Linguistics', 5, 'msg'], law: ['法律', 'Law', 2, 'shield'] };
+// id, subject, questions, reward, fee, mode, total, taken, deadline zh / en, attempts, status, zh [title, scope], en [title, scope]
+const BOUNTIES = [
+  ['mosa', 'paleo', 8, 20000, 200, 'slots', 5, 2, '12 月 31 日', '31 Dec', 3, 'live', ['白垩纪海洋爬行动物', '沧龙、蛇颈龙、鱼龙的分类、演化和灭绝。'], ['Cretaceous marine reptiles', 'How mosasaurs, plesiosaurs and ichthyosaurs are classified, evolved and died out.']],
+  ['ming', 'history', 10, 30000, 300, 'slots', 3, 0, '1 月 15 日', '15 Jan', 3, 'live', ['明代海禁与朝贡贸易', '从洪武海禁到隆庆开关，朝贡、市舶司和走私贸易。'], ['Ming maritime bans and tribute trade', 'From the Hongwu ban to the Longqing opening: tribute missions, trade offices and smuggling.']],
+  ['orch', 'botany', 8, 12000, 150, 'budget', 60000, 24000, '1 月 31 日', '31 Jan', 3, 'live', ['东南亚兰科植物识别', '常见属的花型、叶形、生境和容易混淆的种。'], ['Southeast Asian orchid ID', 'Flower and leaf shapes, habitats and look-alikes in the common genera.']],
+  ['tone', 'ling', 6, 8000, 100, 'slots', 10, 4, '12 月 20 日', '20 Dec', 5, 'live', ['粤语九声六调', '调值、入声、变调和常见的标音方案。'], ['Cantonese tones', 'Tone contours, checked tones, tone change and the main romanisations.']],
+  ['exo', 'astro', 6, 15000, 150, 'slots', 3, 3, '12 月 15 日', '15 Dec', 3, 'full', ['系外行星的凌星法', '光变曲线、半径估算、假阳性和主要巡天项目。'], ['Finding exoplanets by transit', 'Light curves, radius estimates, false positives and the main surveys.']],
+  ['tenancy', 'law', 8, 10000, 150, 'slots', 4, 4, '11 月 20 日', '20 Nov', 3, 'ended', ['新加坡租房合同', '押金、维修责任、提前解约和外交条款。'], ['Singapore tenancy agreements', 'Deposits, repairs, early termination and the diplomatic clause.']]
+];
+const btOf = id => BOUNTIES.find(b => b[0] === id);
+function btT(lang) {
+  const z = lang === 'zh';
+  return {
+    z, title: z ? '悬赏' : 'Bounties', lede: z ? '管理员出题，你建一个 Ree 来答。盲测全部答对，拿可提现的奖励。' : 'An admin sets the topic and the questions; you build a Ree to answer them. Pass every question in the blind test to win credits you can withdraw.',
+    all: z ? '全部' : 'All', st: { live: z ? '进行中' : 'Live', full: z ? '名额已满' : 'Full', ended: z ? '已结束' : 'Ended', paused: z ? '已暂停' : 'Paused', draft: z ? '草稿' : 'Draft' },
+    reward: z ? '奖励' : 'Reward', perWin: z ? '可提现 credits / 人' : 'withdrawable credits each', fee: z ? '每次盲测' : 'Per run', qs: n => z ? `${n} 道题 · 不公开` : `${n} questions · hidden`,
+    left: b => b[5] === 'budget' ? (z ? `预算剩 ${fmt(b[6] - b[7])}` : `${fmt(b[6] - b[7])} of budget left`) : (z ? `名额 ${b[6]} · 剩 ${b[6] - b[7]}` : `${b[6] - b[7]} of ${b[6]} places left`),
+    due: d => z ? `${d}截止` : `Ends ${d}`, tries: n => z ? `每人最多 ${n} 次` : `Up to ${n} runs each`, view: z ? '查看' : 'View',
+    sort: z ? '排序' : 'Sort', sorts: z ? ['快截止的在前', '奖励最多', '盲测费最低'] : ['Ending soonest', 'Biggest reward', 'Lowest fee'],
+    how: z ? '怎么参加' : 'How it works', howL: z ? [['book', '看公告', '范围和知识点写在公告里，题目不公开。'], ['plus', '建一个 Ree', '手动建，或者让 Claude / Codex 通过 MCP 建。'], ['camera', '参加并跑盲测', '参加时给 Ree 的知识拍快照；每次盲测先付费，没过不退。'], ['trophy', '全部答对拿奖励', '管理员审核后进可提现余额。']] : [['book', 'Read the brief', 'The scope and knowledge points are public; the questions aren’t.'], ['plus', 'Build a Ree', 'By hand, or with Claude / Codex over MCP.'], ['camera', 'Enter and run', 'Your Ree’s knowledge is snapshotted when you enter. Each run is paid up front and not refunded on a fail.'], ['trophy', 'Pass every question', 'After an admin review the reward goes to your withdrawable credits.']],
+    tabs: [z ? 'Rees' : 'Rees', z ? '帖子' : 'Posts', z ? '悬赏' : 'Bounties']
+  };
+}
+const SUBJ_N = (k, z) => SUBJ[k][z ? 0 : 1];
+function bountyCard(b, lang) {
+  const B = btT(lang), z = B.z, [id, sk, qn, rw, fee, , , , dz, de, at, st, zt, et] = b, tx = z ? zt : et, s = SUBJ[sk];
+  const badge = st === 'live' ? `<span class="badge ok">${I('spark')} ${B.st.live}</span>` : st === 'full' ? `<span class="badge warn">${I('users')} ${B.st.full}</span>` : `<span class="badge mute">${I('clock')} ${B.st.ended}</span>`;
+  return `<article class="bcard ${st}"><a class="bc-link" href="#bounty-detail" aria-label="${esc(tx[0])}"></a>
+    <div class="bc-top"><span class="subj" style="--c:var(${HUE.a[s[2]]})">${I(s[3])} ${SUBJ_N(sk, z)}</span>${badge}</div>
+    <h3>${esc(tx[0])}</h3><p>${esc(tx[1])}</p>
+    <div class="bc-rw"><b>${fmt(rw)}</b><small>${B.perWin}</small></div>
+    <dl class="bc-m"><div><dt>${B.fee}</dt><dd>${fmt(fee)} credits</dd></div><div><dt>${z ? '名额' : 'Places'}</dt><dd>${st === 'ended' ? '—' : B.left(b)}</dd></div><div><dt>${z ? '截止' : 'Ends'}</dt><dd>${z ? dz : de}</dd></div></dl>
+    <div class="bc-f"><span>${I('eyeoff')} ${B.qs(qn)}</span><span class="sp"></span><span class="text-l">${B.view} ${I('arrow')}</span></div></article>`;
+}
+function bountyList(st, lang = ui.lang) {
+  const L = T[lang], B = btT(lang), z = B.z, en = !z, signedIn = st !== 'list-out';
+  const tabs = `<div class="ptabs" role="tablist"><button role="tab" aria-selected="false" data-go="explore" data-state="${signedIn ? 'browse' : 'browse-out'}">Rees</button><button role="tab" aria-selected="false" data-go="explore" data-state="${signedIn ? 'posts' : 'posts-out'}">${B.tabs[1]}</button><button role="tab" aria-selected="true" class="on">${B.tabs[2]} <span class="cnt">4</span></button></div>`;
+  const subs = [['all', B.all], ...Object.keys(SUBJ).map(k => [k, SUBJ_N(k, z)])];
+  const bar = `<div class="fbar"><div class="cats" role="tablist" aria-label="${z ? '学科' : 'Subjects'}">${subs.map(([k, n], i) => `<button role="tab" class="catc ${i === 0 ? 'on' : ''}" aria-selected="${i === 0}">${n}</button>`).join('')}</div><label class="sortp">${B.sort}<select name="btsort" aria-label="${B.sort}">${B.sorts.map(s => `<option>${s}</option>`).join('')}</select>${I('chevd')}</label></div>`;
+  const how = `<div class="bhow"><h2>${B.how}</h2><ol>${B.howL.map(([ic, t, p], i) => `<li><span class="bh-n">${I(ic)}</span><div><b>${i + 1} · ${t}</b><p>${p}</p></div></li>`).join('')}</ol></div>`;
+  const head = `<div class="mr-head"><div class="t"><h1>${B.title}</h1><p>${B.lede}</p></div>${signedIn ? `<button class="bt2 sm" data-go="mine" data-state="bounties">${I('trophy')} ${z ? '我的悬赏' : 'My bounties'}</button>` : `<a class="bt1 sm" href="#login-default">${I('door')} ${L.login}</a>`}</div>`;
+  return `<section class="dA ex bt ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}"><div class="ex-bg" aria-hidden="true"></div>${topBar('a', L, signedIn, langMenu(lang), 'bounty')}
+    <div class="ex-in">${tabs}${head}${bar}<div class="bgrid">${BOUNTIES.map(b => bountyCard(b, lang)).join('')}</div>${how}</div><div class="h-foot"><span>${L.privacy}</span><span>${L.terms}</span></div></section>`;
+}
+
+/* ---- detail, enter, run ---- */
+const BT_REES = { zh: [['mreptile', '海洋爬行动物笔记', '14 个来源 · 全部就绪 · 仅自己', 1], ['notes', '2026 读书笔记', '34 个来源 · 2 个失败 · 仅自己', 5], ['sgtax', '新加坡个人所得税', '18 个来源 · 公开 · 已发布', 3]], en: [['mreptile', 'Marine Reptile Notes', '14 sources · all ready · private', 1], ['notes', 'Reading Notes 2026', '34 sources · 2 failed · private', 5], ['sgtax', 'Singapore Income Tax', '18 sources · public, published', 3]] };
+function enterDlg(st, lang) {
+  const z = lang === 'zh', none = st === 'enter-none', t = (a, b) => z ? a : b;
+  const pick = ui.btPick ?? 0;
+  const list = none ? `<div class="note n-info">${I('book')}<span>${t('你的 Ree 里没有讲海洋爬行动物的。先建一个，建好回来参加。', 'None of your Rees covers marine reptiles. Build one, then come back to enter.')}</span></div>
+      <div class="two"><a class="opt" href="#mine-new"><b>${I('plus')} ${t('去新建 Ree', 'Build a Ree')}</b><span>${t('上传文件，或者加网页、网站、GitHub、文字。', 'Upload files, or add pages, a website, GitHub or text.')}</span></a><a class="opt" href="#mine-mcp"><b>${I('term')} ${t('用 Claude / Codex 建', 'Build with Claude / Codex')}</b><span>${t('把公告贴给它，让它整理资料，通过 MCP 建草稿。', 'Paste the brief to it; it gathers material and creates a draft over MCP.')}</span></a></div>`
+    : `<div class="pick col" role="radiogroup" aria-label="${t('选一个 Ree', 'Pick a Ree')}">${BT_REES[lang].map(([id, n, m, ci], i) => `<label class="pk ${i === pick ? 'on' : ''}"><input type="radio" name="btree" ${i === pick ? 'checked' : ''} data-act="btpick" data-i="${i}">${avatar('a', n.slice(0, 2), ci)}<span><b>${esc(n)}</b><small>${m}</small></span></label>`).join('')}</div>
+      <p class="wz-tip">${I('plus')} ${t('还没建好？', 'Not built yet?')} <a class="text-l" href="#mine-new">${t('去新建 Ree', 'Build a Ree')}</a><span>·</span><a class="text-l" href="#mine-mcp">${t('用 Claude / Codex 建', 'Build with Claude / Codex')}</a></p>`;
+  const sum = none ? '' : `<dl class="kv wide"><dt>${t('快照', 'Snapshot')}</dt><dd>${t('参加时给 Ree 的知识拍快照，盲测只用快照里的知识。', 'Your Ree’s knowledge is snapshotted now; runs use only the snapshot.')}</dd><dt>${t('每次盲测', 'Per run')}</dt><dd>${t('200 credits，开始时扣，没过关不退', '200 credits, charged at the start, not refunded on a fail')}</dd><dt>${t('次数', 'Runs')}</dt><dd>${t('你还能跑 3 次', 'You have 3 runs')}</dd><dt>${t('余额', 'Balance')}</dt><dd>12,400 credits</dd></dl>
+      <label class="ck"><input type="checkbox" name="btok" checked><span>${t('我知道题目不公开，没过关只告诉我得分和过了几题，费用不退。', 'I understand the questions stay hidden, a failed run only shows the score and the passed count, and the fee isn’t refunded.')}</span></label>`;
+  return `<div class="dlg-shade" data-act="btclose-bg"><div class="dlg ${none ? 'sm' : ''}" role="dialog" aria-modal="true" aria-labelledby="bt-h">
+    <div class="dlg-h"><span class="cc-ic">${I('trophy')}</span><div><h2 id="bt-h">${t('参加「白垩纪海洋爬行动物」', 'Enter “Cretaceous marine reptiles”')}</h2><p>${t('选一个你的 Ree 来答。参加不收费，跑盲测才收。', 'Pick one of your Rees to answer. Entering is free; each run costs.')}</p></div><button class="fav" aria-label="${t('关闭', 'Close')}" data-go="bounty" data-state="detail">${I('x')}</button></div>
+    <div class="dlg-b">${list}${sum}</div>
+    <div class="dlg-f"><span class="sp"></span><button class="bt2" data-go="bounty" data-state="detail">${t('取消', 'Cancel')}</button>${none ? '' : `<button class="bt1" data-go="bounty" data-state="joined">${I('camera')} ${t('拍快照并参加', 'Snapshot and enter')}</button>`}</div></div></div>`;
+}
+function runCard(st, lang) {
+  const z = lang === 'zh', t = (a, b) => z ? a : b, ree = t('海洋爬行动物笔记', 'Marine Reptile Notes');
+  const snap = `<span class="snap">${I('camera')} ${t(`「${ree}」· 快照 11 月 28 日 14:20 · 14 个来源`, `“${ree}” · snapshot 28 Nov 14:20 · 14 sources`)}</span>`;
+  const cells = (d, a) => `<div class="bseg" aria-hidden="true">${Array.from({ length: 8 }, (_, i) => `<i class="${i < d ? 'd' : i === a ? 'a' : ''}"></i>`).join('')}</div>`;
+  const left = n => t(`还能跑 ${n} 次`, `${n} run${n === 1 ? '' : 's'} left`);
+  if (st === 'joined') return `<div class="brun"><div class="br-h"><span class="badge info">${I('check')} ${t('已参加', 'Entered')}</span>${snap}</div><h2>${t('准备好了就开始盲测', 'Start the blind test when you’re ready')}</h2>
+    <p>${t('8 道题会一道一道发给你的 Ree，你看不到题目，也看不到它怎么答。大约 3 分钟。', 'The 8 questions go to your Ree one by one. You won’t see them or its answers. About 3 minutes.')}</p>
+    <div class="br-f"><button class="bt1" data-go="bounty" data-state="run">${I('play')} ${t('开始盲测 · 扣 200 credits', 'Start · 200 credits')}</button><span class="fine">${left(3)} · ${t('没过关不退', 'not refunded on a fail')}</span></div></div>`;
+  if (st === 'run') return `<div class="brun live" aria-live="polite"><div class="br-h"><span class="badge info"><span class="spin" aria-hidden="true"></span>${t('盲测中', 'Running')}</span>${snap}</div><h2>${t('第 3 / 8 题', 'Question 3 of 8')}</h2>
+    ${cells(2, 2)}<p>${t('正在让你的 Ree 回答第 3 题，答完会按评分标准打分。题目和回答都不显示；全部跑完才出结果。', 'Your Ree is answering question 3; each answer is graded against a rubric. Questions and answers stay hidden, and the result comes when all 8 are done.')}</p>
+    <dl class="kv wide"><dt>${t('已扣', 'Charged')}</dt><dd>200 credits</dd><dt>${t('开始', 'Started')}</dt><dd>${t('今天 15:08 · 第 2 次', 'today 15:08 · run 2')}</dd></dl><p class="fine">${t('可以离开这一页，跑完会通知你。', 'You can leave this page; we’ll notify you when it’s done.')}</p></div>`;
+  if (st === 'pass' || st === 'paid') {
+    const paid = st === 'paid';
+    const steps = [[t('盲测通过', 'Passed'), t('今天 15:11', 'today 15:11'), 'd'], [t('管理员审核', 'Admin review'), paid ? t('11 月 30 日通过', 'approved 30 Nov') : t('一般 3 个工作日内', 'usually within 3 working days'), paid ? 'd' : 'a'], [t('进可提现余额', 'To withdrawable credits'), paid ? t('11 月 30 日到账', 'paid 30 Nov') : '', paid ? 'd' : '']];
+    return `<div class="brun ok"><div class="br-h"><span class="badge ok">${I('trophy')} ${t('全部答对', 'All correct')}</span>${snap}</div>
+      <div class="br-score"><b>8 / 8</b><span>${t('得分 100 · 第 2 次盲测', 'Score 100 · run 2')}</span></div>
+      <h2>${paid ? t('20,000 credits 已进可提现余额', '20,000 credits are in your withdrawable balance') : t('奖励 20,000 credits，等管理员审核', 'Reward of 20,000 credits, waiting for admin review')}</h2>
+      <ol class="bsteps">${steps.map(([a, b, c]) => `<li class="${c}"><span class="ic">${c === 'd' ? I('check') : c === 'a' ? I('clock') : ''}</span><b>${a}</b><small>${b}</small></li>`).join('')}</ol>
+      <div class="br-f">${paid ? `<button class="bt1" data-act="toast" data-msg="${t('原型：打开余额页的提现', 'Prototype: opens withdraw on the balance page')}">${I('wallet')} ${t('去提现', 'Withdraw')}</button><span class="fine">${t('提现照现有流程，要先完成身份验证（KYC）。', 'Withdrawals use the usual flow and need identity verification (KYC) first.')}</span>` : `<span class="fine">${t('审核看的是这次盲测的回答和出处有没有问题，通过后会通知你。提现要先完成身份验证（KYC）。', 'The review checks this run’s answers and citations; you’ll be notified. Withdrawing needs identity verification (KYC).')}</span>`}</div></div>`;
+  }
+  if (st === 'fail') return `<div class="brun no"><div class="br-h"><span class="badge err">${I('x')} ${t('没过关', 'Not passed')}</span>${snap}</div>
+    <div class="br-score"><b>6 / 8</b><span>${t('得分 81 · 每道题都要答对才过关', 'Score 81 · every question has to pass')}</span></div>
+    <p>${t('不会告诉你是哪几道没过。可以去补知识，再跑一次。', 'We don’t say which questions failed. Add knowledge and run again.')}</p>
+    <div class="br-f"><button class="bt1" data-go="bounty" data-state="changed">${I('refresh')} ${t('再试一次 · 200 credits', 'Try again · 200 credits')}</button><button class="bt2" data-act="toast" data-msg="${t('原型：打开这个 Ree 的知识库', 'Prototype: opens this Ree’s knowledge')}">${I('book')} ${t('去补知识', 'Add knowledge')}</button><span class="fine">${left(2)} · ${t('200 credits 已扣，不退', '200 credits charged, not refunded')}</span></div></div>`;
+  if (st === 'nocredit') return `<div class="brun warn"><div class="br-h"><span class="badge warn">${I('coins')} ${t('余额不够', 'Not enough credits')}</span>${snap}</div><h2>${t('余额 120 credits，这次盲测要 200', 'You have 120 credits; a run costs 200')}</h2>
+    <p>${t('没有开始，没扣钱，也不算次数。', 'Nothing started, nothing was charged, and no run was used.')}</p>
+    <div class="br-f"><button class="bt1" data-act="toast" data-msg="${t('原型：打开余额页充值', 'Prototype: opens top-up')}">${I('coins')} ${t('去充值', 'Top up')}</button><span class="fine">${left(3)}</span></div></div>`;
+  if (st === 'changed') return `<div class="brun warn"><div class="br-h"><span class="badge warn">${I('alert')} ${t('Ree 改过了', 'Your Ree changed')}</span>${snap}</div><h2>${t(`「${ree}」在参加后加了 3 个来源`, `“${ree}” gained 3 sources since you entered`)}</h2>
+    <p>${t('盲测只用参加时的快照。想让新知识也算进去，先更新快照再跑。', 'Runs use the snapshot from when you entered. To include the new knowledge, update the snapshot first.')}</p>
+    <div class="br-f"><button class="bt1" data-go="bounty" data-state="run">${I('camera')} ${t('更新快照再跑 · 200 credits', 'Update snapshot and run · 200')}</button><button class="bt2" data-go="bounty" data-state="run">${t('用原来的快照跑', 'Run on the old snapshot')}</button><span class="fine">${left(2)}</span></div></div>`;
+  return `<div class="brun no"><div class="br-h"><span class="badge err">${I('alert')} ${t('系统出错', 'System error')}</span>${snap}</div><h2>${t('这次盲测在第 5 / 8 题时中断了', 'This run stopped at question 5 of 8')}</h2>
+    <p>${t('是我们这边的问题。200 credits 已经退回，这次不算次数，可以直接重新开始。', 'That was on our side. The 200 credits are back and the run doesn’t count. You can start again.')}</p>
+    <div class="br-f"><button class="bt1" data-go="bounty" data-state="run">${I('refresh')} ${t('重新开始', 'Start again')}</button><span class="fine">${left(2)} · ${t('错误编号 RUN-7Q2K', 'error RUN-7Q2K')}</span></div></div>`;
+}
+function bountyDetail(st, lang = ui.lang) {
+  const L = T[lang], z = lang === 'zh', en = !z, t = (a, b) => z ? a : b, B = btT(lang);
+  const ended = st === 'ended', b = btOf(ended ? 'tenancy' : 'mosa'), tx = z ? b[12] : b[13], s = SUBJ[b[1]];
+  const entered = ['joined', 'run', 'pass', 'paid', 'fail', 'nocredit', 'changed', 'error'].includes(st);
+  const kps = ended ? t(['押金上限和退还时间', '维修责任怎么分', '提前解约和外交条款', '印花税谁付'], ['Deposit caps and return', 'Who pays for repairs', 'Early termination and the diplomatic clause', 'Who pays stamp duty'])
+    : t(['沧龙科的分类和演化（海王龙、球齿龙、沧龙属）', '蛇颈龙的颈部结构和游泳方式', '鱼龙的胎生证据', 'K-Pg 灭绝对海洋爬行动物的影响', '主要化石产地：马斯特里赫特、尼奥布拉拉组'], ['Mosasaur classification and evolution (Tylosaurus, Globidens, Mosasaurus)', 'Plesiosaur necks and how they swam', 'Evidence that ichthyosaurs gave live birth', 'What the K-Pg extinction did to marine reptiles', 'Key fossil sites: Maastricht and the Niobrara Formation']);
+  const rules = t([['eyeoff', '8 道题不公开。参加的人看不到题目，盲测时只发给你的 Ree。'], ['book', 'Ree 只能根据自己的知识回答，每道题都要带出处。'], ['check', '每道题按评分标准打分，8 道全部通过才算过关。'], ['help', '没过关只告诉你得分和过了几道，不告诉是哪几道。'], ['coins', '每次盲测开始时扣 200 credits，没过关不退；每人最多 3 次。'], ['camera', '参加时给 Ree 的知识拍快照，盲测只用快照。'], ['wallet', '过关后由管理员审核，奖励进可提现余额；提现要先完成身份验证。'], ['users', '名额发完或者到截止时间，悬赏就结束。']],
+    [['eyeoff', 'The 8 questions are hidden. Entrants never see them; they go only to your Ree during a run.'], ['book', 'Your Ree answers only from its own knowledge, with a source for every answer.'], ['check', 'Each answer is graded against a rubric. All 8 must pass.'], ['help', 'A failed run shows the score and how many passed, not which ones.'], ['coins', 'Each run costs 200 credits, charged at the start and not refunded on a fail. Up to 3 runs each.'], ['camera', 'Your Ree’s knowledge is snapshotted when you enter; runs use only the snapshot.'], ['wallet', 'Passes are reviewed by an admin; the reward goes to your withdrawable credits. Withdrawing needs identity verification.'], ['users', 'The bounty ends when the places run out or the deadline passes.']]);
+  const winners = ended ? [['MC', 'Mia Chen', t('11 月 12 日', '12 Nov'), 4], ['DP', 'Dev Patel', t('11 月 15 日', '15 Nov'), 1], ['TW', 'Tan Wei Ming', t('11 月 18 日', '18 Nov'), 2], ['GL', 'Grace Liu', t('11 月 19 日', '19 Nov'), 3]] : [['HK', 'Hannah Kerr', t('11 月 24 日 · 第 1 次', '24 Nov · run 1'), 0], ['KM', 'Kenji Mori', t('11 月 26 日 · 第 3 次', '26 Nov · run 3'), 2]];
+  const badge = ended ? `<span class="badge mute">${I('clock')} ${B.st.ended}</span>` : `<span class="badge ok">${I('spark')} ${B.st.live}</span>`;
+  const hero = `<div class="bhero" style="--c:var(${HUE.a[s[2]]})"><div class="bc-top"><span class="subj">${I(s[3])} ${SUBJ_N(b[1], z)}</span>${badge}<span class="by">${t('re0 管理员发布 · 11 月 22 日', 'Posted by re0 admins · 22 Nov')}</span></div><h1>${esc(tx[0])}</h1><p>${esc(tx[1])}</p></div>`;
+  const ann = `<section class="bsec"><h2>${t('公告', 'Brief')}</h2><div class="bann">${ended ? `<p>${t('这个悬赏已经结束，4 个名额都发完了。题目不会公开。', 'This bounty has ended; all 4 places were won. The questions stay private.')}</p>` : `<p>${t('我们想要一个真正懂白垩纪海洋爬行动物的 Ree：能讲清沧龙、蛇颈龙和鱼龙各是什么、怎么演化、怎么灭绝，而且每句话都有出处。', 'We want a Ree that really knows Cretaceous marine reptiles: what mosasaurs, plesiosaurs and ichthyosaurs were, how they evolved and how they died out, with a source for every claim.')}</p><p>${t('资料建议用论文、博物馆和大学的公开页面、正规出版的书。科普视频和百科可以参考，但别只靠它们，评分会看引用对不对得上。', 'Use papers, museum and university pages and published books. Pop-science videos and wikis are fine as a start, but grading checks that citations actually support the answer.')}</p>`}</div></section>`;
+  const kp = `<section class="bsec"><h2>${t('范围和知识点', 'Scope and knowledge points')}</h2><ul class="kps">${kps.map(k => `<li>${I('check')} ${k}</li>`).join('')}</ul><p class="fine">${ended ? '' : t('题目只会出在这些知识点里；不该答的题（超出范围的）也算题目，Ree 要会拒答。', 'Questions come only from these points. Some are out of scope on purpose; your Ree should decline those.')}</p></section>`;
+  const rl = `<section class="bsec"><h2>${t('规则', 'Rules')}</h2><ul class="brules">${rules.map(([ic, r]) => `<li>${I(ic)}<span>${r}</span></li>`).join('')}</ul></section>`;
+  const win = `<section class="bsec"><h2>${t('已经过关的人', 'Winners so far')} <small>${winners.length} / ${b[6]}</small></h2><div class="bwin">${winners.map(([ini, n, d, ci]) => `<div class="bw">${avatar('a', ini, ci)}<span><b>${n}</b><small>${d}</small></span></div>`).join('')}</div></section>`;
+  const side = `<aside class="rp-side"><div class="pcard2 bside"><div class="pc2-h"><span>${B.reward}</span><b>${fmt(b[3])} <small>credits</small></b></div><p class="fine">${t('每个过关的人都拿这么多，可以提现。', 'Each winner gets this, withdrawable.')}</p>
+      <dl><dt>${B.fee}</dt><dd>${fmt(b[4])} credits</dd><dt>${t('题目', 'Questions')}</dt><dd>${t(`${b[2]} 道 · 不公开`, `${b[2]} · hidden`)}</dd><dt>${t('名额', 'Places')}</dt><dd>${ended ? t('已发完', 'all won') : B.left(b)}</dd><dt>${t('截止', 'Ends')}</dt><dd>${z ? b[8] : b[9]}</dd><dt>${t('每人', 'Runs each')}</dt><dd>${t(`最多 ${b[10]} 次`, `up to ${b[10]}`)}</dd><dt>${t('参加', 'Entrants')}</dt><dd>${ended ? 31 : 17}</dd></dl>
+      ${ended ? `<button class="bt2 full" disabled>${t('已结束', 'Ended')}</button>` : entered ? `<div class="note n-info">${I('check')}<span>${t('你已参加，用「海洋爬行动物笔记」', 'You entered with “Marine Reptile Notes”')}</span></div>` : `<button class="bt1 full" data-go="bounty" data-state="enter">${I('trophy')} ${t('参加', 'Enter')}</button><p class="fine">${t('参加不收费，跑盲测才收', 'Entering is free; runs cost')}</p>`}</div></aside>`;
+  const main = `<div class="bmain">${entered ? runCard(st, lang) : ''}${ann}${kp}${rl}${win}</div>`;
+  const dlg = st === 'enter' || st === 'enter-none' ? enterDlg(st, lang) : '';
+  return `<section class="dA rp bt ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}">${topBar('a', L, true, langMenu(lang), 'bounty')}<div class="rp-in"><a class="text-l" href="#bounty-list">${I('back')} ${B.title}</a>${hero}<div class="rp-grid">${main}${side}</div></div><div class="h-foot"><span>${L.privacy}</span><span>${L.terms}</span></div>${dlg}</section>`;
+}
+function bountyPage(st, lang = ui.lang) { return st === 'list' || st === 'list-out' ? bountyList(st, lang) : bountyDetail(st, lang); }
+
+/* ---- My bounties, inside My Rees ---- */
+function myBounties(lang) {
+  const z = lang === 'zh', t = (a, b) => z ? a : b;
+  const stats = [['20,000', t('待审核的奖励', 'reward in review')], ['0', t('已到账', 'paid out')], ['800', t('盲测花掉的 credits', 'credits spent on runs')], ['3', t('参加中的悬赏', 'bounties entered')]];
+  const runRow = (n, d, sc, p, q, ok) => `<div class="rr"><span>#${n}</span><span>${d}</span><span>${t('得分', 'Score')} <b>${sc}</b></span><span>${p} / ${q}</span><span>200</span><span class="${ok === 1 ? 'okc' : ok === 0 ? 'noc' : ''}">${ok === 1 ? t('过关', 'Passed') : ok === 0 ? t('没过', 'Failed') : t('退回 · 系统出错', 'Refunded · error')}</span></div>`;
+  const entry = (bid, ree, badge, runs, foot) => { const b = btOf(bid), tx = z ? b[12] : b[13], s = SUBJ[b[1]]; return `<article class="bent"><div class="be-h"><span class="subj" style="--c:var(${HUE.a[s[2]]})">${I(s[3])} ${SUBJ_N(b[1], z)}</span>${badge}</div>
+    <a class="be-t" href="#bounty-detail">${esc(tx[0])}</a><p class="snap">${I('camera')} ${ree}</p>
+    ${runs.length ? `<div class="runs"><div class="rr hd"><span>#</span><span>${t('时间', 'When')}</span><span>${t('得分', 'Score')}</span><span>${t('过了几道', 'Passed')}</span><span>credits</span><span>${t('结果', 'Result')}</span></div>${runs.join('')}</div>` : ''}<div class="be-f">${foot}</div></article>`; };
+  return `<div class="rp-stats">${stats.map(([v, l]) => `<div class="rs"><b>${v}</b><span>${l}</span></div>`).join('')}</div>
+    <div class="bents">
+      ${entry('mosa', t('海洋爬行动物笔记 · 快照 11 月 28 日', 'Marine Reptile Notes · snapshot 28 Nov'), `<span class="badge warn">${I('clock')} ${t('过关 · 奖励待审核', 'Passed · reward in review')}</span>`, [runRow(1, t('11 月 28 日', '28 Nov'), 81, 6, 8, 0), runRow(2, t('今天 15:08', 'today 15:08'), 100, 8, 8, 1)], `<span class="fine">${t('用了 2 / 3 次', '2 of 3 runs used')}</span><span class="sp"></span><a class="bt2 sm" href="#bounty-pass">${t('查看', 'View')} ${I('arrow')}</a>`)}
+      ${entry('ming', t('2026 读书笔记 · 快照 11 月 25 日', 'Reading Notes 2026 · snapshot 25 Nov'), `<span class="badge err">${I('x')} ${t('没过关 · 还能跑 2 次', 'Not passed · 2 runs left')}</span>`, [runRow(1, t('11 月 25 日', '25 Nov'), 64, 7, 10, 0), runRow(2, t('11 月 26 日', '26 Nov'), '—', '—', 10, 2)], `<span class="fine">${t('1 月 15 日截止', 'Ends 15 Jan')}</span><span class="sp"></span><a class="bt1 sm" href="#bounty-fail">${I('refresh')} ${t('再试一次', 'Try again')}</a>`)}
+      ${entry('orch', t('还没选 Ree', 'No Ree picked yet'), `<span class="badge mute">${I('bookmark')} ${t('关注中', 'Following')}</span>`, [], `<span class="fine">${t('1 月 31 日截止 · 预算剩 36,000', 'Ends 31 Jan · 36,000 of budget left')}</span><span class="sp"></span><a class="bt2 sm" href="#bounty-enter">${I('trophy')} ${t('参加', 'Enter')}</a>`)}
+    </div>`;
+}
+
+/* ---- Admin console preview (管理后台, 0.78x density) ---- */
+function adminPage(st, lang = ui.lang) {
+  const z = lang === 'zh', t = (a, b) => z ? a : b, en = !z, B = btT(lang);
+  const nav = [['chart', t('概览', 'Overview')], ['users', t('用户', 'Users')], ['book', 'Rees'], ['trophy', t('悬赏', 'Bounties')], ['wallet', t('提现', 'Payouts')], ['shield', t('审核', 'Moderation')], ['pen', t('设置', 'Settings')]];
+  const side = `<nav class="adm-nav" aria-label="${t('管理后台', 'Admin')}">${nav.map(([ic, n], i) => `<a href="#" class="${i === 3 ? 'on' : ''}" ${i === 3 ? 'aria-current="page"' : ''}>${I(ic)} ${n}</a>`).join('')}</nav>`;
+  const sub = `<div class="adm-tabs" role="tablist">${[['list', t('悬赏', 'Bounties')], ['review', t('盲测审核', 'Run review') + ' <span class="cnt">3</span>'], ['payout', t('奖励发放', 'Payouts') + ' <span class="cnt">2</span>']].map(([k, n]) => `<button role="tab" class="${(st === k || (st === 'edit' && k === 'list')) ? 'on' : ''}" aria-selected="${st === k}" data-go="admin" data-state="${k}">${n}</button>`).join('')}</div>`;
+  let body = '';
+  if (st === 'list') {
+    const rows = [...BOUNTIES.slice(0, 5), ['draft1', 'history', 6, 10000, 100, 'slots', 5, 0, '—', '—', 3, 'draft', ['唐代长安城', ''], ['Tang dynasty Chang’an', '']]].map(b => {
+      const tx = z ? b[12] : b[13], stt = b[0] === 'tone' ? 'paused' : b[11];
+      const badge = { live: 'ok', full: 'warn', ended: 'mute', paused: 'warn', draft: 'mute' }[stt];
+      const acts = stt === 'live' ? `<button class="ic-t" data-act="toast" data-msg="${t('原型：暂停后不能参加和跑盲测，已参加的保留', 'Prototype: paused; no new entries or runs, entries are kept')}">${I('pause')} ${t('暂停', 'Pause')}</button>` : stt === 'paused' ? `<button class="ic-t" data-act="toast" data-msg="${t('原型：继续', 'Prototype: resumed')}">${I('play')} ${t('继续', 'Resume')}</button>` : stt === 'draft' ? `<button class="ic-t" data-go="admin" data-state="edit">${I('globe')} ${t('发布', 'Publish')}</button>` : '';
+      return `<div class="adm-r"><span class="c-t" data-l="${t('悬赏', 'Bounty')}"><b>${esc(tx[0])}</b><small>${SUBJ_N(b[1], z)} · ${t(`${b[2]} 道题`, `${b[2]} questions`)}</small></span><span data-l="${t('状态', 'Status')}"><span class="badge ${badge}">${B.st[stt]}</span></span><span data-l="${t('奖励 / 费用', 'Reward / fee')}">${fmt(b[3])} / ${b[4]}</span><span data-l="${t('名额', 'Places')}">${b[5] === 'budget' ? `${fmt(b[7])} / ${fmt(b[6])}` : `${b[7]} / ${b[6]}`}</span><span data-l="${t('参加 / 盲测', 'Entries / runs')}">${stt === 'draft' ? '—' : `${[17, 9, 22, 30, 12][BOUNTIES.indexOf(b)]} / ${[29, 11, 37, 64, 25][BOUNTIES.indexOf(b)]}`}</span><span data-l="${t('截止', 'Ends')}">${z ? b[8] : b[9]}</span><span class="c-a"><button class="ic-t" data-go="admin" data-state="edit">${I('pen')} ${t('编辑', 'Edit')}</button>${acts}${stt === 'live' || stt === 'paused' ? `<button class="ic-t err" data-act="toast" data-msg="${t('原型：先确认；结束后不能再参加，进行中的盲测跑完', 'Prototype: asks first; ending stops entries, running tests finish')}">${I('stop')} ${t('结束', 'End')}</button>` : ''}</span></div>`;
+    }).join('');
+    body = `<div class="adm-h"><div><h1>${t('悬赏', 'Bounties')}</h1><p>${t('出题、定奖励、看参加和盲测。题目只有管理员看得到。', 'Set questions and rewards, and watch entries and runs. Only admins see the questions.')}</p></div><button class="bt1 sm" data-go="admin" data-state="edit">${I('plus')} ${t('新建悬赏', 'New bounty')}</button></div>
+      <div class="adm-kpi">${[[t('进行中', 'Live'), '3'], [t('本月盲测', 'Runs this month'), '166'], [t('盲测收入', 'Run fees'), '31,450'], [t('已发奖励', 'Rewards paid'), '92,000']].map(([l, v]) => `<div><b>${v}</b><span>${l}</span></div>`).join('')}</div>
+      <div class="adm-tbl"><div class="adm-r hd"><span>${t('悬赏', 'Bounty')}</span><span>${t('状态', 'Status')}</span><span>${t('奖励 / 费用', 'Reward / fee')}</span><span>${t('名额', 'Places')}</span><span>${t('参加 / 盲测', 'Entries / runs')}</span><span>${t('截止', 'Ends')}</span><span></span></div>${rows}</div>`;
+  } else if (st === 'edit') {
+    const kps = t(['沧龙科的分类和演化', '蛇颈龙的颈部结构和游泳方式', '鱼龙的胎生证据', 'K-Pg 灭绝的影响', '主要化石产地'], ['Mosasaur classification', 'Plesiosaur necks and swimming', 'Ichthyosaur live birth', 'Effects of the K-Pg extinction', 'Key fossil sites']);
+    const qs = t([['海王龙和沧龙属在头骨上最明显的区别是什么？', '海王龙吻部前端延长成无齿的骨质“撞角”，沧龙属没有。', ['说出吻部前端无齿延长', '指出沧龙属没有', '引用对得上']], ['鱼龙胎生的化石证据是什么？', '', []], ['蛇颈龙主要靠什么方式游泳？', '', []], ['K-Pg 灭绝后还有沧龙活下来吗？', '', []], ['尼奥布拉拉组在哪里？出过哪些海洋爬行动物？', '', []], ['霸王龙的咬合力有多大？（超出范围）', '', []], ['薄片龙的颈椎大约有多少节？', '', []], ['球齿龙的牙齿适合吃什么？', '', []]],
+      [['How does Tylosaurus’s skull differ most from Mosasaurus’s?', 'Tylosaurus has a toothless bony extension at the snout tip, a “ram”; Mosasaurus doesn’t.', ['Names the toothless snout extension', 'Says Mosasaurus lacks it', 'Citation supports it']], ['What fossils show ichthyosaurs gave live birth?', '', []], ['How did plesiosaurs mainly swim?', '', []], ['Did any mosasaurs survive the K-Pg extinction?', '', []], ['Where is the Niobrara Formation, and what marine reptiles come from it?', '', []], ['How strong was T. rex’s bite? (out of scope)', '', []], ['About how many neck vertebrae did Elasmosaurus have?', '', []], ['What were Globidens’ teeth suited to eat?', '', []]]);
+    const qcards = qs.map(([q, a, r], i) => i === 0 ? `<div class="aq open"><div class="aq-h"><b>${t('第', 'Q')} ${i + 1}${t(' 题', '')}</b><span class="kind">${t('应该能答', 'Should answer')}</span><span class="sp"></span><button class="ic-t">${I('x')}</button></div>
+        <label class="fld"><span class="lb">${t('题目', 'Question')}</span><textarea class="inp" rows="2" name="aq0">${esc(q)}</textarea></label>
+        <label class="fld"><span class="lb">${t('参考答案', 'Reference answer')}</span><textarea class="inp" rows="2" name="aa0">${esc(a)}</textarea></label>
+        <div class="fld"><span class="lb">${t('评分标准', 'Rubric')} <small>${t('每条都满足才算这题通过', 'every line must hold for the question to pass')}</small></span><ul class="rub">${r.map(x => `<li>${I('check')} ${x}</li>`).join('')}<li class="add">${I('plus')} ${t('加一条', 'Add a line')}</li></ul></div></div>`
+      : `<div class="aq"><div class="aq-h"><b>${t('第', 'Q')} ${i + 1}${t(' 题', '')}</b><span class="kind ${i === 5 ? 'neg' : ''}">${i === 5 ? t('不该答', 'Should decline') : t('应该能答', 'Should answer')}</span><span class="aq-q">${esc(q)}</span><span class="sp"></span><small class="okc">${I('check')} ${t('参考答案 · 评分标准 3 条', 'answer · 3 rubric lines')}</small></div></div>`).join('');
+    body = `<div class="adm-h"><div><p class="crumb"><a class="text-l" href="#admin-list">${I('back')} ${t('悬赏', 'Bounties')}</a></p><h1>${t('白垩纪海洋爬行动物', 'Cretaceous marine reptiles')} <span class="badge mute">${t('草稿', 'Draft')}</span></h1></div><div class="row-wrap"><button class="bt2 sm">${t('存草稿', 'Save draft')}</button><button class="bt2 sm" data-go="bounty" data-state="detail">${I('eye')} ${t('预览', 'Preview')}</button><button class="bt1 sm" data-act="toast" data-msg="${t('原型：发布前检查题目数、每题都有参考答案和评分标准、奖励预算够', 'Prototype: checks the question count, that every question has an answer and rubric, and that the budget covers the reward')}">${I('globe')} ${t('发布', 'Publish')}</button></div></div>
+      <div class="adm-ed"><div class="adm-col">
+        <section class="adm-card"><h2>${t('基本信息', 'Basics')}</h2><div class="adm-2"><label class="fld"><span class="lb">${t('学科', 'Subject')}</span><select class="inp" name="asubj">${Object.keys(SUBJ).map(k => `<option ${k === 'paleo' ? 'selected' : ''}>${SUBJ_N(k, z)}</option>`).join('')}</select></label><label class="fld"><span class="lb">${t('标题', 'Title')}</span><input autocomplete="off" class="inp" name="atitle" value="${t('白垩纪海洋爬行动物', 'Cretaceous marine reptiles')}"></label></div>
+          <label class="fld"><span class="lb">${t('范围（一句话）', 'Scope (one line)')}</span><input autocomplete="off" class="inp" name="ascope" value="${esc(z ? BOUNTIES[0][12][1] : BOUNTIES[0][13][1])}"></label>
+          <div class="fld"><span class="lb">${t('知识点', 'Knowledge points')} <small>${t('公开，题目只从这里出', 'public; questions come only from these')}</small></span><div class="tagin">${kps.map(k => `<span class="tg">${k} ${I('x')}</span>`).join('')}<input autocomplete="off" name="akp" placeholder="${t('加一个，回车', 'Add one, press Enter')}" aria-label="${t('加知识点', 'Add a knowledge point')}"></div></div></section>
+        <section class="adm-card"><h2>${t('公告', 'Brief')}</h2><div class="edtb" role="toolbar" aria-label="${t('格式', 'Formatting')}"><button><b>B</b></button><button><i>I</i></button><button>${I('list')}</button><button>${I('link')}</button><span class="sp"></span><span class="fine">${t('Markdown · 公开', 'Markdown · public')}</span></div><textarea class="inp edta" rows="5" name="aann">${t('我们想要一个真正懂白垩纪海洋爬行动物的 Ree：能讲清沧龙、蛇颈龙和鱼龙各是什么、怎么演化、怎么灭绝，而且每句话都有出处。\n\n资料建议用论文、博物馆和大学的公开页面、正规出版的书……', 'We want a Ree that really knows Cretaceous marine reptiles: what mosasaurs, plesiosaurs and ichthyosaurs were, how they evolved and how they died out, with a source for every claim.\n\nUse papers, museum and university pages and published books…')}</textarea></section>
+        <section class="adm-card"><h2>${t('题目', 'Questions')} <small>8 / 10 · ${t('5 到 10 道，只有管理员看得到', '5 to 10, admins only')}</small></h2>${qcards}<button class="bt2 sm">${I('plus')} ${t('加一道题', 'Add a question')}</button><p class="fine">${t('每道题都要有参考答案和评分标准；所有题都过才算过关。发布后有人参加了，题目就不能改。', 'Every question needs a reference answer and a rubric; all must pass. Once someone has entered, questions are locked.')}</p></section>
+      </div><aside class="adm-col side">
+        <section class="adm-card"><h2>${t('奖励和规则', 'Reward and rules')}</h2>
+          <label class="fld"><span class="lb">${t('每人奖励', 'Reward per winner')}</span><span class="fee"><input autocomplete="off" class="mini-in" name="arw" value="20,000"> ${t('可提现 credits', 'withdrawable credits')}</span></label>
+          <label class="fld"><span class="lb">${t('每次盲测费用', 'Fee per run')}</span><span class="fee"><input autocomplete="off" class="mini-in" name="afee" value="200"> credits</span></label>
+          <div class="fld"><span class="lb">${t('限额', 'Limit')}</span><div class="vis"><button class="on">${t('按名额', 'Winners')}</button><button>${t('按预算', 'Budget')}</button></div><span class="fee"><input autocomplete="off" class="mini-in" name="aslots" value="5"> ${t('个名额 · 最多发 100,000', 'winners · up to 100,000 paid')}</span></div>
+          <div class="adm-2"><label class="fld"><span class="lb">${t('截止', 'Deadline')}</span><input autocomplete="off" class="inp" type="date" name="adue" value="2026-12-31"></label><label class="fld"><span class="lb">${t('每人次数', 'Runs each')}</span><input autocomplete="off" class="inp" name="atries" value="3" inputmode="numeric"></label></div>
+          <p class="fine">${t('过关条件固定：每道题都通过。没过关只给得分和通过题数。', 'Pass rule is fixed: every question passes. Fails show only the score and passed count.')}</p></section>
+        <section class="adm-card"><h2>${t('状态', 'Status')}</h2><p class="fine">${t('草稿 · 还没有人看到', 'Draft · not visible yet')}</p><div class="row-wrap"><button class="ic-t" disabled>${I('pause')} ${t('暂停', 'Pause')}</button><button class="ic-t err" disabled>${I('stop')} ${t('结束', 'End')}</button></div></section>
+      </aside></div>`;
+  } else if (st === 'review') {
+    const q = [['HK', 'Hannah Kerr', t('海洋爬行动物图谱', 'Marine Reptile Atlas'), t('白垩纪海洋爬行动物 · 第 1 次', 'Cretaceous marine reptiles · run 1'), '100 · 8/8', 0], ['LW', 'Lin Wei', t('海洋爬行动物笔记', 'Marine Reptile Notes'), t('白垩纪海洋爬行动物 · 第 2 次', 'Cretaceous marine reptiles · run 2'), '100 · 8/8', 1], ['SO', 'Sam Okafor', t('粤语声调', 'Cantonese Tones'), t('粤语九声六调 · 第 1 次', 'Cantonese tones · run 1'), '100 · 6/6', 5]];
+    const det = t([['海王龙和沧龙属在头骨上最明显的区别是什么？', '海王龙的吻部前端有一段没有牙的延长…[1]', '3/3'], ['鱼龙胎生的化石证据是什么？', '有成体腹中带胚胎、正在分娩的化石…[2]', '3/3'], ['霸王龙的咬合力有多大？（超出范围）', '拒答：我的知识只涉及海洋爬行动物。', '1/1']],
+      [['How does Tylosaurus’s skull differ most from Mosasaurus’s?', 'Tylosaurus has a toothless extension at the snout tip… [1]', '3/3'], ['What fossils show ichthyosaurs gave live birth?', 'Adults with embryos inside, some mid-birth… [2]', '3/3'], ['How strong was T. rex’s bite? (out of scope)', 'Declined: my knowledge covers marine reptiles only.', '1/1']]);
+    body = `<div class="adm-h"><div><h1>${t('盲测审核', 'Run review')}</h1><p>${t('过关的盲测要人看一遍才发奖励。管理员能看到题目和回答。', 'Passing runs are checked by a person before any reward. Admins can see questions and answers.')}</p></div></div>
+      <div class="adm-rv"><div class="adm-q">${q.map(([ini, u, r, b, sc, ci], i) => `<button class="aqr ${i === 1 ? 'on' : ''}">${avatar('a', ini, ci)}<span><b>${u}</b><small>${r}</small><small>${b}</small></span><span class="badge ok">${sc}</span></button>`).join('')}</div>
+      <section class="adm-card"><div class="adm-h in"><div><h2>Lin Wei · ${t('海洋爬行动物笔记', 'Marine Reptile Notes')}</h2><p>${t('第 2 次 · 今天 15:08 · 快照 11 月 28 日（14 个来源）· 得分 100 · 8/8', 'Run 2 · today 15:08 · snapshot 28 Nov (14 sources) · score 100 · 8/8')}</p></div></div>
+        <div class="note n-warn">${I('alert')}<span>${t('提醒：第 1 次没过（6/8）后，快照里加了 3 个来源，其中 1 个和题目的参考答案重合 64%。', 'Flag: after run 1 failed (6/8), 3 sources were added; one overlaps a reference answer by 64%.')}</span></div>
+        <div class="adm-tbl qa">${det.map(([qq, a, g]) => `<div class="adm-r"><span class="c-t" data-l="${t('题目', 'Question')}"><b>${qq}</b><small>${a}</small></span><span data-l="${t('评分', 'Rubric')}"><span class="badge ok">${I('check')} ${g}</span></span></div>`).join('')}<div class="adm-r more"><span>${t('还有 5 道，全部通过', '5 more, all passed')}</span></div></div>
+        <div class="row-wrap"><button class="bt1 sm" data-act="toast" data-msg="${t('原型：确认过关，进奖励发放', 'Prototype: confirmed; sent to payouts')}">${I('check')} ${t('确认过关', 'Confirm pass')}</button><button class="bt-err sm" data-act="toast" data-msg="${t('原型：驳回要写理由，用户会看到理由，这次不发奖励', 'Prototype: rejecting needs a reason the entrant will see; no reward')}">${I('x')} ${t('驳回…', 'Reject…')}</button><span class="fine">${t('驳回不退盲测费，次数照算。', 'Rejecting doesn’t refund the fee; the run still counts.')}</span></div></section></div>`;
+  } else {
+    const p = [['HK', 'Hannah Kerr', t('白垩纪海洋爬行动物', 'Cretaceous marine reptiles'), '20,000', 'ok', t('已验证', 'Verified'), 0], ['KM', 'Kenji Mori', t('白垩纪海洋爬行动物', 'Cretaceous marine reptiles'), '20,000', 'warn', t('未验证', 'Not verified'), 2], ['MC', 'Mia Chen', t('新加坡租房合同', 'Singapore tenancy agreements'), '10,000', 'ok', t('已验证', 'Verified'), 4]];
+    body = `<div class="adm-h"><div><h1>${t('奖励发放', 'Payouts')}</h1><p>${t('批准后奖励进用户的可提现余额（earned credits）；提现照现有流程，要先完成身份验证（KYC）。', 'Approved rewards go to the user’s withdrawable (earned) credits. Withdrawals use the existing flow and need KYC.')}</p></div></div>
+      <div class="adm-kpi">${[[t('待批准', 'To approve'), '40,000'], [t('本月已发', 'Paid this month'), '30,000'], [t('海洋爬行动物预算', 'Marine reptiles budget'), '40,000 / 100,000']].map(([l, v]) => `<div><b>${v}</b><span>${l}</span></div>`).join('')}</div>
+      <div class="adm-tbl"><div class="adm-r hd pay"><span>${t('用户', 'User')}</span><span>${t('悬赏', 'Bounty')}</span><span>${t('金额', 'Amount')}</span><span>KYC</span><span>${t('审核', 'Reviewed')}</span><span></span></div>
+      ${p.map(([ini, u, b, a, k, kt, ci], i) => `<div class="adm-r pay"><span class="c-t" data-l="${t('用户', 'User')}"><span class="who">${avatar('a', ini, ci)}<b>${u}</b></span></span><span data-l="${t('悬赏', 'Bounty')}">${b}</span><span data-l="${t('金额', 'Amount')}"><b>${a}</b></span><span data-l="KYC"><span class="badge ${k}">${kt}</span></span><span data-l="${t('审核', 'Reviewed')}">${i === 2 ? t('11 月 19 日 · 已发放', '19 Nov · paid') : t('管理员 Ana · 今天', 'Ana · today')}</span><span class="c-a">${i === 2 ? `<span class="badge mute">${I('check')} ${t('已发放', 'Paid')}</span>` : `<button class="bt1 sm" data-act="toast" data-msg="${t('原型：批准，进可提现余额', 'Prototype: approved; credited as withdrawable')}">${t('批准发放', 'Approve')}</button><button class="ic-t" data-act="toast" data-msg="${t('原型：暂缓，写原因', 'Prototype: hold, with a reason')}">${t('暂缓', 'Hold')}</button>`}</span></div>`).join('')}</div>
+      <p class="fine">${t('KYC 没完成也能批准：奖励先进可提现余额，用户提现时再要求验证。', 'You can approve before KYC: the reward lands as withdrawable, and verification is asked at withdrawal.')}</p>`;
+  }
+  return `<section class="dA adm ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}"><header class="adm-top"><a class="brand" href="#home-in"><span class="bub">0</span>re0</a><span class="adm-lbl">${t('管理后台', 'Admin')}</span><span class="sp"></span>${langMenu(lang)}<span class="me">AN</span></header><div class="adm-body">${side}<main class="adm-main">${sub}${body}</main></div></section>`;
+}
+
 /* -------- index -------- */
 function indexPage() {
   const tbd = [
+    ['悬赏：参加的 Ree 要不要公开', '原型里私有 Ree 也能参加。过关后要不要求公开、悬赏页上「已经过关的人」要不要列出 Ree 名字，再定；现在只列人。'],
+    ['悬赏：参加后 Ree 改了', '参加时给知识拍快照，盲测只用快照。参加后 Ree 改了，跑之前提醒，给两个选择：更新快照再跑、用原来的快照跑。是否允许更新快照、更新要不要占一次次数，再定；原型里不另收费、不重置次数。'],
+    ['悬赏：系统出错', '我们这边出错中断的盲测退回费用、不算次数，可以直接重新开始。'],
+    ['悬赏：名额怎么占', '两种限额二选一：按名额或按预算。名额剩 1 个时可能有两个人同时在跑：建议开始盲测时先占一个名额，没过再放回；名额都被占了就不能开始新的盲测。预算剩下不够一份奖励时自动结束。'],
+    ['悬赏：过关之后', '一个人在一个悬赏里最多拿一次奖励，过关后不能再跑。审核一般 3 个工作日内（这个时间要运营确认）。'],
+    ['悬赏：审核和驳回', '过关的盲测由管理员看一遍题目、回答和出处再发奖励；驳回要写理由，用户能看到，盲测费不退、次数照算。两次盲测之间新加的来源和参考答案高度重合时，审核页给提醒。'],
+    ['悬赏：奖励发放和 KYC', '批准后奖励进可提现余额（earned credits），走现有的提现和 KYC 流程。KYC 没完成也能批准，用户提现时再要求验证。'],
+    ['悬赏：盲测中显示什么', '只显示「第 n / N 题」和进度，不显示每题对错，不然能推出是哪题没过。没过关只给得分和通过题数。'],
+    ['悬赏：入口', '宽屏顶栏加「悬赏」；手机顶栏放不下，从 Explore 的第三个标签「悬赏」进（一页最多 3 个标签，刚好）。「我的悬赏」是「我的 Ree」的第三个标签。'],
+    ['悬赏：吸顶', '悬赏列表条目少，不吸顶；详情页右栏（奖励、费用、参加）在桌面上吸顶，手机挪到正文后面，跟 Ree 页的价格卡一样。'],
+    ['悬赏：发布后能改什么', '有人参加后题目和评分标准锁定；奖励和每次费用不能改低，截止时间只能延后。暂停后不能参加、不能开始新盲测，已参加的保留；结束前先确认，进行中的盲测会跑完。'],
+    ['管理后台的密度', '用同一套 A 的颜色、圆角和组件，字号和间距约 0.78 倍（正文 12.5、标题 22）。左边是导航；窄屏导航折成顶部几行，表格变成一行一张卡片。这一页只是预览，后台整体改版时再定。'],
     ['MCP 能不能直接发布', '默认不能。MCP 只能建草稿、加知识、改名字 / 简介 / 示例问题、跑自测；发布和设为公开、改查询费、删除都要主人回到 re0 上确认（「待你确认」）。要不要允许一种只管某几个 Ree、带发布权限的 key 直接发布，以后再定。'],
     ['MCP 能做哪些事', '原型按上一条画：能做建草稿、加知识（文件、网页、网站、GitHub、文字）、改名字 / 简介 / 示例问题、跑自测；要你确认的是发布和设为公开、查询费、删除。要按现在的 MCP 工具（#254）再对一遍。'],
     ['「待你确认」放在哪', '在「我的 Ree」统计下面、列表上面，一条一行：哪个工具发的、要做什么、什么时候。发布走发布前检查；删除先弹确认框；查询费一键确认。都能拒绝，拒绝后 MCP 那边收到「主人拒绝了」。顶栏的手形图标显示条数。'],
@@ -2701,6 +3147,7 @@ function indexPage() {
     ['提问和回答', '已定稿。公开帖子和私密提问合成一种对话页：问题、各 Ree 的回答和 [n] 引用（点开看出处），追问框在底部；长回答用文章排版。', 'done'],
     ['登录 / 注册', '已定稿。首页的气泡墙做背景，中间一张登录卡：Google / GitHub、刚才输入的问题、邀请、注册礼、条款。', 'done'],
     ['我的 Ree', '本轮，等确认。改成手动新建 + MCP：列表、待你确认、新建三步（知识第一步，含上传）、MCP 连接面板、发布前检查和自测。', 'now'],
+    ['悬赏', '本轮，新功能，等确认。悬赏列表、详情、参加、盲测和结果、我的悬赏，加上管理后台的悬赏页预览。', 'now'],
     ['知识库', '下一页。来源列表 + 手动添加（上传文件、网页、网站、GitHub、粘贴文字），和新建第一步同一套组件；MCP 加的来源标出是哪个工具加的。', 'next'],
     ['Ree 设置 / 统计', '设置、定价、统计合成一页，统计用一句话解释趋势。'],
     ['通知 / 活动', '合成一个时间线：要你处理的（包括 MCP 发来的确认）、MCP 做了什么、别人问了你的 Ree。'],
@@ -2748,6 +3195,12 @@ function indexPage() {
         <p>新建（/rees/new）三步：加知识（拖文件或选择文件，上传进度、转文字、失败、格式不对、太大；也可以加网页、整个网站、GitHub 仓库、粘贴文字）→ 基本信息（名字、简介、头像、16:9 封面、分类、示例问题）→ 公开和查询费。选公开后按「发布…」才跑发布前检查和自测：上传的资料单独一组「你上传的 · 由你确认有权使用」，网上抓的按禁止 / 需署名 / 未核实分组，6 道自测题和评分，QA 没通过要再确认一次。连接面板写清 MCP 地址、账号页的 API key、Claude Code 和 Codex 的配置和一句示例提示词。</p>
         <div class="changed"><b>12 个状态</b><span>我的 Ree（有待你确认）、还没有 Ree、用 Claude / Codex 创建、发布 MCP 建的草稿、MCP 请求删除；新建 1 · 加知识、新建 1 · 网址 / 网站 / GitHub / 文字、新建 2 · 基本信息、新建 3 · 公开和查询费；发布前检查、QA 没通过、QA 没通过 · 仍然发布。中英文各一套。上一版的任务区、任务页和它的 7 种状态、「帮我建一个关于……的 Ree」输入框都已去掉。</span></div>
         <a class="open" data-go="mine" data-state="new" href="#mine-new">看新建第一步 ${I('arrow')}</a></div></div>
+    <div class="hero-thumb" style="margin-top:16px"><div class="thumb big" role="link" tabindex="0" data-go="bounty" data-state="list" aria-label="打开悬赏"><div class="scale" aria-hidden="true" inert>${bountyList('list', 'zh')}</div></div>
+      <div class="dir-b"><h3>悬赏 Ree · 新功能 <span class="new">本轮，等确认</span></h3>
+        <p>系统管理员发布悬赏：一个具体学科或知识点（古生物、历史……），公告写清范围和知识点，另出 5–10 道盲测题，题目不公开。用户自己建一个 Ree（手动或通过 MCP），参加时给它的知识拍快照，然后付费跑盲测：Ree 只能用自己的知识带出处回答，每题按评分标准打分，全部通过才过关。过关后管理员审核，奖励进可提现余额；没过关只告诉得分和通过题数，费用不退。</p>
+        <p>前台：悬赏列表（学科、奖励、每次费用、名额、截止、状态）、详情（公告、知识点、规则、已过关的人、参加）、参加时选 Ree 或去新建、盲测进度「第 3 / 8 题」、通过待审核、已到账、没通过、余额不够、参加后 Ree 改过、系统出错；「我的 Ree」里多一个「我的悬赏」标签。后台预览（0.78 倍密度）：悬赏列表和暂停 / 结束、新建 / 编辑（学科、范围、知识点、公告编辑器、题目和参考答案、评分标准、奖励、费用、名额或预算、截止、次数）、盲测审核、奖励发放。</p>
+        <div class="changed"><b>14 + 4 + 1 个状态</b><span>前台 14 个（悬赏列表、未登录、详情、已结束、参加 · 选 Ree、参加 · 没有合适的 Ree、已参加、盲测中、通过 · 待审核、已到账、没通过、余额不够、参加后 Ree 改过、系统出错）；管理后台 4 个（悬赏管理、新建 / 编辑、盲测审核、奖励发放）；「我的 Ree」里的「我的悬赏」。中英文各一套。规则和 docs/design/bounties.md（文档会话在写）对齐：题目不给参加者看、带出处、按评分标准逐题打分且全过才过、没过只给分数和通过数、开始时扣费没过不退、奖励经审核进可提现余额、参加时拍快照、有名额或预算 + 截止 + 次数上限。</span></div>
+        <a class="open" data-go="bounty" data-state="fail" href="#bounty-fail">看没通过的样子 ${I('arrow')}</a> <a class="open" data-go="admin" data-state="edit" href="#admin-edit">看后台出题 ${I('arrow')}</a></div></div>
     <h2>暂定，等用户确认</h2><div class="rows q">${tbd.map(([k, v]) => `<div class="rw rw2"><b>${k} <span class="tbd">暂定</span></b><span>${v}</span></div>`).join('')}</div>
     <h2>首页输入框只用来问</h2>
     <div class="rows">
@@ -2933,6 +3386,14 @@ function specPage() {
       <div class="srcs"><div class="sg deny">${I('ban')} <b>禁止 · 1</b><span>条款禁止转载，删掉才能发布</span></div><div class="sg">${I('file')} <b>需要署名 · 1</b><span class="pol ok">${I('check')} 已署名</span></div><div class="sg">${I('globe')} <b>未核实 · 7</b><span>不在来源策略表里</span></div><div class="srow"><span class="t">Annual leave</span><span class="a"><span class="pol unk">未核实</span></span><span class="u">www.mom.gov.sg/employment-practices/leave/annual-leave</span></div></div>
       <div class="qat"><div class="qat-s"><span class="sc no">4 / 6</span><span class="sx">能答 3/4 · 不该答 1/2</span><span class="badge err">${I('x')} 未通过</span></div><div class="qr"><span class="qi no">${I('x')}</span><div><p class="q"><span class="kind neg">不该答</span>新加坡个人所得税的最高税率是多少？</p><p class="an">答了：最高 24%</p></div><span class="res noc">未通过</span></div></div></div>
       <p class="sp-note">按「发布…」（手动新建的第 3 步，或者「待你确认」里的「检查并发布」）打开对话框（桌面居中 720 宽，手机从底部弹出），这时才跑自测。来源分两块：先是「你上传的 · 由你确认有权使用」（珊瑚浅底的组标题；MCP 上传的写「Claude Code 替你上传的」），下面一个勾选框；再是「网上抓的」，按来源策略分三组：禁止（错误色，必须先移到回收站）、需要署名（检查简介里有没有写来源）、未核实（列出域名，按域名勾「有权使用」）。勾选和这次发布一起记录。自测是 6 道题：4 道应该能答、2 道不该答，每题写问题、回答、三条评分（有回答、引用对得上、没有超出引用；不该答的只看拒答），通过用成功色，没过用错误色并写评分理由。没过时主按钮换成浅红的「QA 没通过，仍然发布…」，点了再出红色说明和实心的「确定发布」；旁边给「重新自测」。被拦住时底部左边写还差什么。</p></div>
+    <h2>悬赏组件</h2>
+    <div class="sp-card"><h3>悬赏卡和学科标签</h3><div class="bgrid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">${bountyCard(BOUNTIES[0], 'zh')}${bountyCard(BOUNTIES[5], 'zh')}</div>
+      <p class="sp-note">白卡、圆角 24、--sh-md，整张可点。顶部学科标签（学科色 16% 浅底 + 深色字，图标 13）和状态徽章：进行中（成功色）、名额已满（警告色）、已结束（灰，卡片变成虚线框、没有阴影）。标题 17/900，一句范围；奖励用 28/900 珊瑚色大字，后面写「可提现 credits / 人」；三格浅底小块：每次盲测、名额（或预算剩多少）、截止；底部「n 道题 · 不公开」。桌面 3 列，平板 2 列，手机 1 列。</p></div>
+    <div class="sp-card"><h3>盲测卡</h3><div class="grid2">${runCard('run', 'zh')}${runCard('fail', 'zh')}</div>
+      <p class="sp-note">详情页正文最上面，参加后才出现。描边按状态：信息色（盲测中）、成功色（过关、到账）、错误色（没过、出错）、警告色（余额不够、Ree 改过）。顶部状态徽章 + 快照（相机图标，Ree 名、快照时间、来源数）。盲测中是 N 格进度条：跑完的灰、正在跑的半格蓝，不显示每题对错。结果用 40/900 大字写「通过数 / 总数」，旁边写得分；过关后是三步（盲测通过 → 管理员审核 → 进可提现余额）。按钮旁边永远写清还能跑几次、这次扣多少、退不退。</p></div>
+    <div class="sp-card"><h3>管理后台：表格和出题卡（0.78 倍密度）</h3><div class="adm" style="min-height:0;background:transparent"><div class="adm-tbl" style="margin-bottom:10px"><div class="adm-r hd"><span>悬赏</span><span>状态</span><span>奖励 / 费用</span><span>名额</span><span>参加 / 盲测</span><span>截止</span><span></span></div><div class="adm-r"><span class="c-t" data-l="悬赏"><b>白垩纪海洋爬行动物</b><small>古生物 · 8 道题</small></span><span data-l="状态"><span class="badge ok">进行中</span></span><span data-l="奖励 / 费用">20,000 / 200</span><span data-l="名额">2 / 5</span><span data-l="参加 / 盲测">17 / 29</span><span data-l="截止">12 月 31 日</span><span class="c-a"><button class="ic-t" tabindex="-1">${I('pen')} 编辑</button><button class="ic-t" tabindex="-1">${I('pause')} 暂停</button></span></div></div>
+      <div class="aq open"><div class="aq-h"><b>第 1 题</b><span class="kind">应该能答</span></div><div class="fld"><span class="lb">评分标准 <small>每条都满足才算这题通过</small></span><ul class="rub"><li>${I('check')} 说出吻部前端无齿延长</li><li>${I('check')} 引用对得上</li><li class="add">${I('plus')} 加一条</li></ul></div></div></div>
+      <p class="sp-note">后台用同一套 A 的颜色、圆角和组件，尺寸约 0.78 倍：正文 12.5、页面标题 22、卡片标题 14.5、表格行高约 40、卡片圆角 16、按钮高约 30。顶栏 50 高，左侧 180 宽的导航（当前项珊瑚浅底）。表格是白底圆角 16 的一组行，表头浅底小字；窄屏每行变成一张卡片，每格上面写标签。出题卡：展开的一道用珊瑚浅描边，写题目、参考答案和评分标准（每条一行，全满足才算过）；收起的只显示题号、类型和「参考答案 · 评分标准 n 条」。</p></div>
     <h2>文案语气</h2><div class="sp-card"><div class="rows">
       <div class="rw rw2"><b>口语、短句</b><span>「随便问，每句回答都带出处」「没回答不收费」「先不发布」。用「你」，不用「您」。</span></div>
       <div class="rw rw2"><b>花钱的事说清楚</b><span>凡是要花 credits 的按钮旁边都写上限和「没用完的退回」或「不点不花钱」。</span></div>
@@ -2942,11 +3403,11 @@ function specPage() {
 
 /* -------- chrome & render -------- */
 function chrome() {
-  const withStates = ['home', 'explore', 'ree', 'qa', 'login', 'mine'];
+  const withStates = ['home', 'explore', 'ree', 'qa', 'login', 'mine', 'bounty', 'admin'];
   const tabs = PAGES.map(([k, l]) => `<button class="rc-tab" data-go="${k}" ${k === route.page && withStates.includes(k) ? `data-state="${route.state}"` : ''} ${route.page === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
   const pg = route.page;
-  const states = !withStates.includes(pg) ? '' : `<div class="rc-row"><span class="rc-label">状态</span>${statesFor(pg).map(([k, l]) => `<button class="rc-state" data-go="${pg}" data-state="${k}" aria-pressed="${k === route.state}">${l}</button>`).join('')}<span class="rc-sep"></span><span class="rc-label">语言</span>${LANGS.map(([k, n]) => `<button class="rc-state" data-act="lang" data-lang="${k}" aria-pressed="${ui.lang === k}">${n}</button>`).join('')}<span class="rc-note">${pg === 'explore' ? 'Explore · 已按反馈修改' : pg === 'ree' ? 'Ree 页 · 已定稿' : pg === 'qa' ? '提问和回答 · 已定稿' : pg === 'login' ? '登录 / 注册 · 已定稿' : pg === 'mine' ? '我的 Ree · 第 6 页 · 11-29 改成手动建 + MCP，等确认' : '首页 · 已定稿'}</span></div>`;
-  document.getElementById('rc').innerHTML = `<div class="rc-row"><span class="rc-brand">re0 全新改版 <small>方向 A · 我的 Ree 改版等确认</small></span>${tabs}</div>${states}`;
+  const states = !withStates.includes(pg) ? '' : `<div class="rc-row"><span class="rc-label">状态</span>${statesFor(pg).map(([k, l]) => `<button class="rc-state" data-go="${pg}" data-state="${k}" aria-pressed="${k === route.state}">${l}</button>`).join('')}<span class="rc-sep"></span><span class="rc-label">语言</span>${LANGS.map(([k, n]) => `<button class="rc-state" data-act="lang" data-lang="${k}" aria-pressed="${ui.lang === k}">${n}</button>`).join('')}<span class="rc-note">${pg === 'explore' ? 'Explore · 已按反馈修改' : pg === 'ree' ? 'Ree 页 · 已定稿' : pg === 'qa' ? '提问和回答 · 已定稿' : pg === 'login' ? '登录 / 注册 · 已定稿' : pg === 'mine' ? '我的 Ree · 第 6 页 · 11-29 改成手动建 + MCP，等确认' : pg === 'bounty' ? '悬赏 · 新功能 · 等确认' : pg === 'admin' ? '管理后台预览 · 0.78 倍密度 · 等确认' : '首页 · 已定稿'}</span></div>`;
+  document.getElementById('rc').innerHTML = `<div class="rc-row"><span class="rc-brand">re0 全新改版 <small>方向 A · 我的 Ree 和悬赏等确认</small></span>${tabs}</div>${states}`;
 }
 function fitThumbs() { document.querySelectorAll('.thumb').forEach(t => t.style.setProperty('--s', t.clientWidth / 1440)); }
 const reduced = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -2962,7 +3423,7 @@ function render(fresh) {
   parse();
   chrome();
   document.querySelector('.cite-panel')?.remove(); document.querySelector('.cite-shade')?.remove();
-  document.getElementById('app').innerHTML = route.page === 'index' ? indexPage() : route.page === 'spec' ? specPage() : route.page === 'explore' ? explore(route.state) : route.page === 'ree' ? reePage(route.state) : route.page === 'qa' ? qaPage(route.state) : route.page === 'login' ? loginPage(route.state) : route.page === 'mine' ? minePage(route.state) : home('a', route.state);
+  document.getElementById('app').innerHTML = route.page === 'index' ? indexPage() : route.page === 'spec' ? specPage() : route.page === 'explore' ? explore(route.state) : route.page === 'ree' ? reePage(route.state) : route.page === 'qa' ? qaPage(route.state) : route.page === 'login' ? loginPage(route.state) : route.page === 'mine' ? minePage(route.state) : route.page === 'bounty' ? bountyPage(route.state) : route.page === 'admin' ? adminPage(route.state) : home('a', route.state);
   document.documentElement.style.setProperty('--rc-h', document.getElementById('rc').offsetHeight + 'px');
   fitThumbs();
   if (route.page === 'qa' && route.state === 'cite') { const c = document.querySelector('#app .qa-b .cite'); if (c) openCite(c); }
@@ -2996,6 +3457,7 @@ function syncReeBar() {
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.thumb')) e.target.click(); });
 function closeLang() { document.querySelectorAll('.lang.open').forEach(w => { w.classList.remove('open'); w.querySelector('.lang-btn')?.setAttribute('aria-expanded', 'false'); }); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.querySelector('.cite-panel')) { closeCite(); return; }
+  if (e.key === 'Escape' && route.page === 'bounty' && document.querySelector('#app .dlg-shade')) { go('bounty', 'detail'); return; }
   if (e.key === 'Escape' && route.page === 'mine' && document.querySelector('#app .dlg-shade')) { go('mine', ['check', 'qafail', 'qaforce'].includes(route.state) ? 'pub' : 'list'); return; } if (e.key === 'Escape' && document.querySelector('.lang.open')) { const b = document.querySelector('.lang.open .lang-btn'); closeLang(); b?.focus(); } });
 document.addEventListener('click', e => {
   if (!e.target.closest('.lang')) closeLang();
@@ -3013,6 +3475,8 @@ document.addEventListener('click', e => {
   if (a === 'qamenu') { const m = t.closest('.qa-menu'); const open = !m.classList.contains('open'); m.classList.toggle('open', open); t.setAttribute('aria-expanded', String(open)); return; }
   if (a === 'qafocus' || a === 'qaat' || a === 'qaask') { const ta = document.getElementById('qafu'); if (ta) { if (a === 'qaat' && !ta.value.endsWith('@')) ta.value += (ta.value && !ta.value.endsWith(' ') ? ' ' : '') + '@'; if (a === 'qaask') ta.value = '@' + t.dataset.n + ' '; ta.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'end' }); setTimeout(() => ta.focus({ preventScroll: true }), reduced() ? 0 : 400); } else { const login = document.querySelector('#app .qa-compose.out .bt1'); login?.scrollIntoView({ block: 'center' }); login?.focus(); } return; }
   if (a === 'askfocus') { const box = document.querySelector('#app .rp-ask'); if (box) { box.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'center' }); setTimeout(() => (box.querySelector('textarea') || box.querySelector('.go'))?.focus({ preventScroll: true }), reduced() ? 0 : 450); } }
+  if (a === 'btclose-bg') { if (e.target === t) go('bounty', 'detail'); return; }
+  if (a === 'btpick') { ui.btPick = +t.dataset.i; const d = document.querySelector('#app .dlg-shade'); const tmp = document.createElement('div'); tmp.innerHTML = enterDlg(route.state, ui.lang); d?.replaceWith(tmp.firstElementChild); document.querySelector(`#app [data-act="btpick"][data-i="${ui.btPick}"]`)?.focus(); return; }
   if (a === 'dlgclose-bg') { if (e.target === t) go('mine', 'list'); return; }
   if (a === 'ckupl') { ui.ck.upl = t.checked; rerenderDlg(); document.querySelector('#app [data-act="ckupl"]')?.focus(); return; }
   if (a === 'srcopen' || a === 'srctab') { ui.srcTab = t.dataset.tab; if (route.state === 'new-src') { const y = window.scrollY; render(); window.scrollTo(0, y); document.querySelector(`#app [data-act="srctab"][data-tab="${ui.srcTab}"]`)?.focus({ preventScroll: true }); } else go('mine', 'new-src'); return; }
