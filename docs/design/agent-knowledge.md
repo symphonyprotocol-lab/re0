@@ -1,10 +1,11 @@
 # Agent 产物进 Ree 知识库：设计稿
 
-- 状态：设计，未实现（2026-11-26）
-- 上级文档：[agent-first.md](agent-first.md)（agent 优先的 re0 总体设计）。本文是其中"外部 agent 产物知识化"一节的细化，排期见总文档 §12 第二期（可与第一期并行）。本文的工具定义在总文档第一期的工具注册表落地后，直接写在注册表里；密钥扫描 `lib/domain/secrets.ts` 两边共用。
+- 状态：设计，未实现（2026-11-26；2026-11-29 随总文档的方向调整更新）
+- 上级文档：[agent-first.md](agent-first.md)（agent 优先的 re0 总体设计）。本文是其中"外部 agent 产物知识化"一节的细化，排期见总文档 §13 第二期（可与第一期并行）。本文的工具定义在总文档第一期的工具注册表落地后，直接写在注册表里；密钥扫描 `lib/domain/secrets.ts` 两边共用。
+- 2026-11-29：re0 放弃站内对话建 Ree，站内只手动建 Ree，自动建 Ree 由外部 agent 通过 MCP 完成（总文档 §0.1）。这和本文的方向一致：本文本来就只服务外部 agent。受影响的只有两处：MCP 传文件改由总文档第一期的直传完成（§3.5），迁移编号顺延（§4）。
 - 范围：让 Claude Code / Codex 这类 agent 在工作中产出的文档（调研报告、ADR、方案、复盘、benchmark 结论……）直接成为用户自己某个 Ree 的知识源，之后人或 agent 都能检索、带编号引用地问答。
 - 前提：re0 的定位不变——Ree 只依据给定知识回答。存储单位就是 Ree 知识库里的**一条 source**（`knowledge` 表一行）。没有文件树、没有同步、没有文件页。
-- 不依赖、也不复活 2026-11-26 决定下掉的任何东西：共享 workspace（`ws_*` 工具、`/files`、文件夹绑定 Ree、`create_ree_from_folder`、MCP resources、workspace key）和 MCP OAuth。它们由 PR #269（`0101_drop_workspace_oauth`）删除；`docs/design/agent-workspace*.md` 只用来确认哪些路已经被否掉。接入只用 API key。
+- 不依赖、也不复活 2026-11-26 决定下掉的任何东西：共享 workspace（`ws_*` 工具、`/files`、文件夹绑定 Ree、`create_ree_from_folder`、MCP resources、workspace key）和 MCP OAuth。它们由 PR #269（`0101_drop_workspace_oauth`）和 #272（`0102_drop_workspace_columns`）删除；`docs/design/agent-workspace*.md` 只用来确认哪些路已经被否掉。接入只用 API key。
 
 ## 0. 结论
 
@@ -86,7 +87,7 @@
 
 ### 2.8 文件
 
-MCP 没有 `document` kind。网页上传 PDF/DOCX/MD 的流程是浏览器先拿 `/api/upload-token` 直传 Blob，再 POST `blobPath`（`app/api/rees/[id]/knowledge/route.ts`），MCP 客户端走不了这条路。不过 agent 产物绝大多数是 markdown，可以当 text 传。
+MCP 没有 `document` kind。网页上传 PDF/DOCX/MD 的流程是浏览器先拿 `/api/upload-token` 直传 Blob，再 POST `blobPath`（`app/api/rees/[id]/knowledge/route.ts`），MCP 客户端走不了这条路。不过 agent 产物绝大多数是 markdown，可以当 text 传。总文档第一期给 MCP 加了同样的直传（`request_upload` → PUT → `add_knowledge kind=file`，总文档 §4.2），这个缺口由那边补上。
 
 ### 2.9 缺口汇总
 
@@ -102,7 +103,7 @@ MCP 没有 `document` kind。网页上传 PDF/DOCX/MD 的流程是浏览器先�
 | G8 | 往公开 Ree 写没有任何提醒 | 内部材料可能出现在公开答案里 | §3.4 |
 | G9 | `can_write` 范围太大 | 归档 key 泄露的风险面大 | §3.9 |
 | G10 | 没有接入说明 | agent 不会主动归档、主动查 | §3.10 |
-| G11 | MCP 不能传文件 | PDF/DOCX 产物进不来 | §3.5（第二期） |
+| G11 | MCP 不能传文件 | PDF/DOCX 产物进不来 | 总文档 §4.2（第一期）；本文 §3.5 只补 `external_id` |
 
 ## 3. 设计
 
@@ -211,7 +212,7 @@ activity 的 `chunked` 已经有 `reused` 字段，原样沿用；`list_knowledg
 
 **长文档和代码块**：现有切段对这类文档是合适的（§2.3），只需修 `chunkLines` 的 fence 问题。不做"按代码语言切分"或"代码块单独 embed"：agent 产物里的代码块是说明的一部分，跟随上下文切段的效果更好。YAML front matter 第一期不特殊处理。
 
-**文件上传（第二期）**：`add_knowledge kind=document {file_name, data_base64}`，限 PDF/DOCX/MD/TXT、≤ 3 MB（base64 之后约 4 MB，仍在请求体上限以内）。服务端写入 Blob，路径用网页上传的同一个前缀（`isKnowledgeUploadPath` 能通过），之后完全复用 `document` 的处理流程。不提供"上传 URL + curl"的方式：那是 workspace 那条路的做法，而且只有带 shell 的客户端能用。PDF/DOCX 产物在 agent 场景里很少见，所以放到第二期。
+**文件上传**：2026-11-29 起由总文档第一期负责（总文档 §4.2）：`request_upload` 签一个和网页同样限制的 Blob 直传凭证，agent PUT 上去，再用 `add_knowledge {kind: 'file', pathname}` 交上来，变成一条 `document` 或 `audio` source，格式和大小与网页一样（PDF、DOCX、MD、TXT 最大 20 MB；MP3、WAV 最大 100 MB；M4A 最大 24 MB）。本文初稿的"base64 ≤ 3 MB"方案和"不提供上传 URL"的说法作废：直传的文件直接成为一条 source，没有文件页、文件树或同步，和 workspace 那条路不是一回事。没有 shell 的客户端要不要 base64 通道，见总文档 §15 Q7。本文第二期只为 `kind=file` 补上 `external_id`（替换时换 Blob，旧 Blob 走现有的回收清理）。
 
 ### 3.6 只检索不生成：`search_knowledge` 和 `get_knowledge`（G5、G6）
 
@@ -270,7 +271,7 @@ agent 写完通常马上就想用。`add_knowledge` 增加 `wait?: boolean`（�
 `can_write` 是全有或全无。第二期给 key 加一档"只写知识"：
 
 - `api_key.scope text check (scope in ('full', 'knowledge'))`，默认 `full`（现有 key 不变）；`api_key.ree_ids uuid[]` 可选，限定能读写哪几个 Ree。
-- `knowledge` 档的 key 只列出这些工具：`list_my_rees`（只返回限定的 Ree）、`get_ree`、`list_knowledge`、`get_knowledge`、`search_knowledge`、`add_knowledge`、`delete_knowledge`，以及 `create_ree`（只在没有限定 Ree 时可用，建出来的 Ree 自动加入限定列表）。不能发帖、不能 `ask_ree`（因为它花钱）、不能改 Ree 设置、不能删除 Ree。
+- `knowledge` 档的 key 只列出这些工具：`list_my_rees`（只返回限定的 Ree）、`get_ree`、`list_knowledge`、`get_knowledge`、`search_knowledge`、`add_knowledge`（含 `kind=file`）、`request_upload`（只限 `knowledge` 用途）、`delete_knowledge`、`check_ree`（只做静态检查，不能自测），以及 `create_ree`（只在没有限定 Ree 时可用，建出来的 Ree 自动加入限定列表，照总文档 §4.5 是草稿）。不能发帖、不能 `ask_ree` 和自测（因为它们花钱）、不能改 Ree 设置、不能发布或删除 Ree。这一档的 key 能不能打开总文档的"免确认"开关，见总文档 §15 Q2（暂定：不能）。
 - 实现方式和 `mcpHandlerFor` 按 key 种类注册不同工具集一样：#269 之后只剩一种 handler，再加一种。
 - 设置页创建 key 时多一个选项"只用于 agent 归档"。这不涉及 OAuth。
 
@@ -278,7 +279,7 @@ agent 写完通常马上就想用。`add_knowledge` 增加 `wait?: boolean`（�
 
 ### 3.10 接入方式（G10，只设计内容，不发布）
 
-内容放在仓库的 `integrations/agent-knowledge/` 下，作为可以复制的模板，**不发布**到任何 plugin 市场或 skill 目录。
+内容放在仓库的 `integrations/agent-knowledge/` 下，作为可以复制的模板，**不发布**到任何 plugin 市场或 skill 目录。总文档 §4.6 的"用 Claude Code / Codex 建 Ree"模板放在旁边的 `integrations/build-ree/`，两份共用下面的 MCP 接入方式。
 
 **项目配置** `.re0.json`（repo 根目录，可以提交；不含密钥）：
 
@@ -342,7 +343,7 @@ bearer_token_env_var = "RE0_API_KEY"
 
 | 层 | 改动 |
 | --- | --- |
-| 迁移 | `0102_agent_knowledge`（编号排在 #269 的 `0101` 之后；与总文档第一期的 `0102_agent_runs` 谁先合并谁用 0102，另一个顺延）：`knowledge` 加 `external_id text`、`origin jsonb`、`api_key_id uuid references api_key(id) on delete set null`；`check (external_id is null or char_length(external_id) between 1 and 300)`；部分唯一索引 `knowledge_external_id_idx (ree_id, external_id) where external_id is not null and deleted_at is null`。只加可空列，不回填，不锁表重写。`test-integration.sh` 逐条自动提交执行迁移，所以不写 `BEGIN`，也不写 `ON COMMIT DROP` |
+| 迁移 | `0103_agent_knowledge`（`rebuild` 上 0101、0102 已被 #269、#272 的 workspace 删除用掉；与总文档第一期的 `0103_mcp_ree_drafts` 谁先合并谁用 0103，另一个顺延）：`knowledge` 加 `external_id text`、`origin jsonb`、`api_key_id uuid references api_key(id) on delete set null`；`check (external_id is null or char_length(external_id) between 1 and 300)`；部分唯一索引 `knowledge_external_id_idx (ree_id, external_id) where external_id is not null and deleted_at is null`。只加可空列，不回填，不锁表重写。`test-integration.sh` 逐条自动提交执行迁移，所以不写 `BEGIN`，也不写 `ON COMMIT DROP` |
 | domain | `lib/domain/secrets.ts`（扫描规则 + 允许列表）；`lib/domain/agent-knowledge.ts`（校验 `external_id`、`origin`，规范化 repo，`format` 转换：html → markdown 用 turndown）；`chunkLines` 识别 fence；seed 匹配用的 digest（content + heading） |
 | service | `knowledge.ts`：`upsertText`（created / unchanged / renamed / replaced / busy / trashed）、处理时的 seed 步骤、text 带 `origin.path` 时按行切段；`retrieval.ts`：`retrieve` 的 top-k 参数化，加可选的 `external_id_prefix` 条件；`mcp-rees.ts`：`searchKnowledgeTool`、`getKnowledgeTool`，`addKnowledgeTool` 新参数；`mcp.ts`：`citationOut` 加字段 |
 | MCP | `add_knowledge` 加 `external_id`、`origin`、`format`、`allow_public`、`restore`、`wait`，text 上限 500,000，schema 与真实限额一致；新工具 `search_knowledge`、`get_knowledge`；`list_knowledge` 返回 `external_id`、`origin`，加 `external_id_prefix`；`ask_ree` 的引用加 `knowledge_id`、`external_id`、`origin` |
@@ -356,8 +357,8 @@ bearer_token_env_var = "RE0_API_KEY"
 
 ### 第二期：补齐（约 3 人日）
 
-- `add_knowledge kind=document`（base64，≤ 3 MB，PDF/DOCX/MD/TXT），`external_id` 也支持 document（替换时换 Blob，旧 Blob 走现有的回收清理）；
-- `knowledge` 档的 API key（`api_key.scope`、`api_key.ree_ids`，迁移 `0103_api_key_scope`，单独的工具集）和设置页选项；
+- `external_id` 也支持 `kind=file`（总文档第一期的直传；替换时换 Blob，旧 Blob 走现有的回收清理）；
+- `knowledge` 档的 API key（`api_key.scope`、`api_key.ree_ids`，迁移 `api_key_scope`，编号接在前面两个迁移之后，单独的工具集）和设置页选项；
 - 替换期间旧段落继续可答（状态机里加"替换中"，存储时原子切换）；
 - 知识库页面按 `origin.repo` 分组筛选。
 
@@ -371,7 +372,7 @@ bearer_token_env_var = "RE0_API_KEY"
 
 - 不做文件树、文件夹、文件页、同步客户端、目录绑定 Ree，也不做 `create_ree_from_folder` 之类"一个目录建一个 Ree"的功能。一份产物就是一条 source，由 agent 逐条写入。
 - 不保留历史版本，不做 diff 和回滚，git 才是历史；只有 activity 里的一条 `replaced` 记录。
-- 不做 MCP resources、OAuth、workspace key，也不做任何形式的"上传 URL + curl"。
+- 不做 MCP resources、OAuth、workspace key。总文档第一期的 `request_upload` 直传只用于把一个文件变成一条 source，不提供下载、列目录或覆盖。
 - 不对别人的公开 Ree 开放 `search_knowledge` / `get_knowledge`（会绕过查询费）。
 - 不自动建默认 Ree，也不在服务端识别"这是 agent Ree"。
 - 不在服务端拉取私有 repo 的文件来"自动同步产物"；需要整个 repo 的，用现有的 `github` kind。
