@@ -1043,6 +1043,302 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   .lg-card h1 { font-size: 22px; }
   .lg-bub { width: 42px; height: 36px; font-size: 19px; }
 }
+/* ---------- My Rees + tasks (/rees) ---------- */
+.mr .h-top { background: rgba(247,248,252,.88); }
+.mr-head { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.mr-head .t { flex: 1 1 320px; min-width: 0; }
+.mr-head h1 { font-size: 28px; font-weight: 900; letter-spacing: -.5px; }
+.mr-head p { font-size: 14px; font-weight: 600; color: var(--mut); margin-top: 2px; }
+.mr-box { display: grid; gap: 10px; width: min(820px, 100%); }
+.mr-box .bar .hint { flex: 1 1 260px; }
+.mr .rp-stats .rs span { overflow-wrap: anywhere; }
+.sec-h { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin-top: 10px; }
+.sec-h h2 { font-size: 20px; font-weight: 900; }
+.sec-h small { font-size: 12.5px; font-weight: 700; color: var(--mut); }
+.sec-h .sp { flex: 1; }
+.tk-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.tkc { background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); padding: 16px 18px; display: grid; gap: 10px; min-width: 0; border: 2px solid transparent; align-content: start; }
+.tkc.wait { border-color: #f5d48a; }
+.tkc-top { display: flex; gap: 6px 8px; align-items: center; flex-wrap: wrap; font-size: 12px; font-weight: 700; color: var(--mut); }
+.tkc .tt { font-size: 16px; font-weight: 900; line-height: 1.35; overflow-wrap: anywhere; }
+.seg { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 3px; }
+.seg i { height: 6px; border-radius: 3px; background: var(--ln); }
+.seg i.d { background: var(--cor); } .seg i.a { background: linear-gradient(90deg, var(--cor) 50%, #ffd2c7 50%); } .seg i.w { background: var(--warn); } .seg i.f { background: var(--err); } .seg i.s { background: var(--faint); }
+.tkc-now { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 13px; font-weight: 800; }
+.tkc-now small { font-size: 12.5px; font-weight: 700; color: var(--mut); }
+.tkc-now .spin { width: 13px; height: 13px; border-width: 2px; color: var(--info); }
+.tkc-foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--ln); }
+.tkc-foot .sp { flex: 1; }
+.money { display: inline-flex; gap: 5px; align-items: center; font-size: 12.5px; font-weight: 800; color: var(--mut); white-space: nowrap; }
+.money b { color: var(--ink); font-weight: 900; }
+.money svg.i { width: 14px; height: 14px; }
+.tk-recent { display: grid; gap: 8px; }
+.tk-row { display: flex; gap: 6px 10px; align-items: center; flex-wrap: wrap; padding: 10px 14px; background: var(--card); border-radius: 18px; box-shadow: var(--sh-sm); font-size: 13px; font-weight: 700; }
+.tk-row b { font-weight: 900; min-width: 0; overflow-wrap: anywhere; }
+.tk-row small { color: var(--mut); font-weight: 700; font-size: 12px; }
+.tk-row .sp { flex: 1; }
+.badge.mute { background: #eef0f6; color: #4a4f6c; }
+.badge .spin { width: 11px; height: 11px; border-width: 2px; }
+.ib-sm { width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid; place-items: center; color: var(--mut); background: var(--bg); transition: color .15s, transform .15s; }
+.ib-sm:hover { color: var(--ink); transform: translateY(-1px); }
+.ib-sm.err { color: var(--err-tx); background: var(--err-bg); }
+/* Ree list toolbar: sticks under the top once the list starts */
+.mr-bar { position: sticky; top: var(--rc-h, 84px); z-index: 10; display: grid; gap: 10px; margin-inline: -16px; padding: 6px 16px 10px; transition: background .25s ease, box-shadow .25s ease; }
+.mr-bar.stuck { background: rgba(247,248,252,.94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: 0 10px 24px rgba(32,34,58,.08); }
+.mr-bar .ptabs.left { border-bottom: 0; padding-bottom: 0; }
+.mr-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; min-width: 0; }
+.mr-tools .cats { flex: 1 1 300px; }
+.srch { display: inline-flex; gap: 6px; align-items: center; height: 36px; padding: 0 14px; border-radius: 999px; background: var(--card); box-shadow: var(--sh-sm); min-width: 0; flex: 0 1 220px; }
+.srch input { border: 0; outline: 0; background: transparent; font: 700 13px var(--round); min-width: 0; width: 100%; color: var(--ink); }
+.srch input::placeholder { color: var(--faint); }
+.srch svg.i { color: var(--mut); width: 14px; height: 14px; }
+.vt { display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px; background: var(--card); box-shadow: var(--sh-sm); flex: none; }
+.vt button { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: var(--mut); }
+.vt button.on { background: var(--ink); color: #fff; }
+.vt svg.i { width: 15px; height: 15px; }
+/* owner Ree card */
+.ocard .rc-cov { position: relative; }
+.cov-tags { position: absolute; left: 10px; top: 10px; right: 10px; display: flex; gap: 6px; flex-wrap: wrap; z-index: 1; }
+.cov-tags .badge { box-shadow: var(--sh-sm); }
+.ocard .rc-id small { gap: 4px 6px; }
+.kr { display: flex; gap: 6px; align-items: center; font-size: 12.5px; font-weight: 800; }
+.kr svg.i { width: 14px; height: 14px; }
+.kr.ok { color: var(--ok-tx); } .kr.busy { color: var(--info-tx); } .kr.bad { color: var(--err-tx); } .kr.mod { color: var(--mut); }
+.kr .spin { width: 13px; height: 13px; border-width: 2px; }
+.om { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.om a, .om span { display: grid; background: var(--bg); border-radius: 14px; padding: 6px 10px; min-width: 0; }
+.om a:hover { background: #eef0f7; }
+.om b { font-size: 15px; font-weight: 900; overflow-wrap: anywhere; }
+.om small { font-size: 11.5px; font-weight: 700; color: var(--mut); overflow-wrap: anywhere; }
+.ocard .rc-foot { gap: 6px; }
+.ocard .qa-menu { margin-left: 0; }
+.ocard .qm { top: auto; bottom: calc(100% + 6px); }
+.ocard.draft { border: 2px dashed #cfd3e3; box-shadow: none; background: rgba(255,255,255,.5); padding: 16px; gap: 12px; justify-content: start; }
+.ocard.draft:hover { transform: none; box-shadow: none; }
+.ocard.draft .sug-h b { font-size: 15.5px; }
+.ocard.draft .sug-h p { font-size: 13px; color: var(--mut); font-weight: 600; }
+.ocard.draft .sug-ic { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 14px 14px 14px 4px; background: var(--bg); color: var(--mut); flex: none; }
+.ocard.draft .rc-foot { border-top: 0; padding-top: 0; margin-top: 0; }
+.mr .ex-head, .mr .empty { width: min(820px, 100%); }
+.mr .empty { margin-inline: 0; justify-items: start; text-align: left; padding: 8px 0 0; }
+.mr .empty .em-art { justify-items: start; }
+.mr .empty .chips { justify-content: flex-start; }
+/* task page (/agent/[id]) */
+.tk-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; }
+.tk-main { display: grid; gap: 14px; min-width: 0; }
+.tk-main > * { min-width: 0; }
+.tk-head { background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); padding: 16px 18px; display: grid; gap: 8px; }
+.tk-meta { display: flex; gap: 6px 10px; flex-wrap: wrap; align-items: center; font-size: 12.5px; font-weight: 700; color: var(--mut); }
+.tk-meta .sp { flex: 1; }
+.tk-head h1 { font-size: 24px; font-weight: 900; letter-spacing: -.3px; line-height: 1.3; overflow-wrap: anywhere; }
+.tk-mbar { display: none; }
+.steps { background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); padding: 14px 8px 8px; display: grid; gap: 2px; }
+.steps .seg { margin: 0 10px 8px; }
+.steps-h { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 0 10px 6px; font-size: 12px; font-weight: 800; color: var(--mut); flex-wrap: wrap; }
+.steps-h b { color: var(--ink); font-weight: 900; font-size: 14px; }
+.step { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 10px; border-radius: 14px; font-size: 13.5px; font-weight: 700; min-height: 36px; }
+.step .ic { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; }
+.step .ic svg.i { width: 12px; height: 12px; stroke-width: 3; }
+.step.d .ic { background: var(--cor-s); color: var(--cor-d); }
+.step.a .ic { color: var(--cor-6); }
+.step.a .ic .spin { width: 16px; height: 16px; }
+.step.p .ic { border: 2px dashed #cfd3e3; }
+.step.p .nm { color: var(--faint); }
+.step.w .ic { background: var(--warn-bg); color: var(--warn-tx); }
+.step.f .ic { background: var(--err-bg); color: var(--err-tx); }
+.step.s .ic { background: #eef0f6; color: #4a4f6c; }
+.step.a, .step.w, .step.f, .step.s { background: var(--bg); }
+.step .nt { color: var(--mut); font-size: 12px; margin-left: 6px; font-weight: 700; }
+.step .cr { font-size: 12px; font-weight: 800; color: var(--mut); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* timeline */
+.tl { display: grid; gap: 14px; }
+.tl-a { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: start; }
+.re-av { width: 34px; height: 30px; border-radius: 14px 14px 14px 4px; background: var(--cor); color: #fff; display: grid; place-items: center; font-weight: 900; font-size: 14px; }
+.tl-who { display: flex; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 700; color: var(--mut); margin-bottom: 4px; }
+.tl-who b { color: var(--ink); font-weight: 900; font-size: 13px; }
+.tl-b { background: var(--card); border-radius: 4px 20px 20px 20px; box-shadow: var(--sh-sm); padding: 10px 14px; font-size: 14.5px; font-weight: 600; line-height: 1.7; overflow-wrap: anywhere; }
+.tl-b p + p, .tl-b p + ul, .tl-b ul + p, .tl-b .note + p { margin-top: 6px; }
+.tl-b ul { margin: 4px 0 0; padding-left: 20px; }
+.tl-b .note { margin: 2px 0; }
+.tl-me { display: flex; gap: 8px; justify-content: flex-end; align-items: flex-end; }
+.tl-me .pc-q { max-width: min(560px, 85%); border-radius: 18px 18px 4px 18px; font-size: 14.5px; }
+.tl-me small { font-size: 11.5px; font-weight: 700; color: var(--mut); white-space: nowrap; align-self: center; }
+.tools, .tl-card { margin-left: 44px; }
+.tools { display: grid; gap: 6px; }
+.tool { background: var(--card); border-radius: 16px; box-shadow: var(--sh-sm); overflow: hidden; }
+.tool summary { list-style: none; display: grid; grid-template-columns: 16px auto minmax(0, 1fr) auto 14px; gap: 8px; align-items: center; padding: 8px 12px; cursor: pointer; font-size: 12.5px; font-weight: 700; }
+.tool summary::-webkit-details-marker { display: none; }
+.tool summary > svg.i { width: 15px; height: 15px; color: var(--mut); }
+.tool .tn { font: 600 11.5px "JetBrains Mono", ui-monospace, monospace; background: var(--bg); border-radius: 6px; padding: 1px 6px; color: #4a4f6c; white-space: nowrap; }
+.tool .ts { color: #3d4058; min-width: 0; overflow-wrap: anywhere; }
+.tool .tc { font-size: 12px; font-weight: 800; color: var(--mut); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tool .chev { width: 14px; height: 14px; color: var(--faint); transition: transform .15s; }
+.tool[open] .chev { transform: rotate(90deg); }
+.tool .tb { border-top: 1px solid var(--ln); padding: 8px 12px 10px 36px; font: 11.5px/1.7 "JetBrains Mono", ui-monospace, monospace; color: #3d4058; overflow-wrap: anywhere; }
+.tool .tb .k { color: var(--mut); }
+.tool.warn { box-shadow: none; background: var(--warn-bg); } .tool.warn .tn { background: #fde9b8; color: var(--warn-tx); }
+.tool.bad { box-shadow: none; background: var(--err-bg); } .tool.bad .tn { background: #ffd6d6; color: var(--err-tx); }
+.tool.live .ts::after { content: " …"; }
+/* confirmation card: one component for the task timeline and /confirm/[id] */
+.cc { background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); border: 2px solid #ffd2c7; overflow: hidden; }
+.cc.warn { border-color: #f5d48a; } .cc.err { border-color: #ffc9c9; } .cc.ok { border-color: #bdeedb; } .cc.mute { border-color: var(--ln); }
+.cc-h { display: flex; gap: 12px; align-items: flex-start; padding: 16px 18px 10px; }
+.cc-ic { width: 38px; height: 38px; flex: none; display: grid; place-items: center; border-radius: 14px 14px 14px 4px; background: var(--cor-s); color: var(--cor); }
+.cc.warn .cc-ic { background: var(--warn-bg); color: var(--warn-tx); } .cc.err .cc-ic { background: var(--err-bg); color: var(--err-tx); } .cc.ok .cc-ic { background: var(--ok-bg); color: var(--ok-tx); } .cc.mute .cc-ic { background: var(--bg); color: var(--mut); }
+.cc-k { font-size: 11px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; color: var(--mut); }
+.cc-t { font-size: 16px; font-weight: 900; line-height: 1.35; overflow-wrap: anywhere; }
+.cc-p { font-size: 13.5px; font-weight: 600; color: #3d4058; padding: 0 18px 12px; }
+.cc dl { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 6px 14px; margin: 0; padding: 2px 18px 12px; font-size: 13.5px; font-weight: 600; }
+.cc dt { color: var(--mut); font-weight: 700; }
+.cc dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.cc-x { margin: 0 18px 12px; padding: 10px 12px; border-radius: 16px; background: var(--bg); display: grid; gap: 6px; font-size: 13px; font-weight: 700; }
+.cc-x .ln { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.cc-x .ln > svg.i { width: 14px; height: 14px; color: var(--mut); }
+.cc-gen { display: flex; gap: 6px; align-items: center; padding: 0 18px 10px; font-size: 12px; font-weight: 600; color: var(--mut); }
+.cc-gen svg.i { width: 13px; height: 13px; flex: none; }
+.cc-f { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 18px; border-top: 1px solid var(--ln); }
+.cc-f .fine { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--mut); }
+.cc-done { display: flex; gap: 8px; align-items: center; padding: 10px 18px; font-size: 13px; font-weight: 800; background: var(--ok-bg); color: var(--ok-tx); }
+.cc ul.rep { list-style: none; margin: 0; padding: 0 18px 12px; display: grid; gap: 6px; font-size: 13.5px; font-weight: 600; }
+.cc ul.rep li { display: flex; gap: 8px; align-items: flex-start; }
+.cc ul.rep li svg.i { width: 14px; height: 14px; margin-top: 4px; color: var(--ok); flex: none; }
+.cc.mute ul.rep li svg.i { color: var(--mut); }
+.mini-in { width: 96px; padding: 3px 10px; border: 2px solid var(--ln); border-radius: 999px; font: 800 14px var(--round); text-align: right; background: var(--card); }
+.dA .bt-err { background: var(--err-bg); color: var(--err-tx); border-radius: 999px; padding: 9px 16px; font-weight: 900; display: inline-flex; gap: 6px; align-items: center; justify-content: center; white-space: nowrap; transition: transform .15s; }
+.dA .bt-err.solid { background: #c62a30; color: #fff; }
+.dA .bt-err.sm { padding: 7px 13px; font-size: 13px; }
+.dA .bt-err:not(:disabled):hover { transform: translateY(-1px); }
+.dA .bt-err:disabled, .dA .bt1:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+.bt-err.full { width: 100%; }
+/* side rail: budget */
+.tk-side { display: grid; gap: 14px; position: sticky; top: calc(var(--rc-h, 84px) + var(--rpbar-h) + 16px); }
+.bud { background: var(--card); border-radius: 24px; box-shadow: var(--sh-md); padding: 16px 18px; display: grid; gap: 10px; }
+.bud-h { font-size: 11px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; color: var(--mut); }
+.bud-n { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.bud-n b { font-size: 28px; font-weight: 900; letter-spacing: -.6px; line-height: 1.1; }
+.bud-n span { font-size: 13px; font-weight: 700; color: var(--mut); }
+.bbar { display: flex; height: 10px; border-radius: 5px; background: var(--ln); overflow: hidden; }
+.bbar i { display: block; height: 100%; background: var(--cor); }
+.bbar i.ov { background: var(--warn); }
+.bbar i.rf { background: repeating-linear-gradient(45deg, #bdeedb 0 4px, #dcf8ec 4px 8px); }
+.bud-s { font-size: 12.5px; font-weight: 700; color: var(--mut); }
+.bud-s b { color: var(--ok-tx); font-weight: 900; }
+.kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; margin: 0; font-size: 13px; font-weight: 700; }
+.kv dt { color: var(--mut); }
+.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.sep { height: 1px; background: var(--ln); }
+.bud .fine { font-size: 12px; font-weight: 600; color: var(--mut); text-align: center; margin-top: -4px; }
+.tk-ree .mini { grid-template-columns: 88px minmax(0, 1fr); padding: 0; }
+.tk-ree .mini:hover { background: transparent; }
+.tk-ree .badge { margin-top: 4px; }
+.tk-ree .row-wrap { gap: 6px; }
+.tk-note { font-size: 12px; font-weight: 600; color: var(--mut); }
+/* bottom box on the task page */
+.tk-compose { position: sticky; bottom: max(12px, env(safe-area-inset-bottom, 0px)); z-index: 8; min-width: 0; }
+.tk-compose .box.compact { box-shadow: var(--sh-lg); }
+.tk-compose .box.compact .box-row { padding-bottom: 12px; }
+.tk-compose textarea { min-width: 0; }
+.tk-tip { display: flex; gap: 6px; align-items: center; font-size: 12px; font-weight: 700; color: var(--mut); margin-bottom: -6px; }
+.tk-tip svg.i { width: 13px; height: 13px; color: var(--ok); flex: none; }
+.tk-bar-ic { width: 36px; height: 36px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--cor-s); color: var(--cor); }
+.rb-id small .badge { flex: none; padding: 1px 8px; }
+/* dialogs: stop, pre-publish check */
+.dlg-shade { position: fixed; inset: var(--rc-h, 84px) 0 0 0; z-index: 85; background: rgba(32,34,58,.36); display: grid; place-items: center; padding: 16px; overflow-y: auto; }
+.dlg { width: min(720px, 100%); max-height: calc(100vh - var(--rc-h, 84px) - 32px); display: flex; flex-direction: column; background: var(--card); border-radius: 28px; box-shadow: var(--sh-lg); overflow: hidden; font-family: var(--round); color: var(--ink); animation: pop .25s cubic-bezier(.2,.9,.3,1.2) both; }
+.dlg.sm { width: min(460px, 100%); }
+.dlg-h { display: flex; gap: 12px; align-items: flex-start; padding: 18px 20px 12px; border-bottom: 1px solid var(--ln); }
+.dlg-h > div { min-width: 0; flex: 1; }
+.dlg-h h2 { font-size: 19px; font-weight: 900; line-height: 1.3; overflow-wrap: anywhere; }
+.dlg-h p { font-size: 13px; font-weight: 600; color: var(--mut); margin-top: 2px; }
+.dlg-h .fav { flex: none; }
+.dlg-b { padding: 16px 20px; overflow-y: auto; display: grid; gap: 18px; }
+.dlg-b > * { min-width: 0; }
+.dlg-f { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 20px; border-top: 1px solid var(--ln); background: var(--bg); }
+.dlg-f .sp { flex: 1; }
+.dlg-f .blk { font-size: 12.5px; font-weight: 800; color: var(--warn-tx); display: inline-flex; gap: 6px; align-items: center; }
+.dlg section h3 { font-size: 15px; font-weight: 900; display: flex; gap: 4px 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
+.dlg section h3 small { font-size: 12px; font-weight: 700; color: var(--mut); margin-left: auto; }
+.dlg .sp-note { margin-top: 8px; }
+.srcs { border-radius: 18px; background: var(--bg); overflow: hidden; }
+.sg { padding: 8px 12px; display: flex; gap: 6px 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; font-weight: 700; color: var(--mut); }
+.sg > svg.i { width: 14px; height: 14px; }
+.sg b { color: var(--ink); font-weight: 900; }
+.sg.deny { background: var(--err-bg); color: var(--err-tx); }
+.sg.deny b { color: var(--err-tx); }
+.srow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 8px 12px; border-top: 1px solid var(--ln); background: var(--card); font-size: 13.5px; font-weight: 700; align-items: center; }
+.srow .t { min-width: 0; overflow-wrap: anywhere; }
+.srow .u { grid-column: 1 / -1; font: 11px "JetBrains Mono", ui-monospace, monospace; color: var(--mut); overflow-wrap: anywhere; }
+.srow .a { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.srow.more { display: block; font-size: 12px; color: var(--mut); }
+.pol { display: inline-flex; gap: 4px; align-items: center; font-size: 11.5px; font-weight: 800; border-radius: 999px; padding: 1px 9px; white-space: nowrap; }
+.pol svg.i { width: 12px; height: 12px; }
+.pol.deny { background: var(--err-bg); color: var(--err-tx); } .pol.attr { background: var(--warn-bg); color: var(--warn-tx); } .pol.unk { background: var(--info-bg); color: var(--info-tx); } .pol.ok { background: var(--ok-bg); color: var(--ok-tx); }
+.rights { margin-top: 10px; padding: 12px 14px; border-radius: 16px; border: 2px dashed #b9d3ff; background: #f5f9ff; }
+.rights.miss { border-color: #f5d48a; background: var(--warn-bg); }
+.ck { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; font-weight: 800; cursor: pointer; }
+.ck input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--cor-6); flex: none; }
+.ck small { display: block; font-size: 12px; font-weight: 600; color: var(--mut); }
+.qat { border-radius: 18px; background: var(--bg); overflow: hidden; }
+.qat-s { display: flex; gap: 6px 12px; align-items: center; flex-wrap: wrap; padding: 10px 14px; font-size: 12.5px; font-weight: 700; color: var(--mut); }
+.qat-s .sc { font-size: 22px; font-weight: 900; white-space: nowrap; }
+.qat-s .sc.ok { color: var(--ok-tx); } .qat-s .sc.no { color: var(--err-tx); }
+.qat-s .sx { flex: 1 1 220px; min-width: 0; }
+.qr { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--ln); background: var(--card); font-size: 13.5px; }
+.qr .qi { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; }
+.qr .qi svg.i { width: 12px; height: 12px; stroke-width: 3; }
+.qi.ok { background: var(--ok-bg); color: var(--ok-tx); } .qi.no { background: var(--err-bg); color: var(--err-tx); }
+.qr .q { font-weight: 800; overflow-wrap: anywhere; }
+.qr .an { color: var(--mut); font-size: 12.5px; font-weight: 600; margin-top: 2px; overflow-wrap: anywhere; }
+.qr .why { color: var(--err-tx); font-size: 12.5px; font-weight: 700; margin-top: 2px; }
+.qr .crit { display: flex; gap: 4px 10px; flex-wrap: wrap; margin-top: 4px; font-size: 11.5px; font-weight: 800; }
+.qr .crit span { display: inline-flex; gap: 3px; align-items: center; }
+.qr .crit svg.i { width: 12px; height: 12px; stroke-width: 3; }
+.okc { color: var(--ok-tx); } .noc { color: var(--err-tx); }
+.qr .res { font-size: 12px; font-weight: 900; white-space: nowrap; }
+.kind { display: inline-block; font-size: 11px; font-weight: 800; border-radius: 999px; padding: 0 8px; margin-right: 6px; background: var(--bg); color: #4a4f6c; white-space: nowrap; }
+.kind.neg { background: #f1edfb; color: #5b3fb0; }
+.chk-l { display: flex; gap: 6px 12px; flex-wrap: wrap; font-size: 13px; font-weight: 700; padding: 10px 14px; border-radius: 16px; background: var(--bg); }
+.chk-l span { display: inline-flex; gap: 5px; align-items: center; }
+.chk-l svg.i { width: 14px; height: 14px; color: var(--ok); }
+.thumb > .scale .mr { min-height: 900px; height: 900px; overflow: hidden; }
+@media (max-width: 980px) {
+  .tk-grid { grid-template-columns: minmax(0, 1fr); }
+  .tk-side { position: static; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: start; }
+  .tk-mbar { display: flex; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid var(--ln); }
+  .tk-mbar .bbar { flex: 1 1 60px; min-width: 40px; }
+}
+@media (max-width: 880px) { .tk-cards { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 680px) {
+  .mr-head h1 { font-size: 24px; }
+  .mr-head .bt2 { margin-left: auto; }
+  .mr-tools .cats { flex-basis: 100%; }
+  .srch { flex: 1 1 120px; }
+  .mr-bar { gap: 8px; }
+  .mr-bar.stuck { padding-top: 8px; padding-bottom: 8px; }
+  .mr-bar.stuck .ptabs, .mr-bar.stuck .sortp, .mr-bar.stuck .vt, .mr-bar.stuck .mr-tools > .bt2 { display: none; }
+  .mr-bar.stuck .srch { flex-basis: 100%; }
+  .tk-head h1 { font-size: 20px; }
+  .tools, .tl-card { margin-left: 0; }
+  .tool summary { grid-template-columns: 16px minmax(0, 1fr) auto; row-gap: 2px; }
+  .tool summary .tn { justify-self: start; }
+  .tool .ts { grid-column: 2 / -1; grid-row: 2; }
+  .tool .chev { display: none; }
+  .tool .tb { padding-left: 12px; }
+  .tl-me .pc-q { max-width: 88%; }
+  .tl-me small { display: none; }
+  .cc dl { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .cc dd { margin-bottom: 8px; }
+  .cc-f .fine { margin-left: 0; flex-basis: 100%; }
+  .dlg-shade { place-items: end stretch; padding: 0; }
+  .dlg, .dlg.sm { width: 100%; max-height: calc(100vh - var(--rc-h, 84px) - 24px); border-radius: 24px 24px 0 0; }
+  .dlg-h, .dlg-b, .dlg-f { padding-left: 16px; padding-right: 16px; }
+  .dlg-f .blk { flex-basis: 100%; }
+  .qr { grid-template-columns: 22px minmax(0, 1fr); }
+  .qr .res { grid-column: 2; }
+  .srow { grid-template-columns: minmax(0, 1fr); }
+  .srow .a { justify-content: flex-start; }
+  .rb-id small .money { display: none; }
+}
 </style>
 
 <header class="rc" id="rc"></header>
@@ -1086,7 +1382,18 @@ const P = {
   more: '<circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/>',
   loader: '<path d="M21 12a9 9 0 1 1-6.22-8.56"/>',
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
-  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  chev: '<path d="m9 18 6-6-6-6"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  list: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
+  refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+  hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
+  ban: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+  flask: '<path d="M10 2v7.31"/><path d="M14 9.3V2"/><path d="M8.5 2h7"/><path d="M14 9.3a6.5 6.5 0 1 1-4 0"/><path d="M5.52 16h12.96"/>',
+  file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  cpu: '<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"/>'
 };
 const DOT = '<circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/><path d="M8.3 5.1a7.8 7.8 0 0 1 10.6 10.6M15.7 18.9A7.8 7.8 0 0 1 5.1 8.3"/><circle cx="6" cy="6" r="1.7" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="1.7" fill="currentColor" stroke="none"/>';
 const I = (n, c = '') => `<svg class="i ${c}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
@@ -1150,9 +1457,9 @@ const DIRS = {
   c: { name: '贴纸', en: 'Sticker', cls: 'dC' }
 };
 const STATES = [['out', '未登录'], ['out-ask', '未登录 · 提问'], ['out-cmd', '未登录 · 输入指令'], ['in', '已登录'], ['ask', '提问'], ['cmd', '指令 · 有相关 Ree'], ['cmd-new', '指令 · 仍然新建'], ['unclear', '意图不明']];
-const PAGES = [['index', '说明'], ['spec', '设计规范'], ['home', '首页'], ['explore', 'Explore'], ['ree', 'Ree 页'], ['qa', '提问和回答'], ['login', '登录 / 注册']];
+const PAGES = [['index', '说明'], ['spec', '设计规范'], ['home', '首页'], ['explore', 'Explore'], ['ree', 'Ree 页'], ['qa', '提问和回答'], ['login', '登录 / 注册'], ['mine', '我的 Ree + 任务']];
 const EX_STATES = [['browse', '默认浏览'], ['browse-out', '未登录'], ['cat', '按分类筛选'], ['search', '搜索有结果'], ['search-out', '未登录 · 搜索'], ['empty', '搜索无结果'], ['empty-build', '无结果 · 让 re0 建'], ['cmd', '指令'], ['posts', '帖子 · 为你推荐'], ['posts-un', '帖子 · 待回答'], ['loading', '加载中']];
-const statesFor = page => page === 'explore' ? EX_STATES : page === 'ree' ? RP_STATES : page === 'qa' ? Q_STATES : page === 'login' ? L_STATES : STATES;
+const statesFor = page => page === 'explore' ? EX_STATES : page === 'ree' ? RP_STATES : page === 'qa' ? Q_STATES : page === 'login' ? L_STATES : page === 'mine' ? M_STATES : STATES;
 const ui = { bLight: false, paused: false, budget: 5000, editBudget: false, ph: 0, lang: 'zh' };
 try { const wn = /re0-lang:(zh|en)/.exec(window.name || ''); const saved = localStorage.getItem('re0-lang') || (wn && wn[1]); ui.lang = saved === 'en' || saved === 'zh' ? saved : ((navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'); } catch (e) { const wn = /re0-lang:(zh|en)/.exec(window.name || ''); ui.lang = wn ? wn[1] : ((navigator.language || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en'); }
 let route = { page: 'index', state: 'out' };
@@ -1323,8 +1630,8 @@ function cardFor(d, st, L, matches, signedIn, pg) {
 }
 function topBar(d, L, signedIn, lm, active) {
   return signedIn
-    ? `<nav class="h-top">${brand(d)}<span class="sp"></span><a class="lk wide ${active === 'rees' ? 'on' : ''}" href="#explore-browse">${L.rees}</a><a class="lk wide" href="#">${L.mine}</a>${lm}
-        <a class="ib" href="#" aria-label="${L.tasks}">${I('spark')}<span class="dot"></span></a>
+    ? `<nav class="h-top">${brand(d)}<span class="sp"></span><a class="lk wide ${active === 'rees' ? 'on' : ''}" href="#explore-browse">${L.rees}</a><a class="lk wide ${active === 'mine' ? 'on' : ''}" href="#mine-list">${L.mine}</a>${lm}
+        <a class="ib" href="#mine-list" aria-label="${L.tasks}">${I('spark')}<span class="dot"></span></a>
         <a class="ib" href="#" aria-label="${L.notif}">${I('bell')}<span class="cnt">3</span></a><a class="me" href="#" aria-label="${L.me}">LW</a></nav>`
     : `<nav class="h-top">${brand(d)}<span class="sp"></span><a class="lk wide ${active === 'rees' ? 'on' : ''}" href="#explore-browse-out">${L.rees}</a><a class="lk wide" href="#">${L.pricing}</a><a class="lk wide" href="#">${L.about}</a>${lm}<a class="b2" href="#login-default">${L.login}</a><a class="b1" href="#login-default">${L.signup}</a></nav>`;
 }
@@ -1387,6 +1694,7 @@ function switchLang(l) {
 }
 function startPh() {
   clearInterval(phTimer);
+  if (route.page !== 'home' && route.page !== 'explore') return;
   const ta = document.querySelector('#app .box-row textarea');
   if (ta && !ta.value) phTimer = setInterval(() => { ui.ph++; const el = document.querySelector('#app .box-row textarea'); if (el && !el.value) el.placeholder = PH[ui.lang === 'en' ? 'en' : 'zh'][ui.ph % PH.zh.length]; }, 3500);
 }
@@ -1494,7 +1802,8 @@ const COVERS = {
   hr: ['#c9f7e4', '#62cfa6', 'doc'], ea: ['#d6ebff', '#7aa9ff', 'book'], k8: ['#e3e8ff', '#8794ff', 'hex'], fa: ['#ffe0ec', '#ff93bb', 'frames'],
   bnt: ['#ffd9a8', '#ff8250', 'sunset', 1], sd: ['#fff0bf', '#f0b85a', 'loaf'], hk: ['#ffe4d6', '#ff9474', 'skyline'], med: ['#e8e3ff', '#a48cff', 'column'],
   pg: ['#d6f2ff', '#5fbfe6', 'db'], ux: ['#f1edfb', '#bba6f3', 'bubbles'], jr: ['#ffe0e0', '#ff7070', 'rail', 1], uk: ['#dfe9ff', '#6a8ae0', 'passport'],
-  tax: ['#fdf2d0', '#e6bd55', 'receipt'], mine: ['#c9f7e4', '#12b886', 'doc'], ts: null, ex: null
+  tax: ['#fdf2d0', '#e6bd55', 'receipt'], mine: ['#c9f7e4', '#12b886', 'doc'], ts: null, ex: null,
+  hdb: ['#e3e8ff', '#8b9cff', 'skyline'], sgtax: ['#fdf2d0', '#e6bd55', 'receipt'], pr: ['#dfe9ff', '#6a8ae0', 'passport'], notes: ['#e8e3ff', '#a48cff', 'book'], old: null
 };
 const MOTIF = {
   doc: '<rect x="58" y="13" width="44" height="60" rx="5" fill="#fff" opacity=".92"/><rect x="66" y="24" width="28" height="4" rx="2" fill="#20223a" opacity=".22"/><rect x="66" y="33" width="24" height="3" rx="1.5" fill="#20223a" opacity=".14"/><rect x="66" y="40" width="27" height="3" rx="1.5" fill="#20223a" opacity=".14"/><rect x="66" y="47" width="20" height="3" rx="1.5" fill="#20223a" opacity=".14"/><circle cx="96" cy="64" r="11" fill="none" stroke="#fff" stroke-width="3"/><circle cx="96" cy="64" r="5" fill="#fff"/>',
@@ -1967,6 +2276,369 @@ function loginPage(st, lang = ui.lang) {
   return `<section class="h dA lg ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}"><div class="wall" aria-hidden="true">${wallA(en ? 'en' : 'zh')}</div><div class="veil"></div>${top}<div class="h-mid"><div class="lg-wrap">${card}</div></div><div class="h-foot"><span>${L.privacy}</span><span>${L.terms}</span></div></section>`;
 }
 
+/* -------- My Rees + tasks: /rees and /agent/[id] (zh / en) -------- */
+const M_STATES = [['list', '我的 Ree · 有任务在跑'], ['empty', '还没有 Ree'], ['cmd', '输入了指令'], ['run', '任务 · 运行中'], ['wait', '任务 · 等你确认'], ['done', '任务 · 完成'], ['failed', '任务 · 失败'], ['budget', '任务 · 预算用完'], ['challenge', '任务 · 被网站拦截'], ['stopped', '任务 · 已停止'], ['check', '发布前检查'], ['qafail', 'QA 没通过'], ['qaforce', 'QA 没通过 · 仍然发布']];
+const TASK_OF = { run: 'running', wait: 'waiting', done: 'done', failed: 'failed', budget: 'budget', challenge: 'challenge', stopped: 'cancelled', check: 'waiting', qafail: 'waiting', qaforce: 'waiting' };
+// step states: d done, a active, w waiting on you, f failed, s stopped, p pending; cr = credits per step
+const RUNS = {
+  running: { spent: 1920, cap: 5000, calls: 23, time: [6, 12], st: 'ddddapppp', cr: [40, 260, 620, 30, 970], note: 4 },
+  waiting: { spent: 3040, cap: 5000, calls: 36, time: [14, 40], st: 'ddddddddw', cr: [40, 260, 620, 30, 1520, 0, 260, 310, 0], note: 8 },
+  done: { spent: 3140, cap: 5000, calls: 38, time: [16, 5], st: 'ddddddddd', cr: [40, 260, 620, 30, 1520, 0, 260, 310, 100], refund: 1860 },
+  failed: { spent: 1920, cap: 5000, calls: 24, time: [7, 30], st: 'ddddfpppp', cr: [40, 260, 620, 30, 970], note: 4, refund: 3080 },
+  budget: { spent: 2960, cap: 3000, calls: 34, time: [13, 51], st: 'dddddddwp', cr: [40, 260, 620, 30, 1520, 0, 260, 230], note: 7 },
+  challenge: { spent: 540, cap: 5000, calls: 9, time: [2, 48], st: 'ddwpppppp', cr: [40, 260, 240], note: 2 },
+  cancelled: { spent: 760, cap: 5000, calls: 12, time: [3, 20], st: 'ddspppppp', cr: [40, 260, 460], note: 2, refund: 4240 }
+};
+// id, initials, colour, status, ready, total, failed, answers this week, helpful %, earned this month, fee, task, category, zh name, en name
+const MREES = [
+  ['mine', '新加', 0, 'priv', 11, 11, 0, 0, 0, 0, 0, 'wait', 'professional', '新加坡雇佣法问答', 'Singapore Employment Law Q&A'],
+  ['hdb', 'HDB', 4, 'priv', 7, 11, 0, 0, 0, 0, 0, 'run', 'life', 'HDB 组屋转售指南', 'HDB Resale Flat Guide'],
+  ['sgtax', '个税', 3, 'pub', 18, 18, 0, 41, 88, 1230, 10, '', 'professional', '新加坡个人所得税', 'Singapore Income Tax'],
+  ['pr', 'PR', 1, 'unpub', 9, 9, 0, 0, 0, 0, 0, '', 'professional', '新加坡 PR 申请', 'Singapore PR Applications'],
+  ['notes', '读书', 5, 'priv', 32, 34, 2, 6, 0, 0, 0, '', 'learning', '2026 读书笔记', 'Reading Notes 2026'],
+  ['old', '手册', 2, 'mod', 24, 24, 0, 0, 0, 0, 0, '', 'business', '公司员工手册 2023', 'Company Handbook 2023']
+];
+const MX = {
+  zh: {
+    title: '我的 Ree', lede: '你建的 Ree，和 re0 正在帮你做的事。', manual: '手动设置', tManual: '原型：打开现在的三步向导（/rees/new）',
+    ph: '帮我建一个关于……的 Ree', boxLbl: '让 re0 建一个 Ree', boxHint: '说一个主题就行：re0 会找资料、建 Ree、自己出题测一测，发布前再问你。',
+    ex: ['帮我建一个讲新加坡 PR 申请的 Ree', '把这几个网址做成一个 Ree', '把我的读书笔记整理成一个 Ree'],
+    stats: [['1', '已发布'], ['47', '本周回答'], ['1,230', '本月收入 · credits'], ['101 / 107', '知识来源就绪']],
+    tasks: '任务', tasksN: '1 个等你确认 · 1 个在跑 · 最多同时 2 个', allTasks: '全部任务', tAll: '原型：/agent 列出所有任务', recent: '最近完成',
+    created: '我创建的', favs: '我的收藏', filters: ['全部 Ree', '公开', '仅自己', '已发布', '未发布'], search: '搜索我的 Ree', searchLbl: '搜索名称、简介或标签', sort: '排序', sorts: ['默认顺序', '名称', '知识来源从多到少', '成功回答从多到少'],
+    vCards: '卡片视图', vList: '列表视图', select: '选择', tList: '原型：列表视图沿用现在的表格（公开状态、知识来源、成功回答、管理）', tSelect: '原型：进入选择模式，可以批量设为公开或私有（一次最多 100 个）',
+    st: { pub: '公开 · 已发布', unpub: '公开 · 未发布', priv: '仅自己', mod: '已下架' },
+    building: n => `re0 正在建 · ${n} / 9`, waiting: '等你确认发布',
+    ready: n => `${n} 个来源全部就绪`, busy: (r, t) => `${r} / ${t} 就绪 · ${t - r} 个处理中`, bad: (r, t, f) => `${r} / ${t} 就绪 · ${f} 个失败`, modNote: '管理员下架了它，现在只有你能看到',
+    week: '本周回答', helpful: '有帮助', earned: '本月收入', noFee: '无查询费',
+    know: '知识库', statsB: '统计', settings: '设置', more: '更多操作', publish: '发布', review: '去确认发布', viewTask: '查看任务',
+    menu: ['打开公开页', '视频介绍', '用访客身份看', '暂停发布'], menuPriv: ['视频介绍', '设为公开', '删除'],
+    tOwner: '原型：会打开对应的管理页', tPublish: '原型：人手动发布时照现状直接发布；后台另跑一次同样的 QA，只统计不拦（§7.4）',
+    draftT: '没做完的手动设置', draftP: '第 2 步，共 3 步 · 名字：港股打新笔记 · 昨天 21:40 保存', draftGo: '继续设置', draftDrop: '丢弃', tDraft: '原型：回到向导第 2 步', tDrop: '原型：会先确认，再丢弃这份草稿',
+    emptyT: '还没有 Ree', emptyP: '在上面的框里说一个主题，re0 会找资料、建一个只有你能看的 Ree、自己出题测一测，发布前再问你。第一次平台请客，最多 5,000 credits。', emptyOr: '想自己一步步来？',
+    cmdText: '帮我建一个讲新加坡 PR 申请的 Ree，资料用 ICA 官网的', newT: '要让 re0 建「新加坡 PR 申请」吗？', newP: 're0 会去 ICA 官网找资料、建一个只有你能看的 Ree、自己出题测一测，发布前再来问你。', slots: '现在有 1 个任务在跑，最多同时 2 个',
+    started: t => `今天 ${t} 开始`, stepOf: n => `第 ${n} 步，共 9 步`, openRun: '查看进度', confirm: '去确认', stop: '停止', tStop: '原型：先弹出停止确认（见任务页）',
+    recentRows: [['done', '新加坡个人所得税', '11 月 24 日 · 花了 3,210 · 退回 1,790', 'done'], ['cancelled', '日本签证问答', '11 月 20 日 · 你停止了 · 花了 760 · 退回 4,240', 'stopped']], see: '查看',
+    steps: ['了解需求', '找资料', '读网页、选来源', '建 Ree', '加知识', '等待处理', '写介绍和示例问题', '自测', '报告'],
+    notes: { running: '7 / 11 个来源已就绪', waiting: '等你确认发布', failed: 'Ree 已被删除', budget: '预算不够，等你追加', challenge: 'sso.agc.gov.sg 要求人机验证', cancelled: '你停止了任务' },
+    rs: { running: '运行中', waiting: '等你确认', done: '完成', failed: '失败', budget: '预算用完', challenge: '被网站拦截', cancelled: '已停止' },
+    runTitle: '新加坡雇佣法问答', back: '我的 Ree', kind: '建 Ree', startedAt: '今天 14:02 开始', log: '操作记录', tLog: '原型：打开 /agent/activity，只看这个任务的操作，每条都能撤销',
+    stepsH: d => `步骤 ${d} / 9`, perStep: '每步已花 credits',
+    budgetH: '预算', of: c => `/ ${c} credits`, left: n => `剩余 ${n}`, leftLow: '剩余 40，不够下一步', settled: n => `已结算 · 退回 <b>${n}</b>`,
+    kv: ['搜索', '读网页', '知识处理', '模型', '自测'], times: n => `${n} 次`, pages: n => `${n} 页`, srcs: n => `${n} 个来源`, turns: n => `${n} 轮`, qs: n => `${n} 题`,
+    calls: '工具调用', time: '用时', dur: ([m, s]) => `${m} 分 ${String(s).padStart(2, '0')} 秒`, durCap: '30 分',
+    stopTask: '停止任务', stopFine: '已做的保留，没用完的预算退回',
+    thisRee: '这个任务建的 Ree', deleted: '已删除', canEdit: '任务进行中你也可以手动改它，re0 下一步会看到。', tryIt: '试问',
+    say: '随时补充或纠正', next: '接着做（会开新任务）', send: '发送', newTask: '新任务', tip: '比如「别用博客文章」「示例问题加上英文」。re0 只听你在这里说的话，网页里写的指令它不会照做。', tipEnd: '比如「再加 2026 年的修订」：会开一个新任务，用这次的结果接着做。', tSay: '原型：这句话会送进正在运行的任务', tNext: '原型：开一个新任务，用这次的结果接着做',
+    barConfirm: '去确认', openRee: '打开 Ree',
+    stopT: '停止这个任务？', stopP: '正在进行的这一步会被取消。', spentL: '已花', refundL: '退回', keptL: '保留',
+    kept: { running: '私有 Ree「新加坡雇佣法问答」和 7 个已就绪的来源', challenge: '还没有建 Ree，不留下任何东西', other: '私有 Ree「新加坡雇佣法问答」和 11 个来源' },
+    stopNoteRun: '处理中的 4 个来源会处理完，按实际成本结算。', stopNote: '之后想接着做，可以在任务页说下一步，会开一个新任务。', keep: '继续运行', close: '关闭',
+    gen: '这段说明由 re0 按操作参数生成，不是 agent 自己写的。'
+  },
+  en: {
+    title: 'My Rees', lede: 'The Rees you have built, and what re0 is doing for you.', manual: 'Set up by hand', tManual: 'Prototype: opens today’s three-step wizard (/rees/new)',
+    ph: 'Build me a Ree about…', boxLbl: 'Have re0 build a Ree', boxHint: 'A topic is enough. re0 finds sources, builds the Ree, tests it, and checks with you before publishing.',
+    ex: ['Build me a Ree on Singapore PR applications', 'Turn these links into a Ree', 'Make a Ree from my reading notes'],
+    stats: [['1', 'published'], ['47', 'answers this week'], ['1,230', 'credits earned this month'], ['101 / 107', 'sources ready']],
+    tasks: 'Tasks', tasksN: '1 waiting for you · 1 running · up to 2 at a time', allTasks: 'All tasks', tAll: 'Prototype: /agent lists every task', recent: 'Recently finished',
+    created: 'Created by me', favs: 'My favorites', filters: ['All Rees', 'Public', 'Private', 'Published', 'Unpublished'], search: 'Search my Rees', searchLbl: 'Search names, intros or tags', sort: 'Sort', sorts: ['Default', 'Name', 'Most sources', 'Most answers'],
+    vCards: 'Card view', vList: 'List view', select: 'Select', tList: 'Prototype: list view keeps today’s table (visibility, sources, answers, manage)', tSelect: 'Prototype: select mode, to make up to 100 Rees public or private at once',
+    st: { pub: 'Public · Published', unpub: 'Public · Unpublished', priv: 'Private', mod: 'Taken down' },
+    building: n => `re0 is building · ${n} of 9`, waiting: 'Waiting for you to publish',
+    ready: n => `All ${n} sources ready`, busy: (r, t) => `${r} of ${t} ready · ${t - r} processing`, bad: (r, t, f) => `${r} of ${t} ready · ${f} failed`, modNote: 'An admin took it down; only you can see it',
+    week: 'Answers this week', helpful: 'Helpful', earned: 'Earned this month', noFee: 'No fee',
+    know: 'Knowledge', statsB: 'Stats', settings: 'Settings', more: 'More actions', publish: 'Publish', review: 'Review', viewTask: 'View task',
+    menu: ['Open public page', 'Video intro', 'View as visitor', 'Unpublish'], menuPriv: ['Video intro', 'Make public', 'Delete'],
+    tOwner: 'Prototype: opens that management page', tPublish: 'Prototype: publishing by hand works as today; the same QA runs in the background for stats only (§7.4)',
+    draftT: 'Unfinished setup', draftP: 'Step 2 of 3 · Name: HK IPO Subscription Notes · saved yesterday 21:40', draftGo: 'Continue', draftDrop: 'Discard', tDraft: 'Prototype: back to step 2 of the wizard', tDrop: 'Prototype: asks first, then discards the draft',
+    emptyT: 'No Rees yet', emptyP: 'Name a topic in the box above. re0 finds sources, builds a private Ree, tests it, and checks with you before publishing. Your first one is on us, up to 5,000 credits.', emptyOr: 'Rather do it step by step?',
+    cmdText: 'Build me a Ree on Singapore PR applications, using the ICA website', newT: 'Have re0 build “Singapore PR applications”?', newP: 're0 will gather sources from the ICA website, build a private Ree, test it with its own questions, and check with you before publishing.', slots: '1 task is running; up to 2 can run at once',
+    started: t => `started today ${t}`, stepOf: n => `step ${n} of 9`, openRun: 'View progress', confirm: 'Review', stop: 'Stop', tStop: 'Prototype: asks before stopping (see the task page)',
+    recentRows: [['done', 'Singapore Income Tax', '24 Nov · spent 3,210 · 1,790 refunded', 'done'], ['cancelled', 'Japan Visa Q&A', '20 Nov · you stopped it · spent 760 · 4,240 refunded', 'stopped']], see: 'View',
+    steps: ['Understand the ask', 'Search', 'Read and pick sources', 'Create the Ree', 'Add knowledge', 'Wait for processing', 'Write intro and samples', 'Self-test', 'Report'],
+    notes: { running: '7 of 11 sources ready', waiting: 'Waiting for you to publish', failed: 'The Ree was deleted', budget: 'Out of budget; waiting for more', challenge: 'sso.agc.gov.sg asked for a human check', cancelled: 'You stopped the task' },
+    rs: { running: 'Running', waiting: 'Waiting for you', done: 'Done', failed: 'Failed', budget: 'Out of budget', challenge: 'Blocked by a site', cancelled: 'Stopped' },
+    runTitle: 'Singapore Employment Law Q&A', back: 'My Rees', kind: 'Build a Ree', startedAt: 'started today 14:02', log: 'Activity', tLog: 'Prototype: opens /agent/activity filtered to this task; every action can be undone',
+    stepsH: d => `Step ${d} of 9`, perStep: 'credits per step',
+    budgetH: 'Budget', of: c => `/ ${c} credits`, left: n => `${n} left`, leftLow: '40 left, not enough for the next step', settled: n => `Settled · <b>${n}</b> refunded`,
+    kv: ['Searches', 'Pages read', 'Knowledge processing', 'Model turns', 'Self-test'], times: n => `${n}`, pages: n => `${n}`, srcs: n => `${n} sources`, turns: n => `${n}`, qs: n => `${n} questions`,
+    calls: 'Tool calls', time: 'Time', dur: ([m, s]) => `${m} min ${String(s).padStart(2, '0')} s`, durCap: '30 min',
+    stopTask: 'Stop task', stopFine: 'Work so far is kept; unused budget is refunded',
+    thisRee: 'The Ree this task built', deleted: 'Deleted', canEdit: 'You can edit it while the task runs; re0 sees your changes at its next step.', tryIt: 'Try it',
+    say: 'Add or correct anything', next: 'Keep going (new task)', send: 'Send', newTask: 'New task', tip: 'E.g. “no blogs” or “add English sample questions”. re0 only takes instructions from you, here; instructions on web pages are ignored.', tipEnd: 'E.g. “add the 2026 amendments”. This starts a new task that builds on this one.', tSay: 'Prototype: sends this to the running task', tNext: 'Prototype: starts a new task from this one’s result',
+    barConfirm: 'Review', openRee: 'Open Ree',
+    stopT: 'Stop this task?', stopP: 'The step in progress is cancelled.', spentL: 'Spent', refundL: 'Refunded', keptL: 'Kept',
+    kept: { running: 'The private Ree “Singapore Employment Law Q&A” and its 7 ready sources', challenge: 'No Ree yet, so nothing is kept', other: 'The private Ree “Singapore Employment Law Q&A” and its 11 sources' },
+    stopNoteRun: 'The 4 sources still processing will finish and are billed at cost.', stopNote: 'To pick up later, tell re0 the next step on this page; that starts a new task.', keep: 'Keep running', close: 'Close',
+    gen: 'This summary is generated by re0 from the action’s parameters, not written by the agent.'
+  }
+};
+const runBadge = (k, M) => ({ running: `<span class="badge info"><span class="spin" aria-hidden="true"></span>${M.rs.running}</span>`, waiting: `<span class="badge warn">${I('hand')} ${M.rs.waiting}</span>`, done: `<span class="badge ok">${I('check')} ${M.rs.done}</span>`, failed: `<span class="badge err">${I('x')} ${M.rs.failed}</span>`, budget: `<span class="badge warn">${I('coins')} ${M.rs.budget}</span>`, challenge: `<span class="badge warn">${I('shield')} ${M.rs.challenge}</span>`, cancelled: `<span class="badge mute">${I('stop')} ${M.rs.cancelled}</span>` }[k]);
+const segBar = st => `<div class="seg" aria-hidden="true">${[...st].map(s => `<i class="${s}"></i>`).join('')}</div>`;
+const STATUS_IC = { pub: ['ok', 'globe'], unpub: ['info', 'lock'], priv: ['mute', 'lock'], mod: ['err', 'shield'] };
+
+function ownerCard(r, i, lang) {
+  const M = MX[lang], X = XT[lang];
+  const [id, ini, ci, status, ready, total, failedN, wk, help, earn, fee, task, cat, zhN, enN] = r;
+  const name = lang === 'en' ? enN : zhN;
+  const sIc = STATUS_IC[status];
+  const tags = `<span class="badge ${sIc[0]}">${I(sIc[1])} ${M.st[status]}</span>${task === 'run' ? `<span class="badge info"><span class="spin" aria-hidden="true"></span>${M.building(5)}</span>` : task === 'wait' ? `<span class="badge warn">${I('hand')} ${M.waiting}</span>` : ''}`;
+  const kr = status === 'mod' ? `<p class="kr mod">${I('shield')} ${M.modNote}</p>`
+    : failedN ? `<a class="kr bad" href="#">${I('alert')} ${M.bad(ready, total, failedN)}</a>`
+    : ready < total ? `<p class="kr busy"><span class="spin" aria-hidden="true"></span>${M.busy(ready, total)}</p>`
+    : `<p class="kr ok">${I('check')} ${M.ready(total)}</p>`;
+  const om = `<div class="om"><a href="#" data-act="toast" data-msg="${M.tOwner}"><b>${wk ? fmt(wk) : '—'}</b><small>${M.week}</small></a><a href="#" data-act="toast" data-msg="${M.tOwner}"><b>${help ? help + '%' : '—'}</b><small>${M.helpful}</small></a><a href="#" data-act="toast" data-msg="${M.tOwner}"><b>${fee ? fmt(earn) : '—'}</b><small>${fee ? M.earned : M.noFee}</small></a></div>`;
+  const menuItems = status === 'pub' ? M.menu : M.menuPriv;
+  const more = `<div class="qa-menu"><button class="ib-sm" aria-label="${M.more}" title="${M.more}" aria-haspopup="menu" aria-expanded="false" data-act="qamenu">${I('more')}</button><div class="qm" role="menu">${menuItems.map(m => `<button role="menuitem" data-act="toast" data-msg="${M.tOwner}">${m}</button>`).join('')}</div></div>`;
+  const setIc = `<button class="ib-sm" aria-label="${M.settings}" title="${M.settings}" data-act="toast" data-msg="${M.tOwner}">${I('pen')}</button>`;
+  const foot = task === 'wait' ? `<button class="bt1 sm" data-go="mine" data-state="wait">${I('hand')} ${M.review}</button><button class="bt2 sm" data-act="toast" data-msg="${M.tOwner}">${I('book')} ${M.know}</button><span class="sp"></span>${more}`
+    : task === 'run' ? `<button class="bt2 sm" data-go="mine" data-state="run">${I('spark')} ${M.viewTask}</button><button class="bt2 sm" data-act="toast" data-msg="${M.tOwner}">${I('book')} ${M.know}</button><span class="sp"></span>${more}`
+    : status === 'unpub' ? `<button class="bt1 sm" data-act="toast" data-msg="${M.tPublish}">${I('globe')} ${M.publish}</button><button class="bt2 sm" data-act="toast" data-msg="${M.tOwner}">${I('book')} ${M.know}</button><span class="sp"></span>${setIc}${more}`
+    : `<button class="bt2 sm" data-act="toast" data-msg="${M.tOwner}">${I('book')} ${M.know}</button><button class="bt2 sm" data-act="toast" data-msg="${M.tOwner}">${I('chart')} ${M.statsB}</button><span class="sp"></span>${setIc}${more}`;
+  const href = task === 'run' ? '#mine-run' : task === 'wait' ? '#mine-wait' : '#ree-own';
+  return `<article class="rcard ocard"><a class="rc-cov" href="${href}" aria-label="${esc(name)}">${cover(id, ini, ci, { lang, noVideo: 1 })}<span class="cov-tags">${tags}</span></a>
+    <div class="rc-body"><div class="rc-top">${avatar('a', ini, ci)}<div class="rc-id"><b>${esc(name)}</b><small>${catName(cat, X)}<span>·</span>${X.price(fee)}</small></div></div>
+    ${kr}${om}<div class="rc-foot">${foot}</div></div></article>`;
+}
+function draftCard(lang) {
+  const M = MX[lang];
+  return `<article class="rcard ocard draft"><div class="sug-h"><span class="sug-ic">${I('pen')}</span><div><b>${M.draftT}</b><p>${M.draftP}</p></div></div>
+    <div class="rc-foot"><button class="bt2 sm" data-act="toast" data-msg="${M.tDraft}">${I('arrow')} ${M.draftGo}</button><button class="ic-t" data-act="toast" data-msg="${M.tDrop}">${I('trash')} ${M.draftDrop}</button></div></article>`;
+}
+function taskCard(kind, lang) {
+  const M = MX[lang];
+  if (kind === 'wait') return `<article class="tkc wait"><div class="tkc-top">${runBadge('waiting', M)}<span>#7Q2K · ${M.started('14:02')}</span></div><b class="tt">${M.runTitle}</b>${segBar('ddddddddw')}
+    <p class="tkc-now">${I('hand')} ${M.notes.waiting} <small>· ${M.stepOf(9)}</small></p>
+    <div class="tkc-foot"><span class="money">${I('coins')} <b>3,040</b> / 5,000</span><span class="sp"></span><button class="bt1 sm" data-go="mine" data-state="wait">${I('hand')} ${M.confirm}</button></div></article>`;
+  return `<article class="tkc"><div class="tkc-top">${runBadge('running', M)}<span>#8M3D · ${M.started('15:20')}</span></div><b class="tt">${lang === 'en' ? 'HDB Resale Flat Guide' : 'HDB 组屋转售指南'}</b>${segBar('ddddapppp')}
+    <p class="tkc-now"><span class="spin" aria-hidden="true"></span>${M.steps[4]} <small>· ${M.notes.running} · ${M.stepOf(5)}</small></p>
+    <div class="tkc-foot"><span class="money">${I('coins')} <b>1,240</b> / 5,000</span><span class="sp"></span><button class="ib-sm err" aria-label="${M.stop}" title="${M.stop}" data-act="toast" data-msg="${M.tStop}">${I('stop')}</button><button class="bt2 sm" data-go="mine" data-state="run">${M.openRun} ${I('arrow')}</button></div></article>`;
+}
+function stepsCard(k, lang) {
+  const M = MX[lang], R = RUNS[k];
+  const done = [...R.st].filter(s => s === 'd').length;
+  const rows = M.steps.map((n, i) => {
+    const s = R.st[i];
+    const ic = { d: I('check'), a: '<span class="spin" aria-hidden="true"></span>', w: I('hand'), f: I('x'), s: I('stop'), p: '' }[s];
+    return `<div class="step ${s}"><span class="ic">${ic}</span><span class="nm">${n}${R.note === i ? `<span class="nt">${M.notes[k]}</span>` : ''}</span><span class="cr">${R.cr[i] !== undefined ? fmt(R.cr[i]) : '—'}</span></div>`;
+  }).join('');
+  return `<div class="steps"><div class="steps-h"><b>${M.stepsH(done)}</b><span>${M.perStep}</span></div>${segBar(R.st)}${rows}</div>`;
+}
+function confirmCard(kind, status, lang) {
+  const z = lang === 'zh', M = MX[lang];
+  const gen = `<p class="cc-gen">${I('shield')} ${M.gen}</p>`;
+  if (kind === 'publish') return `<div class="cc"><div class="cc-h"><span class="cc-ic">${I('globe')}</span><div><p class="cc-k">${z ? '需要你确认 · 发布' : 'Needs your OK · publish'}</p><p class="cc-t">${z ? '公开并发布「新加坡雇佣法问答」' : 'Make “Singapore Employment Law Q&A” public and publish it'}</p></div></div>
+    <dl><dt>${z ? '会发生什么' : 'What happens'}</dt><dd>${z ? 'Ree 变成公开并出现在 Explore，所有人可以问它；介绍、来源数量和它在公开帖子里的回答所有人可见，知识正文不公开。' : 'It becomes public and shows in Explore, so anyone can ask it. The intro, the number of sources and its answers on public posts are visible to all; the knowledge itself stays private.'}</dd>
+    <dt>${z ? '查询费' : 'Creator fee'}</dt><dd>${z ? '0（提问的人只付 20 credits 基础费）' : '0 (askers pay the 20-credit base fee only)'}</dd><dt>${z ? '花费' : 'Cost'}</dt><dd>${z ? '不花 credits' : 'Free'}</dd><dt>${z ? '能否撤销' : 'Undo'}</dt><dd>${z ? '能：随时取消发布或改回私有' : 'Yes: unpublish or make it private any time'}</dd></dl>
+    <div class="cc-x"><div class="ln">${I('flask')} ${z ? '自测' : 'Self-test'} <b>6 / 6</b> <span class="pol ok">${I('check')} ${z ? 'QA 通过' : 'QA passed'}</span></div><div class="ln">${I('file')} ${z ? '11 个来源：' : '11 sources:'} <span class="pol attr">${z ? '需要署名 1' : 'attribution 1'}</span><span class="pol unk">${z ? '未核实 10' : 'unverified 10'}</span>${z ? '需要你确认有权使用' : 'you confirm you may use them'}</div></div>
+    ${gen}${status === 'approved' ? `<div class="cc-done">${I('check')} ${z ? '你在 14:31 确认了' : 'You confirmed at 14:31'}</div>` : `<div class="cc-f"><button class="bt1 sm" data-go="mine" data-state="check">${I('list')} ${z ? '检查并发布' : 'Check and publish'}</button><button class="bt2 sm" data-act="toast" data-msg="${z ? '原型：任务结束，Ree 保持私有' : 'Prototype: the task ends and the Ree stays private'}">${z ? '不发布，保持私有' : 'Keep it private'}</button><span class="fine">${z ? '12 月 3 日 14:16 前有效' : 'Open until 3 Dec, 14:16'}</span></div>`}</div>`;
+  if (kind === 'budget') return `<div class="cc warn"><div class="cc-h"><span class="cc-ic">${I('coins')}</span><div><p class="cc-k">${z ? '需要你确认 · 追加预算' : 'Needs your OK · more budget'}</p><p class="cc-t">${z ? '预算还剩 40 credits，自测需要约 220' : '40 credits left; the self-test needs about 220'}</p></div></div>
+    <dl><dt>${z ? '做到哪了' : 'Where it is'}</dt><dd>${z ? 'Ree 建好了，11 个来源全部就绪，介绍和示例问题也写好了，只差自测和报告。' : 'The Ree is built, all 11 sources are ready, and the intro and samples are written. Only the self-test and the report are left.'}</dd>
+    <dt>${z ? '追加' : 'Add'}</dt><dd><input class="mini-in" name="addbudget" value="1,000" inputmode="numeric" aria-label="${z ? '追加多少 credits' : 'Credits to add'}"> credits · ${z ? '没用完的退回' : 'unused is refunded'}</dd>
+    <dt>${z ? '不追加' : 'If not'}</dt><dd>${z ? '任务结束，Ree 保持私有，没有自测报告；以后发布前要重新自测。' : 'The task ends and the Ree stays private with no test report; it needs a self-test before it can be published.'}</dd></dl>
+    ${gen}<div class="cc-f"><button class="bt1 sm" data-go="mine" data-state="wait">${I('check')} ${z ? '追加并继续' : 'Add and continue'}</button><button class="bt2 sm" data-go="mine" data-state="stopped">${z ? '不追加，结束任务' : 'End the task'}</button><span class="fine">${z ? '7 天内有效' : 'Open for 7 days'}</span></div></div>`;
+  if (kind === 'decide') return `<div class="cc warn"><div class="cc-h"><span class="cc-ic">${I('hand')}</span><div><p class="cc-k">${z ? '需要你决定' : 'Your call'}</p><p class="cc-t">${z ? '只用 MOM 指南继续，还是结束任务？' : 'Carry on with MOM guidance only, or end the task?'}</p></div></div>
+    <dl><dt>${z ? '继续' : 'Carry on'}</dt><dd>${z ? '用 8 个 MOM 页面建 Ree，预计再花约 2,200 credits。之后你可以在知识库手动加法规原文。' : 'Build the Ree from the 8 MOM pages, about 2,200 more credits. You can add the statutes by hand in Knowledge later.'}</dd>
+    <dt>${z ? '结束' : 'End'}</dt><dd>${z ? '不建 Ree，已花 540 credits，退回 4,460。' : 'No Ree is built. 540 credits spent, 4,460 refunded.'}</dd></dl>
+    <div class="cc-f"><button class="bt1 sm" data-go="mine" data-state="run">${I('check')} ${z ? '只用 MOM 继续' : 'Carry on with MOM'}</button><button class="bt2 sm" data-go="mine" data-state="stopped">${z ? '结束任务' : 'End task'}</button><span class="fine">${z ? '7 天内有效' : 'Open for 7 days'}</span></div></div>`;
+  return '';
+}
+const TOOL_IC = { web_search: 'search', read_page: 'file', create_ree: 'plus', add_knowledge: 'book', list_knowledge: 'list', update_ree: 'pen', run_self_test: 'flask', publish_ree: 'globe' };
+function tkBlocks(s, lang) {
+  const z = lang === 'zh', M = MX[lang], R = RUNS[s], b = [];
+  const tool = (name, sum, cost, rows, cls = '') => `<details class="tool ${cls}"><summary>${I(TOOL_IC[name] || 'cpu')}<span class="tn">${name}</span><span class="ts">${sum}</span><span class="tc">${cost}</span>${I('chev', 'chev')}</summary><div class="tb">${rows.map(([k, v]) => `<div><span class="k">${k}:</span> ${v}</div>`).join('')}</div></details>`;
+  const TOOLS = list => `<div class="tools">${list.join('')}</div>`;
+  const AG = (time, html) => `<div class="tl-a"><span class="re-av" aria-hidden="true">0</span><div><div class="tl-who"><b>re0</b><span>${time}</span></div><div class="tl-b">${html}</div></div></div>`;
+  const ME = (time, text) => `<div class="tl-me"><small>${time}</small><div class="pc-q">${text}</div><span class="uav me">LW</span></div>`;
+  const SYS = text => `<div class="rdiv">${text}</div>`;
+  const CARD = html => `<div class="tl-card">${html}</div>`;
+  const mom = p => `www.mom.gov.sg/employment-practices/${p}`;
+  b.push(ME('14:02', z ? '帮我建一个新加坡雇佣法问答 Ree：用官方来源，回答年假、病假、加班费、解雇通知期这类常见问题，中文和英文都能问。' : 'Build me a Singapore employment law Q&A Ree. Use official sources, cover annual leave, sick leave, overtime pay and notice periods, and answer in Chinese and English.'));
+  b.push(AG('14:02', z ? `<p>好。我会先找新加坡政府的官方来源，建一个私有 Ree，把选好的网页加成知识，写介绍和示例问题，再用 6 个问题自测。发布前会请你确认。预算上限 ${fmt(R.cap)} credits。</p>` : `<p>Sure. I'll look for official Singapore government sources, create a private Ree, add the pages I pick as knowledge, write the intro and sample questions, then test it with 6 questions. I'll ask you before publishing. Budget cap: ${fmt(R.cap)} credits.</p>`));
+  b.push(TOOLS([
+    tool('web_search', 'Singapore Employment Act annual leave sick leave overtime notice period', '76', [['query', '"Singapore Employment Act annual leave sick leave overtime notice period"'], ['limit', '10'], ['result', z ? '10 条，去掉 1 条：mas.gov.sg（来源策略：禁止使用）' : '10 results; dropped 1 from mas.gov.sg (source policy: deny)']]),
+    tool('web_search', 'MOM employment practices leave salary termination', '76', [['query', '"MOM employment practices leave salary termination"'], ['result', z ? '9 条' : '9 results']]),
+    tool('web_search', '新加坡 雇佣法 年假 加班费 通知期', '76', [['result', z ? '8 条，其中 5 条是博客和律所文章' : '8 results, 5 of them blogs and law-firm articles']])
+  ]));
+  if (s === 'challenge') {
+    b.push(TOOLS([
+      tool('read_page', mom('leave/annual-leave'), '38', [['url', 'https://' + mom('leave/annual-leave')], ['result', z ? 'Markdown 6,420 字' : 'Markdown, 6,420 characters'], ['policy', z ? '未核实（不在来源策略表里）' : 'unverified (not in the source policy table)']]),
+      tool('read_page', mom('hours-of-work-overtime-and-rest-days'), '38', [['result', z ? 'Markdown 8,910 字' : 'Markdown, 8,910 characters']]),
+      tool('read_page', 'sso.agc.gov.sg/Act/EmA1968', '38', [['url', 'https://sso.agc.gov.sg/Act/EmA1968'], ['response', 'HTTP 202 · x-amzn-waf-action: challenge'], ['result', z ? 'bot_challenge：本任务不再访问 sso.agc.gov.sg' : 'bot_challenge: this task will not visit sso.agc.gov.sg again']], 'warn')
+    ]));
+    b.push(AG('14:05', `<div class="note n-warn">${I('shield')}<span>${z ? '<b>sso.agc.gov.sg 要求人机验证，我停止访问这个网站。</b><br>这是新加坡法规原文（Singapore Statutes Online）。我不会重试，也不会换方式绕过验证。' : '<b>sso.agc.gov.sg asked for a human check, so I have stopped visiting it.</b><br>It hosts the statutes themselves (Singapore Statutes Online). I won’t retry or try to get around the check.'}</span></div>
+      <p>${z ? '没有法规原文，现在能用的是 MOM 的 8 个指南页：年假、病假、加班、通知期都有，但回答引用不到 Employment Act 的条文。你想怎么做？' : 'Without the statutes I have 8 MOM guidance pages. They cover leave, overtime and notice periods, but answers won’t be able to cite sections of the Employment Act. How do you want to go on?'}</p>`));
+    b.push(CARD(confirmCard('decide', 'pending', lang)));
+    return b;
+  }
+  const reads = [
+    tool('read_page', 'sso.agc.gov.sg/Act/EmA1968 · Employment Act 1968', '38', [['url', 'https://sso.agc.gov.sg/Act/EmA1968'], ['result', z ? 'Markdown 20,000 字（已截断）' : 'Markdown, 20,000 characters (truncated)'], ['policy', z ? '需要署名 · 抓取时段 03:00–07:00 SGT，并发 1' : 'attribution · crawl window 03:00–07:00 SGT, one request at a time']]),
+    tool('read_page', mom('leave/annual-leave'), '38', [['result', z ? 'Markdown 6,420 字' : 'Markdown, 6,420 characters'], ['policy', z ? '未核实' : 'unverified']]),
+    tool('read_page', z ? '还读了 7 个网页（MOM 6 个、TAL 1 个）' : '7 more pages (6 MOM, 1 TAL)', '266', [['pages', 'sick-leave · hours-of-work-overtime-and-rest-days · salary/payment-of-salary · termination-of-employment/notice-period · public-holidays-entitlement-and-pay · employment-act/who-is-covered · tal.sg/tafep/tripartite-standards']])
+  ];
+  if (s === 'cancelled') {
+    b.push(TOOLS(reads.slice(0, 2).concat([tool('read_page', mom('leave/sick-leave'), '38', [['status', z ? '你停止任务时被取消' : 'cancelled when you stopped the task']], 'bad')])));
+    b.push(SYS(z ? '14:05 · 你停止了任务' : '14:05 · You stopped the task'));
+    b.push(CARD(`<div class="cc mute"><div class="cc-h"><span class="cc-ic">${I('stop')}</span><div><p class="cc-k">${z ? '报告' : 'Report'}</p><p class="cc-t">${z ? '任务已停止' : 'Task stopped'}</p></div></div>
+      <ul class="rep"><li>${I('check')}<span>${z ? '找了 3 次资料，读了 3 个网页。还没有建 Ree，所以没有留下任何东西。' : 'Searched 3 times and read 3 pages. No Ree had been created yet, so nothing was left behind.'}</span></li><li>${I('coins')}<span>${z ? '花了 760 credits，退回 4,240。' : 'Spent 760 credits; 4,240 refunded.'}</span></li></ul>
+      <div class="cc-f"><button class="bt2 sm" data-go="mine" data-state="run">${I('refresh')} ${z ? '用同样的要求重新开始' : 'Start again with the same ask'}</button></div></div>`));
+    return b;
+  }
+  b.push(TOOLS(reads));
+  b.push(AG('14:04', z ? '<p>选了 12 个来源：</p><ul><li>法规原文 1 个：Employment Act 1968（Singapore Statutes Online，<span class="pol attr">需要署名</span>）</li><li>MOM 指南 10 个（<span class="pol unk">未核实</span>，发布前要你确认有权使用）</li><li>TAL 三方标准 1 个</li></ul><p>跳过了 5 篇博客和律所文章：不是官方来源，内容可能过时。</p>' : '<p>I picked 12 sources:</p><ul><li>1 statute: Employment Act 1968 (Singapore Statutes Online, <span class="pol attr">attribution</span>)</li><li>10 MOM guidance pages (<span class="pol unk">unverified</span>; you confirm you may use them before publishing)</li><li>1 TAL tripartite standard</li></ul><p>I skipped 5 blogs and law-firm articles: not official, and they may be out of date.</p>'));
+  b.push(ME('14:04', z ? 'TAL 的不要，只用政府网站。' : 'Drop TAL. Government sites only.'));
+  b.push(AG('14:04', z ? '<p>好，去掉 tal.sg，剩 11 个来源。</p>' : '<p>Done: tal.sg is out, 11 sources left.</p>'));
+  const partial = s === 'running' || s === 'failed';
+  b.push(TOOLS([
+    tool('create_ree', z ? '新加坡雇佣法问答 · 私有 · 未发布' : 'Singapore Employment Law Q&A · private · unpublished', '30', [['name', z ? '"新加坡雇佣法问答"' : '"Singapore Employment Law Q&A"'], ['is_public', z ? 'false（站内任务一律私有）' : 'false (site tasks always create private Rees)'], ['result', 'ree_7Q2K… · slug sg-employment-law-qa']]),
+    tool('add_knowledge', partial ? (z ? '加了 11 个网页 · 7 个已就绪，4 个处理中' : 'Added 11 pages · 7 ready, 4 processing') : (z ? '加了 11 个网页 · 全部就绪' : 'Added 11 pages · all ready'), partial ? '970' : '1,520', [['kind', 'page × 11'], ['reuse', z ? '8 个网页 10 分钟内刚读过，复用内容，没有再付抓取费' : '8 pages were read in the last 10 minutes, so their content was reused without paying to fetch again'], ['status', partial ? 'ready 7 · processing 4' : 'ready 11']], s === 'running' ? 'live' : '')
+  ]));
+  if (s === 'running') return b;
+  if (s === 'failed') {
+    b.push(TOOLS([tool('list_knowledge', 'ree_7Q2K…', '0', [['error', z ? 'not_found：这个 Ree 不存在或已删除' : 'not_found: this Ree doesn’t exist or was deleted']], 'bad')]));
+    b.push(CARD(`<div class="cc err"><div class="cc-h"><span class="cc-ic">${I('alert')}</span><div><p class="cc-k">${z ? '报告' : 'Report'}</p><p class="cc-t">${z ? '任务失败：它建的 Ree 已被删除' : 'Task failed: the Ree it built was deleted'}</p></div></div>
+      <p class="cc-p">${z ? '14:09 有人在「我的 Ree」删除了「新加坡雇佣法问答」，之后的步骤都做不了。已花 1,920 credits，退回 3,080。' : 'At 14:09 “Singapore Employment Law Q&A” was deleted from My Rees, so the remaining steps couldn’t run. 1,920 credits spent, 3,080 refunded.'}</p>
+      <div class="cc-f"><button class="bt2 sm" data-go="mine" data-state="run">${I('refresh')} ${z ? '用同样的要求重新开始' : 'Start again with the same ask'}</button><button class="ic-t" data-act="toast" data-msg="${M.tLog}">${I('activity')} ${z ? '这个任务做过的操作' : 'What this task did'}</button></div></div>`));
+    return b;
+  }
+  b.push(SYS(z ? '14:13 · 11 个来源全部就绪' : '14:13 · All 11 sources ready'));
+  b.push(TOOLS([tool('update_ree', z ? '介绍、5 条示例问题、标签' : 'Intro, 5 sample questions, tags', '260', [['description', z ? '"根据新加坡人力部（MOM）指南和 Employment Act 回答年假、病假、加班、工资和解雇通知期等问题。法规原文来自 Singapore Statutes Online（新加坡总检察署）。"' : '"Answers questions on leave, overtime, pay and notice periods from Ministry of Manpower (MOM) guidance and the Employment Act. Statute text from Singapore Statutes Online (Attorney-General’s Chambers)."'], ['sample_questions', z ? '年假有几天？ · 加班费怎么算？ · 试用期辞退要提前通知吗？ · 病假需要医生证明吗？ · 公共假期上班怎么补偿？' : 'How many days of annual leave? · How is overtime paid? · Is notice needed during probation? · Do I need an MC for sick leave? · What do I get for working a public holiday?'], ['tags', z ? '雇佣法, 新加坡, 劳动, HR' : 'employment law, Singapore, labour, HR']])]));
+  if (s === 'budget') {
+    b.push(TOOLS([tool('run_self_test', z ? '6 道题 · 预计 220 credits' : '6 questions · about 220 credits', '—', [['error', z ? 'budget_exceeded：剩余 40 credits，这一步需要约 220' : 'budget_exceeded: 40 credits left, this step needs about 220']], 'bad')]));
+    b.push(CARD(confirmCard('budget', 'pending', lang)));
+    return b;
+  }
+  b.push(TOOLS([tool('run_self_test', z ? '6 道题 · 通过 6 / 6' : '6 questions · 6 of 6 passed', '310', [['questions', z ? '4 道应该能答 + 2 道不该答' : '4 it should answer + 2 it should decline'], ['result', z ? '能答 4/4 有答且引用正确 · 不该答 2/2 拒答' : 'should answer: 4/4 with correct citations · should decline: 2/2 declined'], ['report', 'ree_qa_report #QA-0412 · passed']])]));
+  b.push(AG('14:16', z ? '<p>做好了。「新加坡雇佣法问答」现在是私有的，只有你能问。11 个来源全部就绪，自测 6 题全部通过。</p><p>要发布的话，请先看一下来源和自测结果：www.mom.gov.sg 这个域名还没核实过（10 个来源都在它下面），需要你确认有权使用。</p>' : '<p>Done. “Singapore Employment Law Q&A” is private for now, so only you can ask it. All 11 sources are ready and it passed all 6 test questions.</p><p>To publish, check the sources and the test results first. www.mom.gov.sg hasn’t been verified (10 of the sources are on it), so you’ll need to confirm you may use it.</p>'));
+  b.push(CARD(confirmCard('publish', s === 'done' ? 'approved' : 'pending', lang)));
+  if (s === 'done') {
+    b.push(TOOLS([tool('publish_ree', z ? '设为公开并发布 · 确认 #CF-88' : 'Made public and published · confirmation #CF-88', '0', [['confirmation_id', z ? 'CF-88（你在 14:31 确认）' : 'CF-88 (you confirmed at 14:31)'], ['rights_ack', z ? 'www.mom.gov.sg：有权使用（你勾选）' : 'www.mom.gov.sg: may use (you ticked)'], ['result', 'published · /r/sg-employment-law-qa']])]));
+    const li = z ? ['建了「新加坡雇佣法问答」，加了 11 个来源（法规原文 1、MOM 指南 10）', '写了介绍、5 条示例问题和标签，介绍里写明了法规来源', '自测 6 / 6 通过，已按你的确认公开并发布，查询费 0', '花了 3,140 credits，退回 1,860'] : ['Built “Singapore Employment Law Q&A” with 11 sources (1 statute, 10 MOM pages)', 'Wrote the intro, 5 sample questions and tags; the intro credits the statute source', 'Passed the self-test 6 of 6; made public and published as you confirmed, creator fee 0', 'Spent 3,140 credits; 1,860 refunded'];
+    b.push(CARD(`<div class="cc ok"><div class="cc-h"><span class="cc-ic">${I('check')}</span><div><p class="cc-k">${z ? '报告 · 14:31' : 'Report · 14:31'}</p><p class="cc-t">${z ? '做完了' : 'All done'}</p></div></div>
+      <ul class="rep">${li.map((t, i) => `<li>${I(i === 3 ? 'coins' : 'check')}<span>${t}</span></li>`).join('')}</ul>
+      <div class="cc-f"><a class="bt1 sm" href="#ree-own">${I('arrow')} ${z ? '打开 Ree 页' : 'Open the Ree'}</a><button class="bt2 sm" data-act="toast" data-msg="${M.tOwner}">${I('book')} ${M.know}</button><button class="bt2 sm" data-act="toast" data-msg="${M.tLog}">${I('undo')} ${z ? '查看并撤销这些操作' : 'Review and undo'}</button></div></div>`));
+  }
+  return b;
+}
+function stopDlg(k, lang) {
+  const M = MX[lang], R = RUNS[k];
+  return `<div class="dlg-shade" data-act="stopclose-bg"><div class="dlg sm" role="dialog" aria-modal="true" aria-labelledby="stop-h">
+    <div class="dlg-h"><span class="cc-ic" style="background:var(--err-bg);color:var(--err-tx)">${I('stop')}</span><div><h2 id="stop-h">${M.stopT}</h2><p>${M.stopP}</p></div><button class="fav" aria-label="${M.close}" data-act="stopclose">${I('x')}</button></div>
+    <div class="dlg-b"><dl class="kv"><dt>${M.spentL}</dt><dd>${fmt(R.spent)} credits</dd><dt>${M.refundL}</dt><dd style="color:var(--ok-tx)">${fmt(R.cap - R.spent)} credits</dd><dt>${M.keptL}</dt><dd style="text-align:right;max-width:240px">${M.kept[k === 'running' ? 'running' : k === 'challenge' ? 'challenge' : 'other']}</dd></dl>
+      <p class="sp-note" style="margin:0">${k === 'running' ? M.stopNoteRun + ' ' : ''}${M.stopNote}</p></div>
+    <div class="dlg-f"><span class="sp"></span><button class="bt2" data-act="stopclose">${M.keep}</button><button class="bt-err solid" data-go="mine" data-state="stopped">${I('stop')} ${M.stopTask}</button></div></div></div>`;
+}
+const CK_SRC = [
+  ['Annual leave', 'leave/annual-leave'], ['Sick leave and hospitalisation leave', 'leave/sick-leave'], ['Hours of work, overtime and rest days', 'hours-of-work-overtime-and-rest-days'],
+  ['Payment of salary', 'salary/payment-of-salary'], ['Notice period for termination', 'termination-of-employment/notice-period'], ['Public holidays entitlement and pay', 'public-holidays-entitlement-and-pay'], ['Who is covered by the Employment Act', 'employment-act/who-is-covered']
+];
+const CK_QA = {
+  zh: [['pos', '员工一年有几天带薪年假？', '第一年 7 天，之后每满一年加 1 天，最多 14 天。[1]'], ['pos', '加班费怎么算？', '按每小时基本工资的 1.5 倍计，适用于月薪不超过 2,600 新元的非工人雇员……[2]'], ['pos', '试用期被辞退需要提前通知吗？', '工作不满 26 周的，通知期为 1 天，合同另有约定的按合同。[3]'], ['pos', 'Do I need a medical certificate for sick leave?', 'Yes, from a government or company-approved doctor or dentist… [4]'], ['neg', '马来西亚的最低工资是多少？', '拒答：我的知识里没有马来西亚的资料。'], ['neg', '新加坡个人所得税的最高税率是多少？', '拒答：我的知识只涉及雇佣法，没有税务资料。']],
+  en: [['pos', 'How many days of paid annual leave do employees get?', '7 days in the first year, plus 1 for each further year, up to 14. [1]'], ['pos', 'How is overtime paid?', 'At 1.5 times the hourly basic rate, for non-workmen earning up to $2,600 a month… [2]'], ['pos', 'Is notice needed if I’m let go during probation?', 'Under 26 weeks of service, one day’s notice, unless the contract says otherwise. [3]'], ['pos', '病假需要医生证明吗？', '需要，由政府或公司认可的医生或牙医开具……[4]'], ['neg', 'What is the minimum wage in Malaysia?', 'Declined: my knowledge has nothing on Malaysia.'], ['neg', 'What is Singapore’s top income tax rate?', 'Declined: my knowledge covers employment law only, not tax.']]
+};
+function checkDlg(st, lang) {
+  const z = lang === 'zh';
+  const fail = st === 'qafail' || st === 'qaforce', force = st === 'qaforce';
+  if (!ui.ck) ui.ck = { rights: st !== 'check', removed: st !== 'check' };
+  const deny = !ui.ck.removed, rights = ui.ck.rights;
+  const qa = CK_QA[lang].map((q, i) => {
+    let crit = q[0] === 'pos' ? [1, 1, 1] : [1], ans = q[2], why = '';
+    if (fail && i === 3) { crit = [1, 0, 1]; ans = z ? 'Yes. You must also notify your employer within 48 hours… [2]' : '需要，并且要在 48 小时内通知雇主……[2]'; why = z ? '评分理由：引用的 [2] 是加班页，里面没有 48 小时通知的内容。' : 'Why: citation [2] is the overtime page, which says nothing about 48 hours’ notice.'; }
+    if (fail && i === 5) { crit = [0]; ans = z ? '答了：最高 24%（不该答，知识里没有税务资料）' : 'Answered “24%” (it should have declined: there is no tax material in its knowledge)'; }
+    const pass = crit.every(Boolean);
+    const names = q[0] === 'pos' ? (z ? ['有回答', '引用对得上', '没有超出引用'] : ['Answered', 'Citation matches', 'Stays within the source']) : [z ? '拒答' : 'Declined'];
+    return `<div class="qr"><span class="qi ${pass ? 'ok' : 'no'}">${I(pass ? 'check' : 'x')}</span><div><p class="q"><span class="kind ${q[0] === 'neg' ? 'neg' : ''}">${q[0] === 'neg' ? (z ? '不该答' : 'Should decline') : (z ? '应该能答' : 'Should answer')}</span>${esc(q[1])}</p><p class="an">${esc(ans)}</p>${why ? `<p class="why">${why}</p>` : ''}<p class="crit">${names.map((n, j) => `<span class="${crit[j] ? 'okc' : 'noc'}">${I(crit[j] ? 'check' : 'x')} ${n}</span>`).join('')}</p></div><span class="res ${pass ? 'okc' : 'noc'}">${pass ? (z ? '通过' : 'Pass') : (z ? '未通过' : 'Fail')}</span></div>`;
+  }).join('');
+  const srow = (t, p, u, act = '') => `<div class="srow"><span class="t">${t}</span><span class="a">${act}<span class="pol ${p}">${{ attr: z ? '需要署名' : 'Attribution', unk: z ? '未核实' : 'Unverified', deny: z ? '禁止' : 'Not allowed' }[p]}</span></span><span class="u">${u}</span></div>`;
+  const denyRows = deny ? `<div class="sg deny">${I('ban')} <b>${z ? '禁止 · 1' : 'Not allowed · 1'}</b><span>${z ? 'mas.gov.sg 的使用条款禁止转载。这是你手动加的，删掉才能发布。' : 'mas.gov.sg’s terms forbid republishing. You added this one by hand; remove it to publish.'}</span></div>${srow('Employment of persons in financial institutions', 'deny', 'www.mas.gov.sg/regulation/guidelines/fit-and-proper', `<button class="bt-err sm" data-act="ckremove">${I('trash')} ${z ? '移到回收站' : 'Move to trash'}</button>`)}` : '';
+  const attrRows = `<div class="sg">${I('file')} <b>${z ? '需要署名 · 1' : 'Attribution · 1'}</b><span>${z ? 'sso.agc.gov.sg：介绍里已写明「法规原文来自 Singapore Statutes Online」' : 'sso.agc.gov.sg: the intro already credits Singapore Statutes Online'}</span><span class="pol ok">${I('check')} ${z ? '已署名' : 'Credited'}</span></div>${srow('Employment Act 1968', 'attr', 'sso.agc.gov.sg/Act/EmA1968')}`;
+  const unkRows = `<div class="sg">${I('globe')} <b>${z ? '未核实 · 10' : 'Unverified · 10'}</b><span>${z ? 'www.mom.gov.sg 不在来源策略表里' : 'www.mom.gov.sg is not in the source policy table'}</span></div>${CK_SRC.map(([t, p]) => srow(t, 'unk', 'www.mom.gov.sg/employment-practices/' + p)).join('')}<div class="srow more">${z ? '还有 3 个 www.mom.gov.sg 页面' : '3 more www.mom.gov.sg pages'}</div>`;
+  const rightsBox = `<div class="rights ${rights ? '' : 'miss'}"><label class="ck"><input type="checkbox" name="rights" ${rights ? 'checked' : ''} data-act="ckrights"><span>${z ? '我有权以付费问答的方式使用 www.mom.gov.sg 的内容' : 'I have the right to use content from www.mom.gov.sg for paid Q&A'}<small>${z ? 're0 没有核实过这个网站的使用条款。勾选会和这次确认一起记录，只对这个域名、这一次发布有效。' : 're0 hasn’t checked this site’s terms. Your tick is recorded with this confirmation, for this domain and this publish only.'}</small></span></label></div>`;
+  const qaHead = fail
+    ? `<div class="qat-s"><span class="sc no">4 / 6</span><span class="sx">${z ? '能答 3/4 · 不该答 1/2 · 标准：能答至少 3/4，不该答的全部拒答' : 'Should answer 3/4 · should decline 1/2 · bar: at least 3 of 4 answered and every decline declined'}</span><span class="badge err">${I('x')} ${z ? '未通过' : 'Failed'}</span></div>`
+    : `<div class="qat-s"><span class="sc ok">6 / 6</span><span class="sx">${z ? '能答 4/4 · 不该答 2/2 · 6 次试问 120 + 评分 100 credits' : 'Should answer 4/4 · should decline 2/2 · 6 test asks 120 + grading 100 credits'}</span><span class="badge ok">${I('check')} ${z ? '通过' : 'Passed'}</span></div>`;
+  const blocker = deny ? (z ? '先删掉禁止的来源' : 'Remove the disallowed source first') : !rights ? (z ? '先确认有权使用未核实的来源' : 'Confirm you may use the unverified source first') : '';
+  const primary = fail && !force ? `<button class="bt-err" ${blocker ? 'disabled' : ''} data-go="mine" data-state="qaforce">${z ? 'QA 没通过，仍然发布…' : 'Publish anyway…'}</button>`
+    : force ? `<button class="bt-err solid" ${blocker ? 'disabled' : ''} data-go="mine" data-state="done">${z ? '确定发布' : 'Yes, publish'}</button>`
+    : `<button class="bt1" ${blocker ? 'disabled' : ''} data-go="mine" data-state="done">${I('globe')} ${z ? '确认发布' : 'Publish'}</button>`;
+  return `<div class="dlg-shade"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="ck-h">
+    <div class="dlg-h"><span class="cc-ic">${I('globe')}</span><div><h2 id="ck-h">${z ? '发布「新加坡雇佣法问答」前检查' : 'Check before publishing “Singapore Employment Law Q&A”'}</h2><p>${z ? '公开后所有人可见、可问；查询费 0；不花 credits；可以随时取消发布。' : 'Once public, anyone can see and ask it. Creator fee 0. Free. You can unpublish any time.'}</p></div><button class="fav" aria-label="${MX[lang].close}" data-go="mine" data-state="wait">${I('x')}</button></div>
+    <div class="dlg-b">
+      <section><h3>${z ? '来源' : 'Sources'}<small>${z ? `${deny ? 12 : 11} 个 · 按来源策略分组` : `${deny ? 12 : 11} · grouped by source policy`}</small></h3><div class="srcs">${denyRows}${attrRows}${unkRows}</div>${rightsBox}</section>
+      <section><h3>${z ? '自测' : 'Self-test'}<small>${z ? 'QA-0412 · 今天 14:15' : 'QA-0412 · today 14:15'}</small></h3><div class="qat">${qaHead}${qa}</div>
+        ${fail && !force ? `<p class="sp-note">${z ? 're0 已经自己改过 2 次（补知识、改示例问题），还是没通过。你可以让它再改一次，或者自己去知识库补，然后重新自测。' : 're0 already revised it twice (more knowledge, new sample questions) and it still fails. Ask re0 to try again, or fix the knowledge yourself and re-run the test.'}</p>` : ''}</section>
+      <section><div class="chk-l"><span>${I('check')} ${z ? '11 个来源全部就绪' : 'All 11 sources ready'}</span><span>${I('check')} ${z ? '5 条示例问题' : '5 sample questions'}</span><span>${I('check')} ${z ? '有介绍' : 'Has an intro'}</span></div></section>
+      <section><label class="ck"><input type="checkbox" name="seedpost"><span>${z ? '发布后，从示例问题里挑 2 个发成公开帖子并提到它' : 'After publishing, post 2 of the sample questions publicly and mention it'}<small>${z ? '占你每天 30 条的发帖额度，每条最多 100 credits。默认不勾。' : 'Uses 2 of your 30 daily posts, up to 100 credits each. Off by default.'}</small></span></label></section>
+      ${force ? `<div class="note n-err">${I('alert')}<span>${z ? '<b>确定在 QA 没通过时发布？</b>有 2 题没过：一题引用对不上，一题答了知识外的问题。发布后提问的人可能得到没有依据的回答。这个决定会记在 Agent 活动里，也会进入后台统计。' : '<b>Publish even though QA failed?</b> 2 questions failed: one citation doesn’t match, and one answer went beyond its knowledge. People who ask it may get unsupported answers. This decision is recorded in Agent activity and in the admin stats.'}</span></div>` : ''}
+    </div>
+    <div class="dlg-f">${blocker ? `<span class="blk">${I('alert')} ${blocker}</span>` : ''}${fail && !force ? `<button class="bt2" data-act="toast" data-msg="${z ? '原型：re0 再改一次（最多再测 2 次）' : 'Prototype: re0 revises once more (up to 2 more tests)'}">${I('refresh')} ${z ? '让 re0 再改一次' : 'Ask re0 to try again'}</button>` : ''}<span class="sp"></span><button class="bt2" data-go="mine" data-state="wait">${z ? '不发布' : 'Not now'}</button>${primary}</div>
+  </div></div>`;
+}
+function rerenderDlg() {
+  const d = document.querySelector('#app .dlg-shade');
+  if (!d) return;
+  const y = d.querySelector('.dlg-b').scrollTop;
+  const tmp = document.createElement('div'); tmp.innerHTML = checkDlg(route.state, ui.lang);
+  d.replaceWith(tmp.firstElementChild);
+  document.querySelector('#app .dlg-b').scrollTop = y;
+}
+function taskPage(st, lang) {
+  const L = T[lang], M = MX[lang], en = lang === 'en';
+  const k = TASK_OF[st], R = RUNS[k];
+  const ended = ['done', 'failed', 'cancelled'].includes(k);
+  const used = Math.min(100, R.spent / R.cap * 100), rf = R.refund ? R.refund / R.cap * 100 : 0;
+  const bbar = `<div class="bbar" aria-hidden="true"><i class="${k === 'budget' ? 'ov' : ''}" style="width:${used}%"></i>${R.refund ? `<i class="rf" style="width:${rf}%"></i>` : ''}</div>`;
+  const stopBtn = cls => `<button class="bt-err ${cls}" data-act="stopask">${I('stop')} ${M.stopTask}</button>`;
+  const head = `<div class="tk-head"><div class="tk-meta"><a class="text-l" href="#mine-list">${I('back')} ${M.back}</a><span class="sp"></span><button class="ic-t" data-act="toast" data-msg="${M.tLog}">${I('activity')} ${M.log}</button></div>
+    <div class="tk-meta">${runBadge(k, M)}<span>${M.kind} · #7Q2K · ${M.startedAt}</span></div><h1>${M.runTitle}</h1>
+    <div class="tk-mbar"><span class="money">${I('coins')} <b>${fmt(R.spent)}</b> / ${fmt(R.cap)}</span>${bbar}${ended ? (R.refund ? `<span class="money" style="color:var(--ok-tx)">${M.settled(fmt(R.refund)).replace(/<\/?b>/g, '')}</span>` : '') : `<button class="ib-sm err" aria-label="${M.stopTask}" title="${M.stopTask}" data-act="stopask">${I('stop')}</button>`}</div></div>`;
+  const tl = `<div class="tl">${tkBlocks(k, lang).join('')}</div>`;
+  const compose = `<p class="tk-tip">${I(ended ? 'spark' : 'shield')} ${ended ? M.tipEnd : M.tip}</p><div class="tk-compose"><div class="box compact"><div class="box-row">${I(ended ? 'spark' : 'msg')}<label class="sr" for="tksay">${ended ? M.next : M.say}</label><textarea id="tksay" rows="1" placeholder="${esc(ended ? M.next : M.say)}"></textarea><button class="go" data-act="toast" data-msg="${ended ? M.tNext : M.tSay}">${I('send')}<span class="go-t">${ended ? M.newTask : M.send}</span></button></div></div></div>`;
+  const kvRows = [[M.kv[0], M.times(3)], [M.kv[1], M.pages(['challenge', 'cancelled'].includes(k) ? 3 : 9)], [M.kv[2], ['challenge', 'cancelled'].includes(k) ? '—' : M.srcs(11)], [M.kv[3], M.turns(Math.round(R.calls * .6))], [M.kv[4], ['waiting', 'done'].includes(k) ? M.qs(6) : '—']];
+  const budget = `<div class="bud"><p class="bud-h">${M.budgetH}</p><div class="bud-n"><b>${fmt(R.spent)}</b><span>${M.of(fmt(R.cap))}</span></div>${bbar}
+    <p class="bud-s">${R.refund ? M.settled(fmt(R.refund)) : k === 'budget' ? M.leftLow : M.left(fmt(R.cap - R.spent))}</p>
+    <dl class="kv">${kvRows.map(([a, v]) => `<dt>${a}</dt><dd>${v}</dd>`).join('')}</dl><div class="sep"></div>
+    <dl class="kv"><dt>${M.calls}</dt><dd>${R.calls} / 40</dd><dt>${M.time}</dt><dd>${M.dur(R.time)} / ${M.durCap}</dd></dl>
+    ${ended ? '' : `${stopBtn('full')}<p class="fine">${M.stopFine}</p>`}</div>`;
+  const reeBadge = k === 'done' ? `<span class="badge ok">${I('globe')} ${MX[lang].st.pub}</span>` : k === 'failed' ? `<span class="badge err">${I('trash')} ${M.deleted}</span>` : `<span class="badge mute">${I('lock')} ${MX[lang].st.priv}</span>`;
+  const ree = ['challenge', 'cancelled'].includes(k) ? '' : `<div class="rel tk-ree"><h3>${M.thisRee}</h3><a class="mini" href="${k === 'failed' ? '#' : '#ree-own'}">${cover('mine', '新加', 0, { noVideo: 1 })}<span><b>${M.runTitle}</b>${reeBadge}</span></a>
+    ${k === 'failed' ? '' : `<div class="row-wrap" style="padding:6px 6px 0"><button class="bt2 sm" data-act="toast" data-msg="${M.tOwner}">${I('book')} ${M.know}</button><button class="bt2 sm" data-act="toast" data-msg="${M.tOwner}">${I('pen')} ${M.settings}</button><button class="bt2 sm" data-act="toast" data-msg="${M.tOwner}">${I('msg')} ${M.tryIt}</button></div><p class="tk-note" style="padding:4px 6px 0">${M.canEdit}</p>`}</div>`;
+  const barBtn = k === 'waiting' ? `<button class="bt1 sm" tabindex="-1" data-act="tkconfirm">${I('hand')} ${M.barConfirm}</button>` : k === 'done' ? `<a class="bt1 sm" tabindex="-1" href="#ree-own">${M.openRee}</a>` : ended ? '' : `<button class="bt-err sm" tabindex="-1" data-act="stopask">${I('stop')}<span class="rb-t">${M.stop}</span></button>`;
+  const bar = `<div class="rp-bar" id="rpBar" aria-hidden="true"><div class="rb-in"><a class="rb-home" href="#home-in" tabindex="-1" aria-label="re0"><span class="bub">0</span></a><span class="tk-bar-ic">${I('wand')}</span>
+    <div class="rb-id"><b title="${esc(M.runTitle)}">${M.runTitle}</b><small>${runBadge(k, M)}<span class="money"><b>${fmt(R.spent)}</b> / ${fmt(R.cap)}</span></small></div><span class="sp"></span>${barBtn}</div></div>`;
+  const dlg = ['check', 'qafail', 'qaforce'].includes(st) ? checkDlg(st, lang) : ui.stop ? stopDlg(k, lang) : '';
+  const foot = `<div class="h-foot"><span>${L.privacy}</span><span>${L.terms}</span></div>`;
+  return `<section class="dA rp tk ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}">${bar}${topBar('a', L, true, langMenu(lang), 'mine')}<div class="rp-in"><div class="tk-grid"><div class="tk-main">${head}${stepsCard(k, lang)}${tl}${compose}</div><aside class="tk-side">${budget}${ree}</aside></div></div>${foot}${dlg}</section>`;
+}
+function minePage(st, lang = ui.lang) {
+  if (TASK_OF[st]) return taskPage(st, lang);
+  const L = T[lang], M = MX[lang], X = XT[lang], en = lang === 'en';
+  const empty = st === 'empty', cmd = st === 'cmd';
+  const chip = cmd ? `<span class="intent cmd">${I('wand')} ${L.iCmd}</span>` : `<span class="hint">${M.boxHint}</span>`;
+  const box = `<div class="mr-box"><div class="box compact"><div class="box-row">${I('wand')}<label class="sr" for="mrq">${M.boxLbl}</label><textarea id="mrq" rows="1" placeholder="${esc(M.ph)}">${cmd ? esc(M.cmdText) : ''}</textarea><button class="go" ${cmd ? '' : 'disabled'} data-act="toast" data-msg="${L.tSend}">${I('send')}<span class="go-t">${L.send}</span></button></div><div class="bar">${chip}</div></div>
+    ${cmd ? `<div class="sug" role="region" aria-label="${M.newT}"><div class="sug-h"><span class="sug-ic">${I('wand')}</span><div><b>${M.newT}</b><p>${M.newP}</p></div></div>
+      <div class="sug-meta">${I('coins')} ${L.cap} <span class="v">${fmt(ui.budget)}</span> credits<span class="pill">${L.est}</span><span class="pill">${I('clock')} ${M.slots}</span></div>
+      <div class="sug-acts"><button class="bt1" data-go="mine" data-state="run">${I('spark')} ${L.start}</button><button class="bt2" data-go="explore" data-state="search">${I('msg')} ${L.notQ}</button><span class="fine">${L.startFine}</span></div></div>`
+    : `<div class="chips left">${M.ex.map(e => `<button class="chip do" data-go="mine" data-state="cmd">${I('wand')} ${esc(e)}</button>`).join('')}</div>`}</div>`;
+  const head = `<div class="mr-head"><div class="t"><h1>${M.title}</h1><p>${M.lede}</p></div><button class="bt2 sm" data-act="toast" data-msg="${M.tManual}">${I('pen')} ${M.manual}</button></div>`;
+  const stats = empty ? '' : `<div class="rp-stats">${M.stats.map(([v, l]) => `<a class="rs" href="#" data-act="toast" data-msg="${M.tOwner}"><b>${v}</b><span>${l}</span></a>`).join('')}</div>`;
+  const tasks = empty ? '' : `<div class="sec-h"><h2>${M.tasks}</h2><small>${M.tasksN}</small><span class="sp"></span><button class="text-l" data-act="toast" data-msg="${M.tAll}">${M.allTasks} ${I('arrow')}</button></div>
+    <div class="tk-cards">${taskCard('wait', lang)}${taskCard('run', lang)}</div>
+    <div class="tk-recent">${M.recentRows.map(([k, n, s, go]) => `<div class="tk-row">${runBadge(k, M)}<b>${esc(n)}</b><small>${s}</small><span class="sp"></span><button class="text-l" data-go="mine" data-state="${go}">${M.see} ${I('arrow')}</button></div>`).join('')}</div>`;
+  const tools = `<div class="mr-bar" id="mrBar"><div class="ptabs left" role="tablist"><button role="tab" aria-selected="true" class="on">${M.created} <span class="cnt">${empty ? 0 : 6}</span></button><button role="tab" aria-selected="false" data-act="toast" data-msg="${M.tOwner}">${M.favs} <span class="cnt">12</span></button></div>
+    ${empty ? '' : `<div class="mr-tools"><div class="cats" role="group" aria-label="${en ? 'Visibility' : '公开状态'}">${M.filters.map((f, i) => `<button class="catc ${i === 0 ? 'on' : ''}" aria-pressed="${i === 0}" data-act="toast" data-msg="${M.tOwner}">${f}</button>`).join('')}</div>
+      <label class="srch">${I('search')}<span class="sr">${M.searchLbl}</span><input type="search" name="mrsearch" placeholder="${M.search}"></label>
+      <label class="sortp">${M.sort}<select name="mrsort" aria-label="${M.sort}">${M.sorts.map(s => `<option>${s}</option>`).join('')}</select>${I('chevd')}</label>
+      <div class="vt" role="group" aria-label="${en ? 'View' : '显示方式'}"><button class="on" aria-pressed="true" aria-label="${M.vCards}" title="${M.vCards}">${I('grid')}</button><button aria-pressed="false" aria-label="${M.vList}" title="${M.vList}" data-act="toast" data-msg="${M.tList}">${I('list')}</button></div>
+      <button class="bt2 sm" data-act="toast" data-msg="${M.tSelect}">${I('check')} ${M.select}</button></div>`}</div>`;
+  const list = empty
+    ? `<div class="empty"><div class="em-art" aria-hidden="true"><span class="qb">${esc(M.ph)}</span><span class="ab-dash"><i></i><i></i><i></i></span></div><h2>${M.emptyT}</h2><p>${M.emptyP}</p><p class="muted2">${M.emptyOr} <button class="text-l" data-act="toast" data-msg="${M.tManual}">${M.manual} ${I('arrow')}</button></p></div>`
+    : `<div class="rgrid">${MREES.map((r, i) => ownerCard(r, i, lang)).join('')}${draftCard(lang)}</div>`;
+  const foot = `<div class="h-foot"><span>${L.privacy}</span><span>${L.terms}</span></div>`;
+  return `<section class="dA ex mr ${en ? 'en' : ''}" lang="${en ? 'en' : 'zh-CN'}"><div class="ex-bg" aria-hidden="true"></div>${topBar('a', L, true, langMenu(lang), 'mine')}<div class="ex-in">${head}${box}${stats}${tasks}${tools}${list}</div>${foot}</section>`;
+}
+
 /* -------- index -------- */
 function indexPage() {
   const tbd = [
@@ -2000,6 +2672,20 @@ function indexPage() {
     ['圆桌总结', '保留，放在第一轮回答下面，只有发帖人能生成（30 credits，所有人可见）。'],
     ['Ree 页吸顶', '封面和名字滚出顶部后，一条 Ree 条（头像、名字、标记、价格、「问它」）和回答 / 评论 / 介绍标签一起吸顶；站点顶栏不吸顶，吸顶时由 Ree 条代替（左边的 re0 标志可回首页），所以不会叠两层。「问它」滚回提问框并聚焦，不另开提问框。所有者条太高，不吸顶；作者在 Ree 条上看到「你的 Ree」和「设置」。'],
     ['知识概况公开到什么程度', '只公开来源数量、类型占比、总字数和最近更新时间，不公开来源标题和网址（和现在「知识正文不公开」一致）。'],
+    ['「我的 Ree」的输入框', '§3.1 写的是「预填」；推荐做成占位文字，不真的把「帮我建一个关于……的 Ree」填进框里，用户直接打主题就行（「新加坡 PR 申请」）。这一页的框默认按「让 re0 建」理解，像问题的输入照样识别成提问。下面放 3 个示例指令。'],
+    ['任务放在 Ree 列表上面', '有等你确认或进行中的任务时，任务区在 Ree 列表上面（等你确认的排第一、加黄色描边）；都没有时只剩「最近完成」两行。完整的任务列表在 /agent（「全部任务」），这一页不画。'],
+    ['正在建的 Ree 也在列表里', '任务建出来的 Ree 一开始就是私有的，会出现在「我创建的」里，封面上标「re0 正在建 · n / 9」或「等你确认发布」，主按钮换成「查看任务」或「去确认发布」，点封面进任务页而不是设置页。'],
+    ['卡片上的主人信息', '保留线上的状态、知识就绪数、成功回答、知识库和统计入口；新增「本周回答」「有帮助」「本月收入」三格（没设查询费的写「无查询费」）。设置和更多操作（公开页、视频介绍、用访客身份看、暂停发布 / 设为公开、删除）收进两个图标按钮，一行放得下。'],
+    ['列表视图和批量操作', '照现状保留卡片 / 列表切换和「选择」后批量设为公开或私有（一次最多 100 个，已下架的跳过）。原型只画卡片视图。'],
+    ['没做完的手动设置', '照现状一个账号只有一份向导草稿（user.ree_draft），在列表最后显示成虚线卡「没做完的手动设置」：第几步、名字、保存时间，可以继续或丢弃。'],
+    ['空状态', '还没有 Ree 时不放统计和任务区，只留输入框、3 个示例指令和「还没有 Ree」：说明 re0 会做什么、第一次平台请客（最多 5,000 credits），旁边给「手动设置」。'],
+    ['「我的 Ree」吸顶', '吸顶的是 Ree 列表的工具条（我创建的 / 我的收藏、状态筛选、搜索、排序），滚到列表时贴顶；输入框和任务区不吸顶。手机上贴顶时只留状态筛选和搜索（约 96px），标签、排序、视图切换回到原位再显示。'],
+    ['任务页吸顶', '和 Ree 页同一套：标题卡滚出顶部后，顶部滑下任务条（标题、状态、已花 / 上限，右边是「停止」；等你确认时是「去确认」，完成后是「打开 Ree」）。'],
+    ['工具调用默认折叠', '时间线里每次工具调用只显示一行：工具名、摘要、花了多少；点开看入参和结果。出问题的（被拦截、预算不够、找不到 Ree）用黄色或红色浅底，一眼能看到。'],
+    ['手机上的预算', '右栏挪到时间线后面；标题卡下面多一条「已花 / 上限 + 进度条 + 停止」，不用滚到底就能停。'],
+    ['QA 没通过仍然发布', '两步：先点「QA 没通过，仍然发布…」，出现红色说明，再点「确定发布」。这个决定记进 Agent 活动和后台统计（§7.2）。是否要限制（比如只允许已认证用户这样做）以后看数据再定。'],
+    ['「有权使用」怎么记', '按域名勾，只对这一次发布有效，记在这次确认里；下次再发布同一个域名的内容还要勾。勾选不会把域名加进来源策略表。'],
+    ['停止之后', '停止前先弹确认框，写清已花、退回多少、保留什么（建好的 Ree 留着，私有）；处理中的来源会处理完，按实际成本结算。'],
     ['语言怎么选', '默认跟随浏览器语言（zh 开头的用中文，其余用英文）；用户手动选过就记住：登录用户存到账号，未登录存 cookie，和线上现在的做法一样。原型里用浏览器本地存储模拟。']
   ];
   const intents = [
@@ -2014,9 +2700,9 @@ function indexPage() {
     ['Explore', '已按反馈修改：卡片加封面（图片 / 视频海报 / 回退），往下滚时输入框收成单行，和标签、分类一起吸顶。', 'done'],
     ['Ree 页', '已定稿。大封面 + 头像，介绍、标签、四个数字；「问它」的提问框；回答 / 评论 / 介绍三个标签；右栏价格卡和相关 Ree；作者看到所有者条；滚动时 Ree 条和标签吸顶。', 'done'],
     ['提问和回答', '已定稿。公开帖子和私密提问合成一种对话页：问题、各 Ree 的回答和 [n] 引用（点开看出处），追问框在底部；长回答用文章排版。', 'done'],
-    ['登录 / 注册', '本轮，等确认。首页的气泡墙做背景，中间一张登录卡：Google / GitHub、刚才输入的内容、邀请、注册礼、条款。', 'now'],
-    ['我的 Ree + 任务', '下一页。顶部是同一个合并输入框（预填「帮我建一个关于……的 Ree」），下面是我的 Ree 和进行中的任务。', 'next'],
-    ['知识库', '来源列表加「交给 re0」输入框，页面变成查看和撤销的地方。'],
+    ['登录 / 注册', '已定稿。首页的气泡墙做背景，中间一张登录卡：Google / GitHub、刚才输入的内容、邀请、注册礼、条款。', 'done'],
+    ['我的 Ree + 任务', '本轮，等确认。顶部是合并输入框（占位「帮我建一个关于……的 Ree」），下面是任务和我的 Ree；任务页、发布确认卡和发布前检查一起重画。', 'now'],
+    ['知识库', '下一页。来源列表加「交给 re0」输入框，页面变成查看和撤销的地方。', 'next'],
     ['Ree 设置 / 统计', '设置、定价、统计合成一页，统计用一句话解释趋势。'],
     ['通知 / 活动 / Agent 活动', '合成一个时间线：要你处理的、re0 做了什么、别人问了你的 Ree。'],
     ['账户、余额、API key', '收进一个设置页，余额和充值放最上面。'],
@@ -2052,10 +2738,16 @@ function indexPage() {
         <div class="changed"><b>10 个状态</b><span>他人的公开帖子、自己的公开帖子、私密多 Ree 对话、回答生成中、付费 Ree 等你同意、没有 Ree 能回答、长回答（文章排版）、追问之后、未登录查看，以及出处面板。中英文各一套。</span></div>
         <a class="open" data-go="qa" data-state="cite" href="#qa-cite">看出处面板 ${I('arrow')}</a></div></div>
     <div class="hero-thumb" style="margin-top:16px"><div class="thumb big" role="link" tabindex="0" data-go="login" data-state="ask" aria-label="打开登录 / 注册"><div class="scale" aria-hidden="true" inert>${loginPage('ask', 'zh')}</div></div>
-      <div class="dir-b"><h3>登录 / 注册 · 第 5 页 <span class="new">本轮，等确认</span></h3>
+      <div class="dir-b"><h3>登录 / 注册 · 第 5 页 <span class="new">已定稿</span></h3>
         <p>照线上现状：只有 Google 和 GitHub 两种登录，第一次登录就是注册；登录后回到原来的页面（returnTo）；邀请链接（?invite=）带过整个授权流程，只有新账号才计入；卡上显示注册礼和条款；5 种错误提示。新增：未登录时在首页、Explore、对话页输入的问题或指令，登录卡上会显示「登录后继续：……」，登录后回去接着做。</p>
         <div class="changed"><b>9 个状态</b><span>默认、从提问过来、从「让 re0 做」过来、带邀请码、带兑换码、登录中、取消授权、账号已停用、首次登录后的欢迎卡（线上没有，建议新增）。中英文各一套。</span></div>
         <a class="open" data-go="login" data-state="agent" href="#login-agent">看「让 re0 做」过来的样子 ${I('arrow')}</a></div></div>
+    <div class="hero-thumb" style="margin-top:16px"><div class="thumb big" role="link" tabindex="0" data-go="mine" data-state="list" aria-label="打开我的 Ree + 任务"><div class="scale" aria-hidden="true" inert>${minePage('list', 'zh')}</div></div>
+      <div class="dir-b"><h3>我的 Ree + 任务 · 第 6 页 <span class="new">本轮，等确认</span></h3>
+        <p>agent 优先第一期（对话建 Ree）落地的地方。顶部是合并输入框（占位写「帮我建一个关于……的 Ree」），旁边留「手动设置」进向导；下面是任务（等你确认、进行中、最近完成，每个都有进度和已花预算），再下面是我的 Ree。覆盖线上「我的 Ree」：我创建的 / 我的收藏、公开状态筛选、搜索、排序、卡片 / 列表、批量公开或私有、知识就绪、统计和知识库入口、视频介绍、发布；新增本周回答、本月收入和没做完的手动设置。</p>
+        <p>任务页（/agent/[id]）按 §3.3 画：9 步清单、时间线（你的话、re0 的话、可展开的工具调用、确认卡）、右栏预算和停止、底部补充说明的输入框；发布确认卡和发布前检查按 §5.3、§6.3、§7 画：来源按禁止 / 需署名 / 未核实分组，未核实要勾「有权使用」，6 道自测题和评分，QA 没通过要再确认一次。</p>
+        <div class="changed"><b>13 个状态</b><span>有多个 Ree 且有任务在跑、还没有 Ree、输入了指令；任务的 7 种状态：运行中、等你确认、完成、失败（Ree 被删除）、预算用完、被网站拦截、已停止；发布前检查、QA 没通过、QA 没通过 · 仍然发布。中英文各一套。任务页里点「停止」能看到停止确认框。</span></div>
+        <a class="open" data-go="mine" data-state="check" href="#mine-check">看发布前检查 ${I('arrow')}</a></div></div>
     <h2>暂定，等用户确认</h2><div class="rows q">${tbd.map(([k, v]) => `<div class="rw rw2"><b>${k} <span class="tbd">暂定</span></b><span>${v}</span></div>`).join('')}</div>
     <h2>合并后的输入框</h2>
     <div class="intents">${intents.map(([k, q, v, s]) => `<div class="c"><b>${k}</b><q>${q}</q><span>${v}</span><a data-go="home" data-state="${s}" href="#home-${s}">看这个状态 ${I('arrow')}</a></div>`).join('')}</div>
@@ -2212,6 +2904,21 @@ function specPage() {
       <div class="oa-list" style="max-width:380px"><button class="oa" tabindex="-1">${GOOGLE_G}使用 Google 继续</button><button class="oa" tabindex="-1">${GITHUB_I}使用 GitHub 继续</button><button class="oa busy" tabindex="-1"><span class="spin" aria-hidden="true"></span>正在前往 Google…</button></div>
       <div class="lg-cont"><div class="lc-h">${I('msg')} <b>登录后继续</b><span class="lc-x">不用了</span></div><span class="qb">新加坡试用期最长多久？</span><small>回到刚才的页面，问题已经填好；要你再点一次才会发出。</small></div></div>
       <p class="sp-note">白色大卡，圆角 28、--sh-lg，最宽 440，放在首页气泡墙上（中间加一层更浓的白色遮罩）。登录按钮是白底全圆角、2px 浅描边、高 48，图标用各家官方的标志；点了以后这一颗变成珊瑚浅底加转圈「正在前往 Google…」，其余变灰不能点。「登录后继续」是浅底虚线框，里面放刚才输入的内容（问题 / 指令用提问气泡，兑换码用等宽字），说明登录后会发生什么，并能「不用了」。邀请用信息提示条加邀请人头像；错误用提示条：取消授权（警告色）、账号停用（错误色），其余几种（登录没有完成、没有已验证的邮箱、服务暂时不可用）用同一个位置。注册礼用成功色徽章。首次登录后的欢迎卡同样大小，一次性。</p></div>
+    <h2>我的 Ree 和任务组件</h2>
+    <div class="sp-card"><h3>所有者 Ree 卡</h3><div class="rgrid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">${ownerCard(MREES[2], 0, 'zh')}${ownerCard(MREES[1], 1, 'zh')}${draftCard('zh')}</div>
+      <p class="sp-note">在 Explore 的 Ree 卡上加主人才看的信息，尺寸、圆角、封面规则不变。封面左上角放状态徽章：公开 · 已发布（成功色）、公开 · 未发布（信息色）、仅自己（灰）、已下架（错误色），和线上的四种状态一一对应；有任务时再加一枚：「re0 正在建 · n / 9」（信息色加转圈）或「等你确认发布」（警告色）。名字下面一行是分类和每次价格。然后是知识就绪一行：全部就绪（成功色）、处理中（信息色加转圈）、有失败（错误色，点开去知识库）。三格数字：本周回答、有帮助、本月收入（没设查询费的写「无查询费」），点数字去统计。底部快捷操作最多两个文字按钮加两个图标按钮（设置、更多），一行放得下，不折行；有任务时第一个按钮换成「去确认发布」或「查看任务」。手动设置没做完时，列表最后多一张虚线卡「没做完的手动设置」：第几步、名字、保存时间，继续或丢弃（一个账号只有一份草稿）。</p></div>
+    <div class="sp-card"><h3>任务卡和步骤清单</h3><div class="grid2">${taskCard('wait', 'zh')}${stepsCard('running', 'zh')}</div>
+      <p class="sp-note">任务卡：圆角 24、--sh-md；等你确认的加 2px 警告色描边。顶部是状态徽章、任务编号和开始时间；标题；9 格进度条（完成 = 鲜珊瑚，进行中 = 半格，等你 = 警告色，失败 = 错误色，停止 = 灰）；当前在做哪一步；底部写已花 / 上限和一个主按钮。运行中的卡多一个停止图标按钮，点了先确认。「最近完成」是一行一个的小条。步骤清单固定 9 步，每步一行：图标（完成打勾、进行中转圈、等你是手、失败是叉、停止是方块、没开始是虚线圈），名字加一句说明，右边是这一步花的 credits；当前这一步加浅底。</p></div>
+    <div class="sp-card"><h3>任务时间线</h3><div class="tl" style="max-width:640px">${tkBlocks('running', 'zh').slice(0, 3).join('')}<div class="rdiv">14:13 · 11 个来源全部就绪</div></div>
+      <p class="sp-note">你说的话是右边的深色提问气泡；re0 说的话是左边白色回答气泡，头像用 re0 的珊瑚色小气泡。每次工具调用是一条可展开的小卡：图标、工具名（等宽字）、一句摘要、花了多少，默认折叠，展开看入参和结果；出了问题的用警告或错误浅底。阶段变化（来源就绪、你停止了任务）用居中分隔线。网页里的文字只是资料，re0 不照着做，所以页面底部的输入框上方写明「re0 只听你在这里说的话」。</p></div>
+    <div class="sp-card"><h3>确认卡</h3><div style="max-width:640px">${confirmCard('publish', 'pending', 'zh')}</div>
+      <p class="sp-note">需要人确认的操作（发布、设为公开、查询费、追加预算、遇到拦截时怎么办）都用这张卡，任务页的时间线和外部 agent 用的 /confirm/[id] 是同一个组件。珊瑚浅描边（追加预算、需要你决定用警告色）；顶部小标题写「需要你确认 · 做什么」，大标题写具体对象；下面固定四行：会发生什么、查询费或花费、能否撤销，再加一块灰底的检查摘要。说明文字由 re0 按操作参数生成，不让 agent 自己写，卡上注明这一点。确认后底部换成成功色的「你在 14:31 确认了」。</p></div>
+    <div class="sp-card"><h3>预算卡和停止</h3><div class="grid2"><div class="bud"><p class="bud-h">预算</p><div class="bud-n"><b>1,920</b><span>/ 5,000 credits</span></div><div class="bbar"><i style="width:38.4%"></i></div><p class="bud-s">剩余 3,080</p><dl class="kv"><dt>搜索</dt><dd>3 次</dd><dt>读网页</dt><dd>9 页</dd><dt>工具调用</dt><dd>23 / 40</dd></dl><button class="bt-err full" tabindex="-1">${I('stop')} 停止任务</button><p class="fine">已做的保留，没用完的预算退回</p></div>
+      <div class="bud"><p class="bud-h">结束后</p><div class="bud-n"><b>3,140</b><span>/ 5,000 credits</span></div><div class="bbar"><i style="width:62.8%"></i><i class="rf" style="width:37.2%"></i></div><p class="bud-s">已结算 · 退回 <b>1,860</b></p></div></div>
+      <p class="sp-note">任务页右栏第一张卡：已花 / 上限（大号数字）、进度条（已花 = 珊瑚，预算用完 = 警告色，退回 = 绿色斜纹）、剩余或退回多少，再列出花在哪（搜索、读网页、知识处理、模型、自测）和工具调用、用时两个硬上限。停止按钮用错误色浅底，下面一句「已做的保留，没用完的预算退回」；点了先弹对话框写清已花、退回、保留什么。手机上右栏挪到时间线后面，标题卡里多一条「已花 / 上限 + 进度条 + 停止」。</p></div>
+    <div class="sp-card"><h3>发布前检查</h3><div class="grid2"><div class="srcs"><div class="sg deny">${I('ban')} <b>禁止 · 1</b><span>条款禁止转载，删掉才能发布</span></div><div class="sg">${I('file')} <b>需要署名 · 1</b><span class="pol ok">${I('check')} 已署名</span></div><div class="sg">${I('globe')} <b>未核实 · 10</b><span>不在来源策略表里</span></div><div class="srow"><span class="t">Annual leave</span><span class="a"><span class="pol unk">未核实</span></span><span class="u">www.mom.gov.sg/employment-practices/leave/annual-leave</span></div></div>
+      <div class="qat"><div class="qat-s"><span class="sc no">4 / 6</span><span class="sx">能答 3/4 · 不该答 1/2</span><span class="badge err">${I('x')} 未通过</span></div><div class="qr"><span class="qi no">${I('x')}</span><div><p class="q"><span class="kind neg">不该答</span>新加坡个人所得税的最高税率是多少？</p><p class="an">答了：最高 24%</p></div><span class="res noc">未通过</span></div></div></div>
+      <p class="sp-note">从确认卡的「检查并发布」打开对话框（桌面居中 720 宽，手机从底部弹出）。来源按来源策略分三组：禁止（错误色，整组浅红，必须先移到回收站）、需要署名（检查介绍里有没有写来源）、未核实（列出域名，必须勾「我有权以付费问答的方式使用」，勾选和这次确认一起记录）。自测是 6 道题：4 道应该能答、2 道不该答，每题写问题、回答、三条评分（有回答、引用对得上、没有超出引用；不该答的只看拒答），通过用成功色、没过用错误色并写评分理由。还没满足条件时主按钮不能点，左边写差什么。QA 没通过时主按钮变成错误色浅底的「QA 没通过，仍然发布…」，点了出现红色提示，再点实心的「确定发布」才发布，这个决定记进 Agent 活动和后台统计。</p></div>
     <h2>文案语气</h2><div class="sp-card"><div class="rows">
       <div class="rw rw2"><b>口语、短句</b><span>「随便问，每句回答都带出处」「第一次平台请客」「不，我是在提问」。用「你」，不用「您」。</span></div>
       <div class="rw rw2"><b>花钱的事说清楚</b><span>凡是要花 credits 的按钮旁边都写上限和「没用完的退回」或「不点不花钱」。</span></div>
@@ -2221,10 +2928,11 @@ function specPage() {
 
 /* -------- chrome & render -------- */
 function chrome() {
-  const tabs = PAGES.map(([k, l]) => `<button class="rc-tab" data-go="${k}" ${k === route.page && ['home', 'explore', 'ree', 'qa', 'login'].includes(k) ? `data-state="${route.state}"` : ''} ${route.page === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
+  const withStates = ['home', 'explore', 'ree', 'qa', 'login', 'mine'];
+  const tabs = PAGES.map(([k, l]) => `<button class="rc-tab" data-go="${k}" ${k === route.page && withStates.includes(k) ? `data-state="${route.state}"` : ''} ${route.page === k ? 'aria-current="page"' : ''}>${l}</button>`).join('');
   const pg = route.page;
-  const states = !['home', 'explore', 'ree', 'qa', 'login'].includes(pg) ? '' : `<div class="rc-row"><span class="rc-label">状态</span>${statesFor(pg).map(([k, l]) => `<button class="rc-state" data-go="${pg}" data-state="${k}" aria-pressed="${k === route.state}">${l}</button>`).join('')}<span class="rc-sep"></span><span class="rc-label">语言</span>${LANGS.map(([k, n]) => `<button class="rc-state" data-act="lang" data-lang="${k}" aria-pressed="${ui.lang === k}">${n}</button>`).join('')}<span class="rc-note">${pg === 'explore' ? 'Explore · 已按反馈修改' : pg === 'ree' ? 'Ree 页 · 已定稿' : pg === 'qa' ? '提问和回答 · 已定稿' : pg === 'login' ? '登录 / 注册 · 第 5 页 · 等确认' : '首页 · 已定稿'}</span></div>`;
-  document.getElementById('rc').innerHTML = `<div class="rc-row"><span class="rc-brand">re0 全新改版 <small>方向 A · 登录 / 注册等确认</small></span>${tabs}</div>${states}`;
+  const states = !withStates.includes(pg) ? '' : `<div class="rc-row"><span class="rc-label">状态</span>${statesFor(pg).map(([k, l]) => `<button class="rc-state" data-go="${pg}" data-state="${k}" aria-pressed="${k === route.state}">${l}</button>`).join('')}<span class="rc-sep"></span><span class="rc-label">语言</span>${LANGS.map(([k, n]) => `<button class="rc-state" data-act="lang" data-lang="${k}" aria-pressed="${ui.lang === k}">${n}</button>`).join('')}<span class="rc-note">${pg === 'explore' ? 'Explore · 已按反馈修改' : pg === 'ree' ? 'Ree 页 · 已定稿' : pg === 'qa' ? '提问和回答 · 已定稿' : pg === 'login' ? '登录 / 注册 · 已定稿' : pg === 'mine' ? '我的 Ree + 任务 · 第 6 页 · 等确认' : '首页 · 已定稿'}</span></div>`;
+  document.getElementById('rc').innerHTML = `<div class="rc-row"><span class="rc-brand">re0 全新改版 <small>方向 A · 我的 Ree + 任务等确认</small></span>${tabs}</div>${states}`;
 }
 function fitThumbs() { document.querySelectorAll('.thumb').forEach(t => t.style.setProperty('--s', t.clientWidth / 1440)); }
 const reduced = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -2240,7 +2948,7 @@ function render(fresh) {
   parse();
   chrome();
   document.querySelector('.cite-panel')?.remove(); document.querySelector('.cite-shade')?.remove();
-  document.getElementById('app').innerHTML = route.page === 'index' ? indexPage() : route.page === 'spec' ? specPage() : route.page === 'explore' ? explore(route.state) : route.page === 'ree' ? reePage(route.state) : route.page === 'qa' ? qaPage(route.state) : route.page === 'login' ? loginPage(route.state) : home('a', route.state);
+  document.getElementById('app').innerHTML = route.page === 'index' ? indexPage() : route.page === 'spec' ? specPage() : route.page === 'explore' ? explore(route.state) : route.page === 'ree' ? reePage(route.state) : route.page === 'qa' ? qaPage(route.state) : route.page === 'login' ? loginPage(route.state) : route.page === 'mine' ? minePage(route.state) : home('a', route.state);
   document.documentElement.style.setProperty('--rc-h', document.getElementById('rc').offsetHeight + 'px');
   fitThumbs();
   if (route.page === 'qa' && route.state === 'cite') { const c = document.querySelector('#app .qa-b .cite'); if (c) openCite(c); }
@@ -2252,17 +2960,19 @@ function toast(msg) {
   const t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg; document.body.appendChild(t);
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), 2600);
 }
-window.addEventListener('hashchange', () => { ui.editBudget = false; window.scrollTo(0, 0); render(true); });
+window.addEventListener('hashchange', () => { ui.editBudget = false; ui.stop = false; ui.ck = null; window.scrollTo(0, 0); render(true); });
 window.addEventListener('resize', fitThumbs);
 let stickTick = false;
 window.addEventListener('scroll', () => {
   const el = document.getElementById('exStick');
   if (el) { const y = window.scrollY; if (y > 160) el.classList.add('stuck'); else if (y < 60) el.classList.remove('stuck'); }
+  const mb = document.getElementById('mrBar');
+  if (mb) { const top = document.getElementById('rc').offsetHeight, t = mb.getBoundingClientRect().top; mb.classList.toggle('stuck', t <= top + 1 && window.scrollY > 0); }
   syncReeBar();
 }, { passive: true });
 /* The Ree page's compact bar shows once the cover and the name row have scrolled under the top; it hides again a little before the name comes back. */
 function syncReeBar() {
-  const rp = document.querySelector('#app > .rp'), anchor = rp && rp.querySelector('.rp-id, .qa-q');
+  const rp = document.querySelector('#app > .rp'), anchor = rp && rp.querySelector('.rp-id, .qa-q, .tk-head');
   if (!rp || !anchor) return;
   const top = document.getElementById('rc').offsetHeight, b = anchor.getBoundingClientRect().bottom;
   const bar = document.getElementById('rpBar');
@@ -2271,7 +2981,9 @@ function syncReeBar() {
 }
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.thumb')) e.target.click(); });
 function closeLang() { document.querySelectorAll('.lang.open').forEach(w => { w.classList.remove('open'); w.querySelector('.lang-btn')?.setAttribute('aria-expanded', 'false'); }); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.querySelector('.cite-panel')) { closeCite(); return; } if (e.key === 'Escape' && document.querySelector('.lang.open')) { const b = document.querySelector('.lang.open .lang-btn'); closeLang(); b?.focus(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.querySelector('.cite-panel')) { closeCite(); return; }
+  if (e.key === 'Escape' && ui.stop) { ui.stop = false; document.querySelector('#app .dlg-shade')?.remove(); document.querySelector('#app [data-act="stopask"]')?.focus(); return; }
+  if (e.key === 'Escape' && route.page === 'mine' && ['check', 'qafail', 'qaforce'].includes(route.state)) { go('mine', 'wait'); return; } if (e.key === 'Escape' && document.querySelector('.lang.open')) { const b = document.querySelector('.lang.open .lang-btn'); closeLang(); b?.focus(); } });
 document.addEventListener('click', e => {
   if (!e.target.closest('.lang')) closeLang();
   if (!e.target.closest('.qa-menu')) document.querySelectorAll('.qa-menu.open').forEach(m => m.classList.remove('open'));
@@ -2288,6 +3000,11 @@ document.addEventListener('click', e => {
   if (a === 'qamenu') { const m = t.closest('.qa-menu'); const open = !m.classList.contains('open'); m.classList.toggle('open', open); t.setAttribute('aria-expanded', String(open)); return; }
   if (a === 'qafocus' || a === 'qaat' || a === 'qaask') { const ta = document.getElementById('qafu'); if (ta) { if (a === 'qaat' && !ta.value.endsWith('@')) ta.value += (ta.value && !ta.value.endsWith(' ') ? ' ' : '') + '@'; if (a === 'qaask') ta.value = '@' + t.dataset.n + ' '; ta.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'end' }); setTimeout(() => ta.focus({ preventScroll: true }), reduced() ? 0 : 400); } else { const login = document.querySelector('#app .qa-compose.out .bt1'); login?.scrollIntoView({ block: 'center' }); login?.focus(); } return; }
   if (a === 'askfocus') { const box = document.querySelector('#app .rp-ask'); if (box) { box.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'center' }); setTimeout(() => (box.querySelector('textarea') || box.querySelector('.go'))?.focus({ preventScroll: true }), reduced() ? 0 : 450); } }
+  if (a === 'stopask') { ui.stop = true; const sec = document.querySelector('#app > .tk'); if (sec && !sec.querySelector('.dlg-shade')) { sec.insertAdjacentHTML('beforeend', stopDlg(TASK_OF[route.state], ui.lang)); sec.querySelector('.dlg .bt2')?.focus(); } return; }
+  if (a === 'stopclose' || (a === 'stopclose-bg' && e.target === t)) { ui.stop = false; document.querySelector('#app .dlg-shade')?.remove(); return; }
+  if (a === 'ckrights') { ui.ck.rights = t.checked; rerenderDlg(); document.querySelector('#app [data-act="ckrights"]')?.focus(); return; }
+  if (a === 'ckremove') { ui.ck.removed = true; rerenderDlg(); toast(ui.lang === 'en' ? 'Moved to trash. You can restore it within 30 days.' : '已移到回收站，30 天内可以恢复。'); return; }
+  if (a === 'tkconfirm') { const c = document.querySelector('#app .cc:not(.ok):not(.mute)'); if (c) { c.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'center' }); setTimeout(() => c.querySelector('.cc-f button')?.focus({ preventScroll: true }), reduced() ? 0 : 450); } return; }
   if (a === 'lang') { closeLang(); switchLang(t.dataset.lang); }
   if (a === 'langmenu') { const w = t.closest('.lang'), open = !w.classList.contains('open'); closeLang(); if (open) { w.classList.add('open'); t.setAttribute('aria-expanded', 'true'); w.querySelector('[aria-checked="true"]')?.focus(); } }
   if (a === 'budget') { const el = document.getElementById('budget-in'); if (el) { const v = parseInt(el.value.replace(/\D/g, ''), 10); if (v) ui.budget = Math.min(20000, Math.max(1000, v)); } ui.editBudget = !ui.editBudget; render(); }
